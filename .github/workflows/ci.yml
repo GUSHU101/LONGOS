@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   application:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
       DB_CONNECTION: sqlite
@@ -57,7 +57,7 @@ jobs:
           npm run check
 
   deployment-contract:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
       DOMAIN: admin.example.test
