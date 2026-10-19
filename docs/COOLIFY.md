@@ -155,6 +155,10 @@ Compose 自动启动 Postfix/OpenDKIM 和内部 HMAC API，不开放公共 SMTP 
 - 检查 mysql 是否 healthy，并确认共享 `longos-storage` 卷可写。`mail-relay` 异常会影响发信，但不应阻断 `app` 启动。
 - 不要删除 `longos-storage` 中的 `storage/installed` 来强制重装；恢复失败部署或数据库备份。
 
+### 构建阶段报 `ADMIN_EMAIL is missing a value`
+
+Coolify 会分别生成 build-time 和 runtime 环境文件。当管理员邮箱在界面中已保存、但 build-time 副本短暂为空时，新版 Compose 会用 `admin@DOMAIN` 完成与业务无关的不可变镜像构建，显式 `ADMIN_EMAIL` 仍在运行阶段优先。这个兼容保护从包含修复的 Git 提交起生效；旧提交必须先在 Coolify 中选择最新 `main` 并重新部署。
+
 ### Cloudflare 526
 
 - 使用 Full (strict)，确认 DNS 指向当前 Coolify 服务器。

@@ -15,6 +15,12 @@ x-app-environment: &app-environment
   DOMAIN: ${DOMAIN:?Set the LONGOS control domain}
   APP_URL: "https://${DOMAIN:?Set the LONGOS control domain}"
   FRONTEND_URL: "https://${DOMAIN:?Set the LONGOS control domain}"
+  # ADMIN_EMAIL is a first-run runtime input, not an image-build input.
+  # Coolify renders Compose once with a build-only env file before it creates
+  # the runtime env file. Deriving a syntactically valid address keeps that
+  # immutable build independent from a UI scope-sync race; an explicitly
+  # configured ADMIN_EMAIL still always wins.
+  ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@${DOMAIN}}
   APP_FORCE_HTTPS: "true"
   APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Shanghai}
   LOG_CHANNEL: daily
@@ -47,7 +53,7 @@ x-app-environment: &app-environment
   SAAS_HTTP_MANAGEMENT: "true"
   SAAS_WEB_SERVER: caddy
   SAAS_TLS_DRIVER: caddy
-  SAAS_TLS_EMAIL: ${SAAS_TLS_EMAIL:-${ADMIN_EMAIL:?Set the administrator email}}
+  SAAS_TLS_EMAIL: ${SAAS_TLS_EMAIL:-${ADMIN_EMAIL:-admin@${DOMAIN}}}
   SAAS_TLS_EXTERNAL_CONTROL_DOMAIN: "false"
   SAAS_DNS_TARGETS: ${SAAS_DNS_TARGETS:-}
   LONGOS_CLOUDFLARE_MODE: ${LONGOS_CLOUDFLARE_MODE:-optional}
@@ -95,7 +101,6 @@ services:
     environment:
       <<: *app-environment
       ADMIN_NAME: ${ADMIN_NAME:-admin}
-      ADMIN_EMAIL: ${ADMIN_EMAIL:?Set the administrator email}
       ADMIN_PASSWORD: ${SERVICE_PASSWORD_64_ADMIN}
     depends_on:
       mysql:
@@ -117,7 +122,7 @@ services:
       # Empty `caddy` creates global options in caddy-docker-proxy. The ask
       # endpoint makes certificate issuance fail closed against LONGOS data.
       caddy: ""
-      caddy.email: ${SAAS_TLS_EMAIL:-${ADMIN_EMAIL}}
+      caddy.email: ${SAAS_TLS_EMAIL:-${ADMIN_EMAIL:-admin@${DOMAIN}}}
       caddy.on_demand_tls: ""
       caddy.on_demand_tls.ask: "http://longos-${COOLIFY_RESOURCE_UUID:-app}/_longos/tls/authorize"
       caddy.servers.0rtt: "off"

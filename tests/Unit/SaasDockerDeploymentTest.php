@@ -55,6 +55,9 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringContainsString('LONGOS_UPDATER_ENABLED: "false"', $compose);
         self::assertStringContainsString('APP_KEY_OVERRIDE:-base64:', $compose);
         self::assertStringContainsString('DOMAIN: ${DOMAIN:?Set the LONGOS control domain}', $compose);
+        self::assertStringContainsString('ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@${DOMAIN}}', $compose);
+        self::assertStringContainsString('SAAS_TLS_EMAIL: ${SAAS_TLS_EMAIL:-${ADMIN_EMAIL:-admin@${DOMAIN}}}', $compose);
+        self::assertStringNotContainsString('${ADMIN_EMAIL:?', $compose);
         self::assertStringContainsString("env('SAAS_CONTROL_DOMAINS', '')", $this->read('config/saas.php'));
         self::assertStringContainsString('SAAS_TLS_EXTERNAL_CONTROL_DOMAIN: "false"', $compose);
         self::assertStringContainsString('MAIL_RELAY_SHARED_SECRET: ${SERVICE_PASSWORD_64_MAILRELAY}', $compose);
@@ -71,6 +74,9 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringContainsString('FROM composer:2.8.12 AS php-dependencies', $dockerfile);
         self::assertStringContainsString('FROM node:22.22.0-bookworm-slim AS browser-assets', $dockerfile);
         self::assertStringContainsString('FROM php:8.2.34-fpm-bookworm AS runtime', $dockerfile);
+        self::assertStringContainsString('ENV NODE_OPTIONS=--max-old-space-size=1536', $dockerfile);
+        self::assertStringContainsString('ARG PHP_BUILD_JOBS=2', $dockerfile);
+        self::assertStringContainsString('docker-php-ext-install -j"${PHP_BUILD_JOBS}"', $dockerfile);
         self::assertStringContainsString('composer install', $dockerfile);
         self::assertStringContainsString('--no-dev', $dockerfile);
         self::assertStringContainsString('--no-autoloader', $dockerfile);

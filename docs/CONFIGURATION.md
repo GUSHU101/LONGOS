@@ -97,6 +97,8 @@ MAIL_FROM_NAME=LONGOS
 
 Coolify 会自动生成并持久保存所有 `SERVICE_*` 值，包括 APP_KEY、数据库密码、管理员初始密码、边缘鉴权密钥和邮件内部 HMAC 密钥。不要手工改写这些值，也不要把它们提交到 GitHub。首次登录密码在 Coolify 的 `SERVICE_PASSWORD_64_ADMIN` 变量中；登录后可在后台修改，后续重新部署不会重置密码。
 
+`ADMIN_EMAIL` 仍应显式填写为可接收邮件的地址。为避免 Coolify 在“构建变量”与“运行变量”同步瞬间用空值解析 Compose，部署文件会在构建解析阶段安全回退为 `admin@DOMAIN`；容器首次安装仍会校验最终邮箱，显式值始终优先。
+
 ### 可选：Cloudflare DNS 自动化
 
 如果希望 LONGOS 自动发布自己的邮件 A、DKIM 以及缺失的 SPF/DMARC，可在 Coolify 增加并标记为 Secret：

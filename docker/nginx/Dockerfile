@@ -31,6 +31,11 @@ FROM node:22.22.0-bookworm-slim AS browser-assets
 
 WORKDIR /build
 
+# Keep the immutable frontend build inside a predictable memory envelope on
+# smaller single-node Coolify servers where the control plane, BuildKit and
+# MySQL share RAM. This is a ceiling, not a reservation.
+ENV NODE_OPTIONS=--max-old-space-size=1536
+
 COPY package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci --ignore-scripts
 
@@ -38,6 +43,8 @@ COPY . .
 RUN npm run production
 
 FROM php:8.2.34-fpm-bookworm AS runtime
+
+ARG PHP_BUILD_JOBS=2
 
 ENV APP_ENV=production \
     APP_DEBUG=false
@@ -59,7 +66,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip \
     util-linux \
     && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
-    && docker-php-ext-install -j"$(nproc)" \
+    && docker-php-ext-install -j"${PHP_BUILD_JOBS}" \
         pdo_mysql \
         pdo_pgsql \
         curl \
