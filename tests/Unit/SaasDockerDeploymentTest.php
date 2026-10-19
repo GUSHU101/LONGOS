@@ -92,8 +92,18 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringContainsString('COPY --from=php-dependencies /build/vendor ./vendor', $dockerfile);
         self::assertSame(1, substr_count($dockerfile, '/usr/bin/composer'));
         self::assertStringNotContainsString('--ignore-platform-req', $dockerfile);
-        foreach (['pcntl', 'posix', 'dom', 'simplexml', 'xml', 'xmlreader', 'xmlwriter'] as $extension) {
-            self::assertMatchesRegularExpression('/^\\s*' . preg_quote($extension, '/') . '\\s*\\\\?$/m', $dockerfile);
+        self::assertSame(
+            1,
+            preg_match('/docker-php-ext-install.*?(?=\\s+&& php -r)/s', $dockerfile, $compiledExtensionBlock)
+        );
+        foreach (['pdo_mysql', 'pdo_pgsql', 'exif', 'pcntl', 'bcmath', 'gd', 'intl', 'zip', 'opcache'] as $extension) {
+            self::assertMatchesRegularExpression('/^\\s*' . preg_quote($extension, '/') . '\\s*\\\\?$/m', $compiledExtensionBlock[0]);
+        }
+        self::assertStringContainsString('Missing required PHP extensions:', $dockerfile);
+        self::assertStringContainsString('extension_loaded($extension)', $dockerfile);
+        foreach (['curl', 'mbstring', 'posix', 'dom', 'simplexml', 'xml', 'xmlreader', 'xmlwriter'] as $extension) {
+            self::assertStringContainsString('"' . $extension . '"', $dockerfile);
+            self::assertDoesNotMatchRegularExpression('/^\\s*' . preg_quote($extension, '/') . '\\s*\\\\?$/m', $compiledExtensionBlock[0]);
         }
         self::assertStringContainsString("\n.env\n", $dockerignore);
         self::assertStringContainsString("\nnode_modules\n", $dockerignore);
