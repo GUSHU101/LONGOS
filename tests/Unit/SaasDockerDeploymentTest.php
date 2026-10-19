@@ -72,9 +72,12 @@ class SaasDockerDeploymentTest extends TestCase
         $dockerignore = $this->read('.dockerignore');
         $package      = json_decode($this->read('package.json'), true, 512, JSON_THROW_ON_ERROR);
 
-        self::assertStringContainsString('FROM composer:2.8.12 AS php-dependencies', $dockerfile);
+        self::assertStringContainsString('FROM composer:2.8.12 AS composer-binary', $dockerfile);
         self::assertStringContainsString('FROM node:22.22.0-bookworm-slim AS browser-assets', $dockerfile);
-        self::assertStringContainsString('FROM php:8.2.34-fpm-bookworm AS runtime', $dockerfile);
+        self::assertStringContainsString('FROM php:8.2.34-fpm-bookworm AS runtime-base', $dockerfile);
+        self::assertStringContainsString('FROM runtime-base AS php-dependencies', $dockerfile);
+        self::assertStringContainsString('FROM runtime-base AS runtime', $dockerfile);
+        self::assertStringContainsString('COPY --from=composer-binary /usr/bin/composer /usr/local/bin/composer', $dockerfile);
         self::assertStringContainsString('ENV NODE_OPTIONS=--max-old-space-size=1536', $dockerfile);
         self::assertStringContainsString('ARG PHP_BUILD_JOBS=2', $dockerfile);
         self::assertStringContainsString('docker-php-ext-install -j"${PHP_BUILD_JOBS}"', $dockerfile);
@@ -87,7 +90,8 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringContainsString('npm ci --ignore-scripts', $dockerfile);
         self::assertStringContainsString('npm run production', $dockerfile);
         self::assertStringContainsString('COPY --from=php-dependencies /build/vendor ./vendor', $dockerfile);
-        self::assertStringNotContainsString('/usr/bin/composer', $dockerfile);
+        self::assertSame(1, substr_count($dockerfile, '/usr/bin/composer'));
+        self::assertStringNotContainsString('--ignore-platform-req', $dockerfile);
         foreach (['pcntl', 'posix', 'dom', 'simplexml', 'xml', 'xmlreader', 'xmlwriter'] as $extension) {
             self::assertMatchesRegularExpression('/^\\s*' . preg_quote($extension, '/') . '\\s*\\\\?$/m', $dockerfile);
         }

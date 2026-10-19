@@ -57,7 +57,11 @@ class InstallerSecurityHardeningTest extends TestCase
         self::assertStringContainsString('composer dump-autoload', $dockerfile);
         self::assertStringContainsString('npm ci --ignore-scripts', $dockerfile);
         self::assertStringNotContainsString('npm install ', $dockerfile);
-        self::assertStringNotContainsString('/usr/bin/composer', $dockerfile);
+        self::assertStringContainsString(
+            'COPY --from=composer-binary /usr/bin/composer /usr/local/bin/composer',
+            $dockerfile
+        );
+        self::assertSame(1, substr_count($dockerfile, '/usr/bin/composer'));
     }
 
     public function test_deployment_never_mutates_the_host_or_bypasses_coolify_caddy(): void
