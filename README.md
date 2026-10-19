@@ -2,6 +2,8 @@
 
 ![LONGOS](public/image/longos-logo.svg)
 
+[![LONGOS CI](https://github.com/GUSHU101/LONGOS/actions/workflows/ci.yml/badge.svg)](https://github.com/GUSHU101/LONGOS/actions/workflows/ci.yml)
+
 LONGOS is a multi-tenant commerce SaaS platform for brands, cross-border teams, agencies, and multi-store operators. It provisions isolated storefronts from one control plane, assigns platform domains automatically, and lets tenants activate their own domains after DNS ownership verification.
 
 > One platform. Every storefront.

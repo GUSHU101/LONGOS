@@ -2,6 +2,8 @@
 
 ![LONGOS](public/image/longos-logo.svg)
 
+[![LONGOS CI](https://github.com/GUSHU101/LONGOS/actions/workflows/ci.yml/badge.svg)](https://github.com/GUSHU101/LONGOS/actions/workflows/ci.yml)
+
 LONGOS 是面向品牌方、跨境团队与多站点运营商的多租户电商 SaaS 平台。平台在一个控制面中批量创建和管理相互隔离的商城，自动分配平台域名，并允许租户通过 DNS 所有权验证绑定自己的域名。
 
 > 一个平台，运营每一个独立站。

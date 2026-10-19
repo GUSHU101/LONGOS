@@ -1,0 +1,91 @@
+name: LONGOS CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: longos-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  application:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      DB_CONNECTION: sqlite
+      DB_DATABASE: ${{ github.workspace }}/database/database.sqlite
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: shivammathur/setup-php@d52fc211a0436f8839a587b3b5b8efddab4744ea # v2
+        with:
+          php-version: '8.2'
+          extensions: curl, fileinfo, gd, iconv, mbstring, mysql, openssl, pdo, simplexml, zip
+          coverage: none
+          tools: composer:v2
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Validate and install locked PHP dependencies
+        run: |
+          composer validate --strict --no-check-publish
+          composer audit --locked --no-dev
+          composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Prepare isolated test environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate --force
+          touch database/database.sqlite
+
+      - name: Run regression suite, build, and dependency audit
+        run: |
+          npm ci --ignore-scripts
+          npm run check
+
+  deployment-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      DOMAIN: admin.example.test
+      SAAS_BASE_DOMAIN: shops.example.test
+      ADMIN_EMAIL: ops@example.test
+      COOLIFY_RESOURCE_UUID: ci
+      SERVICE_REALBASE64_32_APPKEY: YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=
+      SERVICE_PASSWORD_64_DBROOT: ci-root-password
+      SERVICE_USER_DBUSER: longos
+      SERVICE_PASSWORD_64_DBPASSWORD: ci-database-password
+      SERVICE_PASSWORD_64_ADMIN: ci-administrator-password
+      SERVICE_PASSWORD_64_PROXYTOKEN: ci-proxy-token-ci-proxy-token-ci-proxy-token
+      SERVICE_HEX_32_EDGEID: 0123456789abcdef0123456789abcdef
+      SERVICE_PASSWORD_64_MAILRELAY: ci-mail-relay-secret-ci-mail-relay-secret
+      SERVICE_PASSWORD_64_CLOUDMAIL: ci-cloud-mail-secret-ci-cloud-mail-secret
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Validate Coolify Raw Compose
+        run: docker compose config --quiet
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+
+      - name: Test the bundled mail relay
+        working-directory: docker/mail-relay
+        run: |
+          npm ci
+          npm audit --omit=dev
+          npm test
