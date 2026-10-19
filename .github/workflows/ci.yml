@@ -127,3 +127,79 @@ jobs:
           npm ci
           npm audit --omit=dev
           npm test
+
+  container-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      DOMAIN: admin.example.test
+      SAAS_BASE_DOMAIN: shops.example.test
+      ADMIN_EMAIL: ops@example.test
+      COOLIFY_RESOURCE_UUID: ci-smoke
+      SERVICE_REALBASE64_32_APPKEY: YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=
+      SERVICE_PASSWORD_64_DBROOT: ci-root-password
+      SERVICE_USER_DBUSER: longos
+      SERVICE_PASSWORD_64_DBPASSWORD: ci-database-password
+      SERVICE_PASSWORD_64_ADMIN: ci-administrator-password
+      SERVICE_PASSWORD_64_PROXYTOKEN: ci-proxy-token-ci-proxy-token-ci-proxy-token
+      SERVICE_HEX_32_EDGEID: 0123456789abcdef0123456789abcdef
+      SERVICE_PASSWORD_64_MAILRELAY: ci-mail-relay-secret-ci-mail-relay-secret
+      SERVICE_PASSWORD_64_CLOUDMAIL: ci-cloud-mail-secret-ci-cloud-mail-secret
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build, install, and restart the production stack
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          cleanup() {
+            status=$?
+            if [ "$status" -ne 0 ]; then
+              docker compose ps --all || true
+              docker compose logs --no-color --tail=300 || true
+            fi
+            docker compose down --volumes --remove-orphans || true
+            docker network rm coolify >/dev/null 2>&1 || true
+            exit "$status"
+          }
+          trap cleanup EXIT
+
+          docker network inspect coolify >/dev/null 2>&1 || docker network create coolify
+          docker compose build --pull app mail-relay
+          docker compose up -d mysql mail-relay app
+
+          wait_for_app() {
+            for attempt in $(seq 1 180); do
+              container_id="$(docker compose ps -q app)"
+              if [ -z "$container_id" ] || [ "$(docker inspect --format '{{.State.Running}}' "$container_id")" != "true" ]; then
+                echo "LONGOS app container exited during startup." >&2
+                return 1
+              fi
+              if docker compose exec -T app curl -fsS -o /dev/null \
+                -H "Host: ${DOMAIN}" http://127.0.0.1/api/health; then
+                return 0
+              fi
+              sleep 5
+            done
+            echo "LONGOS app did not become ready within 15 minutes." >&2
+            return 1
+          }
+
+          wait_for_app
+          docker compose exec -T app test -f storage/installed
+          docker compose exec -T app test -f plugins/Paypal/Bootstrap.php
+          docker compose exec -T app test -f plugins/ShopifyProductTransfer/Bootstrap.php
+          docker compose exec -T app test ! -e plugins/BeikeShopTestSandbox
+          docker compose exec -T mail-relay node -e \
+            "fetch('http://127.0.0.1:3000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+
+          docker compose up -d worker scheduler
+          test "$(docker inspect --format '{{.State.Running}}' "$(docker compose ps -q worker)")" = "true"
+          test "$(docker inspect --format '{{.State.Running}}' "$(docker compose ps -q scheduler)")" = "true"
+
+          # A second web start exercises the persisted-volume sync and the
+          # automatic saas:upgrade path used by every later Coolify deploy.
+          docker compose restart app
+          wait_for_app
+          docker compose exec -T app test -f storage/installed
