@@ -1,0 +1,28 @@
+<?php
+
+return [
+    'title'               => 'Header Menu Editor', 'subtitle' => 'Manage the primary navigation, badges and dropdown menus shared by desktop and mobile.',
+    'preview'             => 'Live structure preview', 'preview_help' => 'This preview shows hierarchy and order. The storefront applies the active theme after publishing.',
+    'items'               => 'Primary menu items', 'item_name' => 'Menu label', 'destination' => 'Destination', 'new_window' => 'Open in a new window',
+    'badge'               => 'Promotional badge', 'badge_name' => 'Badge text', 'badge_background' => 'Badge background', 'badge_text' => 'Badge text color',
+    'dropdown'            => 'Enable dropdown menu', 'full_width' => 'Full-width desktop mega menu', 'groups' => 'Dropdown groups',
+    'group_name'          => 'Group heading', 'group_type' => 'Group type', 'group_links' => 'Link list', 'group_image' => 'Image card', 'choose_image' => 'Choose from media', 'remove_image' => 'Remove image', 'child_name' => 'Child link label',
+    'add_item'            => 'Add primary item', 'add_group' => 'Add group', 'add_child' => 'Add child link', 'remove' => 'Remove', 'move_up' => 'Move up', 'move_down' => 'Move down',
+    'empty'               => 'No menu items yet. Add the first navigation item.', 'save_draft' => 'Save draft', 'publish' => 'Save and publish', 'open_storefront' => 'Open storefront preview',
+    'saving'              => 'Saving securely…', 'unpublished' => 'There are unpublished design changes', 'published_state' => 'The menu matches the live storefront',
+    'value_hint'          => 'Custom links may use a storefront path or a complete HTTPS URL.',
+    'link_custom'         => 'Custom URL', 'link_category' => 'Category', 'link_product' => 'Product', 'link_page' => 'Content page', 'link_brand' => 'Brand', 'link_static' => 'System page',
+    'link_type'           => 'Link type', 'custom_url' => 'Custom link', 'custom_url_placeholder' => 'Enter /collections/new or https://example.com', 'custom_url_hint' => 'Storefront paths and external HTTPS links are supported.',
+    'system_page'         => 'System page', 'choose_system_page' => 'Choose a system page', 'search' => 'Search', 'search_placeholder' => 'Search :type by name',
+    'search_help'         => 'Search by name or choose from the latest content.', 'searching' => 'Searching…', 'results_count' => ':count results available.', 'no_results' => 'No matching results. Try another search.',
+    'resource_error'      => 'Content could not be loaded. Try again.', 'resource_missing' => 'The previously selected content is unavailable', 'resource_missing_help' => 'Choose a replacement or clear this link.',
+    'change_selection'    => 'Change', 'clear_selection' => 'Clear', 'choose_again' => 'Choose again', 'active' => 'Active', 'inactive' => 'Inactive',
+    'route_home'          => 'Home', 'route_products' => 'All products', 'route_brands' => 'Brands', 'route_account' => 'Customer account', 'route_orders' => 'Customer orders', 'route_cart' => 'Cart',
+    'invalid_payload'     => 'The menu payload is invalid.', 'refresh_required' => 'The draft version expired. Refresh and try again.',
+    'save_failed'         => 'The header menu could not be saved. Refresh and try again.', 'conflict' => 'Another administrator changed the design draft. Your changes did not overwrite it.',
+    'session_expired'     => 'Your login session expired. Keep this page open, sign in again, and retry the save.',
+    'save_timeout'        => 'The save timed out. Your changes remain on this page; check the connection and retry.',
+    'invalid_response'    => 'The server returned an incomplete save result. Your changes remain available; retry the save.',
+    'newer_edits_pending' => 'The submitted version was saved, but changes made during that save are still pending. Save again.',
+    'draft_saved'         => 'Header menu draft saved.', 'published' => 'Header menu published to the storefront.',
+];

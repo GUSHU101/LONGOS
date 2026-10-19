@@ -1,0 +1,382 @@
+@extends('admin::layouts.master')
+
+@section('title', __('admin/common.settings.mail'))
+
+@section('content-area-class', 'w-max-1200')
+
+@section('page-title-back', admin_route('settings.index'))
+
+@section('head-form-btns', true)
+
+@section('content')
+  @php
+    $senderService = app(\App\Mail\MailSenderProfileService::class);
+    $senderProfiles = $senderService->profiles();
+    $senderCategories = \App\Mail\MailSenderProfileService::categories();
+    $availableSenderDomains = $senderService->availableDomains();
+    $senderSuggestions = collect(array_keys($senderCategories))->mapWithKeys(
+        static fn ($category) => [$category => $senderService->suggestedAddresses($category, $availableSenderDomains)]
+    )->all();
+    $defaultSenderCategory = \App\Mail\MailSenderProfileService::DEFAULT;
+    $advancedSenderCategories = array_filter(
+        $senderCategories,
+        static fn ($label, $category) => $category !== $defaultSenderCategory,
+        ARRAY_FILTER_USE_BOTH
+    );
+    $oldSenderProfiles = old('mail_senders', []);
+    $oldSenderProfiles = is_array($oldSenderProfiles) ? $oldSenderProfiles : [];
+    $advancedSendersCustomized = collect(array_keys($advancedSenderCategories))->contains(function ($category) use ($senderProfiles, $oldSenderProfiles) {
+        $profile = array_key_exists($category, $oldSenderProfiles)
+            ? (array) $oldSenderProfiles[$category]
+            : $senderProfiles[$category];
+
+        return collect(['address', 'name', 'reply_to'])->contains(
+            static fn ($field) => trim((string) ($profile[$field] ?? '')) !== ''
+        );
+    });
+    $savedMailEngine = old('mail_engine', system_setting('base.mail_engine', ''));
+    if ($savedMailEngine === '' && config('mail.relay.enabled')) {
+        $savedMailEngine = 'self_hosted';
+    }
+    $mailPageData = [
+        'mailEngine' => $savedMailEngine,
+        'testRecipient' => old('mail_test_recipient', $senderProfiles[\App\Mail\MailSenderProfileService::DEFAULT]['address']),
+        'testUrl' => admin_route('settings.mail.test'),
+        'diagnosticsUrl' => admin_route('settings.mail.diagnostics'),
+        'labels' => [
+            'testRecipient' => __('admin/setting.mail_test_recipient'),
+            'testButton' => __('admin/setting.mail_test_button'),
+            'testSending' => __('admin/setting.mail_test_sending'),
+            'testSent' => __('admin/setting.mail_test_sent'),
+            'testFailed' => __('admin/setting.mail_test_failed'),
+            'diagnosticsButton' => __('admin/setting.mail_diagnostics_button'),
+            'diagnosticsRunning' => __('admin/setting.mail_diagnostics_running'),
+            'diagnosticsFailed' => __('admin/setting.mail_diagnostics_failed'),
+        ],
+    ];
+  @endphp
+  @if (session('success'))
+    <x-admin-alert type="success" msg="{{ session('success') }}" class="mt-4"/>
+  @endif
+  @if (session('error'))
+    <div class="alert alert-danger">
+      {{ session('error') }}
+    </div>
+  @endif
+  <div class="card h-min-600">
+    <div class="card-body">
+      @hook('admin.setting.mail.content.before')
+      <form action="{{ admin_route('settings.store') }}" class="needs-validation" novalidate method="POST" id="form-app">
+        @csrf
+        <input type="hidden" name="return_url" value="{{ url()->full() }}"/>
+
+        @hook('admin.setting.mail.before')
+
+        <div class="border rounded p-3 mb-4" aria-live="polite">
+          <div class="d-flex flex-column flex-sm-row align-items-sm-center justify-content-between gap-2">
+            <div>
+              <div class="fw-bold">{{ __('admin/setting.mail_diagnostics_title') }}</div>
+              <div class="text-secondary font-size-12">{{ __('admin/setting.mail_diagnostics_help') }}</div>
+            </div>
+            <button type="button" class="btn btn-outline-primary" :disabled="diagnosing" @click="runDiagnostics">
+              <i class="bi bi-heart-pulse"></i>
+              @{{ diagnosing ? source.diagnosticsRunning : source.diagnosticsButton }}
+            </button>
+          </div>
+          <div v-if="diagnosticChecks.length" class="mt-3 d-grid gap-2">
+            <div v-for="check in diagnosticChecks" :key="check.key" class="alert py-2 px-3 mb-0"
+                 :class="check.status === 'ok' ? 'alert-success' : (check.status === 'warning' ? 'alert-warning' : 'alert-danger')">
+              <i class="bi me-1" :class="check.status === 'ok' ? 'bi-check-circle' : (check.status === 'warning' ? 'bi-exclamation-triangle' : 'bi-x-circle')"></i>
+              @{{ check.message }}
+            </div>
+          </div>
+          <div v-if="diagnosticError" class="alert alert-danger py-2 px-3 mb-0 mt-3">@{{ diagnosticError }}</div>
+        </div>
+
+        <x-admin-form-switch name="use_queue" title="{{ __('admin/setting.use_queue') }}" value="{{ old('use_queue', system_setting('base.use_queue', '0')) }}">
+          <div class="help-text font-size-12 lh-base">{{__('admin/setting.use_queue_text')}}https://docs.beikeshop.com/config/queue.html</div>
+        </x-admin-form-switch>
+        <x-admin::form.row :title="__('admin/setting.mail_sender_profiles')">
+          <div class="help-text font-size-12 lh-base mb-2">{{ __('admin/setting.mail_sender_profiles_info') }}</div>
+          @if (config('mail.relay.platform_sender_domain'))
+            <div class="alert alert-light border py-2 mb-0 font-size-12">
+              {{ __('admin/setting.mail_sender_platform_rule', ['domain' => config('mail.relay.platform_sender_domain'), 'suffix' => current_site() && !data_get(current_site()?->meta, 'control_site', false) ? '+' . current_site()?->code : '-']) }}
+            </div>
+          @endif
+          <div class="alert {{ $availableSenderDomains ? 'alert-success' : 'alert-warning' }} py-2 mt-2 mb-0 font-size-12">
+            <div class="fw-bold mb-1">{{ __('admin/setting.mail_sender_available_domains') }}</div>
+            @forelse($availableSenderDomains as $senderDomain)
+              <span class="badge text-bg-light border me-1">{{ $senderDomain }}</span>
+            @empty
+              <span>{{ __('admin/setting.mail_sender_no_available_domains') }}</span>
+            @endforelse
+            <div class="mt-1">{{ __('admin/setting.mail_sender_domain_switch_help') }}</div>
+          </div>
+        </x-admin::form.row>
+
+        @foreach([$defaultSenderCategory => $senderCategories[$defaultSenderCategory]] as $senderCategory => $senderLabelKey)
+          @php
+            $senderProfile = $senderProfiles[$senderCategory];
+            $senderTitle = __('admin/setting.' . $senderLabelKey);
+            $senderCategorySuggestions = $senderSuggestions[$senderCategory] ?? [];
+            $senderSuggestion = $senderCategorySuggestions[0] ?? '';
+            $senderSuggestionListId = 'mail-sender-suggestions-' . $senderCategory;
+          @endphp
+          <div class="border rounded mb-3 pt-2">
+            <div class="px-3 pb-1 fw-bold">{{ $senderTitle }}</div>
+            <x-admin-form-input name="mail_senders[{{ $senderCategory }}][address]" type="email" title="{{ __('admin/setting.mail_sender_address') }}" value="{{ old('mail_senders.' . $senderCategory . '.address', $senderProfile['address']) }}" placeholder="{{ $senderSuggestion }}" list="{{ $senderSuggestionListId }}" autocomplete="email">
+              <div class="help-text font-size-12 lh-base">
+                {{ $senderCategory === \App\Mail\MailSenderProfileService::DEFAULT ? __('admin/setting.mail_sender_default_required') : __('admin/setting.mail_sender_inherit') }}
+                @if($senderSuggestion) {{ __('admin/setting.mail_sender_suggestion', ['address' => $senderSuggestion]) }} @endif
+              </div>
+            </x-admin-form-input>
+            <datalist id="{{ $senderSuggestionListId }}">
+              @foreach($senderCategorySuggestions as $suggestedAddress)
+                <option value="{{ $suggestedAddress }}"></option>
+              @endforeach
+            </datalist>
+            <x-admin-form-input name="mail_senders[{{ $senderCategory }}][name]" title="{{ __('admin/setting.mail_sender_name') }}" value="{{ old('mail_senders.' . $senderCategory . '.name', $senderProfile['name']) }}">
+            </x-admin-form-input>
+            <x-admin-form-input name="mail_senders[{{ $senderCategory }}][reply_to]" type="email" title="{{ __('admin/setting.mail_sender_reply_to') }}" value="{{ old('mail_senders.' . $senderCategory . '.reply_to', $senderProfile['reply_to']) }}">
+              <div class="help-text font-size-12 lh-base">{{ __('admin/setting.mail_sender_reply_to_info') }}</div>
+            </x-admin-form-input>
+          </div>
+        @endforeach
+
+        <details class="border rounded mb-4" @if($advancedSendersCustomized) open @endif>
+          <summary class="px-3 py-3 fw-bold" style="cursor: pointer">
+            {{ __('admin/setting.mail_sender_advanced') }}
+            <span class="d-block fw-normal text-secondary font-size-12 mt-1">{{ __('admin/setting.mail_sender_advanced_info') }}</span>
+          </summary>
+          <div class="px-3 pb-1">
+            @foreach($advancedSenderCategories as $senderCategory => $senderLabelKey)
+              @php
+                $senderProfile = $senderProfiles[$senderCategory];
+                $senderTitle = __('admin/setting.' . $senderLabelKey);
+                $senderCategorySuggestions = $senderSuggestions[$senderCategory] ?? [];
+                $senderSuggestion = $senderCategorySuggestions[0] ?? '';
+                $senderSuggestionListId = 'mail-sender-suggestions-' . $senderCategory;
+              @endphp
+              <div class="border rounded mb-3 pt-2">
+                <div class="px-3 pb-1 fw-bold">{{ $senderTitle }}</div>
+                <x-admin-form-input name="mail_senders[{{ $senderCategory }}][address]" type="email" title="{{ __('admin/setting.mail_sender_address') }}" value="{{ old('mail_senders.' . $senderCategory . '.address', $senderProfile['address']) }}" placeholder="{{ $senderSuggestion }}" list="{{ $senderSuggestionListId }}" autocomplete="email">
+                  <div class="help-text font-size-12 lh-base">
+                    {{ __('admin/setting.mail_sender_inherit') }}
+                    @if($senderSuggestion) {{ __('admin/setting.mail_sender_suggestion', ['address' => $senderSuggestion]) }} @endif
+                  </div>
+                </x-admin-form-input>
+                <datalist id="{{ $senderSuggestionListId }}">
+                  @foreach($senderCategorySuggestions as $suggestedAddress)
+                    <option value="{{ $suggestedAddress }}"></option>
+                  @endforeach
+                </datalist>
+                <x-admin-form-input name="mail_senders[{{ $senderCategory }}][name]" title="{{ __('admin/setting.mail_sender_name') }}" value="{{ old('mail_senders.' . $senderCategory . '.name', $senderProfile['name']) }}">
+                </x-admin-form-input>
+                <x-admin-form-input name="mail_senders[{{ $senderCategory }}][reply_to]" type="email" title="{{ __('admin/setting.mail_sender_reply_to') }}" value="{{ old('mail_senders.' . $senderCategory . '.reply_to', $senderProfile['reply_to']) }}">
+                  <div class="help-text font-size-12 lh-base">{{ __('admin/setting.mail_sender_reply_to_info') }}</div>
+                </x-admin-form-input>
+              </div>
+            @endforeach
+          </div>
+        </details>
+        <x-admin::form.row title="{{ __('admin/setting.mail_engine') }}">
+          <select name="mail_engine" v-model="mail_engine" class="form-select wp-200 me-3">
+            <option :value="item.code" v-for="item, index in source.mailEngines" :key="index">@{{ item.name }}</option>
+          </select>
+          <div v-if="mail_engine == 'log'" class="help-text font-size-12 lh-base">{{ __('admin/setting.mail_log') }}</div>
+          <div v-if="mail_engine == 'self_hosted'" class="help-text font-size-12 lh-base">
+            {{ __('admin/setting.self_hosted_mail_info', ['hostname' => config('mail.relay.hostname') ?: '-', 'domains' => config('mail.relay.domains') ?: '-']) }}
+          </div>
+        </x-admin::form.row>
+
+        <div v-if="mail_engine == 'smtp'">
+          <x-admin-form-input name="smtp[host]" required title="{{ __('admin/setting.smtp_host') }}" value="{{ old('smtp.host', system_setting('base.smtp.host', '')) }}">
+          </x-admin-form-input>
+          <x-admin-form-input name="smtp[username]" title="{{ __('admin/setting.smtp_username') }}" value="{{ old('smtp.username', system_setting('base.smtp.username', '')) }}">
+          </x-admin-form-input>
+          <x-admin-form-input name="smtp[password]" type="password" title="{{ __('admin/setting.smtp_password') }}" value="" autocomplete="new-password">
+            <div class="help-text font-size-12 lh-base">{{ __('admin/setting.mail_secret_keep') }}</div>
+          </x-admin-form-input>
+          <x-admin::form.row title="{{ __('admin/setting.smtp_encryption') }}">
+            @php
+              $smtpEncryption = strtolower(old('smtp.encryption', system_setting('base.smtp.encryption', 'tls')));
+            @endphp
+            <select name="smtp[encryption]" class="form-select wp-200">
+              <option value="tls" @selected($smtpEncryption === 'tls')>TLS (recommended, port 587)</option>
+              <option value="ssl" @selected($smtpEncryption === 'ssl')>SSL (port 465)</option>
+              <option value="none" @selected(in_array($smtpEncryption, ['', 'none', 'null'], true))>{{ __('admin/setting.smtp_encryption_none') }}</option>
+            </select>
+          </x-admin::form.row>
+          <x-admin-form-input name="smtp[port]" type="number" required title="{{ __('admin/setting.smtp_port') }}" value="{{ old('smtp.port', system_setting('base.smtp.port', '587')) }}">
+          </x-admin-form-input>
+          <x-admin-form-input name="smtp[timeout]" type="number" required title="{{ __('admin/setting.smtp_timeout') }}" value="{{ old('smtp.timeout', system_setting('base.smtp.timeout', '10')) }}">
+            <div class="help-text font-size-12 lh-base">{{ __('admin/setting.smtp_timeout_info') }}</div>
+          </x-admin-form-input>
+        </div>
+
+        <div v-if="mail_engine == 'sendmail'">
+          <x-admin-form-input name="sendmail[path]" :placeholder="222" required title="{{ __('admin/setting.sendmail_path') }}" value="{{ old('sendmail.path', system_setting('base.sendmail.path', '')) }}">
+            <div class="help-text font-size-12 lh-base">系统 sendmail 执行路径, 一般为 /usr/sbin/sendmail -bs</div>
+          </x-admin-form-input>
+        </div>
+
+        <div v-if="mail_engine == 'mailgun'">
+          <x-admin-form-input name="mailgun[domain]" required title="{{ __('admin/setting.mailgun_domain') }}" value="{{ old('mailgun.domain', system_setting('base.mailgun.domain', '')) }}">
+          </x-admin-form-input>
+          <x-admin-form-input name="mailgun[secret]" type="password" title="{{ __('admin/setting.mailgun_secret') }}" value="" autocomplete="new-password">
+            <div class="help-text font-size-12 lh-base">{{ __('admin/setting.mail_secret_keep') }}</div>
+          </x-admin-form-input>
+          <x-admin-form-input name="mailgun[endpoint]" required title="{{ __('admin/setting.mailgun_endpoint') }}" value="{{ old('mailgun.endpoint', system_setting('base.mailgun.endpoint', 'api.mailgun.net')) }}">
+          </x-admin-form-input>
+        </div>
+
+        <div v-if="mail_engine == 'sendcloud'">
+          <x-admin-form-input name="sendcloud[api_user]" required title="{{ __('admin/setting.sendcloud_api_user') }}" value="{{ old('sendcloud.api_user', system_setting('base.sendcloud.api_user', '')) }}">
+            <div class="help-text font-size-12 lh-base">{{ __('admin/setting.sendcloud_api_user_info') }}</div>
+          </x-admin-form-input>
+          <x-admin-form-input name="sendcloud[api_key]" type="password" title="{{ __('admin/setting.sendcloud_api_key') }}" value="" autocomplete="new-password">
+            <div class="help-text font-size-12 lh-base">{{ __('admin/setting.mail_secret_keep') }}</div>
+          </x-admin-form-input>
+          <x-admin-form-input name="sendcloud[endpoint]" title="{{ __('admin/setting.sendcloud_endpoint') }}" value="{{ old('sendcloud.endpoint', system_setting('base.sendcloud.endpoint', 'https://api.sendcloud.net')) }}">
+            <div class="help-text font-size-12 lh-base">{{ __('admin/setting.sendcloud_endpoint_info') }}</div>
+          </x-admin-form-input>
+        </div>
+
+        <div v-if="mail_engine == 'sendgrid'">
+          <x-admin-form-input name="sendgrid[api_key]" type="password" title="{{ __('admin/setting.sendgrid_api_key') }}" value="" autocomplete="new-password">
+            <div class="help-text font-size-12 lh-base">{{ __('admin/setting.mail_secret_keep') }}</div>
+          </x-admin-form-input>
+          <x-admin-form-input name="sendgrid[endpoint]" title="{{ __('admin/setting.sendgrid_endpoint') }}" value="{{ old('sendgrid.endpoint', system_setting('base.sendgrid.endpoint', 'https://api.sendgrid.com')) }}">
+            <div class="help-text font-size-12 lh-base">{{ __('admin/setting.sendgrid_endpoint_info') }}</div>
+          </x-admin-form-input>
+        </div>
+
+        <div v-if="mail_engine != ''">
+          <x-admin::form.row :title="__('admin/setting.email_send_admin')">
+            <div class="input-group wp-400">
+              <input name="mail_alert[]" type="hidden" value="">
+              <div class="form-check mt-2 me-3">
+                <input class="form-check-input" type="checkbox" id="check-input-register" name="mail_alert[]" value="register" {{ in_array('register', old('mail_alert', system_setting('base.mail_alert', []))) ? 'checked' : '' }}>
+                <label class="form-check-label" for="check-input-register">{{ __('admin/setting.email_type_register') }}</label>
+              </div>
+              <div class="form-check mt-2 me-3">
+                <input class="form-check-input" type="checkbox" id="check-input-order" name="mail_alert[]" value="order" {{ in_array('order', old('mail_alert', system_setting('base.mail_alert', []))) ? 'checked' : '' }}>
+                <label class="form-check-label" for="check-input-order">{{ __('admin/setting.email_type_order') }}</label>
+              </div>
+              <div class="form-check mt-2 me-3">
+                <input class="form-check-input" type="checkbox" id="check-input-return" name="mail_alert[]" value="return" {{ in_array('return', old('mail_alert', system_setting('base.mail_alert', []))) ? 'checked' : '' }}>
+                <label class="form-check-label" for="check-input-return">{{ __('admin/setting.email_type_return') }}</label>
+              </div>
+            </div>
+          </x-admin::form.row>
+          <x-admin::form.row :title="__('admin/setting.email_send_customer')">
+            <input name="mail_customer[]" type="hidden" value="">
+            <div class="input-group wp-400">
+              <div class="form-check mt-2 me-3">
+                <input class="form-check-input" type="checkbox" id="check-input-customer-register" name="mail_customer[]" value="register" {{ in_array('register', old('mail_customer', system_setting('base.mail_customer', []))) ? 'checked' : '' }}>
+                <label class="form-check-label" for="check-input-customer-register">{{ __('admin/setting.email_type_register') }}</label>
+              </div>
+              <div class="form-check mt-2 me-3">
+                <input class="form-check-input" type="checkbox" id="check-input-customer-order" name="mail_customer[]" value="order" {{ in_array('order', old('mail_customer', system_setting('base.mail_customer', []))) ? 'checked' : '' }}>
+                <label class="form-check-label" for="check-input-customer-order">{{ __('admin/setting.email_type_order') }}</label>
+              </div>
+              <div class="form-check mt-2 me-3">
+                <input class="form-check-input" type="checkbox" id="check-input-customer-return" name="mail_customer[]" value="return" {{ in_array('return', old('mail_customer', system_setting('base.mail_customer', []))) ? 'checked' : '' }}>
+                <label class="form-check-label" for="check-input-customer-return">{{ __('admin/setting.email_type_return') }}</label>
+              </div>
+            </div>
+            <div class="help-text lh-base smtp-qq-hint d-none">{{ __('admin/setting.smtp_qq_hint') }}</div>
+          </x-admin::form.row>
+        </div>
+
+        @hook('admin.setting.mail.after')
+
+        <x-admin::form.row :title="__('admin/setting.mail_test_title')">
+          <div class="d-flex flex-column flex-sm-row gap-2 align-items-sm-center">
+            <input v-model.trim="testRecipient" type="email" class="form-control wp-400" :placeholder="source.testRecipientLabel" @keyup.enter.prevent="sendTestMail">
+            <button type="button" class="btn btn-outline-primary" :disabled="testing || !testRecipient" @click="sendTestMail">
+              <i class="bi bi-send"></i>@{{ testing ? source.testSendingLabel : source.testButtonLabel }}
+            </button>
+          </div>
+          <div class="help-text font-size-12 lh-base mt-2">{{ __('admin/setting.mail_test_info') }}</div>
+        </x-admin::form.row>
+
+        <x-admin-form-input name="mail_log_retention_days" type="number" min="1" max="365" required title="{{ __('admin/setting.mail_log_retention_days') }}" value="{{ old('mail_log_retention_days', system_setting('base.mail_log_retention_days', 30)) }}">
+          <div class="help-text font-size-12 lh-base">{{ __('admin/setting.mail_log_retention_days_help') }}</div>
+        </x-admin-form-input>
+
+        <x-admin::form.row title="">
+          <button type="submit" class="btn btn-primary d-none mt-4">{{ __('common.submit') }}</button>
+        </x-admin::form.row>
+      </form>
+      @hook('admin.setting.mail.content.after')
+    </div>
+  </div>
+@endsection
+
+@push('footer')
+  <script>
+    const mailPageData = {!! json_encode($mailPageData, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) !!};
+
+    let app = new Vue({
+      el: '#form-app',
+      data: {
+        mail_engine: mailPageData.mailEngine,
+        testRecipient: mailPageData.testRecipient,
+        testing: false,
+        diagnosing: false,
+        diagnosticChecks: [],
+        diagnosticError: '',
+
+        source: {
+          mailEngines: [
+            {name: '{{ __('admin/builder.text_no') }}', code: ''},
+            {name: '{{ __('admin/setting.mail_engine_self_hosted') }}', code: 'self_hosted'},
+            {name: 'SMTP', code: 'smtp'},
+            {name: 'Sendmail', code: 'sendmail'},
+            {name: 'Mailgun', code: 'mailgun'},
+            {name: 'SendCloud', code: 'sendcloud'},
+            {name: 'SendGrid', code: 'sendgrid'},
+            {name: 'Log', code: 'log'},
+          ],
+          testRecipientLabel: mailPageData.labels.testRecipient,
+          testButtonLabel: mailPageData.labels.testButton,
+          testSendingLabel: mailPageData.labels.testSending,
+          diagnosticsButton: mailPageData.labels.diagnosticsButton,
+          diagnosticsRunning: mailPageData.labels.diagnosticsRunning,
+        },
+      },
+      methods: {
+        runDiagnostics() {
+          if (this.diagnosing) return;
+          this.diagnosing = true;
+          this.diagnosticError = '';
+          $.ajax({
+            url: mailPageData.diagnosticsUrl,
+            method: 'POST',
+            headers: {'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content, Accept: 'application/json'},
+          }).done((response) => {
+            const payload = response?.data?.data || response?.data || {};
+            this.diagnosticChecks = Array.isArray(payload.checks) ? payload.checks : [];
+          }).fail((xhr) => {
+            this.diagnosticError = xhr.responseJSON?.message || mailPageData.labels.diagnosticsFailed;
+          }).always(() => { this.diagnosing = false; });
+        },
+        sendTestMail() {
+          if (!this.testRecipient || this.testing) return;
+          this.testing = true;
+          $.ajax({
+            url: mailPageData.testUrl,
+            method: 'POST',
+            data: {recipient: this.testRecipient},
+            headers: {'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content, Accept: 'application/json'},
+          }).done((response) => {
+            layer.msg(response.message || mailPageData.labels.testSent);
+          }).fail((xhr) => {
+            layer.msg(xhr.responseJSON?.message || mailPageData.labels.testFailed);
+          }).always(() => { this.testing = false; });
+        },
+      },
+    });
+  </script>
+@endpush

@@ -1,0 +1,219 @@
+<?php
+
+/**
+ * dashboard.php
+ *
+ * @copyright  2023 beikeshop.com - All Rights Reserved
+ * @link       https://beikeshop.com
+ * @author     guangda <service@guangda.work>
+ * @created    2023-09-09 09:09:09
+ * @modified   2023-09-08 10:57:53
+ */
+
+return [
+    // Original translations
+    'customer_new'  => 'Customer New',
+    'customer_view' => 'Customer View',
+    'day_before'    => 'Last day',
+    'latest_month'  => 'Latest Month',
+    'latest_week'   => 'Latest Week',
+    'latest_year'   => 'Latest Year',
+    'order_amount'  => 'Order Amount',
+    'order_report'  => 'Order Report',
+    'order_total'   => 'Order Total',
+    'product_total' => 'New product',
+    'today'         => 'Today',
+    'yesterday'     => 'Yesterday',
+
+    // Dashboard new translations
+    'page_title'                      => 'Real-time monitoring of key e-commerce platform indicators and business performance',
+    'visitor_count'                   => 'Visitors',
+    'cart_count'                      => 'Cart Additions',
+    'purchase_count'                  => 'Purchases',
+    'conversion_rate'                 => 'Conversion Rate',
+    'vs_yesterday'                    => 'vs Yesterday',
+    'export_report'                   => 'Export Report',
+    'refresh_data'                    => 'Refresh Data',
+    'visitor_trend'                   => 'Visitor Trend',
+    'customer_source_analysis'        => 'Customer Source Analysis',
+    'loading_source_data'             => 'Loading customer source data...',
+    'loading'                         => 'Loading...',
+    'order_funnel'                    => 'Order Funnel',
+    'refresh_funnel_data'             => 'Refresh Funnel Data',
+    'hot_products'                    => 'Hot Products',
+    'sort_options'                    => 'Sort Options',
+    'sort_by_sales_desc'              => 'Sort by Sales (Desc)',
+    'sort_by_sales_asc'               => 'Sort by Sales (Asc)',
+    'sort_by_price_desc'              => 'Sort by Price (Desc)',
+    'sort_by_price_asc'               => 'Sort by Price (Asc)',
+    'loading_hot_products'            => 'Loading hot products data...',
+    'loading_visitor_country_ranking' => 'Loading visitor country ranking...',
+    'near_7_days'                     => 'Last 7 Days',
+
+    // Conversion rate options
+    'visitor_to_purchase'            => 'Visitor to Purchase Conversion',
+    'visitor_to_cart'                => 'Visitor to Cart Conversion',
+    'visitor_to_payment_information' => 'Visitor to Add Payment Information Conversion',
+    'cart_to_purchase'               => 'Cart to Purchase Conversion',
+
+    // Error messages
+    'invalid_time_range'                 => 'Invalid time range: :timeRange. Supported ranges: :validRanges',
+    'invalid_product_type'               => 'Invalid product type: :type. Supported types: :validTypes',
+    'invalid_export_format'              => 'Invalid export format: :format. Supported formats: :validFormats',
+    'get_stats_failed'                   => 'Statistics are temporarily unavailable. Please try again.',
+    'get_trends_failed'                  => 'Trend data is temporarily unavailable. Please try again.',
+    'get_mini_chart_failed'              => 'Chart data is temporarily unavailable. Please try again.',
+    'get_source_analysis_failed'         => 'Source analysis is temporarily unavailable. Please try again.',
+    'get_funnel_failed'                  => 'Funnel data is temporarily unavailable. Please try again.',
+    'get_visitor_country_ranking_failed' => 'Visitor country rankings are temporarily unavailable. Please try again.',
+    'get_product_ranking_failed'         => 'Product rankings are temporarily unavailable. Please try again.',
+    'export_report_failed'               => 'The report could not be exported. Please try again.',
+    'please_login_first'                 => 'Please login first',
+    'no_export_permission'               => 'You do not have permission to export reports',
+    'export_rate_limit'                  => 'Export rate limit exceeded, please try again later',
+    'get_cache_status_failed'            => 'Cache status is temporarily unavailable. Please try again.',
+    'cache_clear_success'                => 'Cache cleared successfully',
+    'cache_clear_failed'                 => 'The cache could not be cleared. Please try again.',
+    'network_error'                      => 'Network request failed, please check your connection',
+
+    // Customer sources
+    'direct_access'   => 'Direct Access',
+    'google'          => 'Google',
+    'baidu'           => 'Baidu',
+    'bing'            => 'Bing',
+    'yahoo'           => 'Yahoo',
+    'duckduckgo'      => 'DuckDuckGo',
+    'yandex'          => 'Yandex',
+    'facebook'        => 'Facebook',
+    'twitter'         => 'Twitter',
+    'youtube'         => 'YouTube',
+    'linkedin'        => 'LinkedIn',
+    'instagram'       => 'Instagram',
+    'tiktok'          => 'TikTok',
+    'pinterest'       => 'Pinterest',
+    'reddit'          => 'Reddit',
+    'email'           => 'Email',
+    'affiliate'       => 'Affiliate',
+    'other'           => 'Other',
+    'no_data'         => 'No Data',
+    'unknown_country' => 'Unknown / unresolved',
+
+    // Funnel data
+    'product_views'       => 'Product Views',
+    'unique_visitors'     => 'Unique Visitors',
+    'cart_additions'      => 'Visitors Who Added to Cart',
+    'orders'              => 'Orders Created',
+    'successful_payments' => 'Paid Orders',
+    'funnel_visitors'     => 'Store Visitors',
+    'product_viewers'     => 'Product Viewers',
+    'cart_visitors'       => 'Visitors Who Added to Cart',
+    'order_creators'      => 'Customers Who Ordered',
+    'paid_purchasers'     => 'Paying Customers',
+
+    // Export report related
+    'ranking'      => 'Ranking',
+    'product_name' => 'Product Name',
+    'price'        => 'Price',
+    'sales'        => 'Sales',
+    'percentage'   => 'Percentage',
+    'sales_amount' => 'Sales Amount',
+
+    // Report export related
+    'report_title'            => 'LONGOS Data Dashboard Report',
+    'export_time'             => 'Export Time',
+    'time_range'              => 'Time Range',
+    'basic_stats'             => 'Basic Statistics Data',
+    'conversion_data'         => 'Conversion Rate Data',
+    'conversion_funnel'       => 'Conversion Funnel',
+    'hot_products_ranking'    => 'Hot Products Ranking',
+    'visitor_country_ranking' => 'Visitor Country Ranking',
+    'trend_data'              => 'Trend Data',
+
+    // Statistics indicators
+    'visitor_count'     => 'Visitor Count',
+    'cart_count'        => 'Cart Count',
+    'purchase_count'    => 'Purchase Count',
+    'current_value'     => 'Current Value',
+    'previous_value'    => 'Previous Value',
+    'change_percentage' => 'Change Percentage',
+    'trend'             => 'Trend',
+    'up'                => 'Up',
+    'down'              => 'Down',
+
+    // Conversion rate related
+    'conversion_type'          => 'Conversion Type',
+    'current_conversion_rate'  => 'Current Conversion Rate',
+    'previous_conversion_rate' => 'Previous Conversion Rate',
+    'change'                   => 'Change',
+
+    // Source analysis related
+    'source'      => 'Source',
+    'visits'      => 'Visits',
+    'country'     => 'Country / Region',
+    'source_type' => 'Source Type',
+    'rank'        => 'Rank',
+    'total'       => 'Total',
+
+    // Funnel related
+    'stage'            => 'Stage',
+    'quantity'         => 'Quantity',
+    'conversion_rate'  => 'Conversion Rate',
+    'width'            => 'Width',
+    'conversion_stage' => 'Conversion Stage',
+    'user_count'       => 'User Count',
+    'loss_rate'        => 'Loss Rate',
+    'funnel_width'     => 'Funnel Width',
+
+    // Trend related
+    'time'            => 'Time',
+    'pv'              => 'PV',
+    'uv'              => 'UV',
+    'pv_uv_ratio'     => 'PV/UV Ratio',
+    'summary'         => 'Summary',
+    'page_views'      => 'Page Views',
+    'unique_visitors' => 'Unique Visitors',
+
+    // Product ranking related
+    'hot_products_summary'           => 'Hot Products Summary',
+
+    // Commerce operations cockpit
+    'operations_overview'            => 'Commerce overview',
+    'dashboard_controls'             => 'Dashboard controls',
+    'preparing_snapshot'             => 'Preparing a consistent data snapshot',
+    'near_30_days'                   => 'Last 30 Days',
+    'data_load_failed'               => 'Dashboard data could not be loaded.',
+    'retry'                          => 'Try again',
+    'refresh_failed'                 => 'Refresh failed. Please try again.',
+    'key_metrics'                    => 'Key commerce metrics',
+    'gross_sales'                    => 'Paid sales',
+    'paid_orders'                    => 'Paid orders',
+    'average_order_value'            => 'Average order value',
+    'compared_with_previous_period'  => 'vs previous period',
+    'performance_trend'              => 'Performance trend',
+    'chart_metric'                   => 'Trend metric',
+    'traffic'                        => 'Traffic',
+    'data_quality'                   => 'Data quality',
+    'data_quality_description'       => 'Collection coverage and freshness',
+    'tracking_source'                => 'Traffic source',
+    'country_resolution'             => 'Country coverage',
+    'tracked_visitors'               => 'Tracked visitors in period',
+    'tracking_started'               => 'Tracking started',
+    'data_quality_note'              => 'Country is resolved from trusted CDN headers or server GeoIP, never inferred from shipping addresses.',
+    'first_touch_attribution'        => 'First-touch attribution by unique visitor',
+    'unique_identity_funnel'         => 'Every stage is deduplicated by participant; payments belong to the first paid-state transition',
+    'paid_sales_ranking'             => 'Paid order items only',
+    'view_all_products'              => 'View all products',
+    'unique_visitor_distribution'    => 'Latest trusted country per unique visitor',
+    'metric_definition_note'         => 'Gross sales, paid orders and top products use the first paid transition. Later refunds are not deducted from gross sales; traffic sources and countries are deduplicated by visitor.',
+    'freshness_live'                 => 'Collecting live',
+    'freshness_delayed'              => 'No recent visits',
+    'freshness_stale'                => 'Tracking data is stale',
+    'freshness_empty'                => 'No traffic data yet',
+    'updated_at'                     => 'Updated',
+    'of_total'                       => 'of visitors',
+    'source_visit_ledger'            => 'Accurate visit ledger',
+    'source_legacy_views'            => 'Legacy product views',
+    'source_unavailable'             => 'Traffic tracking is not enabled',
+    'export_report_failed_plain'     => 'Report export failed. Please try again.',
+    'get_overview_failed'            => 'The dashboard snapshot could not be generated. Please try again.',
+];

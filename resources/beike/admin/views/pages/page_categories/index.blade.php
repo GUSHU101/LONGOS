@@ -1,0 +1,93 @@
+@extends('admin::layouts.master')
+
+@section('title', __('admin/page_category.index'))
+
+@section('content')
+@if ($errors->has('error'))
+<x-admin-alert type="danger" msg="{{ $errors->first('error') }}" class="mt-4" />
+@endif
+
+<div class="card" id="app">
+  <div class="card-body h-min-600">
+    @hook('admin.page_categories.list.content.before')
+    <div class="d-flex justify-content-between mb-4">
+      @hook('admin.page_categories.list.content.top_buttons.before')
+      <a href="{{ admin_route('page_categories.create') }}" class="btn btn-primary">{{ __('common.add') }}</a>
+      @hook('admin.page_categories.list.content.top_buttons.after')
+    </div>
+    <div class="table-push">
+      @if (count($page_categories_format))
+      <table class="table table-hover">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>{{ __('common.title') }}</th>
+            <th>{{ __('common.status') }}</th>
+            <th>{{ __('common.created_at') }}</th>
+            <th>{{ __('common.updated_at') }}</th>
+            @hook('admin.page.list.column')
+            <th class="text-end">{{ __('common.action') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          @foreach ($page_categories_format as $item)
+          <tr class="cursor-pointer row-link" data-to-url="{{ admin_route("page_categories.edit", [$item['id'], http_build_query(request()->query())]) }}">
+            <td>{{ $item['id'] }}</td>
+            <td>
+              <div title="{{ $item['title'] ?? '' }}">{{ $item['title_format'] ?? '' }}</div>
+            </td>
+            <td class="{{ $item['active'] ? 'text-success' : 'text-secondary' }}">
+              {{ $item['active'] ? __('common.enable') : __('common.disable') }}
+            </td>
+            <td>{{ $item['created_at'] }}</td>
+            <td>{{ $item['updated_at'] }}</td>
+            @hook('admin.page.list.column_value')
+            <td class="text-end" onclick="event.stopPropagation();">
+              @hook('admin.page_categories.list.action.before')
+              <button class="btn btn-outline-danger btn-sm delete-btn" type='button' data-id="{{ $item['id'] }}">{{
+                __('common.delete') }}</button>
+              <a class="btn btn-default btn-sm ms-2 viewPage" data-bs-toggle="tooltip" href="{{ shop_route('page_categories.show', $item['id']) }}" target="_blank" rel="noopener noreferrer" title="{{ __('admin/product.view_more') }}"><i class="bi bi-eye"></i></a>
+              @hook('admin.page.list.action')
+            </td>
+          </tr>
+          @endforeach
+        </tbody>
+      </table>
+      @else
+        <div><x-admin-no-data /></div>
+      @endif
+    </div>
+
+    {{ $page_categories->links('admin::vendor/pagination/bootstrap-4') }}
+    @hook('admin.page_categories.list.content.footer')
+  </div>
+</div>
+
+@hook('admin.page.list.content.footer')
+@endsection
+
+@push('footer')
+<script>
+  @hook('admin.page_categories.list.script.before')
+
+  $('.delete-btn').click(function(event) {
+    event.stopPropagation();
+    const id = $(this).data('id');
+    const self = $(this);
+
+    layer.confirm('{{ __('common.confirm_delete') }}', {
+      title: "{{ __('common.text_hint') }}",
+      btn: ['{{ __('common.cancel') }}', '{{ __('common.confirm') }}'],
+      area: ['400px'],
+      btn2: () => {
+        $http.delete(`page_categories/${id}`).then((res) => {
+          layer.msg(res.message);
+          window.location.reload();
+        })
+      }
+    })
+  });
+
+  @hook('admin.page_categories.list.script.after')
+</script>
+@endpush

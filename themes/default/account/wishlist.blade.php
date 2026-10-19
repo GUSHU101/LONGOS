@@ -1,0 +1,89 @@
+@extends('layout.master')
+
+@section('body-class', 'page-account-wishlist')
+
+@section('content')
+  <x-shop-breadcrumb type="static" value="account.wishlist.index" />
+
+  <div class="container">
+    <div class="row">
+      <x-shop-sidebar />
+
+      <div class="col-12 col-md-9">
+        <div class="card mb-4 h-min-600">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="card-title">{{ __('shop/account/wishlist.index') }}</h5>
+          </div>
+          <div class="card-body">
+            <table class="table align-middle">
+              <thead>
+                <tr>
+                  <th width="90px"></th>
+                  <th>{{ __('shop/account/wishlist.product') }}</th>
+                  <th>{{ __('shop/account/wishlist.price') }}</th>
+                  <th class="text-end"></th>
+                </tr>
+              </thead>
+              <tbody>
+                @if (count($wishlist))
+                  @foreach ($wishlist as $item)
+                    <tr data-id="{{ $item['id'] }}" data-productid="{{ $item['product_id'] }}">
+                      <td>
+                        <div class="wh-70 border rounded-2 overflow-hidden d-flex justify-content-between align-items-center"><img src="{{ $item['image'] }}" alt="{{ $item['product_name'] }}" class="img-fluid"></div>
+                      </td>
+                      <td>{{ $item['product_name'] }}</td>
+                      <td>{{ $item['price'] }}</td>
+                      <td class="text-end">
+                        <div class="">
+                          <a class="btn btn-outline-secondary btn-sm"
+                            href="{{ shop_route('products.show', $item['product_id']) }}">{{ __('shop/account/wishlist.check_details') }}</a>
+                          <button type="button" class="btn btn-outline-secondary add-cart btn-sm">{{ __('shop/products.add_to_cart') }}</button>
+                          <button type="button" class="btn btn-outline-danger btn-sm remove-wishlist" aria-label="{{ __('common.delete') }} {{ $item['product_name'] }}"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
+                        </div>
+                      </td>
+                    </tr>
+                  @endforeach
+                @else
+                  <tr>
+                    <td colspan="4" class="border-0">
+                      <x-shop-no-data />
+                    </td>
+                  </tr>
+                @endif
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+@endsection
+
+@push('add-scripts')
+  @php
+    $wishlistRemoveUrlTemplate = shop_route('account.wishlist.remove', ['id' => '__WISHLIST_ID__']);
+  @endphp
+  <script>
+    const wishlistRemoveUrlTemplate = {!! json_encode($wishlistRemoveUrlTemplate, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) !!};
+
+    $('.remove-wishlist').click(function() {
+      const product_id = $(this).closest('tr').data('id');
+
+      const url = wishlistRemoveUrlTemplate.replace('__WISHLIST_ID__', encodeURIComponent(product_id));
+      $http.delete(url).then((res) => {
+        if (res.status == 'success') {
+          $(this).closest('tr').fadeOut(function() {
+            $(this).remove();
+            if ($('.remove-wishlist').length == 0) {
+              location.reload();
+            }
+          });
+        }
+      })
+    });
+
+    $('.add-cart').click(function() {
+      bk.productQuickView($(this).closest('tr').data('productid'));
+    });
+  </script>
+@endpush

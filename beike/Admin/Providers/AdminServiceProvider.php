@@ -1,0 +1,203 @@
+<?php
+
+/**
+ * AdminUserRepo.php
+ *
+ * @copyright  2022 beikeshop.com - All Rights Reserved
+ * @link       https://beikeshop.com
+ * @author     guangda <service@guangda.work>
+ * @created    2022-08-08 08:08:08
+ * @modified   2022-08-08 08:08:08
+ */
+
+namespace Beike\Admin\Providers;
+
+use Beike\Admin\View\Components\Alert;
+use Beike\Admin\View\Components\Filter;
+use Beike\Admin\View\Components\Form\Checkbox;
+use Beike\Admin\View\Components\Form\Image;
+use Beike\Admin\View\Components\Form\Input;
+use Beike\Admin\View\Components\Form\InputLocale;
+use Beike\Admin\View\Components\Form\RichText;
+use Beike\Admin\View\Components\Form\Select;
+use Beike\Admin\View\Components\Form\SwitchRadio;
+use Beike\Admin\View\Components\Form\Textarea;
+use Beike\Admin\View\Components\Header;
+use Beike\Admin\View\Components\NoData;
+use Beike\Admin\View\Components\Sidebar;
+use Beike\Console\Commands\AddCountryContinent;
+use Beike\Console\Commands\ChangeRootPassword;
+use Beike\Console\Commands\FetchCurrencyRate;
+use Beike\Console\Commands\GenerateDatabaseDict;
+use Beike\Console\Commands\GenerateSitemap;
+use Beike\Console\Commands\MakeRootAdminUser;
+use Beike\Console\Commands\MigrateFromOpenCart;
+use Beike\Console\Commands\ProcessOrder;
+use Beike\Console\Commands\RefreshCloudflareIpRanges;
+use Beike\Models\AdminUser;
+use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\View;
+use Illuminate\Support\ServiceProvider;
+use Illuminate\Support\Str;
+use Illuminate\View\FileViewFinder;
+
+class AdminServiceProvider extends ServiceProvider
+{
+    /**
+     * @throws \Exception
+     */
+    public function boot()
+    {
+        $uri = request()->getRequestUri();
+
+        if (is_installer()) {
+            return;
+        }
+
+        $this->loadCommands();
+        $this->publishResources();
+        load_settings();
+        $this->loadRoutesFrom(__DIR__ . '/../Routes/admin.php');
+        $this->registerGuard();
+
+        // env没设置APP_DEBUG时，以后台设置开关为准
+        if (config('app.debug') === null) {
+            // 从数据库读取调试模式配置
+            $debugMode = system_setting('base.app_debug', false);
+            // 动态覆盖.env配置
+            config(['app.debug' => (bool) $debugMode]);
+        }
+
+        $adminName      = admin_name();
+        $inConsole      = $this->app->runningInConsole();
+        $isAdminRequest = Str::startsWith($uri, "/{$adminName}");
+
+        // 仅在控制台或后台请求时加载以下逻辑
+        if ($inConsole || $isAdminRequest) {
+            $this->mergeConfigFrom(__DIR__ . '/../../Config/beike.php', 'beike');
+            $this->loadViewsFrom(resource_path('/beike/admin/views'), 'admin');
+            $this->loadThemeViewPath();
+
+            $this->app->booted(function () use ($inConsole) {
+                // 避免控制台模式下读取数据库
+                if (! $inConsole) {
+                    $this->loadShareViewData();
+                }
+            });
+
+            $this->loadAdminViewComponents();
+
+            Config::set('filesystems.disks.catalog', [
+                'driver' => 'local',
+                'root'   => catalog_path(),
+            ]);
+
+            Config::set('filesystems.disks.upload', [
+                'driver' => 'local',
+                'root'   => public_path(tenant_upload_prefix()),
+            ]);
+
+            // Store Builder is now Puck-based and data-driven. The retired
+            // Blade/Vue editor classes are intentionally not discovered on
+            // admin requests, so a stale extension cannot prevent the sole
+            // Builder surface from booting.
+        }
+    }
+
+    /**
+     * 加载后台命令行脚本
+     */
+    protected function loadCommands()
+    {
+        if ($this->app->runningInConsole()) {
+            $this->commands([
+                AddCountryContinent::class,
+                ChangeRootPassword::class,
+                FetchCurrencyRate::class,
+                GenerateDatabaseDict::class,
+                GenerateSitemap::class,
+                MakeRootAdminUser::class,
+                MigrateFromOpenCart::class,
+                ProcessOrder::class,
+                RefreshCloudflareIpRanges::class,
+            ]);
+        }
+    }
+
+    /**
+     * 注册后台用户 guard
+     */
+    protected function registerGuard()
+    {
+        Config::set('auth.guards.' . AdminUser::AUTH_GUARD, [
+            'driver'   => 'session',
+            'provider' => 'admin_users',
+        ]);
+
+        Config::set('auth.providers.admin_users', [
+            'driver' => 'eloquent',
+            'model'  => AdminUser::class,
+        ]);
+    }
+
+    /**
+     * 加载主题模板, 用于装修预览
+     */
+    protected function loadThemeViewPath()
+    {
+        $this->app->singleton('view.finder', function ($app) {
+            $paths = $app['config']['view.paths'];
+            if ($theme = system_setting('base.theme')) {
+                $customTheme[] = base_path("themes/{$theme}");
+                $paths         = array_merge($customTheme, $paths);
+            }
+
+            return new FileViewFinder($app['files'], $paths);
+        });
+    }
+
+    /**
+     * 后台UI组件
+     */
+    protected function loadAdminViewComponents()
+    {
+        $this->loadViewComponentsAs('admin', [
+            'header'            => Header::class,
+            'sidebar'           => Sidebar::class,
+            'filter'            => Filter::class,
+            'alert'             => Alert::class,
+            'form-input-locale' => InputLocale::class,
+            'form-switch'       => SwitchRadio::class,
+            'form-input'        => Input::class,
+            'form-select'       => Select::class,
+            'form-image'        => Image::class,
+            'form-textarea'     => Textarea::class,
+            'form-rich-text'    => RichText::class,
+            'no-data'           => NoData::class,
+            'form-checkbox'     => Checkbox::class,
+        ]);
+    }
+
+    /**
+     * seeder 数据
+     */
+    protected function publishResources()
+    {
+        $this->publishes([
+            __DIR__ . '/../Database/Seeders/ProductSeeder.php' => database_path('seeders/ProductSeeder.php'),
+        ], 'beike-seeders');
+    }
+
+    /**
+     * 后台公共数据
+     */
+    protected function loadShareViewData()
+    {
+        View::share('languages', languages());
+        // A HTML <base> without a trailing slash treats the last path segment
+        // as a file. `/admin` + `file_manager` would therefore become the
+        // invalid `/file_manager` URL instead of `/admin/file_manager`.
+        View::share('admin_base_url', rtrim(admin_route('home.index'), '/') . '/');
+        View::share('shop_base_url', shop_route('home.index'));
+    }
+}

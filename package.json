@@ -1,0 +1,51 @@
+{
+  "name": "longos-commerce-saas",
+  "version": "1.0.0",
+  "description": "Frontend workspace for the LONGOS multi-tenant commerce SaaS platform.",
+  "private": true,
+  "license": "OSL-3.0",
+  "scripts": {
+    "dev": "npm run development",
+    "development": "mix",
+    "watch": "mix watch",
+    "watch-poll": "mix watch -- --watch-options-poll=1000",
+    "hot": "mix watch --hot",
+    "prod": "npm run production",
+    "production": "mix --production",
+    "typecheck:builder": "tsc --project tsconfig.builder.json --noEmit",
+    "shopify:scan": "php artisan builder:inspect-shopify --output=storage/app/builder/shopify-theme-manifest.json",
+    "shopify:analyze": "php artisan builder:analyze-shopify",
+    "shopify:migrate": "php artisan builder:migrate-shopify",
+    "shopify:validate": "php artisan builder:validate-shopify",
+    "audit:production": "npm audit --omit=dev",
+    "check": "npm test && npm run production && npm run audit:production",
+    "test": "php artisan test && npm run test:quality",
+    "test:quality": "php tests/StorePolicyAssertions.php && php tests/SettingsHardeningAssertions.php && npm run typecheck:builder && npm run test:builder && npm run test:storefront",
+    "test:builder": "node --test tests/BuilderEditorAssertions.cjs && php tests/BuilderCoreAssertions.php && php tests/BuilderPublishAssertions.php",
+    "test:storefront": "node --test tests/ProductQuantityStepperAssertions.cjs"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "axios": "^1.10.0",
+    "bootstrap": "^5.3.7",
+    "cross-env": "^10.1.0",
+    "happy-dom": "^20.13.2",
+    "laravel-mix": "^6.0.49",
+    "lodash": "^4.17.19",
+    "resolve-url-loader": "^5.0.0",
+    "sass": "^1.38.1",
+    "sass-loader": "^12.1.0",
+    "tailwindcss": "^4.3.3",
+    "ts-loader": "^9.6.2",
+    "typescript": "^5.9.3",
+    "webpack": "5.105.4",
+    "webpack-cli": "^4.10.0"
+  },
+  "dependencies": {
+    "@puckeditor/core": "^0.23.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  }
+}

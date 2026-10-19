@@ -1,0 +1,219 @@
+<?php
+
+/**
+ * dashboard.php
+ *
+ * @copyright  2022 beikeshop.com - All Rights Reserved
+ * @link       https://beikeshop.com
+ * @author     guangda <service@guangda.work>
+ * @created    2022-08-02 14:22:41
+ * @modified   2022-08-02 14:22:41
+ */
+
+return [
+    // 原有翻译
+    'product_total' => '新增商品',
+    'customer_view' => '用户访问量',
+    'order_total'   => '订单量',
+    'customer_new'  => '新增用户',
+    'order_amount'  => '销售额',
+    'today'         => '今日',
+    'yesterday'     => '昨日',
+    'day_before'    => '较前一日',
+    'order_report'  => '订单统计',
+    'latest_month'  => '一个月',
+    'latest_week'   => '一周',
+    'latest_year'   => '一年',
+
+    // Dashboard 新增翻译
+    'page_title'                      => '实时监控电商平台关键指标和业务表现',
+    'visitor_count'                   => '访客人数',
+    'cart_count'                      => '加购人数',
+    'purchase_count'                  => '购买人数',
+    'conversion_rate'                 => '转化率',
+    'vs_yesterday'                    => 'vs 昨日',
+    'export_report'                   => '导出报表',
+    'refresh_data'                    => '刷新数据',
+    'visitor_trend'                   => '访客趋势',
+    'customer_source_analysis'        => '客户来源分析',
+    'loading_source_data'             => '正在加载客户来源数据...',
+    'loading'                         => '加载中...',
+    'order_funnel'                    => '下单漏斗',
+    'refresh_funnel_data'             => '刷新漏斗数据',
+    'hot_products'                    => '热销商品',
+    'sort_options'                    => '排序选项',
+    'sort_by_sales_desc'              => '按销量降序',
+    'sort_by_sales_asc'               => '按销量升序',
+    'sort_by_price_desc'              => '按价格降序',
+    'sort_by_price_asc'               => '按价格升序',
+    'loading_hot_products'            => '正在加载热销商品数据...',
+    'loading_visitor_country_ranking' => '正在加载访问者国家排名...',
+    'near_7_days'                     => '近7日',
+
+    // 转化率选项
+    'visitor_to_purchase'            => '访客到购买转化率',
+    'visitor_to_cart'                => '访客到加购转化率',
+    'visitor_to_payment_information' => '访客到添加支付信息转化率',
+    'cart_to_purchase'               => '加购到购买转化率',
+
+    // 错误消息
+    'invalid_time_range'                 => '无效的时间范围: :timeRange。支持的范围: :validRanges',
+    'invalid_product_type'               => '无效的商品类型: :type。支持的类型: :validTypes',
+    'invalid_export_format'              => '无效的导出格式: :format。支持的格式: :validFormats',
+    'get_stats_failed'                   => '暂时无法获取统计数据，请稍后重试。',
+    'get_trends_failed'                  => '暂时无法获取趋势数据，请稍后重试。',
+    'get_mini_chart_failed'              => '暂时无法获取趋势图，请稍后重试。',
+    'get_source_analysis_failed'         => '暂时无法获取来源分析，请稍后重试。',
+    'get_funnel_failed'                  => '暂时无法获取转化漏斗，请稍后重试。',
+    'get_visitor_country_ranking_failed' => '暂时无法获取访客国家排名，请稍后重试。',
+    'get_product_ranking_failed'         => '暂时无法获取商品排行，请稍后重试。',
+    'export_report_failed'               => '暂时无法导出报表，请稍后重试。',
+    'please_login_first'                 => '请先登录',
+    'no_export_permission'               => '您没有导出报表的权限',
+    'export_rate_limit'                  => '导出频率过高，请稍后再试',
+    'get_cache_status_failed'            => '暂时无法获取缓存状态，请稍后重试。',
+    'cache_clear_success'                => '缓存清理成功',
+    'cache_clear_failed'                 => '缓存清理失败，请稍后重试。',
+    'network_error'                      => '网络请求失败，请检查网络连接',
+
+    // 客户来源
+    'direct_access'   => '直接访问',
+    'google'          => 'Google',
+    'baidu'           => '百度',
+    'bing'            => '必应',
+    'yahoo'           => 'Yahoo',
+    'duckduckgo'      => 'DuckDuckGo',
+    'yandex'          => 'Yandex',
+    'facebook'        => 'Facebook',
+    'twitter'         => 'Twitter',
+    'youtube'         => 'YouTube',
+    'linkedin'        => 'LinkedIn',
+    'instagram'       => 'Instagram',
+    'tiktok'          => 'TikTok',
+    'pinterest'       => 'Pinterest',
+    'reddit'          => 'Reddit',
+    'email'           => '邮件',
+    'affiliate'       => '联盟推广',
+    'other'           => '其他',
+    'no_data'         => '暂无数据',
+    'unknown_country' => '未知/无法识别',
+
+    // 漏斗数据
+    'product_views'       => '商品浏览量',
+    'unique_visitors'     => '独立访客量',
+    'cart_additions'      => '加购访客',
+    'orders'              => '创建订单',
+    'successful_payments' => '已支付订单',
+    'funnel_visitors'     => '到访用户',
+    'product_viewers'     => '商品浏览用户',
+    'cart_visitors'       => '加购用户',
+    'order_creators'      => '下单用户',
+    'paid_purchasers'     => '支付用户',
+
+    // 导出报表相关
+    'ranking'      => '排名',
+    'product_name' => '商品名称',
+    'price'        => '价格',
+    'sales'        => '销量',
+    'percentage'   => '占比',
+    'sales_amount' => '销售额',
+
+    // 报表导出相关
+    'report_title'            => 'LONGOS 数据看板报表',
+    'export_time'             => '导出时间',
+    'time_range'              => '时间范围',
+    'basic_stats'             => '基础统计数据',
+    'conversion_data'         => '转化率数据',
+    'conversion_funnel'       => '转化漏斗',
+    'hot_products_ranking'    => '热销商品排行',
+    'visitor_country_ranking' => '访问者国家排名',
+    'trend_data'              => '趋势数据',
+
+    // 统计指标
+    'visitor_count'     => '访客数',
+    'cart_count'        => '加购数',
+    'purchase_count'    => '成交用户数',
+    'current_value'     => '当前值',
+    'previous_value'    => '对比值',
+    'change_percentage' => '环比变化',
+    'trend'             => '趋势',
+    'up'                => '上升',
+    'down'              => '下降',
+
+    // 转化率相关
+    'conversion_type'          => '转化类型',
+    'current_conversion_rate'  => '当前转化率',
+    'previous_conversion_rate' => '对比转化率',
+    'change'                   => '变化',
+
+    // 来源分析相关
+    'source'      => '来源',
+    'visits'      => '访问量',
+    'country'     => '国家/地区',
+    'source_type' => '来源类型',
+    'rank'        => '排名',
+    'total'       => '总计',
+
+    // 漏斗相关
+    'stage'            => '环节',
+    'quantity'         => '数量',
+    'conversion_rate'  => '转化率',
+    'width'            => '宽度',
+    'conversion_stage' => '转化环节',
+    'user_count'       => '用户数量',
+    'loss_rate'        => '流失率',
+    'funnel_width'     => '漏斗宽度',
+
+    // 趋势相关
+    'time'            => '时间',
+    'pv'              => 'PV',
+    'uv'              => 'UV',
+    'pv_uv_ratio'     => 'PV/UV 比例',
+    'summary'         => '汇总',
+    'page_views'      => '页面浏览量',
+    'unique_visitors' => '独立访客',
+
+    // 商品排行相关
+    'hot_products_summary'           => '热销商品汇总',
+
+    // 经营驾驶舱
+    'operations_overview'            => '经营概览',
+    'dashboard_controls'             => '数据看板控制项',
+    'preparing_snapshot'             => '正在生成一致性数据快照',
+    'near_30_days'                   => '近30日',
+    'data_load_failed'               => '数据加载失败。',
+    'retry'                          => '重新加载',
+    'refresh_failed'                 => '刷新失败，请稍后重试',
+    'key_metrics'                    => '核心经营指标',
+    'gross_sales'                    => '支付销售额',
+    'paid_orders'                    => '支付订单',
+    'average_order_value'            => '平均客单价',
+    'compared_with_previous_period'  => '较上一周期',
+    'performance_trend'              => '经营趋势',
+    'chart_metric'                   => '趋势指标',
+    'traffic'                        => '流量',
+    'data_quality'                   => '数据质量',
+    'data_quality_description'       => '采集覆盖与数据新鲜度',
+    'tracking_source'                => '流量数据源',
+    'country_resolution'             => '国家识别覆盖率',
+    'tracked_visitors'               => '当前周期追踪访客',
+    'tracking_started'               => '开始采集时间',
+    'data_quality_note'              => '国家识别基于可信 CDN 请求头或服务器 GeoIP，不使用收货地址推断。',
+    'first_touch_attribution'        => '按独立访客首次触点归因',
+    'unique_identity_funnel'         => '各阶段均按去重用户统计；支付按首次进入已支付状态的时间归属',
+    'paid_sales_ranking'             => '仅统计已支付订单商品',
+    'view_all_products'              => '查看全部商品',
+    'unique_visitor_distribution'    => '按独立访客的最新可信国家归属',
+    'metric_definition_note'         => '毛销售额、支付订单和热销商品按首次进入已支付状态的时间归属，后续退款不从毛销售额扣除；访客、来源和国家按去重访客统计。',
+    'freshness_live'                 => '实时采集中',
+    'freshness_delayed'              => '近期无新访问',
+    'freshness_stale'                => '采集数据已过期',
+    'freshness_empty'                => '尚无访问数据',
+    'updated_at'                     => '更新于',
+    'of_total'                       => '占总访客',
+    'source_visit_ledger'            => '精确访客账本',
+    'source_legacy_views'            => '兼容商品浏览数据',
+    'source_unavailable'             => '尚未启用访问追踪',
+    'export_report_failed_plain'     => '报表导出失败，请稍后重试',
+    'get_overview_failed'            => '暂时无法生成数据看板，请稍后重试。',
+];

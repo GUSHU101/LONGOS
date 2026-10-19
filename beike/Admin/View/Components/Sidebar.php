@@ -1,0 +1,499 @@
+<?php
+
+namespace Beike\Admin\View\Components;
+
+use Beike\Models\AdminUser;
+use Beike\Plugin\Plugin;
+use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Str;
+use Illuminate\View\Component;
+
+class Sidebar extends Component
+{
+    public array $links = [];
+
+    public ?array $currentLink;
+
+    private string $adminName;
+
+    private ?string $routeNameWithPrefix;
+
+    private ?string $currentRouteName;
+
+    private ?string $currentPrefix;
+
+    private ?AdminUser $adminUser;
+
+    /**
+     * Create a new component instance.
+     *
+     * @return void
+     */
+    public function __construct()
+    {
+        $this->adminName = admin_name();
+        $this->adminUser = current_user();
+
+        $this->routeNameWithPrefix = request()->route()?->getName() ?? '';
+        $this->currentRouteName    = str_replace($this->adminName . '.', '', $this->routeNameWithPrefix);
+
+        $routeData           = explode('.', $this->currentRouteName);
+        $this->currentPrefix = $routeData[0] ?? '';
+    }
+
+    /**
+     * Get the view / contents that represent the component.
+     *
+     * @return mixed
+     */
+    public function render()
+    {
+        $this->links = $this->getMenus();
+        $this->handleMenus();
+        $this->currentLink = $this->getCurrentLink();
+
+        return view('admin::components.sidebar');
+    }
+
+    /**
+     * 返回所有菜单
+     * 小图标地址 https://icons.getbootstrap.com/
+     *
+     * @return mixed
+     */
+    private function getMenus(): mixed
+    {
+        $menus = [
+            [
+                'route'    => 'home.index',
+                'title'    => trans('admin/common.home'),
+                'icon'     => 'bi bi-house',
+                'prefixes' => $this->getHomeSubPrefix(),
+            ],
+            [
+                'route'    => 'orders.index',
+                'title'    => trans('admin/common.order'),
+                'icon'     => 'bi bi-clipboard-check',
+                'prefixes' => $this->getOrderSubPrefix(),
+                'children' => $this->getOrderSubRoutes(),
+            ],
+            [
+                'route'    => 'products.index',
+                'title'    => trans('admin/common.product'),
+                'icon'     => 'bi bi-box-seam',
+                'prefixes' => $this->getProductSubPrefix(),
+                'children' => $this->getProductSubRoutes(),
+            ],
+            [
+                'route'    => 'customers.index',
+                'title'    => trans('admin/common.customer'),
+                'icon'     => 'bi bi-person-circle',
+                'prefixes' => $this->getCustomerSubPrefix(),
+                'children' => $this->getCustomerSubRoutes(),
+            ],
+            [
+                'route'    => 'pages.index',
+                'title'    => trans('admin/common.page'),
+                'icon'     => 'bi bi-file-earmark-text',
+                'prefixes' => $this->getPageSubPrefix(),
+                'children' => $this->getPageSubRoutes(),
+            ],
+            [
+                'route'    => 'reports_sale.index',
+                'title'    => trans('admin/common.report'),
+                'icon'     => 'bi bi-bar-chart-line',
+                'prefixes' => $this->getReportSubPrefix(),
+                'children' => $this->getReportSubRoutes(),
+            ],
+            [
+                'route'    => 'theme.index',
+                'title'    => trans('admin/common.design'),
+                'icon'     => 'bi bi-palette',
+                'prefixes' => $this->getDesignSubPrefix(),
+                'children' => $this->getDesignSubRoutes(),
+            ],
+            [
+                'route'    => 'plugins.index',
+                'title'    => trans('admin/common.plugin'),
+                'icon'     => 'bi bi-shop',
+                'prefixes' => $this->getPluginSubPrefix(),
+                'children' => $this->getPluginSubRoutes(),
+            ],
+            [
+                'route'    => 'settings.index',
+                'title'    => trans('admin/common.setting'),
+                'icon'     => 'bi bi-gear',
+                'prefixes' => $this->getSettingSubPrefix(),
+                'children' => $this->getSettingSubRoutes(),
+            ],
+        ];
+
+        if (config('saas.enabled')
+            && $this->adminUser?->is_root
+            && \App\Saas\Models\Site::current()?->status === \App\Saas\Models\Site::STATUS_ACTIVE) {
+            $controlSite = (bool) data_get(\App\Saas\Models\Site::current()?->meta, 'control_site', false);
+            array_splice($menus, -1, 0, [[
+                'route'    => $controlSite ? 'saas.sites.page' : 'saas.tenant_domains.page',
+                'title'    => $controlSite ? '租户站点' : '域名管理',
+                'icon'     => $controlSite ? 'bi bi-buildings' : 'bi bi-globe2',
+                'prefixes' => ['saas'],
+            ]]);
+        }
+
+        return hook_filter('admin.components.sidebar.menus', $menus);
+    }
+
+    /**
+     * 获取二级菜单
+     *
+     * @return array|null
+     */
+    private function getCurrentLink(): ?array
+    {
+        foreach ($this->links as $link) {
+            $prefixes = $link['prefixes'] ?? [];
+            if ($prefixes && in_array($this->currentPrefix, $prefixes)) {
+                return $link;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * 处理是否选中等数据
+     */
+    private function handleMenus()
+    {
+        foreach ($this->links as $index => $link) {
+            $linkRoute = $link['route'] ?? '';
+            $linkUrl   = $link['url']   ?? '';
+
+            // Plugin hooks and persisted menu definitions can outlive the
+            // route that created them. Do not let one retired menu item make
+            // every admin page fail while Blade generates its URL.
+            if (empty($linkUrl) && ! Str::startsWith($linkRoute, ['http://', 'https://'])
+                                && (! $linkRoute || ! Route::has($this->adminName . '.' . $linkRoute))) {
+                unset($this->links[$index]);
+
+                continue;
+            }
+
+            $prefixes = $link['prefixes'] ?? [];
+            if ($prefixes && in_array($this->currentPrefix, $prefixes)) {
+                $this->links[$index]['active'] = true;
+            } else {
+                $this->links[$index]['active'] = false;
+            }
+
+            $url = $link['url'] ?? '';
+            if (empty($url)) {
+                if (Str::startsWith($link['route'], ['http://', 'https://'])) {
+                    $this->links[$index]['url'] = $link['route'];
+                } else {
+                    $this->links[$index]['url'] = admin_route($link['route']);
+                }
+            }
+
+            $title = $link['title'] ?? '';
+            if (empty($title)) {
+                $permissionRoute              = str_replace('.', '_', $this->currentRouteName);
+                $this->links[$index]['title'] = trans("admin/common.{$permissionRoute}");
+            }
+
+            if (! isset($link['blank'])) {
+                $this->links[$index]['blank'] = false;
+            }
+
+            $icon = $link['icon'] ?? '';
+            if (empty($icon)) {
+                $this->links[$index]['icon'] = 'bi bi-link-45deg';
+            }
+
+            $children = $link['children'] ?? [];
+            if ($children) {
+                foreach ($children as $key => $item) {
+                    $itemRoute = $item['route'] ?? '';
+                    $itemUrl   = $item['url']   ?? '';
+                    if (empty($itemUrl) && ! Str::startsWith($itemRoute, ['http://', 'https://'])
+                                        && (! $itemRoute || ! Route::has($this->adminName . '.' . $itemRoute))) {
+                        unset($this->links[$index]['children'][$key]);
+
+                        continue;
+                    }
+
+                    $childPrefixes = $item['prefixes'] ?? [];
+                    $excludes      = $item['excludes'] ?? [];
+                    if ($prefixes && in_array($this->currentPrefix, $childPrefixes)
+                                  && (! $excludes || ! in_array($this->currentRouteName, $excludes))) {
+                        $this->links[$index]['children'][$key]['active'] = true;
+                    } else {
+                        $this->links[$index]['children'][$key]['active'] = false;
+                    }
+
+                    $url = $item['url'] ?? '';
+                    if (empty($url)) {
+                        if (Str::startsWith($item['route'], ['http://', 'https://'])) {
+                            $this->links[$index]['children'][$key]['url'] = $item['route'];
+                        } else {
+                            $this->links[$index]['children'][$key]['url'] = admin_route($item['route']);
+                        }
+                    }
+
+                    $title = $item['title'] ?? '';
+                    if (empty($title)) {
+                        $permissionRoute                                = str_replace('.', '_', $item['route']);
+                        $this->links[$index]['children'][$key]['title'] = trans("admin/common.{$permissionRoute}");
+                    }
+
+                    if (! isset($item['blank'])) {
+                        $this->links[$index]['children'][$key]['blank'] = false;
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * 获取后台首页子页面路由前缀列表
+     */
+    private function getHomeSubPrefix()
+    {
+        $prefix = ['home'];
+
+        return hook_filter('admin.sidebar.home.prefix', $prefix);
+    }
+
+    /**
+     * 获取后台产品子页面路由前缀列表
+     */
+    private function getProductSubPrefix()
+    {
+        $prefix = ['products', 'multi_filter', 'categories', 'brands', 'attribute_groups', 'attributes'];
+
+        return hook_filter('admin.sidebar.product.prefix', $prefix);
+    }
+
+    /**
+     * 获取后台客户子页面路由前缀列表
+     */
+    private function getCustomerSubPrefix()
+    {
+        $prefix = ['customers', 'customer_groups'];
+
+        return hook_filter('admin.sidebar.customer.prefix', $prefix);
+    }
+
+    /**
+     * 获取后台订单子页面路由前缀列表
+     */
+    private function getOrderSubPrefix()
+    {
+        $prefix = ['orders', 'order_recoveries', 'rmas', 'rma_reasons', 'discounts'];
+
+        return hook_filter('admin.sidebar.order.prefix', $prefix);
+    }
+
+    /**
+     * 获取后台内容子页面路由前缀列表
+     */
+    private function getPageSubPrefix()
+    {
+        $prefix = ['pages', 'page_categories'];
+
+        return hook_filter('admin.sidebar.page.prefix', $prefix);
+    }
+
+    /**
+     * 获取后台报表子页面路由前缀列表
+     */
+    private function getReportSubPrefix()
+    {
+        $prefix = ['reports_sale', 'reports_view'];
+
+        return hook_filter('admin.sidebar.report.prefix', $prefix);
+    }
+
+    /**
+     * 获取后台设计子页面路由前缀列表
+     */
+    private function getDesignSubPrefix()
+    {
+        $prefix = ['theme', 'design', 'app_push'];
+
+        return hook_filter('admin.sidebar.design.prefix', $prefix);
+    }
+
+    /**
+     * 获取后台设计子页面路由前缀列表
+     */
+    private function getPluginSubPrefix()
+    {
+        $prefix = ['plugins', 'plugin_customization'];
+
+        return hook_filter('admin.sidebar.plugin.prefix', $prefix);
+    }
+
+    /**
+     * 获取后台系统设置子页面路由前缀列表
+     */
+    private function getSettingSubPrefix()
+    {
+        $prefix = [
+            'settings', 'admin_users', 'admin_roles', 'tax_classes', 'tax_rates',
+            'regions', 'countries', 'zones', 'account', 'mail_logs', 'system_updates',
+        ];
+
+        return hook_filter('admin.sidebar.setting.prefix', $prefix);
+    }
+
+    /**
+     * 获取首页子页面路由
+     */
+    public function getHomeSubRoutes()
+    {
+        $routes = [];
+
+        return hook_filter('admin.sidebar.home_routes', $routes);
+    }
+
+    /**
+     * 获取商品子页面路由
+     */
+    public function getProductSubRoutes()
+    {
+        $routes = [
+            ['route' => 'products.index', 'prefixes' => ['products'], 'excludes' => ['products.trashed']],
+            ['route' => 'categories.index', 'prefixes' => ['categories']],
+            ['route' => 'brands.index', 'prefixes' => ['brands']],
+            ['route' => 'attribute_groups.index', 'prefixes' => ['attribute_groups']],
+            ['route' => 'attributes.index', 'prefixes' => ['attributes']],
+            ['route' => 'multi_filter.index', 'prefixes' => ['multi_filter']],
+            ['route' => 'products.trashed', 'prefixes' => ['products'], 'excludes' => ['products.index', 'products.edit', 'products.create']],
+        ];
+
+        return hook_filter('admin.sidebar.product_routes', $routes);
+    }
+
+    /**
+     * 获取商品子页面路由
+     */
+    public function getCustomerSubRoutes()
+    {
+        $routes = [
+            ['route' => 'customers.index', 'prefixes' => ['customers'], 'excludes' => ['customers.trashed']],
+            ['route' => 'customer_groups.index', 'prefixes' => ['customer_groups']],
+            ['route' => 'customers.trashed', 'prefixes' => ['customers'], 'excludes' => ['customers.index', 'customers.edit']],
+        ];
+
+        return hook_filter('admin.sidebar.customer_routes', $routes);
+    }
+
+    /**
+     * 获取订单子页面路由
+     */
+    public function getOrderSubRoutes()
+    {
+        $routes = [
+            ['route' => 'orders.index', 'prefixes' => ['orders'], 'excludes' => ['orders.trashed']],
+            ['route' => 'order_recoveries.index', 'prefixes' => ['order_recoveries'], 'title' => trans('admin/abandoned_order_recovery.title')],
+            ['route' => 'discounts.index', 'prefixes' => ['discounts']],
+            ['route' => 'rmas.index', 'prefixes' => ['rmas']],
+            ['route' => 'rma_reasons.index', 'prefixes' => ['rma_reasons']],
+            ['route' => 'orders.trashed', 'prefixes' => ['orders'], 'excludes' => ['orders.index', 'orders.show']],
+        ];
+
+        return hook_filter('admin.sidebar.order_routes', $routes);
+    }
+
+    /**
+     * 获取文章管理子页面路由
+     * @return mixed
+     */
+    public function getPageSubRoutes()
+    {
+        $routes = [
+            ['route' => 'pages.index', 'prefixes' => ['pages']],
+            ['route' => 'page_categories.index', 'prefixes' => ['page_categories']],
+        ];
+
+        return hook_filter('admin.sidebar.pages_routes', $routes);
+    }
+
+    /**
+     * 获取报表子页面路由
+     * @return mixed
+     */
+    public function getReportSubRoutes()
+    {
+        $routes = [
+            ['route' => 'reports_sale.index', 'prefixes' => ['reports_sale']],
+            ['route' => 'reports_view.index', 'prefixes' => ['reports_view']],
+        ];
+
+        return hook_filter('admin.sidebar.reports_routes', $routes);
+    }
+
+    /**
+     * 获取设计子页面路由
+     * @return mixed
+     */
+    public function getDesignSubRoutes()
+    {
+        $routes = [
+            ['route' => 'theme.index', 'prefixes' => ['theme'], 'hide_mobile' => true],
+            ['route' => 'design.index', 'prefixes' => ['design'], 'excludes' => ['design.navigation.index', 'design.navigation.update'], 'blank' => true, 'hide_mobile' => true],
+            ['route' => 'design.navigation.index', 'prefixes' => ['design'], 'title' => trans('admin/common.design_navigation_index'), 'blank' => false, 'hide_mobile' => true, 'excludes' => ['design.index', 'design.update', 'design.preview_module', 'design.revisions', 'design.revisions.restore', 'design.export', 'design.import']],
+            ['route' => 'app_push.index', 'prefixes' => ['app_push'], 'blank' => false, 'hide_mobile' => true],
+        ];
+
+        return hook_filter('admin.sidebar.design_routes', $routes);
+    }
+
+    /**
+     * 获取插件子页面路由
+     * @return mixed
+     */
+    public function getPluginSubRoutes()
+    {
+        $types = collect(Plugin::TYPES);
+        $types = $types->map(function ($item) {
+            return 'plugins.' . $item;
+        });
+
+        $routes[] = ['route' => 'plugins.index', 'prefixes' => ['plugins'], 'excludes' => $types->toArray()];
+
+        $originTypes = $types->push('plugins.index', 'plugins.edit')->push();
+        foreach (Plugin::TYPES as $type) {
+            $types    = $originTypes->reject("plugins.{$type}");
+            $routes[] = ['route' => "plugins.{$type}", 'prefixes' => ['plugins'], 'title' => trans("admin/plugin.{$type}"), 'excludes' => $types->toArray()];
+        }
+
+        $routes[] = ['route' => 'plugin_customization.index', 'prefixes' => ['plugin_customization'], 'title' => trans('admin/plugin.customization_title')];
+
+        return hook_filter('admin.sidebar.plugins_routes', $routes);
+    }
+
+    /**
+     * 获取系统设置子页面路由
+     * @return mixed
+     */
+    public function getSettingSubRoutes()
+    {
+        $routes      = [];
+        $showUpdater = $this->adminUser?->is_root && (! config('saas.enabled') || (
+            current_site()
+            && (bool) data_get(current_site()?->meta, 'control_site', false)
+            && app(\App\Saas\TenantManager::class)->isControlHost(request()->getHost())
+        ));
+        if ($showUpdater) {
+            $routes[] = [
+                'route'    => 'system_updates.index',
+                'prefixes' => ['system_updates'],
+                'title'    => trans('admin/setting.system_update_title'),
+            ];
+        }
+
+        return hook_filter('admin.sidebar.setting_routes', $routes);
+    }
+}

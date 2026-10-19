@@ -1,0 +1,124 @@
+name: LONGOS verified release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      # Pin every third-party action to an immutable commit. The version comment
+      # remains human-readable while tag movement cannot change release code.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Refuse to overwrite an existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists and will not be overwritten." >&2
+            exit 1
+          fi
+
+      - uses: shivammathur/setup-php@d52fc211a0436f8839a587b3b5b8efddab4744ea # v2
+        with:
+          php-version: '8.2'
+          extensions: curl, fileinfo, gd, iconv, mbstring, mysql, openssl, pdo, simplexml, zip
+          coverage: none
+          tools: composer:v2
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Validate Composer metadata and lock file
+        run: |
+          composer validate --strict --no-check-publish
+          composer audit --locked --no-dev
+
+      - name: Install test dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Prepare isolated test environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate --force
+          touch database/database.sqlite
+
+      - name: Build browser assets
+        run: |
+          npm ci --ignore-scripts
+          npm run audit:production
+          npm run production
+
+      - name: Validate Coolify Docker Compose
+        env:
+          DOMAIN: admin.example.test
+          SAAS_BASE_DOMAIN: shops.example.test
+          ADMIN_EMAIL: ops@example.test
+          COOLIFY_RESOURCE_UUID: release-ci
+          SERVICE_REALBASE64_32_APPKEY: YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=
+          SERVICE_PASSWORD_64_DBROOT: release-ci-root-password
+          SERVICE_USER_DBUSER: longos
+          SERVICE_PASSWORD_64_DBPASSWORD: release-ci-database-password
+          SERVICE_PASSWORD_64_ADMIN: release-ci-administrator-password
+          SERVICE_PASSWORD_64_PROXYTOKEN: release-ci-proxy-token-release-ci-proxy-token
+          SERVICE_HEX_32_EDGEID: 0123456789abcdef0123456789abcdef
+          SERVICE_PASSWORD_64_MAILRELAY: release-ci-mail-relay-secret-release-ci-mail-relay-secret
+          SERVICE_PASSWORD_64_CLOUDMAIL: release-ci-cloud-mail-secret-release-ci-cloud-mail-secret
+        run: docker compose config --quiet
+
+      - name: Run release checks
+        env:
+          DB_CONNECTION: sqlite
+          DB_DATABASE: ${{ github.workspace }}/database/database.sqlite
+          CACHE_STORE: array
+          SESSION_DRIVER: array
+          QUEUE_CONNECTION: sync
+        run: npm test
+
+      - name: Remove development-only PHP dependencies
+        run: composer install --no-dev --prefer-dist --no-interaction --no-progress --optimize-autoloader
+
+      - name: Download previous verified LONGOS release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          mkdir -p .release-base
+          BASE_TAG=""
+          BASE_TAG="$(gh release list --exclude-drafts --limit 20 --json tagName --jq '.[].tagName' | grep -Fxv "$RELEASE_TAG" | head -n 1 || true)"
+          if [ -n "$BASE_TAG" ]; then
+            gh release download "$BASE_TAG" --pattern 'longos-release.zip' --dir .release-base
+            BASE_DIGEST="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${BASE_TAG}" --jq '.assets[] | select(.name == "longos-release.zip") | .digest')"
+            if [[ ! "$BASE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "Previous release has no valid SHA-256 digest." >&2
+              exit 1
+            fi
+            echo "${BASE_DIGEST#sha256:}  .release-base/longos-release.zip" | sha256sum --check --strict
+            echo "LONGOS_PREVIOUS_RELEASE=.release-base/longos-release.zip" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build verified LONGOS package
+        run: php scripts/build-update-package.php dist/longos-release.zip "${LONGOS_PREVIOUS_RELEASE:-}"
+
+      - name: Build one-time updater bootstrap
+        run: php scripts/build-updater-bootstrap.php dist/longos-updater-bootstrap.zip
+
+      - name: Create immutable-version GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" dist/longos-release.zip dist/longos-release.zip.sha256 dist/longos-updater-bootstrap.zip dist/longos-updater-bootstrap.zip.sha256 --generate-notes --verify-tag

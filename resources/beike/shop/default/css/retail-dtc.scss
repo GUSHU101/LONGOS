@@ -1,0 +1,118 @@
+/*
+ * Canonical default storefront theme.
+ *
+ * This is intentionally source-owned, not a plugin theme. It builds on the
+ * shared commerce component layer and establishes one restrained DTC retail
+ * system for every storefront surface: browsing, product discovery, cart,
+ * checkout and account.
+ */
+@import './longos-commerce';
+
+:root {
+  --store-primary: #191918;
+  --store-accent: #e9e7df;
+  --store-background: #faf9f5;
+  --store-text: #191918;
+  --store-font-size: 16px;
+  --store-font-family: 'Jost', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --store-page-width: 1440px;
+  --store-grid-gap: clamp(1rem, 2vw, 2rem);
+  --store-section-spacing: clamp(4rem, 8vw, 8rem);
+  --store-radius: 2px;
+  --commerce-display: var(--store-font-family);
+  --commerce-sans: var(--store-font-family);
+  --commerce-ink: var(--store-text);
+  --commerce-paper: var(--store-background);
+  --commerce-sand: #fff;
+  --commerce-sand-deep: #eceae3;
+  --commerce-line: #dedcd5;
+  --commerce-muted: #65645f;
+  --commerce-accent: var(--store-primary);
+  --commerce-accent-dark: #383735;
+  --commerce-highlight: var(--store-accent);
+  --longos-primary: var(--store-primary);
+  --longos-primary-strong: var(--commerce-accent-dark);
+  --longos-on-primary: #fff;
+  --longos-ink: var(--store-text);
+  --longos-muted: var(--commerce-muted);
+  --longos-line: var(--commerce-line);
+  --longos-surface: var(--store-background);
+  --longos-card: #fff;
+  --longos-radius: var(--store-radius);
+  --longos-focus: var(--store-primary);
+}
+
+body {
+  background: var(--store-background) !important;
+  color: var(--store-text);
+  font-size: var(--store-font-size);
+  letter-spacing: 0;
+}
+
+h1, h2, h3, h4, h5, h6,
+.module-title, .page-title, .product-name, .product-heading h1 {
+  font-family: var(--store-font-family);
+  font-weight: 500;
+  letter-spacing: -.025em;
+}
+
+.container, .container-fluid { max-width: var(--store-page-width); }
+.row { --bs-gutter-x: var(--store-grid-gap); --bs-gutter-y: var(--store-grid-gap); }
+
+header .header-content,
+header .header-content .navbar-expand-lg { min-height: 76px; }
+header .logo, header .logo a { font-size: 1.25rem; font-weight: 600; letter-spacing: .045em; }
+header .menu-wrap > ul > li > a,
+header .header-content .nav-link { font-size: .75rem; font-weight: 500; letter-spacing: .055em; }
+
+.btn, .btn-primary, .btn-checkout, #submit-checkout, #mobile-submit-checkout,
+.product-btns .btn, .product-btns button {
+  border-radius: 2px !important;
+  font-size: .8125rem;
+  font-weight: 600;
+  letter-spacing: .035em;
+  min-height: 48px;
+  padding: .875rem 1.5rem;
+}
+
+.modules-box > .module-item,
+.category-marketing-modules > .module-item,
+.product-marketing-modules > .module-item,
+.page-marketing-modules > .module-item { margin-block: var(--store-section-spacing); }
+
+.module-title {
+  font-size: clamp(2rem, 4.25vw, 4.75rem) !important;
+  line-height: 1.02;
+  margin-bottom: 1rem;
+  text-wrap: balance;
+}
+
+.module-title-desc, .modules-box .sub-title {
+  font-size: 1rem;
+  line-height: 1.65;
+  max-width: 60ch;
+}
+
+.product-wrap .image,
+body.page-product .product-image .left,
+body.page-product .product-image .right,
+body.page-product .product-image .image-wrap,
+body.page-categories .category-avatar { border-radius: var(--store-radius) !important; }
+
+.product-wrap .product-name { font-size: 1rem !important; font-weight: 500 !important; }
+.product-wrap .price, .product-wrap .product-price { font-size: 1rem !important; font-weight: 600 !important; }
+
+body.page-categories .category-intro h1,
+body.page-product .product-name,
+body.page-product .product-heading h1 { letter-spacing: -.035em !important; }
+
+body.page-cart, body.page-checkout, body.page-payment,
+body[class^='page-account'] { background: var(--store-background) !important; }
+
+@media (max-width: 767.98px) {
+  :root { --store-section-spacing: clamp(3rem, 12vw, 4.5rem); }
+  header .header-mobile { min-height: 64px; }
+  .module-title { font-size: clamp(2rem, 10vw, 3.25rem) !important; }
+  .btn, .btn-primary, .btn-checkout, #submit-checkout, #mobile-submit-checkout,
+  .product-btns .btn, .product-btns button { min-height: 48px; }
+}

@@ -1,0 +1,219 @@
+<?php
+
+/**
+ * MarketingController.php
+ *
+ * @copyright  2022 beikeshop.com - All Rights Reserved
+ * @link       https://beikeshop.com
+ * @author     guangda <service@guangda.work>
+ * @created    2022-09-26 11:49:34
+ * @modified   2022-09-26 11:49:34
+ */
+
+namespace Beike\Admin\Http\Controllers;
+
+use Beike\Admin\Services\MarketingService;
+use Beike\Repositories\PluginRepo;
+use Exception;
+use Illuminate\Http\Request;
+
+class MarketingController
+{
+    /**
+     * @param Request $request
+     * @return mixed
+     */
+    public function index(Request $request)
+    {
+        return redirect()->to(admin_route('plugin_customization.index'));
+    }
+
+    /**
+     * 获取单个插件详情
+     */
+    public function show(Request $request)
+    {
+        return redirect()->to(admin_route('plugin_customization.index'));
+    }
+
+    /**
+     * 下单购买插件
+     */
+    public function buy(Request $request)
+    {
+        try {
+            $postData   = $request->getContent();
+            $pluginCode = $request->code;
+            $result     = MarketingService::getInstance()->buy($pluginCode, $postData);
+
+            return json_success(trans('admin/marketing.fetch_success'), $result);
+        } catch (Exception $e) {
+            return json_fail($e->getMessage());
+        }
+    }
+
+    /**
+     * 下单购买插件服务
+     */
+    public function buyService(Request $request)
+    {
+        try {
+            $postData   = $request->getContent();
+            $id         = $request->id;
+            $result     = MarketingService::getInstance()->buyService($id, $postData);
+
+            return json_success('获取成功', $result);
+        } catch (Exception $e) {
+            return json_fail($e->getMessage());
+        }
+    }
+
+    /**
+     * 获取单个插件详情
+     */
+    public function serviceOrder(Request $request)
+    {
+        try {
+            $id                     = $request->id;
+            $pluginServiceOrder     = MarketingService::getInstance()->getPluginServiceOrder($id);
+
+            if ($request->expectsJson()) {
+                return json_success(trans('common.success'), $pluginServiceOrder);
+            }
+        } catch (Exception $e) {
+            return json_fail($e->getMessage());
+        }
+    }
+
+    /**
+     * 下载插件安装包到本地
+     */
+    public function download(Request $request)
+    {
+        try {
+            $pluginCode = $request->code;
+
+            if ($request->get('type') == 'update') {
+                app('plugin')->getPluginOrFail($pluginCode);
+            }
+
+            $plugin = MarketingService::getInstance()->getPlugin($pluginCode);
+
+            $version_name_format     = data_get($plugin, 'data.version_name_format');
+            $version_name_format_max = max(explode(', ', str_replace('v', '', $version_name_format)));
+
+            $version = config('beike.version');
+            $parts   = explode('.', $version);
+
+            $first_three = array_slice($parts, 0, 3);
+            $bkversion   = implode('.', $first_three);
+
+            if ($bkversion > $version_name_format_max) {
+                throw new Exception(__('admin/marketing.version_compatible_text'));
+            }
+
+            if ($plugin && $plugin['data']['status'] == 'pending') {
+                throw new Exception('plugin_pending');
+            }
+
+            MarketingService::getInstance()->download($pluginCode);
+
+            if ($request->get('type') == 'update') {
+                $plugin = app('plugin')->getPluginOrFail($pluginCode);
+                PluginRepo::migrateDatabase($plugin);
+
+                return json_success(trans('admin/marketing.update_success'));
+            }
+
+            return json_success(trans('admin/marketing.download_success'));
+        } catch (Exception $e) {
+            return json_fail($e->getMessage());
+        }
+    }
+
+    // 根据传入的 token 获取域名，然后判断是否是当前域名
+    public function checkDomain(Request $request)
+    {
+        try {
+            $token         = $request->token;
+            $location_host = $request->location_host;
+            $domain        = MarketingService::getInstance()->getDomain($token);
+            $tokenDomain   = $this->extractTokenDomain(data_get($domain, 'data'));
+
+            if ($tokenDomain && (get_domain($tokenDomain) !== get_domain($location_host))) {
+                return json_success('fail', trans('admin/marketing.domain_token_domain_error', ['domain' => $location_host, 'token_domain' => $tokenDomain]));
+            }
+
+            return json_success(trans('admin/marketing.fetch_success'), $domain);
+        } catch (Exception $e) {
+            return json_fail($e->getMessage());
+        }
+    }
+
+    private function extractTokenDomain(mixed $domainData): ?string
+    {
+        if (is_array($domainData)) {
+            $domain = data_get($domainData, 'domain');
+
+            return is_string($domain) && trim($domain) !== '' ? trim($domain) : null;
+        }
+
+        if (! is_string($domainData)) {
+            return null;
+        }
+
+        $domainData = trim($domainData);
+        if ($domainData === '') {
+            return null;
+        }
+
+        $decoded = json_decode($domainData, true);
+        if (is_array($decoded)) {
+            $decodedDomain = data_get($decoded, 'domain');
+            if (is_string($decodedDomain) && trim($decodedDomain) !== '') {
+                return trim($decodedDomain);
+            }
+        }
+
+        return $domainData;
+    }
+
+    public function versionCheck(Request $request)
+    {
+        try {
+            $version = $request->get('version', config('beike.version'));
+            $result  = MarketingService::getInstance()->getVersionInfo($version);
+
+            return json_success(trans('admin/marketing.fetch_success'), $result);
+        } catch (Exception $e) {
+            return json_fail($e->getMessage());
+        }
+    }
+
+    // 根据传入的域名获取 token
+    public function getToken(Request $request)
+    {
+        try {
+            $domain     = $request->domain;
+            $result     = MarketingService::getInstance()->getToken($domain);
+
+            return json_success(trans('admin/marketing.fetch_success'), $result);
+        } catch (Exception $e) {
+            return json_fail($e->getMessage());
+        }
+    }
+
+    // 根据传入的域名获取 token
+    public function checkToken(Request $request)
+    {
+        try {
+            $domain     = $request->domain;
+            $token      = $request->token;
+            $result     = MarketingService::getInstance()->checkToken($domain, $token);
+
+            return json_success(trans('admin/marketing.fetch_success'), $result);
+        } catch (Exception $e) {
+            return json_fail($e->getMessage());
+        }
+    }
+}

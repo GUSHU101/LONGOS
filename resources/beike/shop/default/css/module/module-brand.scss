@@ -1,0 +1,51 @@
+@charset "UTF-8";
+
+/**
+ * @copyright     2022 beikeshop.com - All Rights Reserved.
+ * @link          https://beikeshop.com
+ * @author        guangda <service@guangda.work>
+ * @Date          2022-08-04 17:52:22
+ * @LastEditTime  2022-09-16 20:57:25
+ */
+
+.module-brand {
+  font-size: 15px;
+
+  &__link {
+    color: inherit;
+    display: block;
+    height: 100%;
+
+    &:focus-visible {
+      outline: 3px solid color-mix(in srgb, var(--store-primary, #155eef) 30%, transparent);
+      outline-offset: 3px;
+    }
+  }
+
+  .brand-item {
+    align-items: center;
+    background: #fff;
+    border: 1px solid var(--shop-line, #e5e7eb);
+    border-radius: var(--store-radius, 12px);
+    display: flex;
+    height: clamp(6rem, 12vw, 7.5rem);
+    overflow: hidden;
+    justify-content: center;
+    padding: 1rem;
+    transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+
+    &:hover {
+      border-color: color-mix(in srgb, var(--store-primary, #155eef) 42%, #e5e7eb);
+      box-shadow: var(--shop-shadow-sm, 0 8px 24px rgb(15 23 42 / 8%));
+      transform: translateY(-2px);
+    }
+
+    > img {
+      height: auto;
+      max-height: 100%;
+      max-width: 100%;
+      object-fit: contain;
+      width: auto;
+    }
+  }
+}

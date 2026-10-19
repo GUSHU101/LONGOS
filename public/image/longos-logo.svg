@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 88" role="img" aria-labelledby="title">
+  <title>LONGOS</title>
+  <defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#155eef"/><stop offset="1" stop-color="#6d28d9"/></linearGradient></defs>
+  <rect x="2" y="2" width="84" height="84" rx="24" fill="url(#g)"/>
+  <path d="M28 23h12v30h23v12H28V23Zm38 0h12v42H66V23Z" fill="#fff"/>
+  <text x="106" y="58" fill="#162033" font-family="Arial, Helvetica, sans-serif" font-size="43" font-weight="800" letter-spacing="3">LONGOS</text>
+</svg>

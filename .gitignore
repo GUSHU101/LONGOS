@@ -1,0 +1,46 @@
+# Local secrets and machine-specific configuration
+/.env
+/.env.*
+!/.env.example
+/.longos-secrets/
+
+# Reproducible dependencies
+/vendor/
+/node_modules/
+/docker/mail-relay/node_modules/
+
+# Test and build caches
+/.phpunit.result.cache
+/npm-debug.log*
+/yarn-error.log*
+/public/hot
+/public/build/
+/public/mix-manifest.json
+/public/cache/*
+!/public/cache/.gitignore
+/public/upload/*
+!/public/upload/.gitignore
+/public/plugin/*
+!/public/plugin/.gitignore
+/bootstrap/cache/*.php
+/bootstrap/cache/*.tmp
+
+# Laravel runtime state
+/storage/logs/*.log
+/storage/framework/cache/data/*
+/storage/framework/sessions/*
+!/storage/framework/sessions/.gitignore
+/storage/framework/testing/*
+!/storage/framework/testing/.gitignore
+/storage/framework/views/*
+!/storage/framework/views/.gitignore
+/storage/debugbar/*
+!/storage/debugbar/.gitignore
+/storage/upload/*
+!/storage/upload/.gitignore
+
+# Local-only data and generated plugin packages
+/database/local-preview.sqlite
+/plugins/*.zip
+/dist/
+/deploy/

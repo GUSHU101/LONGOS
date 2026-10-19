@@ -1,0 +1,74 @@
+<?php
+
+namespace App\Tools;
+
+use App\Tools\Providers\BootstrapServiceProvider;
+use App\Tools\Providers\ConsoleServiceProvider;
+use App\Tools\Providers\ContractsServiceProvider;
+use Illuminate\Support\ServiceProvider;
+
+abstract class ModulesServiceProvider extends ServiceProvider
+{
+    /**
+     * Booting the package.
+     */
+    public function boot() {}
+
+    /**
+     * Register all plugins.
+     */
+    public function register() {}
+
+    /**
+     * Register all plugins.
+     */
+    protected function registerModules()
+    {
+        $this->app->register(BootstrapServiceProvider::class);
+    }
+
+    /**
+     * Register package's namespaces.
+     */
+    protected function registerNamespaces()
+    {
+        $configPath = __DIR__ . '/../config/config.php';
+        $stubsPath  = dirname(__DIR__) . '/src/Commands/stubs';
+
+        $this->publishes([
+            $configPath => config_path('plugins.php'),
+        ], 'config');
+
+        $this->publishes([
+            $stubsPath => base_path('stubs/nwidart-stubs'),
+        ], 'stubs');
+
+        $this->publishes([
+            __DIR__ . '/../scripts/vite-module-loader.js' => base_path('vite-module-loader.js'),
+        ], 'vite');
+    }
+
+    /**
+     * Register the service provider.
+     */
+    abstract protected function registerServices();
+
+    /**
+     * Get the services provided by the provider.
+     *
+     * @return array
+     */
+    public function provides()
+    {
+        return [\App\Tools\Contracts\RepositoryInterface::class, 'plugins'];
+    }
+
+    /**
+     * Register providers.
+     */
+    protected function registerProviders()
+    {
+        $this->app->register(ConsoleServiceProvider::class);
+        $this->app->register(ContractsServiceProvider::class);
+    }
+}

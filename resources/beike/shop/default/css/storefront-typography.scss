@@ -1,0 +1,121 @@
+/*
+ * International storefront typography.
+ *
+ * Jost is already self-hosted in global.scss. This final type layer gives all
+ * public pages one calm, readable hierarchy while preserving merchant font
+ * choices exposed by LONGOS Editor.
+ */
+:root {
+  --store-type-body: clamp(1rem, .985rem + .08vw, 1.0625rem);
+  --store-type-small: .875rem;
+  --store-type-label: .8125rem;
+  --store-type-display: var(--store-font-family, "Jost", "Avenir Next", "Helvetica Neue", Arial, sans-serif);
+  --store-type-leading: 1.62;
+  --store-type-tight: 1.12;
+  --store-type-copy-width: 68ch;
+}
+
+html {
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-font-smoothing: antialiased;
+  font-kerning: normal;
+  text-rendering: optimizeLegibility;
+}
+
+body,
+button,
+input,
+select,
+textarea {
+  font-family: var(--store-font-family, "Jost", "Avenir Next", "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif);
+}
+
+body {
+  font-size: var(--store-type-body);
+  letter-spacing: .002em;
+  line-height: var(--store-type-leading);
+}
+
+body :where(h1, h2, h3, h4, h5, h6, .module-title, .page-title) {
+  color: var(--commerce-ink, #191918);
+  font-family: var(--store-type-display);
+  font-weight: 500;
+  letter-spacing: -.035em;
+  line-height: var(--store-type-tight);
+  text-wrap: balance;
+}
+
+body :where(p, .text, .description, .content) {
+  hanging-punctuation: first last;
+}
+
+main :where(.page-title, h1:not(.product-name)) {
+  font-size: clamp(2rem, 3.9vw, 4rem);
+}
+
+main :where(.module-title, h2) {
+  font-size: clamp(1.75rem, 3vw, 3.25rem);
+}
+
+.module-title-desc,
+.modules-box .sub-title,
+.page-description,
+.product-description {
+  font-size: clamp(1rem, .975rem + .12vw, 1.0625rem);
+  line-height: 1.7;
+  max-width: var(--store-type-copy-width);
+}
+
+header .menu-wrap > ul > li > a,
+header .header-content .nav-link {
+  font-size: var(--store-type-label);
+  font-weight: 500;
+  letter-spacing: .055em;
+}
+
+.breadcrumb,
+.breadcrumb-wrap {
+  font-size: var(--store-type-small);
+}
+
+.product-wrap .product-name {
+  font-size: 1rem !important;
+  font-weight: 500 !important;
+  line-height: 1.4;
+}
+
+.product-wrap .price,
+.product-wrap .product-price,
+.product-wrap .product-price .price-new {
+  font-size: 1rem !important;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600 !important;
+}
+
+:where(.form-label, .form-control, .form-select, .input-group-text, .table, .account-content) {
+  font-size: .9375rem;
+}
+
+:where(.btn, button, [role="button"]) {
+  font-family: inherit;
+}
+
+:where(small, .small) {
+  font-size: var(--store-type-small);
+  line-height: 1.5;
+}
+
+@media (max-width: 767.98px) {
+  :root {
+    --store-type-body: 1rem;
+    --store-type-leading: 1.58;
+  }
+
+  main :where(.page-title, h1:not(.product-name)) {
+    font-size: clamp(1.875rem, 9vw, 2.75rem);
+  }
+
+  main :where(.module-title, h2) {
+    font-size: clamp(1.625rem, 7.5vw, 2.25rem);
+  }
+}

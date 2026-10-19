@@ -1,0 +1,72 @@
+<?php
+
+/**
+ * ProductSimple.php
+ *
+ * @copyright  2022 beikeshop.com - All Rights Reserved
+ * @link       https://beikeshop.com
+ * @author     guangda <service@guangda.work>
+ * @created    2022-06-23 11:33:06
+ * @modified   2022-06-23 11:33:06
+ */
+
+namespace Beike\Shop\Http\Resources;
+
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\JsonResource;
+
+class ProductSimple extends JsonResource
+{
+    /**
+     * 图片列表页Item
+     *
+     * @param Request $request
+     * @return array
+     * @throws \Exception
+     */
+    public function toArray($request): array
+    {
+        $masterSku = $this->masterSku;
+        if (empty($masterSku)) {
+            throw new \Exception("invalid master sku for product {$this->id}");
+        }
+
+        $name       = $this->description->name ?? '';
+        $images     = array_filter($this->images ?? [], function ($image) {
+            $isYouTube = str_contains($image, 'youtube.com/watch') || str_contains($image, 'youtu.be/');
+
+            return ! str_ends_with($image, '.mp4') && ! $isYouTube;
+        });
+        $firstImage = ! empty($images) ? reset($images) : '';
+
+        $data = [
+            'id'                     => $this->id,
+            'sku_id'                 => $masterSku->id,
+            'name'                   => $name,
+            'name_format'            => $name,
+            'url'                    => $this->url,
+            'price'                  => $masterSku->price,
+            'price_converted'        => (float) currency_format($masterSku->price, '', '', false),
+            'origin_price'           => $masterSku->origin_price,
+            'origin_price_converted' => (float) currency_format($masterSku->origin_price, '', '', false),
+            'currency_code'          => current_currency_code(),
+            'price_format'           => currency_format($masterSku->price),
+            'origin_price_format'    => currency_format($masterSku->origin_price),
+            'category_id'            => $this->category_id           ?? null,
+            'in_wishlist'            => $this->inCurrentWishlist->id ?? 0,
+            'status'                 => $this->active,
+            'image'                  => $firstImage,
+            'image_format'           => $firstImage ? image_resize($firstImage) : '',
+
+            'images'              => array_map(function ($item) {
+                if (str_ends_with($item, '.webp')) {
+                    return image_origin($item);
+                }
+
+                return image_resize($item, 560, calculate_height_by_ratio(560));
+            }, $images),
+        ];
+
+        return hook_filter('resource.product.simple', $data);
+    }
+}

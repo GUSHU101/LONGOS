@@ -1,0 +1,24 @@
+<?php
+
+return [
+    'brand_message'            => '精选商品，安全结账，可追踪物流与透明售后支持。',
+    'shopping_protection'      => '购物保障',
+    'policies'                 => '政策',
+    'customer_support'         => '客户支持',
+    'contact_us'               => '联系我们',
+    'track_order'              => '追踪订单',
+    'secure_payments'          => '安全付款',
+    'secure_payments_help'     => '结账过程全程加密并安全处理。',
+    'secure_badge'             => '受保护的结账',
+    'accepted_payments'        => '支持的付款方式',
+    'no_policies'              => '暂无已发布的政策。',
+    'all_rights_reserved'      => '保留所有权利。',
+    'bottom_note'              => '安全购物 · 透明政策',
+    'close_contact'            => '关闭联系方式',
+    'trade_name'               => '商家名称',
+    'email'                    => '电子邮箱',
+    'telephone'                => '联系电话',
+    'physical_address'         => '联系地址',
+    'not_provided'             => '暂未提供',
+    'custom_links'             => '店铺链接',
+];

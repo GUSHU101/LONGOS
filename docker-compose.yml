@@ -1,0 +1,267 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+x-app-environment: &app-environment
+  APP_NAME: LONGOS
+  APP_ENV: production
+  # Fresh resources use Coolify's persistent generated value. Existing sites
+  # can set APP_KEY_OVERRIDE to their complete historical APP_KEY so encrypted
+  # settings, cookies and integration credentials remain decryptable.
+  APP_KEY: "${APP_KEY_OVERRIDE:-base64:${SERVICE_REALBASE64_32_APPKEY}}"
+  APP_DEBUG: "false"
+  DOMAIN: ${DOMAIN:?Set the LONGOS control domain}
+  APP_URL: "https://${DOMAIN:?Set the LONGOS control domain}"
+  FRONTEND_URL: "https://${DOMAIN:?Set the LONGOS control domain}"
+  APP_FORCE_HTTPS: "true"
+  APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Shanghai}
+  LOG_CHANNEL: daily
+  LOG_LEVEL: ${LOG_LEVEL:-warning}
+  LONGOS_DEPLOYMENT_PLATFORM: coolify
+  LONGOS_UPDATER_ENABLED: "false"
+  LONGOS_PROXY_TOKEN: ${SERVICE_PASSWORD_64_PROXYTOKEN}
+  LONGOS_EDGE_ID: ${SERVICE_HEX_32_EDGEID}
+  LONGOS_TRUSTED_PROXIES: ""
+  DB_CONNECTION: mysql
+  DB_HOST: mysql
+  DB_PORT: "3306"
+  DB_DATABASE: ${DB_DATABASE:-longos}
+  DB_USERNAME: ${SERVICE_USER_DBUSER}
+  DB_PASSWORD: ${SERVICE_PASSWORD_64_DBPASSWORD}
+  CACHE_DRIVER: database
+  CACHE_DB_CONNECTION: saas
+  SESSION_DRIVER: database
+  SESSION_SECURE_COOKIE: "true"
+  QUEUE_CONNECTION: database
+  QUEUE_DB_CONNECTION: saas
+  QUEUE_FAILED_DB_CONNECTION: saas
+  SAAS_ENABLED: "true"
+  SAAS_DATABASE_MODE: ${SAAS_DATABASE_MODE:-prefix}
+  SAAS_SHARED_DATABASE: ${DB_DATABASE:-longos}
+  SAAS_BASE_DOMAIN: ${SAAS_BASE_DOMAIN:?Set the tenant base domain}
+  SAAS_CONTROL_DOMAINS: ${DOMAIN:?Set the LONGOS control domain}
+  SAAS_DEFAULT_SCHEME: https
+  SAAS_REJECT_UNKNOWN_DOMAINS: "true"
+  SAAS_HTTP_MANAGEMENT: "true"
+  SAAS_WEB_SERVER: caddy
+  SAAS_TLS_DRIVER: caddy
+  SAAS_TLS_EMAIL: ${SAAS_TLS_EMAIL:-${ADMIN_EMAIL:?Set the administrator email}}
+  SAAS_TLS_EXTERNAL_CONTROL_DOMAIN: "false"
+  SAAS_DNS_TARGETS: ${SAAS_DNS_TARGETS:-}
+  LONGOS_CLOUDFLARE_MODE: ${LONGOS_CLOUDFLARE_MODE:-optional}
+  # Optional DNS automation. Keep the token in Coolify's secret environment
+  # store; never commit it to .env or the repository.
+  CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
+  LONGOS_AUTO_CONFIGURE_MAIL_DNS: ${LONGOS_AUTO_CONFIGURE_MAIL_DNS:-true}
+  LONGOS_MAIL_RELAY_ENABLED: "true"
+  MAIL_MAILER: self_hosted
+  MAIL_RELAY_ENDPOINT: http://mail-relay:3000
+  MAIL_RELAY_HOSTNAME: ${MAIL_RELAY_HOSTNAME:-mailout.${SAAS_BASE_DOMAIN}}
+  MAIL_RELAY_DOMAINS: ${MAIL_RELAY_DOMAINS:-${SAAS_BASE_DOMAIN}}
+  MAIL_RELAY_ALLOWED_SENDER_DOMAINS: ${MAIL_RELAY_ALLOWED_SENDER_DOMAINS:-${MAIL_RELAY_DOMAINS:-${SAAS_BASE_DOMAIN}}}
+  MAIL_RELAY_PLATFORM_SENDER_DOMAIN: ${MAIL_RELAY_PLATFORM_SENDER_DOMAIN:-${SAAS_BASE_DOMAIN}}
+  MAIL_RELAY_SHARED_SECRET: ${SERVICE_PASSWORD_64_MAILRELAY}
+  CLOUD_MAIL_RELAY_SHARED_SECRET: ${SERVICE_PASSWORD_64_CLOUDMAIL}
+  MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-no-reply@${SAAS_BASE_DOMAIN}}
+  MAIL_FROM_NAME: ${MAIL_FROM_NAME:-LONGOS}
+
+x-app-volumes: &app-volumes
+  - longos-storage:/var/www/html/storage
+  - longos-plugins:/var/www/html/plugins
+  - longos-plugin-assets:/var/www/html/public/plugin
+  - longos-catalog:/var/www/html/public/image/catalog
+  - longos-uploads:/var/www/html/public/upload
+
+x-app-base: &app-base
+  build:
+    context: .
+    dockerfile: docker/nginx/Dockerfile
+  restart: unless-stopped
+  environment: *app-environment
+  volumes: *app-volumes
+  networks:
+    - longos
+  logging: *default-logging
+
+services:
+  # Coolify's integrated Caddy is the only public 80/443 edge. This container
+  # serves HTTP only on the private Docker network; no host port is published.
+  app:
+    <<: *app-base
+    expose:
+      - "80"
+    environment:
+      <<: *app-environment
+      ADMIN_NAME: ${ADMIN_NAME:-admin}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?Set the administrator email}
+      ADMIN_PASSWORD: ${SERVICE_PASSWORD_64_ADMIN}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      mail-relay:
+        # Storefront availability must not depend on temporary outbound-mail
+        # health. Failed queued mail is retried while relay diagnostics remain
+        # visible in the administration panel.
+        condition: service_started
+    networks:
+      longos: {}
+      coolify:
+        aliases:
+          - longos-${COOLIFY_RESOURCE_UUID:-app}
+    labels:
+      # Do not rely on caddy-docker-proxy's best-effort network detection: the
+      # app also has an isolated backend network that Coolify Caddy cannot use.
+      caddy_ingress_network: coolify
+      # Empty `caddy` creates global options in caddy-docker-proxy. The ask
+      # endpoint makes certificate issuance fail closed against LONGOS data.
+      caddy: ""
+      caddy.email: ${SAAS_TLS_EMAIL:-${ADMIN_EMAIL}}
+      caddy.on_demand_tls: ""
+      caddy.on_demand_tls.ask: "http://longos-${COOLIFY_RESOURCE_UUID:-app}/_longos/tls/authorize"
+      caddy.servers.0rtt: "off"
+      caddy.servers.strict_sni_host: "on"
+      caddy.servers.protocols: "h1 h2 h3"
+      caddy.servers.max_header_size: "64KiB"
+      # A hostless HTTPS site handles platform subdomains and verified tenant
+      # custom domains. Exact routes belonging to other Coolify resources keep
+      # their higher specificity and are not intercepted.
+      caddy_0: "https://"
+      caddy_0.tls.on_demand: ""
+      caddy_0.@longosTlsAsk.path: "/_longos/tls/authorize"
+      caddy_0.0_respond: "@longosTlsAsk 404"
+      caddy_0.encode: "zstd gzip"
+      caddy_0.request_body.max_size: "100MB"
+      caddy_0.header.Strict-Transport-Security: "max-age=31536000"
+      caddy_0.header.X-Content-Type-Options: "nosniff"
+      caddy_0.header.Referrer-Policy: "strict-origin-when-cross-origin"
+      caddy_0.header.Permissions-Policy: "camera=(), microphone=(), geolocation=()"
+      caddy_0.header.-Server: ""
+      caddy_0.reverse_proxy: "{{upstreams 80}}"
+      caddy_0.reverse_proxy.health_uri: "/api/health"
+      caddy_0.reverse_proxy.health_interval: "10s"
+      caddy_0.reverse_proxy.health_timeout: "3s"
+      caddy_0.reverse_proxy.health_headers.Host: ${DOMAIN}
+      caddy_0.reverse_proxy.lb_try_duration: "2s"
+      caddy_0.reverse_proxy.lb_try_interval: "250ms"
+      caddy_0.reverse_proxy.header_up_0: "X-Longos-Proxy-Token ${SERVICE_PASSWORD_64_PROXYTOKEN}"
+      caddy_0.reverse_proxy.header_up_1: "X-Longos-Edge-Remote {http.request.remote.host}"
+      caddy_0.reverse_proxy.transport: "http"
+      caddy_0.reverse_proxy.transport.network_proxy: "none"
+      caddy_0.reverse_proxy.transport.dial_timeout: "5s"
+      caddy_0.reverse_proxy.transport.response_header_timeout: "300s"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null -H \"Host: $${DOMAIN}\" http://127.0.0.1/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 600s
+
+  worker:
+    <<: *app-base
+    command: ["worker"]
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "php artisan queue:monitor default --max=1000 >/dev/null 2>&1 || exit 1"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 120s
+
+  scheduler:
+    <<: *app-base
+    command: ["scheduler"]
+    depends_on:
+      app:
+        condition: service_healthy
+
+  mysql:
+    image: mysql:8.4.11
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${SERVICE_PASSWORD_64_DBROOT}
+      MYSQL_DATABASE: ${DB_DATABASE:-longos}
+      MYSQL_USER: ${SERVICE_USER_DBUSER}
+      MYSQL_PASSWORD: ${SERVICE_PASSWORD_64_DBPASSWORD}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - longos
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_PASSWORD mysqladmin ping -h 127.0.0.1 -u$$MYSQL_USER --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    logging: *default-logging
+
+  # Outbound-only Postfix/OpenDKIM engine. Port 25 is never published; only
+  # the replay-protected HMAC API is reachable from the private stack network.
+  mail-relay:
+    build:
+      context: ./docker/mail-relay
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      MAIL_HOSTNAME: ${MAIL_RELAY_HOSTNAME:-mailout.${SAAS_BASE_DOMAIN}}
+      MAIL_DOMAINS: ${MAIL_RELAY_DOMAINS:-${SAAS_BASE_DOMAIN}}
+      ALLOWED_SENDER_DOMAINS: ${MAIL_RELAY_ALLOWED_SENDER_DOMAINS:-${MAIL_RELAY_DOMAINS:-${SAAS_BASE_DOMAIN}}}
+      LONGOS_RELAY_SHARED_SECRET: ${SERVICE_PASSWORD_64_MAILRELAY}
+      CLOUD_MAIL_RELAY_SHARED_SECRET: ${SERVICE_PASSWORD_64_CLOUDMAIL}
+      DKIM_SELECTOR: ${MAIL_RELAY_DKIM_SELECTOR:-mail2026}
+      INET_PROTOCOLS: ${MAIL_RELAY_INET_PROTOCOLS:-ipv4}
+      SMTP_INET_INTERFACES: loopback-only
+      SMTP_MYNETWORKS: 127.0.0.0/8
+      MAX_REQUEST_BYTES: ${MAIL_RELAY_MAX_REQUEST_BYTES:-26214400}
+      MAX_ATTACHMENT_BYTES: ${MAIL_RELAY_MAX_ATTACHMENT_BYTES:-20971520}
+      MAX_ATTACHMENTS: ${MAIL_RELAY_MAX_ATTACHMENTS:-25}
+      MAX_RECIPIENTS: ${MAIL_RELAY_MAX_RECIPIENTS:-50}
+      MAX_REQUESTS_PER_MINUTE: ${MAIL_RELAY_MAX_REQUESTS_PER_MINUTE:-120}
+      MAX_REQUESTS_PER_MINUTE_GLOBAL: ${MAIL_RELAY_MAX_REQUESTS_PER_MINUTE_GLOBAL:-1200}
+      MAX_NONCE_RECORDS: ${MAIL_RELAY_MAX_NONCE_RECORDS:-12000}
+      SIGNATURE_WINDOW_SECONDS: ${MAIL_RELAY_SIGNATURE_WINDOW_SECONDS:-300}
+      IDEMPOTENCY_RETENTION_SECONDS: ${MAIL_RELAY_IDEMPOTENCY_RETENTION_SECONDS:-86400}
+      MAX_IDEMPOTENCY_RECORDS: ${MAIL_RELAY_MAX_IDEMPOTENCY_RECORDS:-100000}
+      MAX_QUEUE_MESSAGES: ${MAIL_RELAY_MAX_QUEUE_MESSAGES:-1000}
+      PROCESS_CHECK_INTERVAL_SECONDS: ${MAIL_RELAY_PROCESS_CHECK_INTERVAL_SECONDS:-5}
+      IDEMPOTENCY_STORE_PATH: /var/lib/mail-relay-state/receipts.jsonl
+    expose:
+      - "3000"
+    volumes:
+      - mail-relay-spool:/var/spool/postfix
+      - mail-relay-dkim:/var/lib/dkim
+      - mail-relay-state:/var/lib/mail-relay-state
+    networks:
+      - longos
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging: *default-logging
+
+networks:
+  longos:
+    driver: bridge
+  # Coolify's integrated Caddy lives on this predefined external network.
+  coolify:
+    external: true
+
+volumes:
+  mysql-data:
+  longos-storage:
+  longos-plugins:
+  longos-plugin-assets:
+  longos-catalog:
+  longos-uploads:
+  mail-relay-spool:
+  mail-relay-dkim:
+  mail-relay-state:
+
