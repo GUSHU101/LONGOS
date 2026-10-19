@@ -1,0 +1,30 @@
+# Runtime/marketplace plugins live in the persistent plugins volume and must
+# not be added to a release accidentally.  Release-owned plugins are an
+# explicit allowlist so a clean Git checkout contains the same application
+# features that are built and tested locally.
+*
+!.gitignore
+!_theme-quality.scss
+
+# Test fixture: tracked for the regression suite, excluded from production by
+# .dockerignore.
+!BeikeShopTestSandbox/
+!BeikeShopTestSandbox/**
+
+# LONGOS bundled production plugins.
+!FlatShipping/
+!FlatShipping/**
+!LongosChristmasTheme/
+!LongosChristmasTheme/**
+!LongosLiveChat/
+!LongosLiveChat/**
+!LongosProductReviews/
+!LongosProductReviews/**
+!Paypal/
+!Paypal/**
+!PixelTracking/
+!PixelTracking/**
+!ShopifyProductTransfer/
+!ShopifyProductTransfer/**
+!Stripe/
+!Stripe/**

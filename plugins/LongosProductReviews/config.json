@@ -1,0 +1,18 @@
+{
+  "code": "longos_product_reviews",
+  "name": {
+    "zh_cn": "LONGOS 商品评论",
+    "en": "LONGOS Product Reviews"
+  },
+  "description": {
+    "zh_cn": "在后台按商品维护图文星级评论，并在商品详情页展示评分摘要、星级分布和评论图片。",
+    "en": "Manage product-specific ratings, written reviews and review photos, with a storefront rating summary and review gallery."
+  },
+  "type": "feature",
+  "version": "v1.2.0",
+  "icon": "/image/longos-favicon.svg",
+  "author": {
+    "name": "LONGOS",
+    "email": "admin@example.com"
+  }
+}

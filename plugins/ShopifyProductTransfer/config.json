@@ -1,0 +1,18 @@
+{
+  "code": "shopify_product_transfer",
+  "name": {
+    "zh_cn": "Shopify 商品导入导出",
+    "en": "Shopify Product Transfer"
+  },
+  "description": {
+    "zh_cn": "导入 Shopify CSV 商品，并以 Shopify CSV 格式批量导出 LONGOS 商品。",
+    "en": "Import Shopify product CSV files and bulk export LONGOS products in Shopify CSV format."
+  },
+  "type": "feature",
+  "version": "v1.6.7",
+  "icon": "/image/logo.png",
+  "author": {
+    "name": "LONGOS",
+    "email": "support@example.com"
+  }
+}

@@ -27,6 +27,34 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      - name: Verify release-owned plugin sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          plugins=(
+            FlatShipping
+            LongosLiveChat
+            LongosProductReviews
+            Paypal
+            PixelTracking
+            ShopifyProductTransfer
+            Stripe
+          )
+          for plugin in "${plugins[@]}"; do
+            test -f "plugins/${plugin}/Bootstrap.php" || {
+              echo "Missing release-owned plugin source: ${plugin}" >&2
+              exit 1
+            }
+          done
+          test -f plugins/LongosChristmasTheme/config.json || {
+            echo "Missing release-owned theme source: LongosChristmasTheme" >&2
+            exit 1
+          }
+          test -f plugins/BeikeShopTestSandbox/Bootstrap.php || {
+            echo "Missing test sandbox source required by the regression suite" >&2
+            exit 1
+          }
+
       - uses: shivammathur/setup-php@d52fc211a0436f8839a587b3b5b8efddab4744ea # v2
         with:
           php-version: '8.2'

@@ -1,0 +1,18 @@
+{
+  "code": "pixel_tracking",
+  "name": {
+    "zh_cn": "多渠道像素与服务端追踪",
+    "en": "Multi-channel Pixel & Server Tracking"
+  },
+  "description": {
+    "zh_cn": "Meta/Facebook 与 TikTok 像素、Conversions API/Events API、UTM 归因和服务端订单追踪。",
+    "en": "Meta/Facebook and TikTok pixels, Conversions API/Events API, UTM attribution, and server-side order tracking."
+  },
+  "type": "feature",
+  "version": "v1.4.0",
+  "icon": "/image/logo.png",
+  "author": {
+    "name": "LONGOS",
+    "email": "admin@example.com"
+  }
+}

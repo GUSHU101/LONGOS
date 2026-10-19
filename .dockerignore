@@ -8,6 +8,10 @@ docs
 tests
 phpunit.xml
 pint.json
+# This plugin is a source-level regression fixture. It is deliberately kept
+# out of immutable production images even though its guarded checkout paths
+# are disabled by default.
+plugins/BeikeShopTestSandbox
 .env
 .env.*
 !.env.example

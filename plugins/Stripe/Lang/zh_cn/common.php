@@ -1,0 +1,52 @@
+<?php
+
+/**
+ * dd.php
+ *
+ * @copyright  2022 beikeshop.com - All Rights Reserved
+ * @link       https://beikeshop.com
+ * @author     guangda <service@guangda.work>
+ * @created    2022-07-28 16:19:06
+ * @modified   2022-07-28 16:19:06
+ */
+
+return [
+    'publishable_key'     => '公钥',
+    'webhook_secret'      => 'Webhook 密钥',
+    'webhook_secret_desc' => <<<'HTML'
+<div class="mt-2 rounded-3 border border-warning-subtle bg-light p-3">
+  <div class="fw-bold mb-2">如何获取这个值</div>
+  <div class="text-muted mb-2">如需验证 Stripe Webhook 签名，请填写签名密钥，通常以 <code>whsec_</code> 开头。不要填写 API 密钥，例如 <code>sk_test_...</code> 或 <code>sk_live_...</code>。</div>
+  <div class="text-muted mb-2">LONGOS 会用它校验 Webhook 回调是否真的来自 Stripe。插件启用时此项为必填。</div>
+  <div class="mb-1">具体步骤：</div>
+  <ol class="mb-2 ps-3">
+    <li>登录 Stripe Dashboard。</li>
+    <li>进入 <strong>Developers（开发者）</strong> -> <strong>Webhooks</strong>。</li>
+    <li>点击你的 Webhook Endpoint；如果还没有，就先创建一个 Endpoint。</li>
+    <li>创建 Endpoint 时选择 <code>payment_intent.succeeded</code>；如仍需兼容旧版支付，也可同时选择 <code>charge.succeeded</code>。</li>
+    <li>创建完成后，点击刚创建的 Endpoint。</li>
+    <li>找到 <strong>Signing secret</strong>。</li>
+    <li>点击 <strong>Reveal</strong>（显示）。</li>
+    <li>复制显示出来的 Signing Secret，然后粘贴到这里的 <strong>Webhook 密钥</strong> 输入框。</li>
+  </ol>
+  <div class="text-muted">建议使用租户保留的平台子域名：<code>https://租户平台子域名/callback/stripe</code>，避免更换自定义域名后丢失回调；测试与正式环境分别使用各自的 Webhook 密钥。</div>
+</div>
+HTML,
+
+    'title_info'      => '卡信息',
+    'cardnum'         => '卡号',
+    'expiration_date' => '截止日期',
+    'year'            => '选择年',
+    'month'           => '选择月',
+    'cvv'             => '安全码',
+    'remenber'        => '记住这张卡以便将来使用',
+    'btn_submit'      => '提交支付',
+
+    'error_cardnum'   => '请输入卡号',
+    'error_cvv'       => '请输入安全码',
+    'error_year'      => '请选择年',
+    'error_month'     => '请选择月',
+
+    'capture_success' => '支付成功',
+    'capture_fail'    => '支付失败',
+];

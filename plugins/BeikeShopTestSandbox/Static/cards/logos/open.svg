@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 48" role="img" aria-label="Open demo">
+  <rect width="160" height="48" rx="10" fill="#ffffff" fill-opacity=".94"/>
+  <path d="M20 14h12v20H20zM39 14h12v20H39z" fill="#164e63"/>
+  <path d="M26 8h19v32H26z" fill="none" stroke="#0f172a" stroke-width="3"/>
+  <text x="62" y="30" fill="#0f172a" font-family="Arial, sans-serif" font-size="17" font-weight="700">OPEN DEMO</text>
+</svg>

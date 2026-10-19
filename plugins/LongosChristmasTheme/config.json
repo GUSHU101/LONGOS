@@ -1,0 +1,19 @@
+{
+  "code": "longos_christmas",
+  "name": {
+    "zh_cn": "LONGOS 圣诞礼遇主题",
+    "en": "LONGOS Christmas Atelier"
+  },
+  "description": {
+    "zh_cn": "为欧美外贸独立站打造的独立圣诞主题，包含全新页头、页尾、首页、导航、商品卡片与全站响应式视觉系统。",
+    "en": "An independent Christmas storefront theme for Western markets with a new header, footer, homepage, navigation, product cards and responsive visual system."
+  },
+  "type": "theme",
+  "version": "v1.1.0",
+  "icon": "/image/longos-favicon.svg",
+  "theme": "image/theme-preview.svg",
+  "author": {
+    "name": "LONGOS",
+    "email": "support@example.com"
+  }
+}

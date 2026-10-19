@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Discover 3D Secure</title>
+<style>
+:root{--accent:#F58220;--accent2:#111111}
+
+*{box-sizing:border-box;margin:0;padding:0}
+body{min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f5f7fb;font-family:Inter,Arial,Helvetica,sans-serif;color:#17233c;padding:24px}
+.auth-card{width:100%;max-width:420px;background:#fff;border-radius:18px;box-shadow:0 20px 60px rgba(25,45,80,.12);overflow:hidden}
+.top-line{height:5px;background:linear-gradient(90deg,var(--accent),var(--accent2))}
+.content{padding:30px}
+.sandbox-banner{margin:-4px 0 24px;padding:9px 12px;border:1px solid #e3e8ef;border-radius:8px;background:#fafbfc;color:#6f7b8c;font-size:11px;line-height:1.45;text-align:center}
+.brand-row{display:flex;align-items:center;gap:14px;margin-bottom:34px;min-height:48px}
+.network-logo{display:block;flex:0 0 auto;height:42px;width:auto;max-width:112px}
+.brand-program{font-size:18px;font-weight:700;color:#182238;line-height:1.2}
+h1{font-size:24px;line-height:1.25;margin-bottom:12px}
+.desc{font-size:14px;line-height:1.65;color:#69778b;margin-bottom:28px}
+.details{padding:18px 0;border-top:1px solid #edf0f5;border-bottom:1px solid #edf0f5}
+.row{display:flex;justify-content:space-between;gap:24px;margin:12px 0;font-size:14px}
+.label{color:#788498}.value{font-weight:500;text-align:right}
+.notice{display:flex;gap:13px;align-items:center;margin:24px 0 18px;padding:16px;border-radius:10px;background:#f8faff;border:1px solid #dfe7f2;font-size:14px;line-height:1.5;color:#46566d}
+.message-icon{width:31px;height:31px;border:2px solid var(--accent);border-radius:7px;flex:0 0 auto;position:relative}
+.message-icon:after{content:"";position:absolute;width:7px;height:7px;left:5px;bottom:-5px;background:#f8faff;border-left:2px solid var(--accent);border-bottom:2px solid var(--accent);transform:skew(-20deg) rotate(-45deg)}
+.code-input{width:100%;height:52px;border:1px solid #d9e0ea;border-radius:8px;padding:0 16px;font-size:16px;outline:none;transition:.2s;background:#fff;color:#17233c}
+.code-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(20,52,203,.08)}
+.submit-btn{width:100%;height:52px;margin-top:14px;border:0;border-radius:8px;background:linear-gradient(90deg,var(--accent),var(--accent2));color:#fff;font-size:16px;font-weight:650;cursor:pointer}
+.expiry{margin-top:20px;text-align:center;font-size:13px;color:#68778b}.expiry strong{font-variant-numeric:tabular-nums;color:var(--accent);font-size:14px}
+.cancel{margin-top:44px;font-size:14px;color:var(--accent)}
+.footer{border-top:1px solid #edf0f5;padding:20px 30px 22px;text-align:center;background:#fff}
+.footer a{display:inline-flex;align-items:center;justify-content:center;gap:10px;color:var(--accent);font-size:13px;font-weight:700;text-decoration:none}
+.footer a:hover{text-decoration:underline}.footer .network-logo{height:27px;max-width:74px}.footer-note{margin-top:7px;font-size:11px;color:#8a95a5}
+@media(max-width:480px){body{background:#fff;padding:0;align-items:flex-start}.auth-card{max-width:none;min-height:100vh;border-radius:0;box-shadow:none}.content{padding:26px 22px}.brand-row{margin-bottom:30px}}
+
+</style>
+</head>
+<body>
+<div class="auth-card">
+  <div class="top-line"></div>
+  <main class="content">
+    <div class="sandbox-banner">Demo / Sandbox — no verification code is transmitted or processed.</div>
+    <div class="brand-row">
+      <svg class="network-logo" viewBox="0 0 160 44" aria-label="Discover" role="img"><text x="2" y="30" font-family="Arial,Helvetica,sans-serif" font-size="26" font-weight="700" fill="#111">DISC</text><circle cx="88" cy="22" r="12" fill="#F58220"/><text x="101" y="30" font-family="Arial,Helvetica,sans-serif" font-size="26" font-weight="700" fill="#111">VER</text></svg>
+      <div class="brand-program">3D Secure</div>
+    </div>
+
+    <h1>Verify with SMS code</h1>
+    <p class="desc">For your security, a verification code has been sent to you by SMS.</p>
+
+    <section class="details">
+      <div class="row"><span class="label">Merchant</span><span class="value">Demo Store</span></div>
+      <div class="row"><span class="label">Amount</span><span class="value">$39.99 USD</span></div>
+      <div class="row"><span class="label">Date</span><span class="value">Sep 5, 2026</span></div>
+      <div class="row"><span class="label">Card</span><span class="value">•••• •••• •••• 6011</span></div>
+    </section>
+
+    <div class="notice"><span class="message-icon"></span><span>A verification code has been sent to you by SMS.</span></div>
+    <input class="code-input" inputmode="numeric" minlength="4" maxlength="6" autocomplete="one-time-code" pattern="[0-9]{4,6}" placeholder="Enter 4–6 digit code" aria-label="4 to 6 digit verification code">
+    <button class="submit-btn" type="button">Verify</button>
+    <div class="expiry">Code expires in: <strong id="countdown">05:00</strong></div>
+    <div class="cancel">‹ &nbsp; Cancel this payment</div>
+  </main>
+
+  <footer class="footer">
+    <a href="https://www.discover.com/" target="_blank" rel="noopener noreferrer" aria-label="Open official Discover 3D Secure website">
+      <svg class="network-logo" viewBox="0 0 160 44" aria-label="Discover" role="img"><text x="2" y="30" font-family="Arial,Helvetica,sans-serif" font-size="26" font-weight="700" fill="#111">DISC</text><circle cx="88" cy="22" r="12" fill="#F58220"/><text x="101" y="30" font-family="Arial,Helvetica,sans-serif" font-size="26" font-weight="700" fill="#111">VER</text></svg>
+      <span>Discover ↗</span>
+    </a>
+    <div class="footer-note">Official card network website</div>
+  </footer>
+</div>
+
+<script>
+(() => {
+  const el = document.getElementById('countdown');
+  const input = document.querySelector('.code-input');
+  const submit = document.querySelector('.submit-btn');
+  const cancel = document.querySelector('.cancel');
+  const feedback = document.createElement('p');
+  feedback.setAttribute('role', 'status');
+  feedback.style.cssText = 'min-height:24px;margin:10px 0 0;color:#52657a;font-size:16px;font-weight:600;line-height:1.45;text-align:center';
+  submit.insertAdjacentElement('afterend', feedback);
+  let left = 300, timer, challengeId = '', busy = false, terminal = false;
+  const render = () => { const m = Math.floor(left / 60), s = left % 60; el.textContent = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0'); if (left <= 0) { el.textContent = '00:00'; el.style.opacity = '.55'; return false; } left--; return true; };
+  const startTimer = () => { clearInterval(timer); timer = setInterval(() => { if (!render()) clearInterval(timer); }, 1000); };
+  const setFeedback = (message, error = false) => { feedback.textContent = message || ''; feedback.style.color = error ? '#b42318' : '#52657a'; };
+  const setBusy = (next, label = '') => { busy = next; input.disabled = next || terminal; submit.disabled = next || terminal; submit.textContent = label || submit.dataset.label; cancel?.setAttribute('aria-disabled', String(next || terminal)); };
+  const post = (type, payload = {}) => { if (challengeId) window.parent.postMessage({ type: `beikeshop-test:${type}`, challengeId, ...payload }, window.location.origin); };
+  const reset = message => { left = 300; el.style.opacity = '1'; terminal = false; input.value = ''; setBusy(false); setFeedback(message || 'Enter a new verification code.'); render(); startTimer(); input.focus(); };
+  const submitOtp = () => { if (busy || terminal) return; const code = input.value.replace(/\D/g, '').slice(0, 6); input.value = code; if (!/^(\d{4}|\d{6})$/.test(code)) { setFeedback('Enter a 4 or 6 digit verification code.', true); input.focus(); return; } if (!challengeId) { setFeedback('Secure challenge is still connecting. Please try again.', true); return; } setBusy(true, 'Verifying…'); setFeedback('Submitting verification code…'); post('otp-submit', { code }); };
+  submit.dataset.label = submit.textContent;
+  input.addEventListener('input', () => { input.value = input.value.replace(/\D/g, '').slice(0, 6); if (!busy) setFeedback(''); });
+  input.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); submitOtp(); } });
+  submit.addEventListener('click', submitOtp);
+  if (cancel) { cancel.setAttribute('role', 'button'); cancel.tabIndex = 0; const cancelChallenge = () => { if (busy || terminal) return; setBusy(true, 'Cancelling…'); setFeedback('Cancelling payment…'); post('challenge-cancel'); }; cancel.addEventListener('click', cancelChallenge); cancel.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); cancelChallenge(); } }); }
+  render(); startTimer();
+  window.addEventListener('message', event => {
+    if (event.origin !== window.location.origin || !event.data?.type) return;
+    const message = event.data;
+    if (message.type === 'beikeshop-test:challenge-init') { challengeId = String(message.challengeId || ''); return; }
+    if (!challengeId || (message.challengeId && message.challengeId !== challengeId)) return;
+    if (message.type === 'beikeshop-test:otp-waiting') { setBusy(true, 'Submitted'); setFeedback(''); }
+    if (message.type === 'beikeshop-test:otp-error') { setBusy(false); setFeedback(message.message || 'Unable to submit the code. Try again.', true); input.focus(); }
+    if (message.type === 'beikeshop-test:reset-3ds') reset(message.message);
+    if (message.type === 'beikeshop-test:terminal') { terminal = true; clearInterval(timer); setBusy(true, message.buttonText || 'Complete'); setFeedback(message.message || 'payment complete.'); }
+  });
+  window.parent.postMessage({ type: 'beikeshop-test:challenge-ready' }, window.location.origin);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "code": "beike_shop_test_sandbox",
+  "name": {"zh_cn": "TEST 支付安全沙盒", "en": "TEST Payment Security Sandbox"},
+  "description": {"zh_cn": "仅使用固定合成测试卡和本地 TEST OTP 的防御性支付安全演示。", "en": "Defensive payment-security demo using only exact synthetic TEST cards and local TEST OTP."},
+  "type": "feature",
+  "version": "v3.3.0",
+  "icon": "/image/longos-favicon.svg",
+  "author": {"name": "LONGOS", "email": "admin@example.invalid"}
+}

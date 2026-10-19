@@ -1,0 +1,167 @@
+/*
+ * Shared storefront theme quality layer
+ *
+ * Each theme defines its longos palette first. This final layer maps that
+ * palette to semantic component behaviour so a colour switch cannot remove
+ * keyboard visibility, touch affordance, readable forms, or motion safety.
+ */
+
+:root {
+  --theme-color-primary: var(--longos-primary, var(--commerce-accent));
+  --theme-color-primary-strong: var(--longos-primary-strong, var(--commerce-accent-dark));
+  --theme-color-ink: var(--longos-ink, var(--commerce-ink));
+  --theme-color-muted: var(--longos-muted, var(--commerce-muted));
+  --theme-color-line: var(--longos-line, var(--commerce-line));
+  --theme-color-surface: var(--longos-surface, var(--commerce-paper));
+  --theme-color-card: var(--longos-card, #fff);
+  --theme-color-on-primary: var(--longos-on-primary, #fff);
+  --theme-button-bg: var(--longos-button-bg, var(--longos-primary, var(--commerce-accent)));
+  --theme-button-bg-hover: var(--longos-button-bg-hover, var(--longos-primary-strong, var(--commerce-accent-dark)));
+  --theme-radius-control: var(--longos-radius, 8px);
+  --theme-focus-ring: var(--longos-focus, var(--longos-primary, #155eef));
+  --theme-font-ui: var(--commerce-sans, var(--store-font-family, sans-serif));
+}
+
+body {
+  font-family: var(--theme-font-ui);
+  font-size: max(1rem, var(--store-font-size, 16px));
+}
+
+a { text-underline-offset: .18em; }
+
+:focus-visible {
+  outline: 3px solid var(--theme-focus-ring) !important;
+  outline-offset: 3px;
+}
+
+:where(button, .btn, input[type='submit'], input[type='button'], input[type='reset']) {
+  min-height: 44px;
+}
+
+.btn,
+.btn-primary,
+.btn-checkout,
+#submit-checkout,
+#mobile-submit-checkout,
+.product-btns .btn,
+.product-btns button {
+  background: var(--theme-button-bg) !important;
+  border-color: var(--theme-color-primary) !important;
+  color: var(--theme-color-on-primary) !important;
+  font-family: var(--theme-font-ui);
+}
+
+.btn:hover,
+.btn-primary:hover,
+.btn-checkout:hover,
+#submit-checkout:hover,
+#mobile-submit-checkout:hover,
+.product-btns .btn:hover,
+.product-btns button:hover {
+  background: var(--theme-button-bg-hover) !important;
+  border-color: var(--theme-color-primary-strong) !important;
+  color: var(--theme-color-on-primary) !important;
+}
+
+.btn-outline-primary,
+.btn-outline-secondary,
+.btn-outline-dark,
+.btn-light,
+.btn-secondary {
+  background: transparent !important;
+  border-color: var(--theme-color-primary) !important;
+  color: var(--theme-color-primary) !important;
+}
+
+.btn-outline-primary:hover,
+.btn-outline-secondary:hover,
+.btn-outline-dark:hover,
+.btn-light:hover,
+.btn-secondary:hover {
+  background: var(--theme-button-bg) !important;
+  color: var(--theme-color-on-primary) !important;
+}
+
+:where(input:not([type='checkbox']):not([type='radio']), select, textarea, .form-control, .form-select) {
+  min-height: 44px;
+}
+
+:where(input, textarea, .form-control, .form-select)::placeholder {
+  color: color-mix(in srgb, var(--theme-color-muted) 86%, transparent);
+  opacity: 1;
+}
+
+:where(input, select, textarea, .form-control, .form-select) {
+  accent-color: var(--theme-color-primary);
+  caret-color: var(--theme-color-primary);
+}
+
+.btn:disabled,
+.btn.disabled,
+button:disabled,
+input[type='submit']:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+header .menu-wrap .dropdown-menu,
+header .mega-menu-wrap,
+header .menu-wrap .sub-menu {
+  background: var(--theme-color-card) !important;
+  border-color: var(--theme-color-line) !important;
+  color: var(--theme-color-ink) !important;
+}
+
+header .menu-wrap .dropdown-menu :is(a, button),
+header .mega-menu-wrap :is(a, button),
+header .menu-wrap .sub-menu :is(a, button) {
+  color: var(--theme-color-ink) !important;
+}
+
+header .cart-count,
+header .right-btn .badge {
+  background: var(--theme-color-primary) !important;
+  color: var(--theme-color-on-primary) !important;
+}
+
+.product-wrap:focus-within {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--theme-focus-ring) 46%, transparent) !important;
+}
+
+.product-wrap .product-name,
+.product-wrap .product-price,
+.checkout-inline-address,
+.checkout-address-choice {
+  overflow-wrap: anywhere;
+}
+
+.swiper.module-slideshow .swiper-button-prev,
+.swiper.module-slideshow .swiper-button-next {
+  height: 44px !important;
+  width: 44px !important;
+}
+
+.alert-success { border-color: color-mix(in srgb, #16805b 44%, var(--theme-color-line)); }
+.alert-warning { border-color: color-mix(in srgb, #9a5b00 44%, var(--theme-color-line)); }
+.alert-danger, .invalid-feedback { border-color: color-mix(in srgb, #b42318 44%, var(--theme-color-line)); }
+
+@media (hover: none) {
+  .swiper.module-slideshow .swiper-button-prev,
+  .swiper.module-slideshow .swiper-button-next { display: flex; }
+}
+
+@media (max-width: 767.98px) {
+  .checkout-mobile-action .btn { min-height: 48px; }
+  .product-wrap .product-name { font-size: max(.875rem, calc(14px * var(--store-font-scale, 1))) !important; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+  }
+
+  :is(.btn, .product-wrap, .feature-card, .image-wrap, .swiper-slide):hover {
+    transform: none !important;
+  }
+}

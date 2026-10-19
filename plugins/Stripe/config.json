@@ -1,0 +1,18 @@
+{
+    "code": "stripe",
+    "name": {
+        "zh_cn": "Stripe 支付",
+        "en": "Stripe"
+    },
+    "description": {
+        "zh_cn": "Stripe 支付 <a href='https://stripe.com/' target='_blank' rel='noopener noreferrer'>Stripe</a>",
+        "en": "Stripe"
+    },
+    "type": "payment",
+    "version": "v1.2.0",
+    "icon": "/image/logo.png",
+    "author": {
+        "name": "成都光大网络科技有限公司",
+        "email": "service@guangda.work"
+    }
+}

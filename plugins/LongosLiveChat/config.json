@@ -1,0 +1,9 @@
+{
+  "code": "longos_live_chat",
+  "name": {"zh_cn": "LONGOS 在线客服", "en": "LONGOS Live Chat"},
+  "description": {"zh_cn": "站内在线客服：访客发起会话，后台实时接收和回复，无需第三方客服平台。", "en": "Native live chat for visitors and administrators, without a third-party support platform."},
+  "type": "feature",
+  "version": "v1.2.1",
+  "icon": "/image/longos-favicon.svg",
+  "author": {"name": "LONGOS", "email": "admin@example.com"}
+}

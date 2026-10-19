@@ -1,0 +1,18 @@
+{
+    "code": "flat_shipping",
+    "name": {
+        "zh_cn": "固定运费",
+        "en": "Flat Rate Shipping"
+    },
+    "description": {
+        "zh_cn": "支持固定、比例、重量阶梯、地区、订单金额门槛和免邮的配送规则",
+        "en": "Flexible fixed, percentage, weight-tier, regional, order-threshold, and free-shipping rules"
+    },
+    "type": "shipping",
+    "version": "v1.3.0",
+    "icon": "/image/logo.png",
+    "author": {
+        "name": "成都光大网络科技有限公司",
+        "email": "service@guangda.work"
+    }
+}

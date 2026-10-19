@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">LONGOS Christmas Atelier theme preview</title>
+  <desc id="desc">An evergreen and warm ivory holiday storefront with editorial typography and product cards.</desc>
+  <rect width="1200" height="760" fill="#f7f1e7"/>
+  <rect width="1200" height="34" fill="#12372a"/>
+  <text x="600" y="23" fill="#f7f1e7" font-family="Arial,sans-serif" font-size="11" text-anchor="middle" letter-spacing="2">SEASONAL DELIVERY OPTIONS AVAILABLE AT CHECKOUT</text>
+  <rect y="34" width="1200" height="82" fill="#fffdf8"/>
+  <text x="68" y="84" fill="#12372a" font-family="Georgia,serif" font-size="28" font-weight="700">LONGOS</text>
+  <text x="464" y="80" fill="#1c211d" font-family="Arial,sans-serif" font-size="12" letter-spacing="2">NEW IN   GIFTS   HOME   WINTER EDIT   TRACK ORDER</text>
+  <rect y="116" width="1200" height="410" fill="#12372a"/>
+  <circle cx="1012" cy="162" r="235" fill="#1b4b3a"/>
+  <circle cx="1060" cy="426" r="170" fill="#8f1d2c" opacity=".86"/>
+  <path d="M910 382l70-146 70 146h-41l59 116H892l59-116z" fill="#f7f1e7" opacity=".94"/>
+  <circle cx="980" cy="236" r="9" fill="#c39a55"/>
+  <text x="86" y="218" fill="#c39a55" font-family="Arial,sans-serif" font-size="13" letter-spacing="4">CHRISTMAS COLLECTION</text>
+  <text x="84" y="296" fill="#fffdf8" font-family="Georgia,serif" font-size="55">Gifts wrapped</text>
+  <text x="84" y="358" fill="#fffdf8" font-family="Georgia,serif" font-size="55">in wonder.</text>
+  <text x="86" y="407" fill="#dce7df" font-family="Arial,sans-serif" font-size="17">An elegant holiday edit for winter homes and everyone on your list.</text>
+  <rect x="86" y="448" width="204" height="48" rx="2" fill="#c39a55"/>
+  <text x="188" y="478" fill="#12372a" font-family="Arial,sans-serif" font-size="13" font-weight="700" text-anchor="middle" letter-spacing="1">SHOP THE EDIT</text>
+  <rect x="58" y="562" width="1084" height="150" rx="4" fill="#fffdf8"/>
+  <text x="82" y="601" fill="#8f1d2c" font-family="Arial,sans-serif" font-size="11" letter-spacing="3">CURATED FOR THE SEASON</text>
+  <g fill="#e9dfd0"><rect x="82" y="622" width="150" height="64"/><rect x="252" y="622" width="150" height="64"/><rect x="422" y="622" width="150" height="64"/><rect x="592" y="622" width="150" height="64"/><rect x="762" y="622" width="150" height="64"/><rect x="932" y="622" width="150" height="64"/></g>
+</svg>

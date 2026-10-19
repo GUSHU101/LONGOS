@@ -94,6 +94,7 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringContainsString("\nnode_modules\n", $dockerignore);
         self::assertStringContainsString("\nvendor\n", $dockerignore);
         self::assertStringContainsString("\ntests\n", $dockerignore);
+        self::assertStringContainsString("\nplugins/BeikeShopTestSandbox\n", $dockerignore);
         self::assertStringContainsString("\ndocs\n", $dockerignore);
         self::assertStringContainsString("\nscripts/*\n!scripts/container-permissions.sh\n", $dockerignore);
         self::assertStringContainsString("\nbootstrap/cache/*\n!bootstrap/cache/.gitignore\n", $dockerignore);
