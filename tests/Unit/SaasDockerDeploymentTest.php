@@ -162,6 +162,7 @@ class SaasDockerDeploymentTest extends TestCase
     {
         $compose = $this->read('docker-compose.yml');
         $relay   = $this->read('docker/mail-relay/entrypoint.sh');
+        $ci      = $this->read('.github/workflows/ci.yml');
 
         self::assertStringContainsString('command: ["worker"]', $compose);
         self::assertStringContainsString('command: ["scheduler"]', $compose);
@@ -179,6 +180,11 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringContainsString('pgrep -x opendkim >/dev/null 2>&1', $relay);
         self::assertStringContainsString('A required mail relay process exited', $relay);
         self::assertStringContainsString('--tries=5 --backoff=30', $this->read('docker/nginx/start.sh'));
+        self::assertStringContainsString('wait_for_healthy worker', $ci);
+        self::assertStringContainsString('http://127.0.0.1/_longos/tls/authorize', $ci);
+        self::assertStringContainsString('unregistered.example.test', $ci);
+        self::assertStringContainsString('dkim_before=', $ci);
+        self::assertStringContainsString('test "$dkim_after" = "$dkim_before"', $ci);
     }
 
     public function test_public_php_execution_and_health_check_remain_fail_closed(): void

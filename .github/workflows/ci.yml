@@ -186,16 +186,54 @@ jobs:
             return 1
           }
 
+          wait_for_healthy() {
+            service="$1"
+            attempts="$2"
+            for attempt in $(seq 1 "$attempts"); do
+              container_id="$(docker compose ps -q "$service")"
+              if [ -z "$container_id" ] || [ "$(docker inspect --format '{{.State.Running}}' "$container_id")" != "true" ]; then
+                echo "LONGOS ${service} container exited while waiting for health." >&2
+                return 1
+              fi
+              if [ "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$container_id")" = "healthy" ]; then
+                return 0
+              fi
+              sleep 5
+            done
+            echo "LONGOS ${service} did not become healthy in time." >&2
+            return 1
+          }
+
           wait_for_app
           docker compose exec -T app test -f storage/installed
           docker compose exec -T app test -f plugins/Paypal/Bootstrap.php
           docker compose exec -T app test -f plugins/ShopifyProductTransfer/Bootstrap.php
           docker compose exec -T app test ! -e plugins/BeikeShopTestSandbox
+
+          # Exercise the exact fail-closed authorization decision used by
+          # Coolify Caddy before it issues an On-Demand TLS certificate.
+          test "$(docker compose exec -T app curl -sS -o /dev/null -w '%{http_code}' \
+            --get --data-urlencode "domain=${DOMAIN}" \
+            -H "Host: ${DOMAIN}" http://127.0.0.1/_longos/tls/authorize)" = "204"
+          test "$(docker compose exec -T app curl -sS -o /dev/null -w '%{http_code}' \
+            --get --data-urlencode 'domain=unregistered.example.test' \
+            -H "Host: ${DOMAIN}" http://127.0.0.1/_longos/tls/authorize)" = "404"
+
           docker compose exec -T mail-relay node -e \
             "fetch('http://127.0.0.1:3000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 
+          # The relay must reuse the persisted private key after a container
+          # restart. Regenerating it would silently invalidate published DKIM.
+          dkim_path="/var/lib/dkim/${SAAS_BASE_DOMAIN}/mail2026.private"
+          dkim_before="$(docker compose exec -T mail-relay sha256sum "$dkim_path" | awk '{print $1}')"
+          test -n "$dkim_before"
+          docker compose restart mail-relay
+          wait_for_healthy mail-relay 60
+          dkim_after="$(docker compose exec -T mail-relay sha256sum "$dkim_path" | awk '{print $1}')"
+          test "$dkim_after" = "$dkim_before"
+
           docker compose up -d worker scheduler
-          test "$(docker inspect --format '{{.State.Running}}' "$(docker compose ps -q worker)")" = "true"
+          wait_for_healthy worker 60
           test "$(docker inspect --format '{{.State.Running}}' "$(docker compose ps -q scheduler)")" = "true"
 
           # A second web start exercises the persisted-volume sync and the
@@ -203,3 +241,5 @@ jobs:
           docker compose restart app
           wait_for_app
           docker compose exec -T app test -f storage/installed
+          test "$(docker inspect --format '{{.State.Running}}' "$(docker compose ps -q worker)")" = "true"
+          test "$(docker inspect --format '{{.State.Running}}' "$(docker compose ps -q scheduler)")" = "true"
