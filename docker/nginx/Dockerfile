@@ -98,6 +98,7 @@ COPY . .
 COPY --from=php-dependencies /build/vendor ./vendor
 COPY --from=browser-assets /build/public ./public
 COPY docker/nginx/nginx-site.conf /etc/nginx/conf.d/default.conf
+COPY docker/nginx/php-production.ini /usr/local/etc/php/conf.d/zz-longos-production.ini
 COPY docker/nginx/start.sh /usr/local/bin/longos-entrypoint
 
 RUN chmod 0755 /usr/local/bin/longos-entrypoint \

@@ -190,6 +190,9 @@ class SaasDockerDeploymentTest extends TestCase
     public function test_public_php_execution_and_health_check_remain_fail_closed(): void
     {
         $nginx      = $this->read('docker/nginx/nginx-site.conf');
+        $dockerfile = $this->read('docker/nginx/Dockerfile');
+        $phpIni     = $this->read('docker/nginx/php-production.ini');
+        $front      = $this->read('public/index.php');
         $health     = $this->read('app/Http/Controllers/HealthController.php');
         $compose    = $this->read('docker-compose.yml');
 
@@ -203,6 +206,13 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringContainsString("DB::connection(\$connection)->select('SELECT 1')", $health);
         self::assertStringContainsString("['status' => 'degraded'], 503", $health);
         self::assertStringContainsString('http://127.0.0.1/api/health', $compose);
+        self::assertStringContainsString('COPY docker/nginx/php-production.ini /usr/local/etc/php/conf.d/zz-longos-production.ini', $dockerfile);
+        self::assertStringContainsString('display_errors = Off', $phpIni);
+        self::assertStringContainsString('display_startup_errors = Off', $phpIni);
+        self::assertStringContainsString('log_errors = On', $phpIni);
+        self::assertStringContainsString('expose_php = Off', $phpIni);
+        self::assertStringNotContainsString("touch(\$htaPath)", $front);
+        self::assertStringNotContainsString("copy(\$htaExamplePath, \$htaPath)", $front);
     }
 
     private function read(string $path): string

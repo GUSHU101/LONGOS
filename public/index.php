@@ -3,17 +3,6 @@
 use Beike\Libraries\Request;
 use Illuminate\Contracts\Http\Kernel;
 
-$basePath       = dirname(__DIR__) . '/';
-$htaPath        = $basePath . '.htaccess';
-$htaExamplePath = $basePath . 'htaccess.txt';
-if (! file_exists($htaPath)) {
-    if (file_exists($htaExamplePath)) {
-        copy($htaExamplePath, $htaPath);
-    } else {
-        touch($htaPath);
-    }
-}
-
 if (! file_exists(__DIR__ . '/../storage/installed')
     && ! (isset($_SERVER['REQUEST_URI']) && substr($_SERVER['REQUEST_URI'], 0, 10) == '/installer')
     && (stripos($_SERVER['REQUEST_URI'], '_debugbar') !== 1)) {
