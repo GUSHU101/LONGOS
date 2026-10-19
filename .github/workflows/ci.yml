@@ -212,12 +212,20 @@ jobs:
 
           # Exercise the exact fail-closed authorization decision used by
           # Coolify Caddy before it issues an On-Demand TLS certificate.
-          test "$(docker compose exec -T app curl -sS -o /dev/null -w '%{http_code}' \
+          tls_authorized_status="$(docker compose exec -T app curl -sS -o /dev/null -w '%{http_code}' \
             --get --data-urlencode "domain=${DOMAIN}" \
-            -H "Host: ${DOMAIN}" http://127.0.0.1/_longos/tls/authorize)" = "204"
-          test "$(docker compose exec -T app curl -sS -o /dev/null -w '%{http_code}' \
+            -H "Host: ${DOMAIN}" http://127.0.0.1/_longos/tls/authorize)"
+          case "$tls_authorized_status" in
+            2??) ;;
+            *) echo "Registered control domain was denied by the TLS ask endpoint: HTTP ${tls_authorized_status}" >&2; exit 1 ;;
+          esac
+          tls_unknown_status="$(docker compose exec -T app curl -sS -o /dev/null -w '%{http_code}' \
             --get --data-urlencode 'domain=unregistered.example.test' \
-            -H "Host: ${DOMAIN}" http://127.0.0.1/_longos/tls/authorize)" = "404"
+            -H "Host: ${DOMAIN}" http://127.0.0.1/_longos/tls/authorize)"
+          if [ "$tls_unknown_status" != "404" ]; then
+            echo "Unregistered domain did not fail closed at the TLS ask endpoint: HTTP ${tls_unknown_status}" >&2
+            exit 1
+          fi
 
           docker compose exec -T mail-relay node -e \
             "fetch('http://127.0.0.1:3000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
