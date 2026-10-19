@@ -18,7 +18,7 @@
     "shopify:migrate": "php artisan builder:migrate-shopify",
     "shopify:validate": "php artisan builder:validate-shopify",
     "audit:production": "npm audit --omit=dev",
-    "check": "npm test && npm run production && npm run audit:production",
+    "check": "npm run production && npm test && npm run audit:production",
     "test": "php artisan test && npm run test:quality",
     "test:quality": "php tests/StorePolicyAssertions.php && php tests/SettingsHardeningAssertions.php && npm run typecheck:builder && npm run test:builder && npm run test:storefront",
     "test:builder": "node --test tests/BuilderEditorAssertions.cjs && php tests/BuilderCoreAssertions.php && php tests/BuilderPublishAssertions.php",

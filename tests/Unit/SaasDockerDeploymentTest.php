@@ -70,6 +70,7 @@ class SaasDockerDeploymentTest extends TestCase
     {
         $dockerfile   = $this->read('docker/nginx/Dockerfile');
         $dockerignore = $this->read('.dockerignore');
+        $package      = json_decode($this->read('package.json'), true, 512, JSON_THROW_ON_ERROR);
 
         self::assertStringContainsString('FROM composer:2.8.12 AS php-dependencies', $dockerfile);
         self::assertStringContainsString('FROM node:22.22.0-bookworm-slim AS browser-assets', $dockerfile);
@@ -99,6 +100,11 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringContainsString("\nscripts/*\n!scripts/container-permissions.sh\n", $dockerignore);
         self::assertStringContainsString("\nbootstrap/cache/*\n!bootstrap/cache/.gitignore\n", $dockerignore);
         self::assertStringContainsString("\npublic/build\n", $dockerignore);
+        self::assertSame(
+            'npm run production && npm test && npm run audit:production',
+            $package['scripts']['check'] ?? null,
+            'A clean checkout must build the Mix manifest before any HTTP/preflight test renders an asset-backed view.'
+        );
     }
 
     public function test_entrypoint_automates_first_install_and_safe_upgrade(): void
