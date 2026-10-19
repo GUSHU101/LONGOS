@@ -224,6 +224,10 @@ jobs:
             -H "Host: ${DOMAIN}" http://127.0.0.1/_longos/tls/authorize)"
           if [ "$tls_unknown_status" != "404" ]; then
             echo "Unregistered domain did not fail closed at the TLS ask endpoint: HTTP ${tls_unknown_status}" >&2
+            docker compose exec -T app curl -sS -i \
+              --get --data-urlencode 'domain=unregistered.example.test' \
+              -H "Host: ${DOMAIN}" http://127.0.0.1/_longos/tls/authorize >&2 || true
+            docker compose exec -T app php artisan route:list --path=_longos -v >&2 || true
             exit 1
           fi
 

@@ -5,7 +5,9 @@ namespace Tests\Feature;
 use App\Http\Controllers\SaasTlsAuthorizationController;
 use App\Saas\Models\Domain;
 use App\Saas\Models\Site;
+use Beike\Libraries\Request as CommerceRequest;
 use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Contracts\Http\Kernel as HttpKernel;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -147,5 +149,46 @@ class SaasTlsAuthorizationTest extends TestCase
         $controller = app(SaasTlsAuthorizationController::class);
         self::assertSame(404, $controller(Request::create('/_longos/tls/authorize?domain=admin.example.com'))->getStatusCode());
         self::assertSame(204, $controller(Request::create('/_longos/tls/authorize?domain=tenant.example.com'))->getStatusCode());
+    }
+
+    public function test_tls_ask_fails_closed_through_the_production_http_request_class(): void
+    {
+        $site = Site::query()->create([
+            'uuid'          => (string) Str::uuid(),
+            'code'          => 'control',
+            'name'          => 'Control',
+            'database_name' => 'control',
+            'status'        => Site::STATUS_ACTIVE,
+            'locale'        => 'zh_cn',
+            'timezone'      => 'UTC',
+        ]);
+        $site->domains()->create([
+            'host'       => 'admin.example.test',
+            'scheme'     => 'https',
+            'is_primary' => true,
+            'status'     => Domain::STATUS_ACTIVE,
+            'origin'     => Domain::ORIGIN_PLATFORM,
+        ]);
+
+        /** @var HttpKernel $kernel */
+        $kernel = app(HttpKernel::class);
+
+        $authorizedRequest = CommerceRequest::create(
+            '/_longos/tls/authorize?domain=admin.example.test',
+            'GET',
+            server: ['HTTP_HOST' => 'admin.example.test'],
+        );
+        $authorizedResponse = $kernel->handle($authorizedRequest);
+        self::assertSame(204, $authorizedResponse->getStatusCode());
+        $kernel->terminate($authorizedRequest, $authorizedResponse);
+
+        $unknownRequest = CommerceRequest::create(
+            '/_longos/tls/authorize?domain=unregistered.example.test',
+            'GET',
+            server: ['HTTP_HOST' => 'admin.example.test'],
+        );
+        $unknownResponse = $kernel->handle($unknownRequest);
+        self::assertSame(404, $unknownResponse->getStatusCode());
+        $kernel->terminate($unknownRequest, $unknownResponse);
     }
 }
