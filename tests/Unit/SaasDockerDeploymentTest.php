@@ -101,6 +101,7 @@ class SaasDockerDeploymentTest extends TestCase
         }
         self::assertStringContainsString('Missing required PHP extensions:', $dockerfile);
         self::assertStringContainsString('extension_loaded($extension)', $dockerfile);
+        self::assertStringContainsString('"Zend OPcache"', $dockerfile);
         foreach (['curl', 'mbstring', 'posix', 'dom', 'simplexml', 'xml', 'xmlreader', 'xmlwriter'] as $extension) {
             self::assertStringContainsString('"' . $extension . '"', $dockerfile);
             self::assertDoesNotMatchRegularExpression('/^\\s*' . preg_quote($extension, '/') . '\\s*\\\\?$/m', $compiledExtensionBlock[0]);

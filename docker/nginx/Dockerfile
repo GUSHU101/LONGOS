@@ -38,7 +38,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         intl \
         zip \
         opcache \
-    && php -r '$required = ["pdo_mysql", "pdo_pgsql", "curl", "mbstring", "exif", "pcntl", "posix", "bcmath", "gd", "intl", "dom", "simplexml", "xml", "xmlreader", "xmlwriter", "zip", "opcache"]; $missing = array_values(array_filter($required, static fn (string $extension): bool => !extension_loaded($extension))); if ($missing !== []) { fwrite(STDERR, "Missing required PHP extensions: " . implode(", ", $missing) . PHP_EOL); exit(1); }' \
+    && php -r '$required = ["pdo_mysql", "pdo_pgsql", "curl", "mbstring", "exif", "pcntl", "posix", "bcmath", "gd", "intl", "dom", "simplexml", "xml", "xmlreader", "xmlwriter", "zip", "Zend OPcache"]; $missing = array_values(array_filter($required, static fn (string $extension): bool => !extension_loaded($extension))); if ($missing !== []) { fwrite(STDERR, "Missing required PHP extensions: " . implode(", ", $missing) . PHP_EOL); exit(1); }' \
     && rm -rf /var/lib/apt/lists/* \
     && rm -f /etc/nginx/sites-enabled/default /etc/nginx/sites-available/default \
     && mkdir -p /run/nginx /var/log/nginx /var/log/php
