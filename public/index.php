@@ -121,11 +121,6 @@ if (file_exists(__DIR__ . '/../storage/framework/maintenance.php')) {
 
 require __DIR__ . '/../vendor/autoload.php';
 
-// Hosting panels commonly upload files without executing a release hook. Drop
-// stale generated bootstrap caches before Laravel reads them, then let the
-// deployment service complete migrations and cache warming after this request.
-\App\Support\DeploymentCacheInvalidator::refresh(dirname(__DIR__));
-
 /*
 |--------------------------------------------------------------------------
 | Run The Application

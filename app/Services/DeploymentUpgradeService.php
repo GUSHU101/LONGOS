@@ -214,7 +214,6 @@ class DeploymentUpgradeService
                 base_path('bootstrap/app.php'),
                 base_path('app/Exceptions/Handler.php'),
                 base_path('app/Providers/AppServiceProvider.php'),
-                base_path('app/Support/DeploymentCacheInvalidator.php'),
                 base_path('app/Http/Middleware/SetLocaleInstaller.php'),
                 public_path('index.php'),
                 public_path('mix-manifest.json'),

@@ -213,6 +213,11 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringContainsString('expose_php = Off', $phpIni);
         self::assertStringNotContainsString("touch(\$htaPath)", $front);
         self::assertStringNotContainsString("copy(\$htaExamplePath, \$htaPath)", $front);
+        self::assertStringNotContainsString('DeploymentCacheInvalidator', $front);
+        self::assertFileDoesNotExist(
+            $this->root . '/app/Support/DeploymentCacheInvalidator.php',
+            'Immutable Coolify images must not rescan source files or delete optimized caches during web requests.'
+        );
     }
 
     private function read(string $path): string
