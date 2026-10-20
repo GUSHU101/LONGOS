@@ -180,6 +180,13 @@ jobs:
             if [ "$status" -ne 0 ]; then
               docker compose ps --all || true
               docker compose logs --no-color --tail=300 || true
+              # PHP-FPM writes application exceptions to the persistent
+              # Laravel log rather than container stderr. Preserve that
+              # evidence whenever a production-page probe fails so a green
+              # health endpoint can never hide the actual storefront error.
+              docker compose exec -T app sh -c \
+                'for log in storage/logs/*.log; do [ -f "$log" ] && { echo "===== $log ====="; tail -n 500 "$log"; }; done' \
+                || true
               docker logs longos-caddy-contract 2>/dev/null || true
             fi
             docker rm -f longos-caddy-contract >/dev/null 2>&1 || true
