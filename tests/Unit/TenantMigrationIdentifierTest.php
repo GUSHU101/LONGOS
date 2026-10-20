@@ -103,6 +103,22 @@ REGEX,
                     );
                 }
             }
+
+            preg_match_all(
+                <<<'REGEX'
+~\$table->(?<kind>index|unique)\(\s*\$[A-Za-z_][A-Za-z0-9_]*\s*\)~
+REGEX,
+                $source,
+                $dynamicIndexes,
+                PREG_SET_ORDER,
+            );
+            foreach ($dynamicIndexes as $dynamicIndex) {
+                $violations[] = sprintf(
+                    'unnamed dynamic %s: %s',
+                    $dynamicIndex['kind'],
+                    str_replace('\\', '/', substr($path, strlen(dirname(__DIR__, 2)) + 1)),
+                );
+            }
         }
 
         self::assertSame(
@@ -110,7 +126,8 @@ REGEX,
             $violations,
             "MySQL identifiers generated for prefixed tenants exceed 64 characters, or a fixed "
                 . "foreign-key symbol would collide between tenants.\n"
-                . "Give long indexes compact names and derive foreign-key symbols from the tenant prefix.",
+                . "Give long or dynamically declared indexes compact names and derive foreign-key symbols "
+                . "from the tenant prefix.",
         );
     }
 

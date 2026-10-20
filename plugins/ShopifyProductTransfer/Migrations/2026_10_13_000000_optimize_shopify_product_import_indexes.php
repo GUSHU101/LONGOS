@@ -6,11 +6,11 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /** @var array<int, array<int, string>> */
+    /** @var array<string, array<int, string>> */
     private const INDEXES = [
-        ['admin_user_id', 'created_at'],
-        ['status', 'updated_at'],
-        ['status', 'finished_at'],
+        'idx_sp_import_admin_created' => ['admin_user_id', 'created_at'],
+        'idx_sp_import_status_updated' => ['status', 'updated_at'],
+        'idx_sp_import_status_finished' => ['status', 'finished_at'],
     ];
 
     public function up(): void
@@ -19,13 +19,13 @@ return new class extends Migration
             return;
         }
 
-        foreach (self::INDEXES as $columns) {
+        foreach (self::INDEXES as $name => $columns) {
             if (Schema::hasIndex('shopify_product_imports', $columns)) {
                 continue;
             }
 
-            Schema::table('shopify_product_imports', static function (Blueprint $table) use ($columns): void {
-                $table->index($columns);
+            Schema::table('shopify_product_imports', static function (Blueprint $table) use ($columns, $name): void {
+                $table->index($columns, $name);
             });
         }
     }
@@ -36,13 +36,13 @@ return new class extends Migration
             return;
         }
 
-        foreach (array_reverse(self::INDEXES) as $columns) {
+        foreach (array_reverse(self::INDEXES, true) as $name => $columns) {
             if (! Schema::hasIndex('shopify_product_imports', $columns)) {
                 continue;
             }
 
-            Schema::table('shopify_product_imports', static function (Blueprint $table) use ($columns): void {
-                $table->dropIndex($columns);
+            Schema::table('shopify_product_imports', static function (Blueprint $table) use ($name): void {
+                $table->dropIndex($name);
             });
         }
     }
