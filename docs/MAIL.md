@@ -29,6 +29,8 @@ MAIL_FROM_ADDRESS=no-reply@<SAAS_BASE_DOMAIN>
 
 需要自定义时，在 Coolify 环境变量中设置同名值并 Redeploy。`MAIL_RELAY_DOMAINS` 和 `MAIL_RELAY_ALLOWED_SENDER_DOMAINS` 支持逗号分隔的多个域名；留空时 Laravel 和 Compose 从 `SAAS_BASE_DOMAIN` 推导。首次打开后台邮件设置时，默认、订单、账户、退货/客服和营销五类发件人会按当前租户自动填充。
 
+中继会先规范化、去重再生成 DKIM：逗号两侧的空格允许，域名内部的空格、空列表、非法域名或“允许发件域不在签名域集合中”都会让容器失败并给出明确日志，避免错误域名被静默改写或在未签名状态发信。
+
 Cloudflare 自动发布默认由 `LONGOS_AUTO_CONFIGURE_MAIL_DNS=true` 开启。应用只更新 LONGOS 专用的 DKIM selector；如果域名已有 SPF 或 DMARC，会保留商家策略，不会盲目覆盖。邮件主机 A/AAAA 只使用 `MAIL_RELAY_IPS` 的明确 IP，绝不从 Cloudflare 代理后的网站域名猜测。多签名域模式下 Token 必须对每个域所属的 Cloudflare Zone 都有权限。Token 作为 Coolify 的 Secret 环境变量保存，不写入仓库；若不希望容器获得 DNS 权限，留空并在后台点击“立即检测”复制记录即可。
 
 DKIM 私钥只存在 `mail-relay-dkim` 专用卷。邮件中继会把可公开的 TXT 值写入独立卷，网站容器仅以只读方式挂载该公开值。首次容器启动会自动尝试同步，后续由 scheduler 每 5 分钟幂等重试，新增发件域只需更新 Coolify 变量并 Redeploy。

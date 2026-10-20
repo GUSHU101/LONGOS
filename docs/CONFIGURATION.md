@@ -101,6 +101,8 @@ Coolify 会自动生成并持久保存所有 `SERVICE_*` 值，包括 APP_KEY、
 
 `ADMIN_EMAIL` 仍应显式填写为可接收邮件的地址。为避免 Coolify 在“构建变量”与“运行变量”同步瞬间用空值解析 Compose，部署文件会在构建解析阶段安全回退为 `admin@DOMAIN`；容器首次安装仍会校验最终邮箱，显式值始终优先。
 
+邮件域名列表只允许逗号分隔的完整 DNS 域名；可以在逗号两侧留空格，但域名内部不能有空格。邮件中继对所有数值限制采用严格解析；如果自定义 `MAIL_RELAY_MAX_*`、`MAIL_RELAY_SIGNATURE_WINDOW_SECONDS` 或 `MAIL_RELAY_IDEMPOTENCY_RETENTION_SECONDS` 时输入了非正整数，容器会直接拒绝启动并在日志中指出变量，不会静默改用另一个限制。附件上限不能大于整个请求上限，幂等记录保留时间至少应为签名时间窗的两倍。
+
 ### 可选：Cloudflare DNS 自动化
 
 如果希望 LONGOS 自动发布自己的邮件 A、DKIM 以及缺失的 SPF/DMARC，可在 Coolify 增加并标记为 Secret：

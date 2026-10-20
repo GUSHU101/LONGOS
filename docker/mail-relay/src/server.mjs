@@ -18,23 +18,33 @@ import {spawnSync} from 'node:child_process';
 import nodemailer from 'nodemailer';
 import {verifySignedRequest} from './security.mjs';
 
-const positiveInt = (value, fallback) => Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : fallback;
-const port = positiveInt(process.env.PORT, 3000);
+function positiveInt(value, fallback, field = 'value', maximum = Number.MAX_SAFE_INTEGER) {
+  const raw = String(value ?? '').trim();
+  if (raw === '') return fallback;
+  if (!/^\d+$/.test(raw)) throw new Error(`${field} must be a positive integer`);
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > maximum) {
+    throw new Error(`${field} must be a positive integer no greater than ${maximum}`);
+  }
+  return parsed;
+}
+
+const port = positiveInt(process.env.PORT, 3000, 'PORT', 65_535);
 const clientSecrets = new Map([
   ['longos', process.env.LONGOS_RELAY_SHARED_SECRET || ''],
   ['cloud-mail', process.env.CLOUD_MAIL_RELAY_SHARED_SECRET || ''],
 ].filter(([, secret]) => secret));
-const maxRequestBytes = positiveInt(process.env.MAX_REQUEST_BYTES, 25 * 1024 * 1024);
-const maxAttachmentBytes = positiveInt(process.env.MAX_ATTACHMENT_BYTES, 20 * 1024 * 1024);
-const maxAttachments = positiveInt(process.env.MAX_ATTACHMENTS, 25);
-const maxRecipients = positiveInt(process.env.MAX_RECIPIENTS, 50);
-const maxRequestsPerMinute = positiveInt(process.env.MAX_REQUESTS_PER_MINUTE, 120);
-const maxRequestsPerMinuteGlobal = positiveInt(process.env.MAX_REQUESTS_PER_MINUTE_GLOBAL, maxRequestsPerMinute * 10);
-const signatureWindowSeconds = positiveInt(process.env.SIGNATURE_WINDOW_SECONDS, 300);
-const maxNonceRecords = positiveInt(process.env.MAX_NONCE_RECORDS, Math.max(10_000, maxRequestsPerMinuteGlobal * 10));
-const idempotencyRetentionSeconds = positiveInt(process.env.IDEMPOTENCY_RETENTION_SECONDS, Math.max(86_400, signatureWindowSeconds * 2));
-const maxIdempotencyRecords = positiveInt(process.env.MAX_IDEMPOTENCY_RECORDS, 100_000);
-const maxQueueMessages = positiveInt(process.env.MAX_QUEUE_MESSAGES, 1000);
+const maxRequestBytes = positiveInt(process.env.MAX_REQUEST_BYTES, 25 * 1024 * 1024, 'MAX_REQUEST_BYTES');
+const maxAttachmentBytes = positiveInt(process.env.MAX_ATTACHMENT_BYTES, 20 * 1024 * 1024, 'MAX_ATTACHMENT_BYTES');
+const maxAttachments = positiveInt(process.env.MAX_ATTACHMENTS, 25, 'MAX_ATTACHMENTS');
+const maxRecipients = positiveInt(process.env.MAX_RECIPIENTS, 50, 'MAX_RECIPIENTS');
+const maxRequestsPerMinute = positiveInt(process.env.MAX_REQUESTS_PER_MINUTE, 120, 'MAX_REQUESTS_PER_MINUTE');
+const maxRequestsPerMinuteGlobal = positiveInt(process.env.MAX_REQUESTS_PER_MINUTE_GLOBAL, maxRequestsPerMinute * 10, 'MAX_REQUESTS_PER_MINUTE_GLOBAL');
+const signatureWindowSeconds = positiveInt(process.env.SIGNATURE_WINDOW_SECONDS, 300, 'SIGNATURE_WINDOW_SECONDS');
+const maxNonceRecords = positiveInt(process.env.MAX_NONCE_RECORDS, Math.max(10_000, maxRequestsPerMinuteGlobal * 10), 'MAX_NONCE_RECORDS');
+const idempotencyRetentionSeconds = positiveInt(process.env.IDEMPOTENCY_RETENTION_SECONDS, Math.max(86_400, signatureWindowSeconds * 2), 'IDEMPOTENCY_RETENTION_SECONDS');
+const maxIdempotencyRecords = positiveInt(process.env.MAX_IDEMPOTENCY_RECORDS, 100_000, 'MAX_IDEMPOTENCY_RECORDS');
+const maxQueueMessages = positiveInt(process.env.MAX_QUEUE_MESSAGES, 1000, 'MAX_QUEUE_MESSAGES');
 const idempotencyStorePath = String(process.env.IDEMPOTENCY_STORE_PATH || '').trim();
 
 function normalizeDomain(value, field = 'domain') {
@@ -60,6 +70,10 @@ if (clientSecrets.has('longos') && clientSecrets.has('cloud-mail')
 }
 if (allowedSenderDomains.size === 0) throw new Error('ALLOWED_SENDER_DOMAINS must contain at least one domain');
 if (!idempotencyStorePath) throw new Error('IDEMPOTENCY_STORE_PATH is required for restart-safe delivery');
+if (maxAttachmentBytes > maxRequestBytes) throw new Error('MAX_ATTACHMENT_BYTES must not exceed MAX_REQUEST_BYTES');
+if (idempotencyRetentionSeconds < signatureWindowSeconds * 2) {
+  throw new Error('IDEMPOTENCY_RETENTION_SECONDS must be at least twice SIGNATURE_WINDOW_SECONDS');
+}
 
 const transporter = nodemailer.createTransport({sendmail: true, newline: 'unix', path: '/usr/sbin/sendmail'});
 const usedNonces = new Map();
@@ -476,11 +490,11 @@ const server = http.createServer(async (request, response) => {
 // The relay is private, but a stalled Docker peer must not hold sockets and
 // worker memory forever. Message submission has a stricter application-level
 // request-size limit above; these values bound incomplete HTTP requests.
-server.headersTimeout = positiveInt(process.env.HEADERS_TIMEOUT_MS, 10_000);
-server.requestTimeout = positiveInt(process.env.REQUEST_TIMEOUT_MS, 60_000);
-server.keepAliveTimeout = positiveInt(process.env.KEEP_ALIVE_TIMEOUT_MS, 5_000);
-server.maxHeadersCount = positiveInt(process.env.MAX_HEADERS_COUNT, 48);
-server.maxRequestsPerSocket = positiveInt(process.env.MAX_REQUESTS_PER_SOCKET, 1000);
+server.headersTimeout = positiveInt(process.env.HEADERS_TIMEOUT_MS, 10_000, 'HEADERS_TIMEOUT_MS');
+server.requestTimeout = positiveInt(process.env.REQUEST_TIMEOUT_MS, 60_000, 'REQUEST_TIMEOUT_MS');
+server.keepAliveTimeout = positiveInt(process.env.KEEP_ALIVE_TIMEOUT_MS, 5_000, 'KEEP_ALIVE_TIMEOUT_MS');
+server.maxHeadersCount = positiveInt(process.env.MAX_HEADERS_COUNT, 48, 'MAX_HEADERS_COUNT');
+server.maxRequestsPerSocket = positiveInt(process.env.MAX_REQUESTS_PER_SOCKET, 1000, 'MAX_REQUESTS_PER_SOCKET');
 
 if (process.env.RELAY_NO_LISTEN !== 'true') {
   server.listen(port, '0.0.0.0', () => console.info(JSON.stringify({event: 'relay_started', port, allowedSenderDomains: [...allowedSenderDomains]})));
@@ -491,6 +505,7 @@ process.on('SIGINT', shutdown);
 
 export {
   normalizeMessage,
+  positiveInt,
   rememberCompletedRequest,
   rememberPendingRequest,
   releasePendingRequest,

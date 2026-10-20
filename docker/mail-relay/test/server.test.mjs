@@ -18,6 +18,14 @@ const relay = await import('../src/server.mjs');
 
 after(() => rmSync(temporary, {recursive: true, force: true}));
 
+test('rejects invalid numeric limits instead of silently weakening them', () => {
+  assert.equal(relay.positiveInt('', 25, 'TEST_LIMIT'), 25);
+  assert.equal(relay.positiveInt('32', 25, 'TEST_LIMIT'), 32);
+  assert.throws(() => relay.positiveInt('0', 25, 'TEST_LIMIT'), /TEST_LIMIT must be a positive integer/);
+  assert.throws(() => relay.positiveInt('12mb', 25, 'TEST_LIMIT'), /TEST_LIMIT must be a positive integer/);
+  assert.throws(() => relay.positiveInt('101', 25, 'TEST_LIMIT', 100), /no greater than 100/);
+});
+
 test('persists pending intent before acceptance and clears it with a durable receipt', () => {
   const key = 'longos:order-1';
   const hash = 'a'.repeat(64);

@@ -7,9 +7,9 @@ set -eu
 
 load_secret() {
   variable="$1"
+  value="$2"
+  secret_file="$3"
   file_variable="${variable}_FILE"
-  eval "value=\${$variable:-}"
-  eval "secret_file=\${$file_variable:-}"
   if [ -n "$value" ] && [ -n "$secret_file" ]; then
     echo "$variable and $file_variable cannot both be configured" >&2
     exit 1
@@ -25,14 +25,28 @@ load_secret() {
     echo "$variable is required (directly or through $file_variable)" >&2
     exit 1
   fi
-  eval "$variable=\$value"
-  export "$variable"
+  case "$variable" in
+    LONGOS_RELAY_SHARED_SECRET)
+      LONGOS_RELAY_SHARED_SECRET="$value"
+      export LONGOS_RELAY_SHARED_SECRET
+      ;;
+    CLOUD_MAIL_RELAY_SHARED_SECRET)
+      CLOUD_MAIL_RELAY_SHARED_SECRET="$value"
+      export CLOUD_MAIL_RELAY_SHARED_SECRET
+      ;;
+    *)
+      echo "Unsupported relay secret variable: $variable" >&2
+      exit 1
+      ;;
+  esac
 }
 
 # Coolify generates and persists independent high-entropy credentials. File
 # variables remain supported for operators using an external secret provider.
-load_secret LONGOS_RELAY_SHARED_SECRET
-load_secret CLOUD_MAIL_RELAY_SHARED_SECRET
+load_secret LONGOS_RELAY_SHARED_SECRET \
+  "${LONGOS_RELAY_SHARED_SECRET:-}" "${LONGOS_RELAY_SHARED_SECRET_FILE:-}"
+load_secret CLOUD_MAIL_RELAY_SHARED_SECRET \
+  "${CLOUD_MAIL_RELAY_SHARED_SECRET:-}" "${CLOUD_MAIL_RELAY_SHARED_SECRET_FILE:-}"
 
 if [ "$LONGOS_RELAY_SHARED_SECRET" = "$CLOUD_MAIL_RELAY_SHARED_SECRET" ]; then
   echo "LONGOS_RELAY_SHARED_SECRET and CLOUD_MAIL_RELAY_SHARED_SECRET must be different" >&2
@@ -62,7 +76,13 @@ if [ "$PROCESS_CHECK_INTERVAL_SECONDS" -lt 2 ] || [ "$PROCESS_CHECK_INTERVAL_SEC
 fi
 
 normalize_domain() {
-  printf '%s' "$1" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]' | sed 's/\.$//'
+  # Permit whitespace around comma-separated values, but never delete
+  # whitespace inside a hostname: `brand .example` must fail instead of being
+  # silently transformed into the different domain `brand.example`.
+  printf '%s' "$1" \
+    | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' \
+    | tr '[:upper:]' '[:lower:]' \
+    | sed 's/\.$//'
 }
 
 validate_domain() {
@@ -87,11 +107,26 @@ fi
 old_ifs="$IFS"
 IFS=','
 validated_signing_domains=','
+signing_domain_count=0
+normalized_signing_domains=''
 for raw_domain in $MAIL_DOMAINS; do
   domain="$(normalize_domain "$raw_domain")"
   validate_domain "$domain" MAIL_DOMAINS
-  validated_signing_domains="${validated_signing_domains}${domain},"
+  case "$validated_signing_domains" in
+    *",${domain},"*) ;;
+    *)
+      validated_signing_domains="${validated_signing_domains}${domain},"
+      normalized_signing_domains="${normalized_signing_domains}${normalized_signing_domains:+ }${domain}"
+      signing_domain_count=$((signing_domain_count + 1))
+      ;;
+  esac
 done
+if [ "$signing_domain_count" -eq 0 ]; then
+  echo "MAIL_DOMAINS must contain at least one valid signing domain" >&2
+  exit 1
+fi
+allowed_sender_domain_count=0
+validated_allowed_sender_domains=','
 for raw_domain in $ALLOWED_SENDER_DOMAINS; do
   domain="$(normalize_domain "$raw_domain")"
   validate_domain "$domain" ALLOWED_SENDER_DOMAINS
@@ -102,7 +137,18 @@ for raw_domain in $ALLOWED_SENDER_DOMAINS; do
       exit 1
       ;;
   esac
+  case "$validated_allowed_sender_domains" in
+    *",${domain},"*) ;;
+    *)
+      validated_allowed_sender_domains="${validated_allowed_sender_domains}${domain},"
+      allowed_sender_domain_count=$((allowed_sender_domain_count + 1))
+      ;;
+  esac
 done
+if [ "$allowed_sender_domain_count" -eq 0 ]; then
+  echo "ALLOWED_SENDER_DOMAINS must contain at least one valid signing domain" >&2
+  exit 1
+fi
 IFS="$old_ifs"
 
 printf '%s\n' "$MAIL_HOSTNAME" > /etc/mailname
@@ -122,11 +168,7 @@ chmod 0755 "$DNS_RECORDS_PATH"
 : > /etc/opendkim/SigningTable
 printf '127.0.0.1\nlocalhost\n' > /etc/opendkim/TrustedHosts
 
-old_ifs="$IFS"
-IFS=','
-for raw_domain in $MAIL_DOMAINS; do
-  domain="$(normalize_domain "$raw_domain")"
-  [ -n "$domain" ] || continue
+for domain in $normalized_signing_domains; do
   key_dir="/var/lib/dkim/$domain"
   mkdir -p "$key_dir"
   if [ ! -s "$key_dir/$DKIM_SELECTOR.private" ]; then
@@ -160,7 +202,6 @@ for raw_domain in $MAIL_DOMAINS; do
   chmod 0644 "$public_temp"
   mv -f "$public_temp" "$public_record"
 done
-IFS="$old_ifs"
 
 cat > /etc/opendkim.conf <<EOF
 Syslog                  yes

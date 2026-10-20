@@ -43,6 +43,10 @@ class LongosRelayTransportContractTest extends TestCase
         self::assertStringNotContainsString('${RELAY_SHARED_SECRET:?', $entrypoint);
         self::assertStringContainsString('must be different', $entrypoint);
         self::assertStringContainsString('must each contain at least 32 characters', $entrypoint);
+        self::assertStringNotContainsString('eval ', $entrypoint);
+        self::assertStringContainsString("sed 's/^[[:space:]]*//; s/[[:space:]]*$//'", $entrypoint);
+        self::assertStringContainsString('MAIL_DOMAINS must contain at least one valid signing domain', $entrypoint);
+        self::assertStringContainsString('ALLOWED_SENDER_DOMAINS must contain at least one valid signing domain', $entrypoint);
         self::assertStringContainsString('[a-zA-Z0-9_-]{0,62}', $entrypoint);
         self::assertStringContainsString('dkim_value=', $entrypoint);
         self::assertStringContainsString('chmod 0644 "$public_temp"', $entrypoint);
