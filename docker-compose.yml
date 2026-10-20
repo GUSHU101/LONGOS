@@ -135,7 +135,7 @@ services:
       # Empty `caddy` creates global options in caddy-docker-proxy. The ask
       # endpoint makes certificate issuance fail closed against LONGOS data.
       - "caddy="
-      - "caddy.email=${SAAS_TLS_EMAIL:-${ADMIN_EMAIL:-admin@${DOMAIN}}}"
+      - "caddy.email=${SAAS_TLS_EMAIL}"
       - "caddy.on_demand_tls="
       - "caddy.on_demand_tls.ask=http://longos-${COOLIFY_RESOURCE_UUID:-app}/_longos/tls/authorize"
       - "caddy.servers.0rtt=off"
