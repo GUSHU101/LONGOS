@@ -178,7 +178,14 @@ class ShopServiceProvider extends ServiceProvider
      */
     protected function loadMailConfig()
     {
-        $mailEngine = strtolower((string) system_setting('base.mail_engine'));
+        // refreshTenantConfiguration() restores this value from the immutable
+        // application baseline before loading tenant settings. Console startup
+        // and control-plane commands may legitimately have no current tenant,
+        // so the sender profile resolver cannot always build a tenant-scoped
+        // identity. Never let that empty contextual result erase the signed
+        // Compose/environment fallback.
+        $baselineMail = trim((string) config('mail.from.address'));
+        $mailEngine   = strtolower((string) system_setting('base.mail_engine'));
         if ($mailEngine === '' && config('mail.relay.enabled')) {
             $mailEngine = 'self_hosted';
         }
@@ -191,6 +198,9 @@ class ShopServiceProvider extends ServiceProvider
         // blank optional field really falls back to the store contact settings.
         if ($storeMail === '') {
             $storeMail = trim((string) system_setting('base.email', ''));
+        }
+        if ($storeMail === '') {
+            $storeMail = $baselineMail;
         }
         if ($storeName === '') {
             $storeName = (string) system_setting('base.store_name', \config('app.name'));

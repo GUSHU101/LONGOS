@@ -13,6 +13,7 @@ class LongosRelayTransportContractTest extends TestCase
         $compose    = file_get_contents(dirname(__DIR__, 2) . '/docker-compose.yml');
         $entrypoint = file_get_contents(dirname(__DIR__, 2) . '/docker/mail-relay/entrypoint.sh');
         $source     = file_get_contents(dirname(__DIR__, 2) . '/beike/Mail/Transport/LongosRelayTransport.php');
+        $provider   = file_get_contents(dirname(__DIR__, 2) . '/beike/Shop/Providers/ShopServiceProvider.php');
 
         self::assertStringContainsString("'transport' => 'longos_relay'", $config);
         self::assertStringContainsString("hash_hmac('sha256'", $source);
@@ -33,6 +34,8 @@ class LongosRelayTransportContractTest extends TestCase
         self::assertStringContainsString("trim((string) env('MAIL_FROM_ADDRESS', ''))", $config);
         self::assertStringContainsString('in_array($configuredMailFromDomain, $allowedDomains, true)', $config);
         self::assertStringContainsString("'configured_from_address_rejected'", $config);
+        self::assertStringContainsString("\$baselineMail = trim((string) config('mail.from.address'))", $provider);
+        self::assertStringContainsString('$storeMail = $baselineMail;', $provider);
         self::assertStringNotContainsString("\n      RELAY_SHARED_SECRET:", $compose);
         self::assertStringContainsString('load_secret LONGOS_RELAY_SHARED_SECRET', $entrypoint);
         self::assertStringContainsString('load_secret CLOUD_MAIL_RELAY_SHARED_SECRET', $entrypoint);
