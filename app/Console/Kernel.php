@@ -36,6 +36,18 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule)
     {
+        // A running scheduler container is not sufficient proof that Laravel
+        // is still dispatching due events. Keep a tiny shared-volume
+        // heartbeat that Docker can check without querying the database or
+        // exposing another HTTP endpoint. A stalled schedule:work loop will
+        // become unhealthy after the bounded Compose grace period.
+        $schedule->call(static function (): void {
+            $path = storage_path('framework/scheduler-heartbeat');
+            if (file_put_contents($path, now()->toIso8601String() . PHP_EOL, LOCK_EX) === false) {
+                throw new \RuntimeException('Unable to persist the scheduler heartbeat.');
+            }
+        })->name('longos:scheduler-heartbeat')->everyMinute();
+
         if (config('saas.enabled')) {
             $schedule->command('saas:run process:order --continue-on-error')
                 ->everyFiveMinutes()

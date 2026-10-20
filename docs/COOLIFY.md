@@ -97,7 +97,7 @@ Coolify 解析 Compose 后会自动生成 `SERVICE_*` 凭据。只需手动填�
 3. 应用等待数据库健康；邮件引擎暂时不健康不会阻断商店上线，队列会在引擎恢复后重试。
 4. 自动执行 `longos:install`，创建结构、基础数据、管理员和控制站点。
 5. 写入持久卷中的安装标记并构建生产缓存。
-6. Web 健康后启动 worker 与 scheduler。
+6. Web 健康后启动 worker 与 scheduler；scheduler 每分钟写入共享心跳，不再只依赖“容器仍在运行”的表面状态。
 7. Coolify Caddy 首次访问域名时自动申请证书。
 
 整个流程不需要打开终端或手动执行迁移。首次构建和初始化可能需要数分钟；`app` 健康检查为数据库初始化预留了 10 分钟。
@@ -154,6 +154,11 @@ Compose 自动启动 Postfix/OpenDKIM 和内部 HMAC API，不开放公共 SMTP 
 - 检查 `DOMAIN`、`SAAS_BASE_DOMAIN`、`ADMIN_EMAIL` 是否有效。
 - 检查 mysql 是否 healthy，并确认共享 `longos-storage` 卷可写。`mail-relay` 异常会影响发信，但不应阻断 `app` 启动。
 - 不要删除 `longos-storage` 中的 `storage/installed` 来强制重装；恢复失败部署或数据库备份。
+
+### scheduler 一直 unhealthy
+
+- 新容器最多需等待一分钟才生成首次 `storage/framework/scheduler-heartbeat`，Compose 已预留 180 秒启动宽限。
+- 超过宽限仍不健康时，查看 scheduler Logs 中的第一个 Laravel 异常；不要手动在容器内另启一个 `schedule:work`。
 
 ### 构建阶段报 `ADMIN_EMAIL is missing a value`
 

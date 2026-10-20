@@ -158,7 +158,9 @@ jobs:
             if [ "$status" -ne 0 ]; then
               docker compose ps --all || true
               docker compose logs --no-color --tail=300 || true
+              docker logs longos-caddy-contract 2>/dev/null || true
             fi
+            docker rm -f longos-caddy-contract >/dev/null 2>&1 || true
             docker compose down --volumes --remove-orphans || true
             docker network rm coolify >/dev/null 2>&1 || true
             exit "$status"
@@ -210,6 +212,57 @@ jobs:
           docker compose exec -T app test -f plugins/ShopifyProductTransfer/Bootstrap.php
           docker compose exec -T app test ! -e plugins/BeikeShopTestSandbox
 
+          # Caddy does not call the ask endpoint through localhost. It resolves
+          # the stable resource alias on Coolify's shared network, with that
+          # alias as the HTTP Host. Exercise this exact path so a Compose
+          # network or alias regression cannot pass an internal-only test.
+          app_image="$(docker inspect --format '{{.Config.Image}}' "$(docker compose ps -q app)")"
+          tls_ask_url="http://longos-${COOLIFY_RESOURCE_UUID}/_longos/tls/authorize"
+          tls_network_status="$(docker run --rm --network coolify --entrypoint curl "$app_image" \
+            --connect-timeout 5 --max-time 10 -sS -o /dev/null -w '%{http_code}' \
+            --get --data-urlencode "domain=${DOMAIN}" "$tls_ask_url")"
+          case "$tls_network_status" in
+            2??) ;;
+            *) echo "Coolify-network TLS ask failed through ${tls_ask_url}: HTTP ${tls_network_status}" >&2; exit 1 ;;
+          esac
+          tls_network_unknown_status="$(docker run --rm --network coolify --entrypoint curl "$app_image" \
+            --connect-timeout 5 --max-time 10 -sS -o /dev/null -w '%{http_code}' \
+            --get --data-urlencode 'domain=unregistered.example.test' "$tls_ask_url")"
+          if [ "$tls_network_unknown_status" != "404" ]; then
+            echo "Coolify-network TLS ask did not fail closed: HTTP ${tls_network_unknown_status}" >&2
+            exit 1
+          fi
+
+          # Let the same label adapter used by Coolify parse and load the
+          # project labels. Checking Caddy's active JSON catches unsupported
+          # directives and malformed nesting that plain Compose validation
+          # cannot see, without contacting a public ACME authority.
+          docker run -d --name longos-caddy-contract \
+            --network coolify \
+            -e CADDY_INGRESS_NETWORKS=coolify \
+            -e CADDY_DOCKER_POLLING_INTERVAL=1s \
+            -v /var/run/docker.sock:/var/run/docker.sock:ro \
+            lucaslorentz/caddy-docker-proxy:2.13-alpine >/dev/null
+          caddy_config_ready=false
+          for attempt in $(seq 1 60); do
+            if docker exec longos-caddy-contract wget -qO- http://127.0.0.1:2019/config/ \
+              > /tmp/longos-caddy-active.json 2>/dev/null \
+              && jq -e --arg ask "$tls_ask_url" \
+                '.. | strings | select(. == $ask)' /tmp/longos-caddy-active.json >/dev/null \
+              && jq -e '.. | objects | select(.handler? == "reverse_proxy")' \
+                /tmp/longos-caddy-active.json >/dev/null; then
+              caddy_config_ready=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "$caddy_config_ready" != "true" ]; then
+            echo "Coolify Caddy did not load LONGOS on-demand TLS and reverse-proxy labels." >&2
+            cat /tmp/longos-caddy-active.json >&2 2>/dev/null || true
+            docker logs longos-caddy-contract >&2 || true
+            exit 1
+          fi
+
           # Exercise the exact fail-closed authorization decision used by
           # Coolify Caddy before it issues an On-Demand TLS certificate.
           tls_authorized_status="$(docker compose exec -T app curl -sS -o /dev/null -w '%{http_code}' \
@@ -246,7 +299,8 @@ jobs:
 
           docker compose up -d worker scheduler
           wait_for_healthy worker 60
-          test "$(docker inspect --format '{{.State.Running}}' "$(docker compose ps -q scheduler)")" = "true"
+          wait_for_healthy scheduler 60
+          docker compose exec -T scheduler test -s storage/framework/scheduler-heartbeat
 
           # A second web start exercises the persisted-volume sync and the
           # automatic saas:upgrade path used by every later Coolify deploy.
@@ -254,4 +308,4 @@ jobs:
           wait_for_app
           docker compose exec -T app test -f storage/installed
           test "$(docker inspect --format '{{.State.Running}}' "$(docker compose ps -q worker)")" = "true"
-          test "$(docker inspect --format '{{.State.Running}}' "$(docker compose ps -q scheduler)")" = "true"
+          test "$(docker inspect --format '{{.State.Health.Status}}' "$(docker compose ps -q scheduler)")" = "healthy"

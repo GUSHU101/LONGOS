@@ -166,6 +166,8 @@ class SaasDockerDeploymentTest extends TestCase
 
         self::assertStringContainsString('command: ["worker"]', $compose);
         self::assertStringContainsString('command: ["scheduler"]', $compose);
+        self::assertStringContainsString('storage/framework/scheduler-heartbeat', $compose);
+        self::assertStringContainsString('-mmin -3', $compose);
         self::assertStringContainsString('condition: service_healthy', $compose);
         self::assertMatchesRegularExpression('/mail-relay:\\R(?:.*\\R){0,5}\\s*condition: service_started/', $compose);
         self::assertStringContainsString('longos-storage:/var/www/html/storage', $compose);
@@ -181,10 +183,17 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringContainsString('A required mail relay process exited', $relay);
         self::assertStringContainsString('--tries=5 --backoff=30', $this->read('docker/nginx/start.sh'));
         self::assertStringContainsString('wait_for_healthy worker', $ci);
+        self::assertStringContainsString('wait_for_healthy scheduler', $ci);
+        self::assertStringContainsString('--network coolify --entrypoint curl', $ci);
+        self::assertStringContainsString('http://longos-${COOLIFY_RESOURCE_UUID}/_longos/tls/authorize', $ci);
+        self::assertStringContainsString('lucaslorentz/caddy-docker-proxy:2.13-alpine', $ci);
+        self::assertStringContainsString('http://127.0.0.1:2019/config/', $ci);
+        self::assertStringContainsString('.handler? == "reverse_proxy"', $ci);
         self::assertStringContainsString('http://127.0.0.1/_longos/tls/authorize', $ci);
         self::assertStringContainsString('unregistered.example.test', $ci);
         self::assertStringContainsString('dkim_before=', $ci);
         self::assertStringContainsString('test "$dkim_after" = "$dkim_before"', $ci);
+        self::assertStringContainsString("name('longos:scheduler-heartbeat')->everyMinute()", $this->read('app/Console/Kernel.php'));
     }
 
     public function test_public_php_execution_and_health_check_remain_fail_closed(): void

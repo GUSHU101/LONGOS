@@ -182,6 +182,14 @@ services:
     depends_on:
       app:
         condition: service_healthy
+    healthcheck:
+      # schedule:work emits this heartbeat through Laravel's scheduler. This
+      # detects a live container whose scheduling loop is no longer running.
+      test: ["CMD-SHELL", "test -f storage/framework/scheduler-heartbeat && find storage/framework/scheduler-heartbeat -mmin -3 -print -quit | grep -q ."]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 180s
 
   mysql:
     image: mysql:8.4.11
