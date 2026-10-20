@@ -58,6 +58,9 @@ Coolify 解析 Compose 后会自动生成 `SERVICE_*` 凭据。只需手动填�
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API Token | 否 | 仅用于可选 DNS 自动发布；应在 Coolify 标记为 Secret |
 | `LONGOS_AUTO_CONFIGURE_MAIL_DNS` | `true` | 否 | 有可用 Token 时维护 LONGOS 专用邮件 DNS；不会覆盖已有 SPF/DMARC 策略 |
 
+`MAIL_FROM_ADDRESS` 通常应保持为空，让 Compose 自动生成
+`no-reply@MAIL_RELAY_PLATFORM_SENDER_DOMAIN`。升级旧部署时，即使 Coolify 中残留了格式错误或未加入签名域列表的覆盖值，LONGOS 也会忽略该值并安全回退，不会因此让容器反复重启；上线预检会保留一条“发件地址覆盖值”告警，便于管理员删除旧变量。
+
 以下值由 Coolify 自动生成并持久保存，不要手动替换：
 
 - `SERVICE_REALBASE64_32_APPKEY`

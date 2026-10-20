@@ -170,6 +170,20 @@ class SaasPreflightTest extends TestCase
             ['name' => '域名动态发布', 'status' => 'PASS', 'message' => 'Caddy ask 实时授权，无需重载代理'],
             $result['checks'],
         );
+        config(['mail.relay.configured_from_address_rejected' => true]);
+        self::assertSame(0, Artisan::call('saas:preflight', [
+            '--skip-database' => true,
+            '--json'          => true,
+        ]));
+        $fallbackResult = json_decode(Artisan::output(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertContains(
+            [
+                'name'    => '发件地址覆盖值',
+                'status'  => 'WARN',
+                'message' => '已忽略无效或未签名的 MAIL_FROM_ADDRESS，并安全回退到平台发件域',
+            ],
+            $fallbackResult['checks'],
+        );
         self::assertContains(
             ['name' => '商城核心路由', 'status' => 'PASS', 'message' => '首页、购物车、结账、地址联想与数据看板路由齐全'],
             $result['checks'],

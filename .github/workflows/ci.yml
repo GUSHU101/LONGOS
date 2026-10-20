@@ -109,6 +109,8 @@ jobs:
           docker compose config --quiet
           docker compose config --format json > /tmp/longos-compose.json
           jq -e '.services.app.environment.ADMIN_EMAIL == "ops@example.test"' /tmp/longos-compose.json
+          jq -e '.services.app.environment.MAIL_FROM_ADDRESS == "no-reply@shops.example.test"' /tmp/longos-compose.json
+          jq -e '.services.app.environment.MAIL_RELAY_PLATFORM_SENDER_DOMAIN == "shops.example.test"' /tmp/longos-compose.json
           jq -e '.services.app.environment.MAIL_RELAY_DNS_RECORDS_PATH == "/var/lib/longos-mail-dns"' /tmp/longos-compose.json
           jq -e '.services.app.volumes[] | select(.target == "/var/lib/longos-mail-dns" and .read_only == true)' /tmp/longos-compose.json
           jq -e '.services["mail-relay"].volumes[] | select(.target == "/var/lib/mail-relay-dns" and .read_only != true)' /tmp/longos-compose.json
@@ -193,6 +195,12 @@ jobs:
               container_id="$(docker compose ps -q app)"
               if [ -z "$container_id" ] || [ "$(docker inspect --format '{{.State.Running}}' "$container_id")" != "true" ]; then
                 echo "LONGOS app container exited during startup." >&2
+                return 1
+              fi
+              restart_count="$(docker inspect --format '{{.RestartCount}}' "$container_id")"
+              if [ "$restart_count" -gt 0 ]; then
+                echo "LONGOS app restarted ${restart_count} time(s) during startup." >&2
+                docker compose logs --no-color --tail=200 app >&2 || true
                 return 1
               fi
               if docker compose exec -T app curl -fsS -o /dev/null \

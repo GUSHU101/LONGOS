@@ -34,15 +34,19 @@ $relayPublicIps = array_values(array_unique(array_filter(array_map(
     FILTER_VALIDATE_IP,
     FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE | FILTER_FLAG_GLOBAL_RANGE,
 ) !== false)));
-$configuredMailFrom = trim((string) env('MAIL_FROM_ADDRESS', ''));
-$mailFromAddress    = $configuredMailFrom !== ''
-    ? $configuredMailFrom
-    : ($platformSenderDomain !== '' ? 'no-reply@' . $platformSenderDomain : 'hello@example.com');
 $relayReadyByConfiguration = $platformSenderDomain !== ''
     && strlen($longosRelaySecret)    >= 32
     && strlen($cloudMailRelaySecret) >= 32
     && ! hash_equals($longosRelaySecret, $cloudMailRelaySecret);
-$relayEnabled = (bool) env('LONGOS_MAIL_RELAY_ENABLED', $relayReadyByConfiguration);
+$relayEnabled             = (bool) env('LONGOS_MAIL_RELAY_ENABLED', $relayReadyByConfiguration);
+$configuredMailFrom       = strtolower(trim((string) env('MAIL_FROM_ADDRESS', '')));
+$configuredMailFromDomain = $normalizeRelayDomain(substr(strrchr($configuredMailFrom, '@') ?: '', 1));
+$configuredMailFromValid  = $configuredMailFrom               !== ''
+    && filter_var($configuredMailFrom, FILTER_VALIDATE_EMAIL) !== false
+    && (! $relayEnabled || in_array($configuredMailFromDomain, $allowedDomains, true));
+$mailFromAddress = $configuredMailFromValid
+    ? $configuredMailFrom
+    : ($platformSenderDomain !== '' ? 'no-reply@' . $platformSenderDomain : 'hello@example.com');
 
 return [
 
@@ -150,24 +154,28 @@ return [
     ],
 
     'relay' => [
-        'enabled'                      => $relayEnabled,
-        'hostname'                     => $relayHostname,
-        'domains'                      => $relayDomains,
-        'allowed_sender_domains'       => $allowedDomains,
-        'platform_sender_domain'       => $platformSenderDomain,
-        'public_url'                   => $relayPublicUrl,
-        'public_ips'                   => $relayPublicIps,
-        'dkim_selector'                => env('MAIL_RELAY_DKIM_SELECTOR', 'mail2026'),
+        'enabled'                       => $relayEnabled,
+        'hostname'                      => $relayHostname,
+        'domains'                       => $relayDomains,
+        'allowed_sender_domains'        => $allowedDomains,
+        'platform_sender_domain'        => $platformSenderDomain,
+        'public_url'                    => $relayPublicUrl,
+        'public_ips'                    => $relayPublicIps,
+        'dkim_selector'                 => env('MAIL_RELAY_DKIM_SELECTOR', 'mail2026'),
         'auto_configure_dns'            => (bool) env('LONGOS_AUTO_CONFIGURE_MAIL_DNS', true),
         'dns_records_path'              => env('MAIL_RELAY_DNS_RECORDS_PATH', '/var/lib/longos-mail-dns'),
         'cloudflare_api_base'           => rtrim((string) env('CLOUDFLARE_API_BASE', 'https://api.cloudflare.com/client/v4'), '/'),
-        'cloud_mail_secret'            => $cloudMailRelaySecret,
-        'max_request_bytes'            => (int) env('MAIL_RELAY_MAX_REQUEST_BYTES', 26214400),
-        'longos_client_configured'     => strlen($longosRelaySecret)    >= 32,
-        'cloud_mail_client_configured' => strlen($cloudMailRelaySecret) >= 32,
-        'client_secrets_distinct'      => $longosRelaySecret !== ''
+        'cloud_mail_secret'             => $cloudMailRelaySecret,
+        'max_request_bytes'             => (int) env('MAIL_RELAY_MAX_REQUEST_BYTES', 26214400),
+        'longos_client_configured'      => strlen($longosRelaySecret)    >= 32,
+        'cloud_mail_client_configured'  => strlen($cloudMailRelaySecret) >= 32,
+        'client_secrets_distinct'       => $longosRelaySecret !== ''
             && $cloudMailRelaySecret                         !== ''
             && ! hash_equals($longosRelaySecret, $cloudMailRelaySecret),
+        // An invalid or unsigned legacy MAIL_FROM_ADDRESS must not brick a
+        // deployment. The runtime falls back to the signed platform domain;
+        // preflight still reports the ignored override as an operator warning.
+        'configured_from_address_rejected' => $configuredMailFrom !== '' && ! $configuredMailFromValid,
     ],
 
     /*

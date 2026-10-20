@@ -31,6 +31,8 @@ class LongosRelayTransportContractTest extends TestCase
         self::assertStringContainsString("env('SAAS_BASE_DOMAIN', '')", $config);
         self::assertStringContainsString("'no-reply@' . \$platformSenderDomain", $config);
         self::assertStringContainsString("trim((string) env('MAIL_FROM_ADDRESS', ''))", $config);
+        self::assertStringContainsString('in_array($configuredMailFromDomain, $allowedDomains, true)', $config);
+        self::assertStringContainsString("'configured_from_address_rejected'", $config);
         self::assertStringNotContainsString("\n      RELAY_SHARED_SECRET:", $compose);
         self::assertStringContainsString('load_secret LONGOS_RELAY_SHARED_SECRET', $entrypoint);
         self::assertStringContainsString('load_secret CLOUD_MAIL_RELAY_SHARED_SECRET', $entrypoint);

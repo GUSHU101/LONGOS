@@ -477,14 +477,23 @@ class SaasPreflight extends Command
             'MAIL_RELAY_PLATFORM_SENDER_DOMAIN 必须是允许且已配置 DKIM 签名的发件域名',
         );
 
-        $fromAddress = strtolower(trim((string) config('mail.from.address')));
-        $fromDomain  = strtolower((string) substr(strrchr($fromAddress, '@') ?: '', 1));
+        $fromAddress       = strtolower(trim((string) config('mail.from.address')));
+        $fromDomain        = strtolower((string) substr(strrchr($fromAddress, '@') ?: '', 1));
+        $fromAddressValid  = filter_var($fromAddress, FILTER_VALIDATE_EMAIL) !== false;
+        $fromDomainAllowed = in_array($fromDomain, $allowedDomains, true);
         $this->requirement(
             '默认发件地址',
-            filter_var($fromAddress, FILTER_VALIDATE_EMAIL) !== false
-                && in_array($fromDomain, $allowedDomains, true),
+            $fromAddressValid && $fromDomainAllowed,
             $fromAddress,
-            'MAIL_FROM_ADDRESS 必须使用允许且已签名的发件域名',
+            ! $fromAddressValid
+                ? 'MAIL_FROM_ADDRESS 不是有效邮箱地址'
+                : "MAIL_FROM_ADDRESS 的发件域 {$fromDomain} 未加入允许且已签名的发件域列表",
+        );
+        $this->advisory(
+            '发件地址覆盖值',
+            ! (bool) config('mail.relay.configured_from_address_rejected'),
+            '未发现无效的 MAIL_FROM_ADDRESS 覆盖值',
+            '已忽略无效或未签名的 MAIL_FROM_ADDRESS，并安全回退到平台发件域',
         );
 
         $publicUrl       = trim((string) config('mail.relay.public_url'));
