@@ -59,6 +59,8 @@
             'diagnosticsRunning' => __('admin/setting.mail_diagnostics_running'),
             'diagnosticsFailed' => __('admin/setting.mail_diagnostics_failed'),
             'senderDomainApplied' => __('admin/setting.mail_sender_domain_applied'),
+            'dnsRecordPending' => __('admin/setting.mail_dns_record_pending'),
+            'dnsRecordCopied' => __('admin/setting.mail_dns_record_copied'),
         ],
     ];
   @endphp
@@ -98,6 +100,40 @@
             </div>
           </div>
           <div v-if="diagnosticError" class="alert alert-danger py-2 px-3 mb-0 mt-3">@{{ diagnosticError }}</div>
+          <div v-if="dnsRecords.length" class="mt-4">
+            <div class="fw-bold">{{ __('admin/setting.mail_dns_records_title') }}</div>
+            <div class="text-secondary font-size-12 mb-2">{{ __('admin/setting.mail_dns_records_help') }}</div>
+            <div class="table-responsive border rounded">
+              <table class="table table-sm align-middle mb-0">
+                <thead>
+                  <tr>
+                    <th style="width: 70px">Type</th>
+                    <th>{{ __('admin/setting.mail_dns_record_name') }}</th>
+                    <th>{{ __('admin/setting.mail_dns_record_value') }}</th>
+                    <th style="width: 150px"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(record, index) in dnsRecords" :key="`${record.type}:${record.name}:${index}`">
+                    <td><span class="badge bg-secondary">@{{ record.type }}</span></td>
+                    <td><code class="user-select-all text-break" v-text="record.name"></code></td>
+                    <td>
+                      <code v-if="record.available" class="user-select-all text-break" v-text="record.value"></code>
+                      <span v-else class="text-warning" v-text="source.dnsRecordPending"></span>
+                      <div class="text-secondary font-size-12">
+                        @{{ record.mode === 'if_missing' ? source.dnsModeIfMissing : source.dnsModeManaged }}
+                      </div>
+                    </td>
+                    <td class="text-end">
+                      <button type="button" class="btn btn-outline-secondary btn-sm" :disabled="!record.available" @click="copyDnsValue(record.value)">
+                        <i class="bi bi-clipboard"></i> {{ __('admin/setting.mail_dns_record_copy') }}
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
 
         <x-admin-form-switch name="use_queue" title="{{ __('admin/setting.use_queue') }}" value="{{ old('use_queue', system_setting('base.use_queue', '0')) }}">
@@ -337,6 +373,7 @@
         testing: false,
         diagnosing: false,
         diagnosticChecks: [],
+        dnsRecords: [],
         diagnosticError: '',
 
         source: {
@@ -355,6 +392,10 @@
           testSendingLabel: mailPageData.labels.testSending,
           diagnosticsButton: mailPageData.labels.diagnosticsButton,
           diagnosticsRunning: mailPageData.labels.diagnosticsRunning,
+          dnsRecordPending: mailPageData.labels.dnsRecordPending,
+          dnsRecordCopied: mailPageData.labels.dnsRecordCopied,
+          dnsModeManaged: '{{ __('admin/setting.mail_dns_record_mode_managed') }}',
+          dnsModeIfMissing: '{{ __('admin/setting.mail_dns_record_mode_if_missing') }}',
         },
       },
       methods: {
@@ -380,9 +421,27 @@
           }).done((response) => {
             const payload = response?.data?.data || response?.data || {};
             this.diagnosticChecks = Array.isArray(payload.checks) ? payload.checks : [];
+            this.dnsRecords = Array.isArray(payload.dns_records) ? payload.dns_records : [];
           }).fail((xhr) => {
             this.diagnosticError = xhr.responseJSON?.message || mailPageData.labels.diagnosticsFailed;
           }).always(() => { this.diagnosing = false; });
+        },
+        async copyDnsValue(value) {
+          if (!value) return;
+          try {
+            await navigator.clipboard.writeText(value);
+          } catch (error) {
+            const input = document.createElement('textarea');
+            input.value = value;
+            input.setAttribute('readonly', 'readonly');
+            input.style.position = 'fixed';
+            input.style.opacity = '0';
+            document.body.appendChild(input);
+            input.select();
+            document.execCommand('copy');
+            input.remove();
+          }
+          layer.msg(this.source.dnsRecordCopied);
         },
         sendTestMail() {
           if (!this.testRecipient || this.testing) return;

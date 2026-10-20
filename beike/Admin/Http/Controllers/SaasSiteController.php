@@ -24,6 +24,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use InvalidArgumentException;
 use RuntimeException;
 use Throwable;
 
@@ -306,7 +307,15 @@ class SaasSiteController extends Controller
     ): JsonResponse {
         $this->authorizeControlPlane($request, $tenants);
         $validated = $request->validate(['domain' => ['required', 'string', 'max:253']]);
-        $domain    = DomainName::normalize($validated['domain']);
+        try {
+            $domain = DomainName::normalize($validated['domain']);
+        } catch (InvalidArgumentException $exception) {
+            // DomainName performs the strict host/path/wildcard checks used
+            // by the rest of the control plane. Convert its input error into
+            // a normal validation response instead of letting malformed
+            // operator input escape as an HTTP 500.
+            throw ValidationException::withMessages(['domain' => $exception->getMessage()]);
+        }
         if ($domain === 'localhost' || filter_var($domain, FILTER_VALIDATE_IP)) {
             throw ValidationException::withMessages(['domain' => '发件域必须是有效的公网域名。']);
         }

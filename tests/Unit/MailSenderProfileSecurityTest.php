@@ -65,6 +65,10 @@ class MailSenderProfileSecurityTest extends TestCase
         $service = new MailSenderProfileService;
         self::assertSame(['mail.example.com'], $service->availableDomains());
         self::assertSame('orders@mail.example.com', $service->suggestedAddress(MailSenderProfileService::ORDERS));
+
+        $this->expectException(MailSenderAuthorizationException::class);
+        $this->expectExceptionMessage('主站只能使用平台发件域');
+        $service->assertAuthorizedForSite('orders@brand-a.example.com', $control);
     }
 
     public function test_control_gateway_can_authorize_an_explicit_tenant_without_switching_current_site(): void

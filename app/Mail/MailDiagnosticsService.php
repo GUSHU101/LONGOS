@@ -7,10 +7,17 @@ use Throwable;
 
 class MailDiagnosticsService
 {
-    /** @return array{status: string, checks: array<int, array{key: string, status: string, message: string}>} */
+    /**
+     * @return array{
+     *   status: string,
+     *   checks: array<int, array{key: string, status: string, message: string}>,
+     *   dns_records: array<int, array{type: string, name: string, value: string, mode: string, available: bool}>
+     * }
+     */
     public function diagnose(): array
     {
         $checks = [];
+        $dnsRecords = [];
         $engine = strtolower(trim((string) system_setting('base.mail_engine', config('mail.default', ''))));
         $this->add($checks, 'engine', $engine !== '' ? 'ok' : 'error', $engine !== '' ? "当前邮件引擎：{$engine}" : '尚未启用邮件引擎。');
 
@@ -24,6 +31,11 @@ class MailDiagnosticsService
 
         if ($engine === 'self_hosted') {
             $this->diagnoseSelfHosted($checks, $profile['address']);
+            try {
+                $dnsRecords = app(CloudflareMailDnsService::class)->expectedRecords();
+            } catch (Throwable $exception) {
+                $this->add($checks, 'dns_record_preview', 'error', $exception->getMessage());
+            }
         }
 
         $severity = ['ok' => 0, 'warning' => 1, 'error' => 2];
@@ -34,7 +46,7 @@ class MailDiagnosticsService
             }
         }
 
-        return ['status' => $status, 'checks' => $checks];
+        return ['status' => $status, 'checks' => $checks, 'dns_records' => $dnsRecords];
     }
 
     /** @param array<int, array{key: string, status: string, message: string}> $checks */
@@ -107,15 +119,32 @@ class MailDiagnosticsService
             }
 
             $spf = $this->txtRecords($domain);
-            $this->add($checks, "spf:{$domain}", $this->containsPrefix($spf, 'v=spf1') ? 'ok' : 'error', $this->containsPrefix($spf, 'v=spf1') ? "{$domain} 已发布 SPF。" : "{$domain} 缺少 SPF TXT 记录。");
+            $spfCount = $this->prefixCount($spf, 'v=spf1');
+            $this->add(
+                $checks,
+                "spf:{$domain}",
+                $spfCount === 1 ? 'ok' : 'error',
+                $spfCount === 1
+                    ? "{$domain} 已发布唯一 SPF。"
+                    : ($spfCount === 0 ? "{$domain} 缺少 SPF TXT 记录。" : "{$domain} 存在 {$spfCount} 条 SPF 记录，收件服务商会判定 PermError，请合并为一条。"),
+            );
 
             $dkimHost  = "{$selector}._domainkey.{$domain}";
             $dkim      = $this->txtRecords($dkimHost);
-            $validDkim = $this->containsPrefix($dkim, 'v=dkim1') && preg_match('/(?:^|;)\s*p\s*=\s*[A-Za-z0-9+\/=]+/i', implode(';', $dkim));
-            $this->add($checks, "dkim:{$domain}", $validDkim ? 'ok' : 'error', $validDkim ? "{$domain} 的 DKIM 记录有效。" : ($dkim === [] ? "{$dkimHost} 缺少 DKIM TXT 记录。" : "{$dkimHost} 的 DKIM TXT 记录格式无效。"));
+            $dkimCount = $this->prefixCount($dkim, 'v=dkim1');
+            $validDkim = $dkimCount === 1 && preg_match('/(?:^|;)\s*p\s*=\s*[A-Za-z0-9+\/=]+/i', implode(';', $dkim));
+            $this->add($checks, "dkim:{$domain}", $validDkim ? 'ok' : 'error', $validDkim ? "{$domain} 的 DKIM 记录有效。" : ($dkim === [] ? "{$dkimHost} 缺少 DKIM TXT 记录。" : ($dkimCount > 1 ? "{$dkimHost} 存在多条 DKIM 记录，请只保留当前公钥。" : "{$dkimHost} 的 DKIM TXT 记录格式无效。")));
 
             $dmarc = $this->txtRecords("_dmarc.{$domain}");
-            $this->add($checks, "dmarc:{$domain}", $this->containsPrefix($dmarc, 'v=dmarc1') ? 'ok' : 'warning', $this->containsPrefix($dmarc, 'v=dmarc1') ? "{$domain} 已发布 DMARC。" : "{$domain} 尚未发布 DMARC，建议先使用 p=none 观察。");
+            $dmarcCount = $this->prefixCount($dmarc, 'v=dmarc1');
+            $this->add(
+                $checks,
+                "dmarc:{$domain}",
+                $dmarcCount === 1 ? 'ok' : ($dmarcCount === 0 ? 'warning' : 'error'),
+                $dmarcCount === 1
+                    ? "{$domain} 已发布唯一 DMARC。"
+                    : ($dmarcCount === 0 ? "{$domain} 尚未发布 DMARC，建议先使用 p=none 观察。" : "_dmarc.{$domain} 存在 {$dmarcCount} 条 DMARC 记录，请合并为一条。"),
+            );
         }
     }
 
@@ -148,7 +177,9 @@ class MailDiagnosticsService
 
     private function validDomain(string $domain): bool
     {
-        return $domain !== '' && filter_var($domain, FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME) !== false;
+        return str_contains($domain, '.')
+            && filter_var($domain, FILTER_VALIDATE_IP) === false
+            && filter_var($domain, FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME) !== false;
     }
 
     /** @return array<int, string> */
@@ -195,15 +226,12 @@ class MailDiagnosticsService
     }
 
     /** @param array<int, string> $records */
-    private function containsPrefix(array $records, string $prefix): bool
+    private function prefixCount(array $records, string $prefix): int
     {
-        foreach ($records as $record) {
-            if (str_starts_with(strtolower(trim($record)), $prefix)) {
-                return true;
-            }
-        }
-
-        return false;
+        return count(array_filter(
+            $records,
+            static fn (string $record): bool => str_starts_with(strtolower(trim($record)), $prefix),
+        ));
     }
 
     /** @param array<int, array{key: string, status: string, message: string}> $checks */

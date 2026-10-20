@@ -162,6 +162,14 @@ initialize_or_upgrade() {
     php artisan saas:upgrade --no-maintenance --if-needed
   fi
 
+  # Do not block storefront availability on an external DNS provider. A first
+  # best-effort pass publishes mail records immediately; the scheduler repeats
+  # the idempotent operation every five minutes if the relay key or API was
+  # temporarily unavailable.
+  if ! php artisan mail:sync-cloudflare-dns --if-configured; then
+    echo "LONGOS mail DNS synchronization will retry in the scheduler." >&2
+  fi
+
   php artisan optimize
 }
 

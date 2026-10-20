@@ -14,7 +14,7 @@ LONGOS 的 Coolify Compose 会把 Postfix、OpenDKIM 和 Cloud Mail HTTPS 中继
 4. 生成并持久化 2048 位 DKIM 密钥；
 5. 通过 LONGOS 应用网关发布 `/_longos/mail-relay`，对外仅接受有限权的系统集成令牌；
 6. 把 LONGOS 后台默认邮件引擎设为“内置邮件服务器”；
-7. 如果提供了拥有 Zone:Read + DNS:Edit 权限的 Cloudflare Token，自动发布邮件主机 A（仅 DNS）、`MAIL_RELAY_DOMAINS` 中每个签名域的 DKIM，并在尚无策略时创建 SPF/DMARC。
+7. 如果提供了拥有 Zone:Read + DNS:Edit 权限的 Cloudflare Token，自动发布 `MAIL_RELAY_DOMAINS` 中每个签名域的 DKIM，并在尚无策略时创建 SPF/DMARC；填写 `MAIL_RELAY_IPS` 后同时维护邮件主机 DNS-only A/AAAA。
 
 默认值根据网站域名生成：
 
@@ -22,13 +22,16 @@ LONGOS 的 Coolify Compose 会把 Postfix、OpenDKIM 和 Cloud Mail HTTPS 中继
 MAIL_RELAY_HOSTNAME=mailout.<SAAS_BASE_DOMAIN>
 MAIL_RELAY_DOMAINS=<SAAS_BASE_DOMAIN>
 MAIL_RELAY_PLATFORM_SENDER_DOMAIN=<SAAS_BASE_DOMAIN>
+MAIL_RELAY_IPS=<服务器邮件出口公网 IP，可留空>
 MAIL_RELAY_PUBLIC_URL=https://<DOMAIN>/_longos/mail-relay
 MAIL_FROM_ADDRESS=no-reply@<SAAS_BASE_DOMAIN>
 ```
 
 需要自定义时，在 Coolify 环境变量中设置同名值并 Redeploy。`MAIL_RELAY_DOMAINS` 和 `MAIL_RELAY_ALLOWED_SENDER_DOMAINS` 支持逗号分隔的多个域名；留空时 Laravel 和 Compose 从 `SAAS_BASE_DOMAIN` 推导。首次打开后台邮件设置时，默认、订单、账户、退货/客服和营销五类发件人会按当前租户自动填充。
 
-Cloudflare 自动发布默认由 `LONGOS_AUTO_CONFIGURE_MAIL_DNS=true` 开启。应用只更新 LONGOS 专用的邮件主机和每个签名域的 DKIM selector；如果域名已有 SPF 或 DMARC，会保留商家策略，不会盲目覆盖。多签名域模式下 Token 必须对每个域所属的 Cloudflare Zone 都有权限。Token 作为 Coolify 的 Secret 环境变量保存，不写入仓库；若不希望容器获得 DNS 权限，留空并按后台展示的记录手工添加即可。
+Cloudflare 自动发布默认由 `LONGOS_AUTO_CONFIGURE_MAIL_DNS=true` 开启。应用只更新 LONGOS 专用的 DKIM selector；如果域名已有 SPF 或 DMARC，会保留商家策略，不会盲目覆盖。邮件主机 A/AAAA 只使用 `MAIL_RELAY_IPS` 的明确 IP，绝不从 Cloudflare 代理后的网站域名猜测。多签名域模式下 Token 必须对每个域所属的 Cloudflare Zone 都有权限。Token 作为 Coolify 的 Secret 环境变量保存，不写入仓库；若不希望容器获得 DNS 权限，留空并在后台点击“立即检测”复制记录即可。
+
+DKIM 私钥只存在 `mail-relay-dkim` 专用卷。邮件中继会把可公开的 TXT 值写入独立卷，网站容器仅以只读方式挂载该公开值。首次容器启动会自动尝试同步，后续由 scheduler 每 5 分钟幂等重试，新增发件域只需更新 Coolify 变量并 Redeploy。
 
 升级已有站点时只需让 Coolify 部署新的 Git 提交。新镜像会从锁文件重新构建依赖和前端资源，容器入口识别持久卷中的 `storage/installed`，取得部署锁后自动升级控制库、租户库和插件并重建缓存。原域名、数据库、SaaS 配置、DKIM 私钥、队列和密钥都保留，不需要运行 `install.sh`、`migrate` 或其他服务器命令。
 
@@ -67,7 +70,7 @@ Cloud Mail 的部署工作流会自动把令牌写入 Worker Secret；后台保�
 - `MAIL_RELAY_HOSTNAME` 的 A/AAAA 解析；
 - 每个签名域的 SPF、DKIM 与 DMARC。
 
-检测只返回状态，不显示任何密钥。完成后使用“发送测试邮件”验证真实投递链路。后台的“已发送”准确含义是“邮件已被当前传输层或 Postfix 队列接受”，最终是否进入收件箱仍取决于公网 25 端口、PTR、DNS 身份、目标服务商策略和 IP 信誉。
+检测会在表格中展示可公开的 DNS 记录值，但不显示任何私钥或 Token。完成后使用“发送测试邮件”验证真实投递链路。后台的“已发送”准确含义是“邮件已被当前传输层或 Postfix 队列接受”，最终是否进入收件箱仍取决于公网 25 端口、PTR、DNS 身份、目标服务商策略和 IP 信誉。
 
 Cloud Mail 的“测试连接”会携带已创建的集成令牌调用主站 `/_longos/mail-relay/health`。返回健康状态才表示应用网关、中继和 Postfix 当前可用；接口不会泄露队列内容、地址或密钥。
 

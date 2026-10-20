@@ -109,6 +109,10 @@ jobs:
           docker compose config --quiet
           docker compose config --format json > /tmp/longos-compose.json
           jq -e '.services.app.environment.ADMIN_EMAIL == "ops@example.test"' /tmp/longos-compose.json
+          jq -e '.services.app.environment.MAIL_RELAY_DNS_RECORDS_PATH == "/var/lib/longos-mail-dns"' /tmp/longos-compose.json
+          jq -e '.services.app.volumes[] | select(.target == "/var/lib/longos-mail-dns" and .read_only == true)' /tmp/longos-compose.json
+          jq -e '.services["mail-relay"].volumes[] | select(.target == "/var/lib/mail-relay-dns" and .read_only != true)' /tmp/longos-compose.json
+          jq -e '[.services.app.volumes[] | select(.target == "/var/lib/dkim")] | length == 0' /tmp/longos-compose.json
 
       - name: Validate Coolify build-only email fallback
         run: |
@@ -296,6 +300,15 @@ jobs:
 
           docker compose exec -T mail-relay node -e \
             "fetch('http://127.0.0.1:3000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+
+          # PHP may read the public TXT value used for optional Cloudflare
+          # synchronization, but must never receive the DKIM private key.
+          relay_public_dkim="/var/lib/mail-relay-dns/${SAAS_BASE_DOMAIN}/mail2026.txt"
+          app_public_dkim="/var/lib/longos-mail-dns/${SAAS_BASE_DOMAIN}/mail2026.txt"
+          docker compose exec -T mail-relay test -s "$relay_public_dkim"
+          docker compose exec -T app test -s "$app_public_dkim"
+          docker compose exec -T app grep -Eq '^v=DKIM1;.*p=' "$app_public_dkim"
+          docker compose exec -T app test ! -e "/var/lib/dkim/${SAAS_BASE_DOMAIN}/mail2026.private"
 
           # The relay must reuse the persisted private key after a container
           # restart. Regenerating it would silently invalidate published DKIM.

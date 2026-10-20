@@ -102,6 +102,15 @@ class Kernel extends ConsoleKernel
             ->dailyAt('03:00')
             ->withoutOverlapping();
 
+        // DKIM material is produced by the private relay container and
+        // exposed as public TXT values through a read-only volume. Periodic
+        // idempotent synchronization covers first boot races and later
+        // additions to MAIL_RELAY_DOMAINS without any server command.
+        $schedule->command('mail:sync-cloudflare-dns --if-configured')
+            ->everyFiveMinutes()
+            ->onOneServer()
+            ->withoutOverlapping(10);
+
     }
 
     /**

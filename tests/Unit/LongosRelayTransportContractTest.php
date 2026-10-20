@@ -23,6 +23,10 @@ class LongosRelayTransportContractTest extends TestCase
         self::assertStringContainsString('LONGOS_RELAY_SHARED_SECRET: ${SERVICE_PASSWORD_64_MAILRELAY}', $compose);
         self::assertStringContainsString('CLOUD_MAIL_RELAY_SHARED_SECRET: ${SERVICE_PASSWORD_64_CLOUDMAIL}', $compose);
         self::assertStringContainsString('MAIL_RELAY_DOMAINS:-${SAAS_BASE_DOMAIN}', $compose);
+        self::assertStringContainsString('MAIL_RELAY_DNS_RECORDS_PATH: /var/lib/longos-mail-dns', $compose);
+        self::assertStringContainsString('mail-relay-dns:/var/lib/longos-mail-dns:ro', $compose);
+        self::assertStringContainsString('mail-relay-dns:/var/lib/mail-relay-dns', $compose);
+        self::assertStringContainsString('DNS_RECORDS_PATH: /var/lib/mail-relay-dns', $compose);
         self::assertStringContainsString('start_period: 30s', $compose);
         self::assertStringContainsString("env('SAAS_BASE_DOMAIN', '')", $config);
         self::assertStringContainsString("'no-reply@' . \$platformSenderDomain", $config);
@@ -35,6 +39,8 @@ class LongosRelayTransportContractTest extends TestCase
         self::assertStringContainsString('must be different', $entrypoint);
         self::assertStringContainsString('must each contain at least 32 characters', $entrypoint);
         self::assertStringContainsString('[a-zA-Z0-9_-]{0,62}', $entrypoint);
+        self::assertStringContainsString('dkim_value=', $entrypoint);
+        self::assertStringContainsString('chmod 0644 "$public_temp"', $entrypoint);
         self::assertStringNotContainsString('- "25"', $compose);
     }
 

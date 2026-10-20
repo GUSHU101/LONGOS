@@ -48,6 +48,7 @@ INET_PROTOCOLS="${INET_PROTOCOLS:-ipv4}"
 SMTP_INET_INTERFACES="${SMTP_INET_INTERFACES:-loopback-only}"
 SMTP_MYNETWORKS="${SMTP_MYNETWORKS:-127.0.0.0/8}"
 PROCESS_CHECK_INTERVAL_SECONDS="${PROCESS_CHECK_INTERVAL_SECONDS:-5}"
+DNS_RECORDS_PATH="${DNS_RECORDS_PATH:-/var/lib/mail-relay-dns}"
 
 case "$PROCESS_CHECK_INTERVAL_SECONDS" in
   ''|*[!0-9]*)
@@ -105,8 +106,17 @@ done
 IFS="$old_ifs"
 
 printf '%s\n' "$MAIL_HOSTNAME" > /etc/mailname
-mkdir -p /run/opendkim /etc/opendkim /var/lib/dkim
+case "$DNS_RECORDS_PATH" in
+  /*) ;;
+  *)
+    echo "DNS_RECORDS_PATH must be an absolute path" >&2
+    exit 1
+    ;;
+esac
+
+mkdir -p /run/opendkim /etc/opendkim /var/lib/dkim "$DNS_RECORDS_PATH"
 chown opendkim:opendkim /run/opendkim /var/lib/dkim
+chmod 0755 "$DNS_RECORDS_PATH"
 
 : > /etc/opendkim/KeyTable
 : > /etc/opendkim/SigningTable
@@ -131,6 +141,24 @@ for raw_domain in $MAIL_DOMAINS; do
   printf '*@%s %s._domainkey.%s\n' "$domain" "$DKIM_SELECTOR" "$domain" \
     >> /etc/opendkim/SigningTable
   printf '%s\n*.%s\n' "$domain" "$domain" >> /etc/opendkim/TrustedHosts
+
+  # Expose only the public TXT value to the LONGOS application. Keeping this
+  # in a separate read-only volume lets the automatic Cloudflare synchronizer
+  # publish DKIM without ever mounting the private signing key into PHP.
+  public_dir="$DNS_RECORDS_PATH/$domain"
+  public_record="$public_dir/$DKIM_SELECTOR.txt"
+  public_temp="$public_record.tmp.$$"
+  mkdir -p "$public_dir"
+  dkim_value="$(grep -o '"[^"]*"' "$key_dir/$DKIM_SELECTOR.txt" | tr -d '"\n')"
+  if ! printf '%s' "$dkim_value" | grep -Eqi '^v=DKIM1;.*(^|[;[:space:]])p=[A-Za-z0-9+/=]+'; then
+    echo "Unable to extract the public DKIM value for $domain" >&2
+    rm -f "$public_temp"
+    exit 1
+  fi
+  umask 022
+  printf '%s\n' "$dkim_value" > "$public_temp"
+  chmod 0644 "$public_temp"
+  mv -f "$public_temp" "$public_record"
 done
 IFS="$old_ifs"
 

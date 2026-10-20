@@ -5,7 +5,9 @@ $cloudMailRelaySecret = (string) env('CLOUD_MAIL_RELAY_SHARED_SECRET', '');
 $normalizeRelayDomain = static function (mixed $value): string {
     $domain = strtolower(trim((string) $value, " .\t\n\r\0\x0B"));
 
-    return filter_var($domain, FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME) !== false
+    return str_contains($domain, '.')
+        && filter_var($domain, FILTER_VALIDATE_IP) === false
+        && filter_var($domain, FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME) !== false
         ? $domain
         : '';
 };
@@ -24,6 +26,14 @@ $relayHostname = $normalizeRelayDomain(env('MAIL_RELAY_HOSTNAME', ''))
     ?: ($automaticMailDomain !== '' ? 'mailout.' . $automaticMailDomain : '');
 $relayPublicUrl = trim((string) env('MAIL_RELAY_PUBLIC_URL', ''))
     ?: ($appUrl !== '' ? $appUrl . '/_longos/mail-relay' : '');
+$relayPublicIps = array_values(array_unique(array_filter(array_map(
+    static fn (string $value): string => trim($value),
+    explode(',', (string) env('MAIL_RELAY_IPS', '')),
+), static fn (string $value): bool => filter_var(
+    $value,
+    FILTER_VALIDATE_IP,
+    FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE | FILTER_FLAG_GLOBAL_RANGE,
+) !== false)));
 $configuredMailFrom = trim((string) env('MAIL_FROM_ADDRESS', ''));
 $mailFromAddress    = $configuredMailFrom !== ''
     ? $configuredMailFrom
@@ -146,7 +156,11 @@ return [
         'allowed_sender_domains'       => $allowedDomains,
         'platform_sender_domain'       => $platformSenderDomain,
         'public_url'                   => $relayPublicUrl,
+        'public_ips'                   => $relayPublicIps,
         'dkim_selector'                => env('MAIL_RELAY_DKIM_SELECTOR', 'mail2026'),
+        'auto_configure_dns'            => (bool) env('LONGOS_AUTO_CONFIGURE_MAIL_DNS', true),
+        'dns_records_path'              => env('MAIL_RELAY_DNS_RECORDS_PATH', '/var/lib/longos-mail-dns'),
+        'cloudflare_api_base'           => rtrim((string) env('CLOUDFLARE_API_BASE', 'https://api.cloudflare.com/client/v4'), '/'),
         'cloud_mail_secret'            => $cloudMailRelaySecret,
         'max_request_bytes'            => (int) env('MAIL_RELAY_MAX_REQUEST_BYTES', 26214400),
         'longos_client_configured'     => strlen($longosRelaySecret)    >= 32,

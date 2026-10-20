@@ -609,6 +609,23 @@ class CloudMailIntegrationTokenTest extends TestCase
             self::assertStringContainsString('租户子站', $exception->getMessage());
         }
 
+        try {
+            $controller->assignSenderDomain(
+                Request::create(
+                    'https://admin.example.com/admin/saas/sites/' . $shopA->id . '/sender-domains',
+                    'POST',
+                    ['domain' => 'https://example-store.com/unexpected-path'],
+                ),
+                $tenants,
+                $senders,
+                $shopA,
+            );
+            self::fail('Malformed sender-domain input must return validation feedback instead of HTTP 500.');
+        } catch (\Illuminate\Validation\ValidationException $exception) {
+            self::assertArrayHasKey('domain', $exception->errors());
+            self::assertStringContainsString('不能包含路径', $exception->getMessage());
+        }
+
         $remove = $controller->removeSenderDomain(
             Request::create(
                 'https://admin.example.com/admin/saas/sites/' . $shopA->id . '/sender-domains/' . $assignment->id,

@@ -239,8 +239,9 @@ class MailSenderProfileService
         }
 
         $platformDomain = strtolower(trim((string) config('mail.relay.platform_sender_domain')));
+        $controlSite    = (bool) data_get($site->meta, 'control_site', false);
         if ($platformDomain !== '' && $domain === $platformDomain) {
-            if ((bool) data_get($site->meta, 'control_site', false)) {
+            if ($controlSite) {
                 return;
             }
 
@@ -250,6 +251,14 @@ class MailSenderProfileService
             }
 
             return;
+        }
+
+        // The control plane always uses the explicitly configured shared
+        // platform identity. This also fails closed for stale assignments
+        // left by an older routing-domain migration or by an operator later
+        // changing MAIL_RELAY_PLATFORM_SENDER_DOMAIN.
+        if ($controlSite) {
+            throw new MailSenderAuthorizationException("主站只能使用平台发件域 {$platformDomain}。");
         }
 
         if (! $this->siteOwnsDomain($site, $domain)) {

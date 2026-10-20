@@ -74,6 +74,7 @@ MAIL_RELAY_HOSTNAME=mailout.example.com
 MAIL_RELAY_DOMAINS=example.com
 MAIL_RELAY_ALLOWED_SENDER_DOMAINS=example.com
 MAIL_RELAY_PLATFORM_SENDER_DOMAIN=example.com
+MAIL_RELAY_IPS=203.0.113.10
 MAIL_FROM_ADDRESS=no-reply@example.com
 MAIL_FROM_NAME=LONGOS
 ```
@@ -93,6 +94,7 @@ MAIL_FROM_NAME=LONGOS
 | `MAIL_RELAY_DOMAINS` | 推荐 | 需要生成 DKIM 的域名，多个用逗号分隔 |
 | `MAIL_RELAY_ALLOWED_SENDER_DOMAINS` | 推荐 | 实际允许发信的域名，必须是签名域集合的子集 |
 | `MAIL_RELAY_PLATFORM_SENDER_DOMAIN` | 推荐 | 租户共享的稳定平台发件域 |
+| `MAIL_RELAY_IPS` | DNS 自动化时推荐 | 邮件出口的明确公网 IPv4/IPv6，多个逗号分隔；不要填 Cloudflare Anycast 地址 |
 | `APP_KEY_OVERRIDE` | 仅迁移 | 旧站迁移时填原站完整 `APP_KEY`；全新部署必须留空 |
 
 Coolify 会自动生成并持久保存所有 `SERVICE_*` 值，包括 APP_KEY、数据库密码、管理员初始密码、边缘鉴权密钥和邮件内部 HMAC 密钥。不要手工改写这些值，也不要把它们提交到 GitHub。首次登录密码在 Coolify 的 `SERVICE_PASSWORD_64_ADMIN` 变量中；登录后可在后台修改，后续重新部署不会重置密码。
@@ -109,7 +111,9 @@ LONGOS_AUTO_CONFIGURE_MAIL_DNS=true
 CLOUDFLARE_API_TOKEN=<只授权所需 Zone 的 DNS:Edit 与 Zone:Read Token>
 ```
 
-Token 必须覆盖 `MAIL_RELAY_DOMAINS` 中涉及的每个 Zone。LONGOS 不会盲目覆盖已经存在的 SPF/DMARC 策略。不使用 Cloudflare 或不想把 DNS 权限交给应用时，不填写 Token，按后台生成的记录手工添加即可。
+Token 必须覆盖 `MAIL_RELAY_DOMAINS` 中涉及的每个 Zone。LONGOS 不会盲目覆盖已经存在的 SPF/DMARC 策略。邮件主机 A/AAAA 只在 `MAIL_RELAY_IPS` 含有明确 IP 时自动维护，不会从网站域名猜测，避免把 Cloudflare Anycast 地址写入邮件 DNS。不使用 Cloudflare 或不想把 DNS 权限交给应用时，不填写 Token，在后台邮件设置点击“立即检测”即可查看、复制公开 DNS 记录。
+
+系统在 Web 容器启动后会尝试首次同步，并由 scheduler 每 5 分钟重试，不需要进入容器执行命令。DKIM 私钥始终只位于邮件中继卷；Laravel 只能读取可公开的 TXT 值。
 
 ## 6. 首次部署会自动完成什么
 
@@ -130,7 +134,7 @@ Token 必须覆盖 `MAIL_RELAY_DOMAINS` 中涉及的每个 Zone。LONGOS 不会�
 2. 使用 `ADMIN_EMAIL` 和 Coolify 中的 `SERVICE_PASSWORD_64_ADMIN` 登录。
 3. 立即修改管理员密码，检查系统时区、默认语言和默认货币。
 4. 在“系统设置 → 邮件设置”选择内置邮件服务器，检查中继、Postfix、OpenDKIM 和发件域诊断。
-5. 复制后台展示的 DKIM/SPF/DMARC 记录到 DNS；确认测试邮件原文中三项均为 pass。
+5. 点击“立即检测”；Cloudflare 自动化未开启时，复制页面展示的 DKIM/SPF/DMARC 记录到 DNS，再确认测试邮件原文中三项均为 pass。
 6. 创建一个测试租户，确认平台子域 HTTPS、后台隔离、下单邮件和队列任务都正常。
 
 ## 8. 连接 Cloud Mail

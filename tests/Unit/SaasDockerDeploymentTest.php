@@ -65,6 +65,10 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringContainsString('MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-no-reply@${MAIL_RELAY_PLATFORM_SENDER_DOMAIN:-${SAAS_BASE_DOMAIN}}}', $compose);
         self::assertStringContainsString('CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}', $compose);
         self::assertStringContainsString('LONGOS_AUTO_CONFIGURE_MAIL_DNS: ${LONGOS_AUTO_CONFIGURE_MAIL_DNS:-true}', $compose);
+        self::assertStringContainsString('MAIL_RELAY_DNS_RECORDS_PATH: /var/lib/longos-mail-dns', $compose);
+        self::assertStringContainsString('MAIL_RELAY_IPS: ${MAIL_RELAY_IPS:-}', $compose);
+        self::assertStringContainsString('mail-relay-dns:/var/lib/longos-mail-dns:ro', $compose);
+        self::assertStringNotContainsString('mail-relay-dkim:/var/lib/dkim:ro', $compose);
     }
 
     public function test_image_is_immutable_and_dependencies_are_lockfile_driven(): void
