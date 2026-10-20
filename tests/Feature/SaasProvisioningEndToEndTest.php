@@ -88,6 +88,9 @@ class SaasProvisioningEndToEndTest extends TestCase
             'saas.domain_config.path'                            => $this->runtimePath . DIRECTORY_SEPARATOR . 'domains.conf',
             'saas.domain_config.manifest_path'                   => $this->runtimePath . DIRECTORY_SEPARATOR . 'domains.json',
             'cache.default'                                      => 'array',
+            'session.driver'                                     => 'database',
+            'session.connection'                                 => 'tenant',
+            'session.lottery'                                    => [0, 100],
         ]);
 
         DB::purge('saas');
@@ -150,6 +153,26 @@ class SaasProvisioningEndToEndTest extends TestCase
             'routing_behavior' => Domain::ROUTING_REDIRECT,
             'status'           => Domain::STATUS_ACTIVE,
         ]);
+        self::assertTrue(Schema::connection('saas')->hasTable('sessions'));
+
+        // Exercise the control storefront before manually selecting a tenant.
+        // Production uses the database session driver, so this detects the
+        // otherwise invisible failure where /api/health is green but both the
+        // storefront and administration login crash in StartSession.
+        $controlHttpKernel = app(HttpKernel::class);
+        foreach (['/', '/admin/login'] as $path) {
+            $request  = Request::create('https://control.example.test' . $path, 'GET');
+            $response = $controlHttpKernel->handle($request);
+
+            try {
+                self::assertSame(200, $response->getStatusCode(), $response->getContent());
+                self::assertSame($control->getKey(), Site::current()?->getKey());
+            } finally {
+                $controlHttpKernel->terminate($request, $response);
+            }
+            self::assertNull(Site::current());
+        }
+
         $control->load('domains')->makeCurrent();
         $controlConnection = DB::getDefaultConnection();
 

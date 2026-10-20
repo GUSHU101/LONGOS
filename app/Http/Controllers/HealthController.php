@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Throwable;
 
 class HealthController extends Controller
@@ -29,8 +30,32 @@ class HealthController extends Controller
                 }
             }
 
-            $connection = (bool) config('saas.enabled') ? 'saas' : config('database.default');
-            DB::connection($connection)->select('SELECT 1');
+            $controlConnection = (bool) config('saas.enabled') ? 'saas' : config('database.default');
+            DB::connection($controlConnection)->select('SELECT 1');
+
+            if ((bool) config('saas.enabled')) {
+                $controlSchema = Schema::connection('saas');
+                foreach (['saas_sites', 'saas_domains'] as $table) {
+                    if (! $controlSchema->hasTable($table)) {
+                        throw new \RuntimeException("Missing control table: {$table}");
+                    }
+                }
+
+                if (! current_site()) {
+                    throw new \RuntimeException('The request host did not resolve to an active site.');
+                }
+            }
+
+            // The API health route does not start a session or render a view.
+            // Verify the tables required by real storefront/admin requests so
+            // Coolify cannot mark a release healthy while both pages return 500.
+            $runtimeConnection = (bool) config('saas.enabled') ? 'tenant' : config('database.default');
+            $runtimeSchema     = Schema::connection($runtimeConnection);
+            foreach (['settings', 'sessions', 'admin_users'] as $table) {
+                if (! $runtimeSchema->hasTable($table)) {
+                    throw new \RuntimeException("Missing runtime table: {$table}");
+                }
+            }
         } catch (Throwable) {
             return response()->json(['status' => 'degraded'], 503, $headers);
         }

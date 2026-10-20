@@ -116,6 +116,16 @@ class SaasUpgradeTest extends TestCase
             DB::table('plugins')->where('code', 'longos_product_reviews')->delete();
             DB::table('settings')->where('type', 'plugin')->where('space', 'longos_product_reviews')->delete();
             Schema::dropIfExists('longos_product_reviews');
+
+            // Reproduce a deployment created before LONGOS shipped the
+            // database-session migration. The automatic Coolify upgrade must
+            // create the missing table without an operator entering the
+            // container or rebuilding the site.
+            Schema::dropIfExists('sessions');
+            DB::table('migrations')
+                ->where('migration', '2026_10_20_000000_create_sessions_table')
+                ->delete();
+            self::assertFalse(Schema::hasTable('sessions'));
         });
 
         $exitCode = Artisan::call('saas:upgrade', [
@@ -136,6 +146,7 @@ class SaasUpgradeTest extends TestCase
         DB::purge('inspection');
         self::assertTrue(Schema::connection('inspection')->hasTable('products'));
         self::assertTrue(Schema::connection('inspection')->hasTable('orders'));
+        self::assertTrue(Schema::connection('inspection')->hasTable('sessions'));
         self::assertTrue(Schema::connection('inspection')->hasTable('longos_product_reviews'));
         self::assertTrue(DB::connection('inspection')->table('plugins')->where('code', 'longos_product_reviews')->exists());
         self::assertSame('1', (string) DB::connection('inspection')->table('settings')->where('type', 'plugin')->where('space', 'longos_product_reviews')->where('name', 'status')->value('value'));

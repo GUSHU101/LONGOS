@@ -241,8 +241,11 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringContainsString('max-age=31536000, immutable', $nginx);
         self::assertStringContainsString('max-age=300', $nginx);
         self::assertStringNotContainsString('expires 30d;', $nginx);
-        self::assertStringContainsString("DB::connection(\$connection)->select('SELECT 1')", $health);
+        self::assertStringContainsString("DB::connection(\$controlConnection)->select('SELECT 1')", $health);
         self::assertStringContainsString("['status' => 'degraded'], 503", $health);
+        self::assertStringContainsString("['settings', 'sessions', 'admin_users']", $health);
+        self::assertStringContainsString('http://127.0.0.1/admin/login', $this->read('.github/workflows/ci.yml'));
+        self::assertFileExists($this->root . '/database/migrations/2026_10_20_000000_create_sessions_table.php');
         self::assertStringContainsString('http://127.0.0.1/api/health', $compose);
         self::assertStringContainsString('COPY docker/nginx/php-production.ini /usr/local/etc/php/conf.d/zz-longos-production.ini', $dockerfile);
         self::assertStringContainsString('display_errors = Off', $phpIni);

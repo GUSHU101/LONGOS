@@ -533,7 +533,10 @@ class SaasPreflight extends Command
             $this->recordPass('控制库连接', '连接成功');
 
             $schema        = Schema::connection('saas');
-            $tables        = ['saas_sites', 'saas_domains', 'saas_mail_sender_domains', 'saas_site_events', 'saas_idempotency_records'];
+            $tables        = [
+                'saas_sites', 'saas_domains', 'saas_mail_sender_domains', 'saas_site_events',
+                'saas_idempotency_records', 'settings', 'sessions', 'admin_users',
+            ];
             $queue         = (string) config('queue.default');
             if ((string) config("queue.connections.{$queue}.driver") === 'database'
                 && config("queue.connections.{$queue}.connection")   === 'saas') {

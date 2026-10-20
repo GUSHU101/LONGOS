@@ -16,7 +16,10 @@ concurrency:
 
 jobs:
   application:
-    runs-on: ubuntu-latest
+    # Keep production validation reproducible. GitHub periodically retargets
+    # ubuntu-latest (including the Ubuntu 26 migration), which can otherwise
+    # change Docker, OpenSSL and PHP behavior without a repository commit.
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       DB_CONNECTION: sqlite
@@ -85,7 +88,7 @@ jobs:
           npm run check
 
   deployment-contract:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
       DOMAIN: admin.example.test
@@ -145,7 +148,7 @@ jobs:
           npm test
 
   container-smoke:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       DOMAIN: admin.example.test
@@ -236,6 +239,14 @@ jobs:
           docker compose exec -T app test -f plugins/Paypal/Bootstrap.php
           docker compose exec -T app test -f plugins/ShopifyProductTransfer/Bootstrap.php
           docker compose exec -T app test ! -e plugins/BeikeShopTestSandbox
+
+          # /api/health deliberately bypasses session and page rendering. A
+          # deployment is usable only when both public entry points can start
+          # their database-backed sessions and render complete HTML responses.
+          docker compose exec -T app curl -fsS -o /dev/null \
+            -H "Host: ${DOMAIN}" http://127.0.0.1/
+          docker compose exec -T app curl -fsS -o /dev/null \
+            -H "Host: ${DOMAIN}" http://127.0.0.1/admin/login
 
           # Caddy does not call the ask endpoint through localhost. It resolves
           # the stable resource alias on Coolify's shared network, with that
@@ -341,5 +352,9 @@ jobs:
           docker compose restart app
           wait_for_app
           docker compose exec -T app test -f storage/installed
+          docker compose exec -T app curl -fsS -o /dev/null \
+            -H "Host: ${DOMAIN}" http://127.0.0.1/
+          docker compose exec -T app curl -fsS -o /dev/null \
+            -H "Host: ${DOMAIN}" http://127.0.0.1/admin/login
           test "$(docker inspect --format '{{.State.Running}}' "$(docker compose ps -q worker)")" = "true"
           test "$(docker inspect --format '{{.State.Health.Status}}' "$(docker compose ps -q scheduler)")" = "healthy"
