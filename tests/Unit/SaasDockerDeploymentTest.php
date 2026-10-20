@@ -19,13 +19,13 @@ class SaasDockerDeploymentTest extends TestCase
     {
         $compose = $this->read('docker-compose.yml');
 
-        self::assertStringContainsString('caddy.on_demand_tls.ask:', $compose);
-        self::assertStringContainsString('caddy_ingress_network: coolify', $compose);
+        self::assertStringContainsString('- "caddy.on_demand_tls.ask=', $compose);
+        self::assertStringContainsString('- "caddy_ingress_network=coolify"', $compose);
         self::assertStringContainsString('/_longos/tls/authorize', $compose);
-        self::assertStringContainsString('caddy_0: "https://"', $compose);
-        self::assertStringContainsString('caddy_0.tls.on_demand: ""', $compose);
-        self::assertStringContainsString('caddy_0.0_respond: "@longosTlsAsk 404"', $compose);
-        self::assertStringContainsString('caddy_0.reverse_proxy: "{{upstreams 80}}"', $compose);
+        self::assertStringContainsString('- "caddy_0=https://"', $compose);
+        self::assertStringContainsString('- "caddy_0.tls.on_demand="', $compose);
+        self::assertStringContainsString('- "caddy_0.0_respond=@longosTlsAsk 404"', $compose);
+        self::assertStringContainsString('- "caddy_0.reverse_proxy={{upstreams 80}}"', $compose);
         self::assertStringContainsString('X-Longos-Proxy-Token ${SERVICE_PASSWORD_64_PROXYTOKEN}', $compose);
         self::assertStringContainsString('X-Longos-Edge-Remote {http.request.remote.host}', $compose);
         self::assertStringContainsString("coolify:\n    external: true", $compose);
@@ -33,6 +33,23 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringNotContainsString(':443:443', $compose);
         self::assertStringNotContainsString('caddy-nginx:', $compose);
         self::assertStringNotContainsString('baota', strtolower($compose));
+    }
+
+    public function test_coolify_caddy_labels_remain_a_string_list(): void
+    {
+        $compose = $this->read('docker-compose.yml');
+        self::assertSame(1, preg_match('/\n    labels:\R(?<block>(?:      .*\R)+?)    healthcheck:/', $compose, $match));
+
+        $entries = array_values(array_filter(
+            preg_split('/\R/', $match['block']) ?: [],
+            static fn (string $line): bool => str_starts_with(trim($line), '- ')
+        ));
+
+        self::assertNotEmpty($entries);
+        foreach ($entries as $entry) {
+            self::assertMatchesRegularExpression('/^\s*-\s+"[^"=]+(?:\.[^"=]+)*=.*"\s*$/', $entry);
+        }
+        self::assertStringNotContainsString("\n      caddy_", $match['block']);
     }
 
     public function test_coolify_generates_and_reuses_every_sensitive_stack_value(): void

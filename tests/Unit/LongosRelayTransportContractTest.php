@@ -60,7 +60,7 @@ class LongosRelayTransportContractTest extends TestCase
         self::assertStringContainsString('ABILITY_CLOUD_MAIL_HEALTH', $controller);
         self::assertStringContainsString('assertAuthorized', $controller);
         self::assertStringContainsString("'X-Relay-Client'    => 'cloud-mail'", $controller);
-        self::assertStringContainsString('caddy_0.reverse_proxy: "{{upstreams 80}}"', $compose);
+        self::assertStringContainsString('- "caddy_0.reverse_proxy={{upstreams 80}}"', $compose);
         self::assertStringNotContainsString('reverse_proxy: "mail-relay:3000"', $compose);
         self::assertStringNotContainsString('ports:', $this->mailRelayServiceBlock($compose));
     }

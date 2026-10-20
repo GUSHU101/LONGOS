@@ -125,47 +125,50 @@ services:
       coolify:
         aliases:
           - longos-${COOLIFY_RESOURCE_UUID:-app}
+    # Keep labels in list form. Coolify appends its own managed labels as list
+    # entries; mixing those numeric entries with mapping-form labels produces
+    # `non-string key in services.app.labels` in Docker Compose.
     labels:
       # Do not rely on caddy-docker-proxy's best-effort network detection: the
       # app also has an isolated backend network that Coolify Caddy cannot use.
-      caddy_ingress_network: coolify
+      - "caddy_ingress_network=coolify"
       # Empty `caddy` creates global options in caddy-docker-proxy. The ask
       # endpoint makes certificate issuance fail closed against LONGOS data.
-      caddy: ""
-      caddy.email: ${SAAS_TLS_EMAIL:-${ADMIN_EMAIL:-admin@${DOMAIN}}}
-      caddy.on_demand_tls: ""
-      caddy.on_demand_tls.ask: "http://longos-${COOLIFY_RESOURCE_UUID:-app}/_longos/tls/authorize"
-      caddy.servers.0rtt: "off"
-      caddy.servers.strict_sni_host: "on"
-      caddy.servers.protocols: "h1 h2 h3"
-      caddy.servers.max_header_size: "64KiB"
+      - "caddy="
+      - "caddy.email=${SAAS_TLS_EMAIL:-${ADMIN_EMAIL:-admin@${DOMAIN}}}"
+      - "caddy.on_demand_tls="
+      - "caddy.on_demand_tls.ask=http://longos-${COOLIFY_RESOURCE_UUID:-app}/_longos/tls/authorize"
+      - "caddy.servers.0rtt=off"
+      - "caddy.servers.strict_sni_host=on"
+      - "caddy.servers.protocols=h1 h2 h3"
+      - "caddy.servers.max_header_size=64KiB"
       # A hostless HTTPS site handles platform subdomains and verified tenant
       # custom domains. Exact routes belonging to other Coolify resources keep
       # their higher specificity and are not intercepted.
-      caddy_0: "https://"
-      caddy_0.tls.on_demand: ""
-      caddy_0.@longosTlsAsk.path: "/_longos/tls/authorize"
-      caddy_0.0_respond: "@longosTlsAsk 404"
-      caddy_0.encode: "zstd gzip"
-      caddy_0.request_body.max_size: "100MB"
-      caddy_0.header.Strict-Transport-Security: "max-age=31536000"
-      caddy_0.header.X-Content-Type-Options: "nosniff"
-      caddy_0.header.Referrer-Policy: "strict-origin-when-cross-origin"
-      caddy_0.header.Permissions-Policy: "camera=(), microphone=(), geolocation=()"
-      caddy_0.header.-Server: ""
-      caddy_0.reverse_proxy: "{{upstreams 80}}"
-      caddy_0.reverse_proxy.health_uri: "/api/health"
-      caddy_0.reverse_proxy.health_interval: "10s"
-      caddy_0.reverse_proxy.health_timeout: "3s"
-      caddy_0.reverse_proxy.health_headers.Host: ${DOMAIN}
-      caddy_0.reverse_proxy.lb_try_duration: "2s"
-      caddy_0.reverse_proxy.lb_try_interval: "250ms"
-      caddy_0.reverse_proxy.header_up_0: "X-Longos-Proxy-Token ${SERVICE_PASSWORD_64_PROXYTOKEN}"
-      caddy_0.reverse_proxy.header_up_1: "X-Longos-Edge-Remote {http.request.remote.host}"
-      caddy_0.reverse_proxy.transport: "http"
-      caddy_0.reverse_proxy.transport.network_proxy: "none"
-      caddy_0.reverse_proxy.transport.dial_timeout: "5s"
-      caddy_0.reverse_proxy.transport.response_header_timeout: "300s"
+      - "caddy_0=https://"
+      - "caddy_0.tls.on_demand="
+      - "caddy_0.@longosTlsAsk.path=/_longos/tls/authorize"
+      - "caddy_0.0_respond=@longosTlsAsk 404"
+      - "caddy_0.encode=zstd gzip"
+      - "caddy_0.request_body.max_size=100MB"
+      - "caddy_0.header.Strict-Transport-Security=max-age=31536000"
+      - "caddy_0.header.X-Content-Type-Options=nosniff"
+      - "caddy_0.header.Referrer-Policy=strict-origin-when-cross-origin"
+      - "caddy_0.header.Permissions-Policy=camera=(), microphone=(), geolocation=()"
+      - "caddy_0.header.-Server="
+      - "caddy_0.reverse_proxy={{upstreams 80}}"
+      - "caddy_0.reverse_proxy.health_uri=/api/health"
+      - "caddy_0.reverse_proxy.health_interval=10s"
+      - "caddy_0.reverse_proxy.health_timeout=3s"
+      - "caddy_0.reverse_proxy.health_headers.Host=${DOMAIN}"
+      - "caddy_0.reverse_proxy.lb_try_duration=2s"
+      - "caddy_0.reverse_proxy.lb_try_interval=250ms"
+      - "caddy_0.reverse_proxy.header_up_0=X-Longos-Proxy-Token ${SERVICE_PASSWORD_64_PROXYTOKEN}"
+      - "caddy_0.reverse_proxy.header_up_1=X-Longos-Edge-Remote {http.request.remote.host}"
+      - "caddy_0.reverse_proxy.transport=http"
+      - "caddy_0.reverse_proxy.transport.network_proxy=none"
+      - "caddy_0.reverse_proxy.transport.dial_timeout=5s"
+      - "caddy_0.reverse_proxy.transport.response_header_timeout=300s"
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS -o /dev/null -H \"Host: $${DOMAIN}\" http://127.0.0.1/api/health"]
       interval: 30s

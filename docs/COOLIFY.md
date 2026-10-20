@@ -182,6 +182,10 @@ Compose 自动启动 Postfix/OpenDKIM 和内部 HMAC API，不开放公共 SMTP 
 
 Coolify 会分别生成 build-time 和 runtime 环境文件。当管理员邮箱在界面中已保存、但 build-time 副本短暂为空时，新版 Compose 会用 `admin@DOMAIN` 完成与业务无关的不可变镜像构建，显式 `ADMIN_EMAIL` 仍在运行阶段优先。这个兼容保护从包含修复的 Git 提交起生效；旧提交必须先在 Coolify 中选择最新 `main` 并重新部署。
 
+### 构建阶段报 `non-string key in services.app.labels`
+
+请确认部署的 Git 提交已包含列表形式的 `services.app.labels`。Coolify 会追加自身的管理标签；旧版 LONGOS 的映射形式标签与它合并后可能产生 `0`/`1` 数字键，并被 Docker Compose 拒绝。新版已将 Caddy 标签统一为字符串列表；更新到最新 `main` 后直接 Redeploy，无需删除环境变量或数据卷。
+
 ### Cloudflare 526
 
 - 使用 Full (strict)，确认 DNS 指向当前 Coolify 服务器。
