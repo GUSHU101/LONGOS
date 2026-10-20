@@ -73,7 +73,7 @@ class InstallerSecurityHardeningTest extends TestCase
         self::assertStringNotContainsString('systemctl restart docker', $installer);
         self::assertStringNotContainsString('data["registry-mirrors"]', $installer);
         self::assertStringContainsString('No server-side install command is required.', $installer);
-        self::assertStringContainsString('caddy_ingress_network: coolify', $compose);
+        self::assertStringContainsString('- "caddy_ingress_network=coolify"', $compose);
         self::assertStringNotContainsString("\n    ports:\n", $compose);
     }
 
