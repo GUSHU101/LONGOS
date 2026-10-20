@@ -148,7 +148,10 @@ jobs:
     env:
       DOMAIN: admin.example.test
       SAAS_BASE_DOMAIN: shops.example.test
-      ADMIN_EMAIL: ops@example.test
+      # Startup preflight deliberately rejects reserved/non-deliverable ACME
+      # contact suffixes such as .test. Use a syntactically public CI address;
+      # the smoke test never contacts an ACME authority.
+      ADMIN_EMAIL: ops@ci.longos.dev
       COOLIFY_RESOURCE_UUID: ci-smoke
       SERVICE_REALBASE64_32_APPKEY: YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=
       SERVICE_PASSWORD_64_DBROOT: ci-root-password
