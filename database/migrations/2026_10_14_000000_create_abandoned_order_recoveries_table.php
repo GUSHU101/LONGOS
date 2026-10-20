@@ -17,10 +17,10 @@ return new class extends Migration
             $table->unsignedBigInteger('order_id')->index();
             $table->unsignedBigInteger('admin_user_id')->nullable()->index();
             $table->unsignedBigInteger('discount_id')->nullable()->index();
-            $table->unsignedBigInteger('converted_order_id')->nullable()->index();
+            $table->unsignedBigInteger('converted_order_id')->nullable()->index('idx_recoveries_converted_order');
             $table->string('recipient_email', 191);
             $table->string('delivery_id', 128)->unique();
-            $table->char('access_token_hash', 64)->unique();
+            $table->char('access_token_hash', 64)->unique('uq_recoveries_access_token_hash');
             $table->string('status', 24)->default('sending');
             $table->string('sender_category', 32)->default('orders');
             $table->string('subject', 255);

@@ -25,7 +25,7 @@ class SaasSitesCreate extends Command
         {--no-migrate : 仅建库，不执行迁移}
         {--no-seed : 不写入初始数据}';
 
-    protected $description = '批量创建独立数据库站点并自动绑定域名';
+    protected $description = '批量创建租户站点并自动配置隔离存储与域名';
 
     public function handle(
         SiteDefinitionFactory $definitions,
@@ -67,7 +67,11 @@ class SaasSitesCreate extends Command
                 throw new \InvalidArgumentException('请通过 --file、--site 或 --count 指定要创建的站点。');
             }
 
-            $this->components->info('开始创建 ' . count($items) . ' 个站点。每个站点使用独立数据库。');
+            $databaseMode = strtolower((string) config('saas.database_mode', 'prefix'));
+            $storageDescription = $databaseMode === 'database'
+                ? '每个站点使用独立数据库。'
+                : '每个站点使用共享数据库中的独立表命名空间。';
+            $this->components->info('开始创建 ' . count($items) . " 个站点。{$storageDescription}");
             $results = $provisioner->provisionMany(
                 $items,
                 ! (bool) $this->option('no-migrate'),

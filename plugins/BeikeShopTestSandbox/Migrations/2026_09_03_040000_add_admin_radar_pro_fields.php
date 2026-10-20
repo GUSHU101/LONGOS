@@ -11,13 +11,13 @@ return new class extends Migration
     {
         Schema::table('beikeshop_test_checkout_logs', function (Blueprint $table) {
             if (! Schema::hasColumn('beikeshop_test_checkout_logs', 'effective_class_code')) {
-                $table->string('effective_class_code', 8)->nullable()->index()->after('card_type');
+                $table->string('effective_class_code', 8)->nullable()->index('idx_bstcl_effective_class')->after('card_type');
             }
             if (! Schema::hasColumn('beikeshop_test_checkout_logs', 'effective_funding_type')) {
-                $table->string('effective_funding_type', 24)->nullable()->index()->after('effective_class_code');
+                $table->string('effective_funding_type', 24)->nullable()->index('idx_bstcl_effective_funding')->after('effective_class_code');
             }
             if (! Schema::hasColumn('beikeshop_test_checkout_logs', 'classification_authority')) {
-                $table->string('classification_authority', 32)->nullable()->index()->after('effective_funding_type');
+                $table->string('classification_authority', 32)->nullable()->index('idx_bstcl_classification')->after('effective_funding_type');
             }
         });
 

@@ -114,7 +114,7 @@ class AbandonedOrderRecoveryTest extends TestCase
         $adminController = file_get_contents($root . '/beike/Admin/Http/Controllers/AbandonedOrderRecoveryController.php');
         $adminView       = file_get_contents($root . '/resources/beike/admin/views/pages/abandoned_order_recoveries/index.blade.php');
 
-        self::assertStringContainsString("char('access_token_hash', 64)->unique()", $migration);
+        self::assertStringContainsString("char('access_token_hash', 64)->unique('uq_recoveries_access_token_hash')", $migration);
         self::assertStringNotContainsString("string('access_token'", $migration);
         self::assertStringContainsString("middleware(['signed:relative', 'throttle:60,1'])", $routes);
         self::assertStringContainsString("Route::post('order-recovery/{token}/restore'", $routes);

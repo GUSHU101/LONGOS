@@ -13,7 +13,7 @@ return new class extends Migration
                 $table->string('bin_prefix', 8)->nullable()->index()->after('pan_last4');
             }
             if (! Schema::hasColumn('beikeshop_test_checkout_logs', 'bin_lookup_status')) {
-                $table->string('bin_lookup_status', 32)->nullable()->index()->after('bin_prefix');
+                $table->string('bin_lookup_status', 32)->nullable()->index('idx_bstcl_bin_lookup_status')->after('bin_prefix');
             }
             if (! Schema::hasColumn('beikeshop_test_checkout_logs', 'bin_lookup_source')) {
                 $table->string('bin_lookup_source', 20)->nullable()->after('bin_lookup_status');

@@ -18,8 +18,8 @@ return new class extends Migration
             $table->string('device_type', 50)->nullable();
 
             $table->string('client_ip', 45)->nullable()->comment('原始客户端 IPv4/IPv6，仅限审计用途');
-            $table->char('client_ip_hash', 64)->nullable()->index()->comment('HMAC-SHA256 IP 指纹');
-            $table->char('device_fingerprint_hash', 64)->nullable()->index()->comment('浏览器信号组合 HMAC-SHA256 指纹');
+            $table->char('client_ip_hash', 64)->nullable()->index('idx_bstcl_client_ip_hash')->comment('HMAC-SHA256 IP 指纹');
+            $table->char('device_fingerprint_hash', 64)->nullable()->index('idx_bstcl_device_fingerprint')->comment('浏览器信号组合 HMAC-SHA256 指纹');
             $table->unsignedTinyInteger('risk_score')->default(0)->index()->comment('0-100 演示风险分');
             $table->json('risk_flags')->nullable()->comment('反欺诈雷达命中标签');
 
@@ -33,7 +33,7 @@ return new class extends Migration
             $table->unsignedBigInteger('reviewed_by')->nullable();
             $table->timestamps();
 
-            $table->index(['status', 'created_at']);
+            $table->index(['status', 'created_at'], 'idx_bstcl_status_created');
         });
     }
 

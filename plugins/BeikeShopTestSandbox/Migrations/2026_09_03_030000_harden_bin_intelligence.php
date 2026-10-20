@@ -19,7 +19,7 @@ return new class extends Migration
                 $table->string('bin_card_number_masked', 32)->nullable()->after('bin_length_valid');
             }
             if (! Schema::hasColumn('beikeshop_test_checkout_logs', 'bin_response_hash')) {
-                $table->char('bin_response_hash', 64)->nullable()->index()->after('bin_card_number_masked');
+                $table->char('bin_response_hash', 64)->nullable()->index('idx_bstcl_bin_response_hash')->after('bin_card_number_masked');
             }
             if (! Schema::hasColumn('beikeshop_test_checkout_logs', 'bin_response_ms')) {
                 $table->unsignedInteger('bin_response_ms')->nullable()->after('bin_response_hash');

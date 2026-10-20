@@ -14,7 +14,7 @@ return new class extends Migration
 
         Schema::table('beikeshop_test_checkout_logs', function (Blueprint $table) {
             if (! Schema::hasColumn('beikeshop_test_checkout_logs', 'device_fingerprint_hash')) {
-                $table->char('device_fingerprint_hash', 64)->nullable()->index();
+                $table->char('device_fingerprint_hash', 64)->nullable()->index('idx_bstcl_device_fingerprint');
             }
             if (! Schema::hasColumn('beikeshop_test_checkout_logs', 'risk_score')) {
                 $table->unsignedTinyInteger('risk_score')->default(0)->index();

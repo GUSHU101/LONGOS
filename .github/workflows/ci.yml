@@ -255,6 +255,26 @@ jobs:
           docker compose exec -T app curl -fsS -o /dev/null \
             -H "Host: ${DOMAIN}" http://127.0.0.1/admin/login
 
+          # Provision a real prefixed tenant against MySQL, including every
+          # installed bundled plugin. SQLite regression tests cannot enforce
+          # MySQL's 64-character index/constraint identifier limit, which is
+          # part of the production shared-database contract.
+          tenant_host="ci-tenant.${SAAS_BASE_DOMAIN}"
+          tenant_definition='{"code":"ci-tenant","name":"CI Tenant","admin_email":"tenant@ci.longos.dev","admin_password":"ci-tenant-password-123"}'
+          docker compose exec -T app php artisan saas:sites:create \
+            --site="$tenant_definition"
+          docker compose exec -T app php artisan saas:health \
+            --site=ci-tenant --active-only --no-dns
+          docker compose exec -T app curl -fsS -o /dev/null \
+            -H "Host: ${tenant_host}" http://127.0.0.1/
+          docker compose exec -T app curl -fsS -o /dev/null \
+            -H "Host: ${tenant_host}" http://127.0.0.1/admin/login
+          tenant_live_chat_tables="$(docker compose exec -T \
+            -e MYSQL_PWD="${SERVICE_PASSWORD_64_DBPASSWORD}" mysql \
+            mysql -u"${SERVICE_USER_DBUSER}" -D "${DB_DATABASE:-longos}" -Nse \
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name REGEXP '^lt_[0-9a-f]{12}_longos_live_chat_conversations$'")"
+          test "$tenant_live_chat_tables" = "1"
+
           # Caddy does not call the ask endpoint through localhost. It resolves
           # the stable resource alias on Coolify's shared network, with that
           # alias as the HTTP Host. Exercise this exact path so a Compose
