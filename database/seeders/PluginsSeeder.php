@@ -69,6 +69,18 @@ class PluginsSeeder extends Seeder
                 'type' => 'feature',
                 'code' => 'longos_product_reviews',
             ],
+            [
+                'type' => 'feature',
+                'code' => 'longos_live_chat',
+            ],
+            [
+                'type' => 'feature',
+                'code' => 'pixel_tracking',
+            ],
+            [
+                'type' => 'feature',
+                'code' => 'shopify_product_transfer',
+            ],
         ];
     }
 }

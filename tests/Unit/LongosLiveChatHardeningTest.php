@@ -14,6 +14,7 @@ class LongosLiveChatHardeningTest extends TestCase
         $service    = (string) file_get_contents($root . '/plugins/LongosLiveChat/Services/ChatService.php');
         $migration  = (string) file_get_contents($root . '/plugins/LongosLiveChat/Migrations/2026_10_09_000002_harden_longos_live_chat.php');
         $lifecycle  = (string) file_get_contents($root . '/plugins/LongosLiveChat/Migrations/2026_10_15_000003_add_live_chat_lifecycle_fields.php');
+        $bootstrap  = (string) file_get_contents($root . '/plugins/LongosLiveChat/Bootstrap.php');
 
         self::assertStringContainsString("Route::post('init'", $shopRoutes);
         self::assertStringNotContainsString("Route::get('init'", $shopRoutes);
@@ -28,6 +29,11 @@ class LongosLiveChatHardeningTest extends TestCase
         self::assertStringContainsString('llc_conversations_status_closed_index', $lifecycle);
         self::assertStringContainsString("Route::post('{conversation}/read'", $shopRoutes);
         self::assertStringContainsString('cacheScope()', $shop);
+        self::assertStringContainsString("'shop.live_chat.init'", $bootstrap);
+        self::assertStringContainsString("'shop.live_chat.messages'", $bootstrap);
+        self::assertStringContainsString("'shop.live_chat.messages.store'", $bootstrap);
+        self::assertStringContainsString("'shop.live_chat.read'", $bootstrap);
+        self::assertStringContainsString("app('router')->has(\$route)", $bootstrap);
     }
 
     public function test_live_chat_interfaces_expose_recovery_history_and_accessibility_controls(): void

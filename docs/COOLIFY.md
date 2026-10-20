@@ -116,6 +116,8 @@ Coolify 解析 Compose 后会自动生成 `SERVICE_*` 凭据。只需手动填�
 5. MySQL、上传、第三方插件、DKIM、Postfix 队列与幂等记录保存在命名卷中。
 6. 健康检查通过后完成切换。
 
+内置运行时包括 `flat_shipping`、`paypal`、`stripe`、`longos_product_reviews`、`longos_live_chat`、`pixel_tracking` 和 `shopify_product_transfer`。首次安装会登记并迁移它们；旧租户在下次 Git/Coolify 发布时自动补齐，已有的启用状态和商户配置不会被覆盖。`pixel_tracking` 在新站默认关闭，需要在后台完成合规同意模式和渠道凭据配置后再启用。
+
 应用内旧式“覆盖文件更新器”在 Coolify 模式下默认关闭，避免正在运行的容器修改镜像。回滚时在 Coolify Deployments 中选择上一个成功版本并 Redeploy；数据库回滚必须使用部署前备份，而不是逆向猜测迁移。
 
 建议在 Coolify 为 MySQL 持久卷配置定时备份，并把备份复制到服务器外部存储。持久卷不是备份。

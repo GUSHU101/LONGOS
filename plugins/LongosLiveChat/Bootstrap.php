@@ -24,6 +24,16 @@ class Bootstrap
                 return $output;
             }
 
+            // A plugin package can be present before a stale shared route
+            // cache has been rebuilt. Keep the storefront available and omit
+            // only the chat widget until the automatic deployment upgrade
+            // publishes all four guarded endpoints.
+            foreach (['shop.live_chat.init', 'shop.live_chat.messages', 'shop.live_chat.messages.store', 'shop.live_chat.read'] as $route) {
+                if (! app('router')->has($route)) {
+                    return $output;
+                }
+            }
+
             // Some themes expose the footer hook through nested layouts. Do
             // not mount two widgets or duplicate polling timers on one page.
             if (str_contains((string) $output, 'id="longos-live-chat"')) {

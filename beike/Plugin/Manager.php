@@ -12,6 +12,7 @@
 
 namespace Beike\Plugin;
 
+use App\Saas\Support\SensitiveValueRedactor;
 use Beike\Facades\BeikeHttp\Facade\Http;
 use Beike\Repositories\PluginRepo;
 use Illuminate\Contracts\Filesystem\FileNotFoundException;
@@ -19,13 +20,18 @@ use Illuminate\Filesystem\Filesystem;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Throwable;
 
 class Manager
 {
     protected $plugins;
 
     protected Filesystem $filesystem;
+
+    /** @var array<string, list<string>> */
+    protected array $packageIssues = [];
 
     public function __construct()
     {
@@ -49,31 +55,38 @@ class Manager
         $existed = $this->getPluginsConfig();
         $plugins = new Collection;
         foreach ($existed as $dirname => $package) {
-            $pluginPath   = $this->getPluginsDir() . DIRECTORY_SEPARATOR . $dirname;
-            $lastModified = filemtime($pluginPath);
-            $lastModified = date('Y-m-d H:i:s', $lastModified);
-            $plugin       = new Plugin($pluginPath, $package);
-            $status       = $plugin->getStatus();
-            $installed    = PluginRepo::installed((string) $plugin->code);
-            $plugin->setType(Arr::get($package, 'type'));
-            $plugin->setDirname($dirname);
-            $plugin->setName(Arr::get($package, 'name'));
-            $plugin->setDescription(Arr::get($package, 'description'));
-            $plugin->setInstalled($installed);
-            $plugin->setEnabled($installed && $status);
-            $plugin->setVersion(Arr::get($package, 'version'));
-            $plugin->setLastModified($lastModified);
-            $plugin->setColumns();
+            try {
+                $pluginPath = $this->getPluginsDir() . DIRECTORY_SEPARATOR . $dirname;
+                $modified   = filemtime($pluginPath);
+                $plugin     = new Plugin($pluginPath, $package);
+                $status     = $plugin->getStatus();
+                $installed  = PluginRepo::installed((string) $plugin->code);
+                $plugin->setType((string) Arr::get($package, 'type'));
+                $plugin->setDirname($dirname);
+                $plugin->setName(Arr::get($package, 'name'));
+                $plugin->setDescription(Arr::get($package, 'description'));
+                $plugin->setInstalled($installed);
+                $plugin->setEnabled($installed && $status);
+                $plugin->setVersion((string) Arr::get($package, 'version'));
+                $plugin->setLastModified(date('Y-m-d H:i:s', $modified === false ? 0 : $modified));
+                $plugin->setColumns();
 
-            if ($plugins->has($plugin->code)) {
-                continue;
-            }
-            $plugin->setCanUpdate(false);
-            if ($this->canUpdate($plugin->code)) {
-                $plugin->setCanUpdate(true);
-            }
+                if ($plugins->has($plugin->code)) {
+                    $this->recordPackageIssue($dirname, '清单校验', '插件 code 与另一个本地包重复。');
 
-            $plugins->put($plugin->code, $plugin);
+                    continue;
+                }
+                $plugin->setCanUpdate(false);
+                if ($this->canUpdate($plugin->code)) {
+                    $plugin->setCanUpdate(true);
+                }
+
+                $plugins->put($plugin->code, $plugin);
+            } catch (Throwable $exception) {
+                // One incomplete marketplace upload must not take the admin,
+                // checkout and every tenant storefront down with it.
+                $this->recordPackageIssue($dirname, '加载', $exception->getMessage());
+            }
         }
 
         $this->plugins = $plugins->sortByDesc(function ($plugin) {
@@ -101,6 +114,27 @@ class Manager
     public function forgetRuntimeCache(): void
     {
         $this->plugins = null;
+    }
+
+    /** @return array<string, list<string>> */
+    public function getPackageIssues(): array
+    {
+        return $this->packageIssues;
+    }
+
+    public function recordPackageIssue(string $package, string $stage, string $message): void
+    {
+        $package = trim($package) !== '' ? trim($package) : 'unknown';
+        $safe    = SensitiveValueRedactor::redact(trim($message));
+        $issue   = trim($stage) . ($safe !== '' ? '：' . $safe : '失败。');
+        if (! in_array($issue, $this->packageIssues[$package] ?? [], true)) {
+            $this->packageIssues[$package][] = $issue;
+            Log::error('Plugin package was isolated after a runtime validation failure.', [
+                'plugin' => $package,
+                'stage'  => $stage,
+                'reason' => $safe,
+            ]);
+        }
     }
 
     /**
@@ -197,7 +231,12 @@ class Manager
     protected function getPluginsConfig(): array
     {
         $installed = [];
-        $resource  = opendir($this->getPluginsDir());
+        $resource  = @opendir($this->getPluginsDir());
+        if ($resource === false) {
+            $this->recordPackageIssue('plugins', '扫描', '插件目录不可读。');
+
+            return [];
+        }
         while ($filename = @readdir($resource)) {
             if ($filename == '.' || $filename == '..') {
                 continue;
@@ -206,13 +245,57 @@ class Manager
             if (is_dir($path)) {
                 $packageJsonPath = $path . DIRECTORY_SEPARATOR . 'config.json';
                 if (file_exists($packageJsonPath)) {
-                    $installed[$filename] = json_decode($this->filesystem->get($packageJsonPath), true);
+                    try {
+                        $package = json_decode(
+                            $this->filesystem->get($packageJsonPath),
+                            true,
+                            64,
+                            JSON_THROW_ON_ERROR,
+                        );
+                    } catch (Throwable $exception) {
+                        $this->recordPackageIssue($filename, '清单解析', $exception->getMessage());
+
+                        continue;
+                    }
+
+                    $problem = $this->manifestProblem($package);
+                    if ($problem !== null) {
+                        $this->recordPackageIssue($filename, '清单校验', $problem);
+
+                        continue;
+                    }
+                    $installed[$filename] = $package;
                 }
             }
         }
         closedir($resource);
 
         return $installed;
+    }
+
+    private function manifestProblem(mixed $package): ?string
+    {
+        if (! is_array($package)) {
+            return 'config.json 根节点必须是对象。';
+        }
+
+        $code = $package['code'] ?? null;
+        if (! is_string($code) || preg_match('/^[a-z][a-z0-9_]{1,63}$/', $code) !== 1) {
+            return '缺少有效的小写 code。';
+        }
+        if (! is_string($package['type'] ?? null) || ! in_array($package['type'], Plugin::TYPES, true)) {
+            return '缺少有效的插件 type。';
+        }
+        foreach (['name', 'description'] as $field) {
+            if (! is_string($package[$field] ?? null) && ! is_array($package[$field] ?? null)) {
+                return "{$field} 必须是字符串或多语言对象。";
+            }
+        }
+        if (! is_string($package['version'] ?? null) || trim($package['version']) === '') {
+            return '缺少有效的 version。';
+        }
+
+        return null;
     }
 
     /**

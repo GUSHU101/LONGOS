@@ -110,7 +110,7 @@ class LongosProductReviewsTest extends TestCase
         self::assertStringContainsString('BundledPluginSynchronizer::class', $provisioner);
         self::assertStringContainsString('BundledPluginSynchronizer::class', $upgrade);
         self::assertStringContainsString('BundledPluginSynchronizer::class', $automatic);
-        self::assertStringContainsString("['code' => self::PRODUCT_REVIEWS]", $synchronizer);
+        self::assertStringContainsString('self::PRODUCT_REVIEWS => [', $synchronizer);
         self::assertStringContainsString("Schema::hasTable('longos_product_reviews')", $synchronizer);
     }
 

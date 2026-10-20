@@ -62,19 +62,35 @@ class PluginServiceProvider extends ServiceProvider
         foreach ($allPlugins as $plugin) {
             $pluginCode  = $plugin->getDirname();
             $runtimeCode = (string) $plugin->code;
-            $this->loadMigrations($pluginCode);
-            $this->loadViews($pluginCode);
-            $this->loadTranslations($pluginCode);
+            $this->attempt($manager, $pluginCode, '迁移注册', fn () => $this->loadMigrations($pluginCode));
+            $this->attempt($manager, $pluginCode, '视图注册', fn () => $this->loadViews($pluginCode));
+            $this->attempt($manager, $pluginCode, '语言注册', fn () => $this->loadTranslations($pluginCode));
             // Route caches are built once for the whole application, not once
             // per tenant. Register every packaged plugin route and let the
             // runtime middleware enforce the current tenant's plugin status.
-            $this->registerRoutes($pluginCode, $runtimeCode);
+            $this->attempt($manager, $pluginCode, '路由注册', fn () => $this->registerRoutes($pluginCode, $runtimeCode));
             // Register packaged extension points once. RuntimeGuard checks the
             // active tenant at execution time, so a long-lived process cannot
             // leak the first tenant's plugin state into later tenants.
-            $this->bootPlugin($plugin);
-            $this->registerMiddleware($pluginCode, $runtimeCode);
-            $this->registerCommands($plugin);
+            $this->attempt($manager, $pluginCode, '扩展点注册', fn () => $this->bootPlugin($plugin));
+            $this->attempt($manager, $pluginCode, '中间件注册', fn () => $this->registerMiddleware($pluginCode, $runtimeCode));
+            $this->attempt($manager, $pluginCode, '命令注册', fn () => $this->registerCommands($plugin));
+        }
+    }
+
+    private function attempt(Manager $manager, string $pluginCode, string $stage, callable $callback): void
+    {
+        try {
+            $callback();
+        } catch (\Throwable $exception) {
+            // Isolate a damaged optional package. The problem remains visible
+            // in plugin diagnostics and logs, while unrelated admin and shop
+            // routes continue to boot normally.
+            $manager->recordPackageIssue(
+                $pluginCode,
+                $stage,
+                SensitiveValueRedactor::redact($exception->getMessage()),
+            );
         }
     }
 
@@ -90,18 +106,10 @@ class PluginServiceProvider extends ServiceProvider
         if (file_exists($filePath)) {
             $className = "Plugin\\{$pluginCode}\\Bootstrap";
             if (method_exists($className, 'boot')) {
-                try {
-                    RuntimeGuard::whileRegistering(
-                        (string) $plugin->code,
-                        static fn () => (new $className)->boot(),
-                    );
-                } catch (\Throwable $exception) {
-                    Log::error('Plugin bootstrap registration failed.', [
-                        'plugin'    => (string) $plugin->code,
-                        'exception' => $exception::class,
-                        'message'   => SensitiveValueRedactor::redact($exception->getMessage()),
-                    ]);
-                }
+                RuntimeGuard::whileRegistering(
+                    (string) $plugin->code,
+                    static fn () => (new $className)->boot(),
+                );
             }
         }
     }

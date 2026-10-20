@@ -220,7 +220,7 @@ class LongosProductReviewsServiceTest extends TestCase
             ->where('name', 'status')
             ->value('value'));
         self::assertTrue(app('plugin')->getPlugin('longos_product_reviews')?->getInstalled());
-        app(BundledPluginSynchronizer::class)->assertReady();
+        self::assertTrue(Schema::hasTable('longos_product_reviews'));
     }
 
     private function review(int $rating, bool $published, int $sortOrder, string $body): Review

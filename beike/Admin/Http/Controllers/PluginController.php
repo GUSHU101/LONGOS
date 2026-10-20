@@ -48,7 +48,10 @@ class PluginController extends Controller
      */
     public function diagnostics(): JsonResponse
     {
-        $checks = app('plugin')->getPlugins()->map(function (Plugin $plugin): array {
+        $manager       = app('plugin');
+        $plugins       = $manager->getPlugins();
+        $packageIssues = $manager->getPackageIssues();
+        $checks        = $plugins->map(function (Plugin $plugin) use (&$packageIssues): array {
             $path      = rtrim($plugin->getPath(), DIRECTORY_SEPARATOR);
             $issues    = [];
             $manifest  = $path . DIRECTORY_SEPARATOR . 'config.json';
@@ -64,8 +67,18 @@ class PluginController extends Controller
                 }
             }
 
-            if (! is_file($bootstrap)) {
+            if ($plugin->getType() !== 'theme' && ! is_file($bootstrap)) {
                 $issues[] = '缺少 Bootstrap.php 入口文件。';
+            }
+            if ($plugin->getType() === 'theme'
+                && (! is_dir($path . DIRECTORY_SEPARATOR . 'Themes')
+                    || ! is_dir($path . DIRECTORY_SEPARATOR . 'Static' . DIRECTORY_SEPARATOR . 'public'))) {
+                $issues[] = '主题缺少 Themes 模板或 Static/public 发布资源。';
+            }
+
+            foreach ([$plugin->getDirname(), (string) $plugin->code] as $identity) {
+                $issues = array_merge($issues, $packageIssues[$identity] ?? []);
+                unset($packageIssues[$identity]);
             }
 
             $migrationFiles = glob($path . DIRECTORY_SEPARATOR . 'Migrations' . DIRECTORY_SEPARATOR . '*.php') ?: [];
@@ -101,6 +114,22 @@ class PluginController extends Controller
                 'pending_migrations' => count($pending),
             ];
         })->values();
+
+        // Invalid manifests cannot be represented as Plugin objects. Keep
+        // them in the same diagnostics payload instead of silently hiding a
+        // package that the runtime deliberately isolated.
+        foreach ($packageIssues as $package => $issues) {
+            $checks->push([
+                'code'               => (string) $package,
+                'name'               => (string) $package,
+                'installed'          => false,
+                'enabled'            => false,
+                'status'             => 'attention',
+                'issues'             => array_values(array_unique($issues)),
+                'configuration'      => ['required' => 0, 'complete' => 0, 'missing' => []],
+                'pending_migrations' => 0,
+            ]);
+        }
 
         return response()->json([
             'plugins'   => $checks,

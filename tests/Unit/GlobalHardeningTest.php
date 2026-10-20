@@ -144,6 +144,30 @@ class GlobalHardeningTest extends TestCase
         }
     }
 
+    public function test_malformed_local_plugin_manifest_is_isolated_instead_of_crashing_the_application(): void
+    {
+        $directory = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'longos-bad-plugin-' . bin2hex(random_bytes(6));
+        $plugin    = $directory . DIRECTORY_SEPARATOR . 'BrokenPackage';
+        mkdir($plugin, 0700, true);
+        file_put_contents($plugin . DIRECTORY_SEPARATOR . 'config.json', '{"code":');
+
+        $original = config('plugins.directory');
+        config(['plugins.directory' => $directory]);
+
+        try {
+            $manager = new Manager;
+
+            self::assertCount(0, $manager->getPlugins());
+            self::assertArrayHasKey('BrokenPackage', $manager->getPackageIssues());
+            self::assertStringContainsString('清单解析', $manager->getPackageIssues()['BrokenPackage'][0]);
+        } finally {
+            config(['plugins.directory' => $original]);
+            unlink($plugin . DIRECTORY_SEPARATOR . 'config.json');
+            rmdir($plugin);
+            rmdir($directory);
+        }
+    }
+
     public function test_authentication_endpoints_are_rate_limited_and_csrf_exemption_is_exact(): void
     {
         $root       = dirname(__DIR__, 2);

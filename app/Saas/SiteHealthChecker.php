@@ -6,6 +6,7 @@ use App\Saas\Contracts\DnsRouteResolver;
 use App\Saas\Models\Domain;
 use App\Saas\Models\Site;
 use App\Saas\Support\SensitiveValueRedactor;
+use App\Services\BundledPluginSynchronizer;
 use Beike\Services\CloudflareIpRangeService;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -26,6 +27,7 @@ class SiteHealthChecker
             'latency_ms'       => null,
             'missing_tables'   => [],
             'missing_settings' => [],
+            'plugin_issues'    => [],
             'root_admin_ready' => false,
             'error'            => null,
         ];
@@ -56,6 +58,7 @@ class SiteHealthChecker
                 $required        = array_values(array_unique($required));
                 $missing         = array_values(array_filter($required, static fn (string $table): bool => ! $schema->hasTable($table)));
                 $missingSettings = [];
+                $pluginIssues    = [];
                 $rootAdminReady  = false;
                 if ($missing === []) {
                     $missingSettings = array_values(array_filter(
@@ -70,12 +73,29 @@ class SiteHealthChecker
                         ->where('id', 1)
                         ->where('active', true)
                         ->exists();
+
+                    $installedPlugins = DB::table('plugins')->pluck('code')->map(
+                        static fn ($code): string => (string) $code,
+                    )->all();
+                    foreach (BundledPluginSynchronizer::packageCodes() as $code) {
+                        if (! in_array($code, $installedPlugins, true)) {
+                            $pluginIssues[] = "{$code}: 未登记";
+                        }
+                    }
+                    foreach (BundledPluginSynchronizer::requiredTables() as $code => $tables) {
+                        foreach ($tables as $table) {
+                            if (! $schema->hasTable($table)) {
+                                $pluginIssues[] = "{$code}: 缺少数据表 {$table}";
+                            }
+                        }
+                    }
                 }
 
                 return [
-                    'ok'               => $missing === [] && $missingSettings === [] && $rootAdminReady,
+                    'ok'               => $missing === [] && $missingSettings === [] && $pluginIssues === [] && $rootAdminReady,
                     'missing_tables'   => $missing,
                     'missing_settings' => $missingSettings,
+                    'plugin_issues'    => $pluginIssues,
                     'root_admin_ready' => $rootAdminReady,
                 ];
             });

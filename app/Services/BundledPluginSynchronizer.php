@@ -14,6 +14,58 @@ class BundledPluginSynchronizer
     private const PRODUCT_REVIEWS = 'longos_product_reviews';
 
     /**
+     * Runtime packages maintained and shipped as part of LONGOS.
+     *
+     * Existing status/configuration values are never overwritten. Payment
+     * defaults preserve the existing first-run checkout contract; the admin
+     * diagnostics still marks missing credentials until the merchant saves a
+     * complete provider configuration.
+     *
+     * @var array<string, array{type: string, settings: array<string, scalar>, tables: list<string>}>
+     */
+    private const PACKAGES = [
+        'flat_shipping' => [
+            'type'     => 'shipping',
+            'settings' => ['status' => '1', 'type' => 'fixed', 'value' => '0'],
+            'tables'   => [],
+        ],
+        'paypal' => [
+            'type'     => 'payment',
+            'settings' => ['status' => '1'],
+            'tables'   => [],
+        ],
+        'stripe' => [
+            'type'     => 'payment',
+            'settings' => ['status' => '1'],
+            'tables'   => [],
+        ],
+        self::PRODUCT_REVIEWS => [
+            'type'     => 'feature',
+            'settings' => ['status' => '1', 'display_limit' => '6'],
+            'tables'   => ['longos_product_reviews'],
+        ],
+        'longos_live_chat' => [
+            'type'     => 'feature',
+            'settings' => ['status' => '1', 'retention_days' => '1'],
+            'tables'   => ['longos_live_chat_conversations', 'longos_live_chat_messages'],
+        ],
+        'pixel_tracking' => [
+            'type'     => 'feature',
+            'settings' => ['status' => '0'],
+            'tables'   => ['pixel_tracking_order_contexts'],
+        ],
+        'shopify_product_transfer' => [
+            'type'     => 'feature',
+            'settings' => ['status' => '1'],
+            'tables'   => [
+                'shopify_product_handles',
+                'shopify_product_imports',
+                'shopify_product_variant_skus',
+            ],
+        ],
+    ];
+
+    /**
      * Register LONGOS-owned plugins that are part of the application itself.
      *
      * This only fills missing rows. An existing tenant's enabled/disabled
@@ -28,30 +80,31 @@ class BundledPluginSynchronizer
             throw new RuntimeException('Bundled plugins cannot be synchronized before the commerce schema is migrated.');
         }
 
-        $plugin = Plugin::query()->firstOrCreate(
-            ['code' => self::PRODUCT_REVIEWS],
-            ['type' => 'feature'],
-        );
+        $created = false;
+        foreach (self::PACKAGES as $code => $definition) {
+            $plugin = Plugin::query()->firstOrCreate(
+                ['code' => $code],
+                ['type' => $definition['type']],
+            );
+            $created = $created || $plugin->wasRecentlyCreated;
 
-        // The plugin manager may already have inspected this tenant before
-        // the bundled row was inserted. Invalidate both repository and file
-        // manager state so the migration phase cannot keep treating it as an
-        // uninstalled plugin for the remainder of a long-running request.
-        if ($plugin->wasRecentlyCreated) {
+            foreach ($definition['settings'] as $name => $value) {
+                Setting::query()->firstOrCreate(
+                    ['type' => 'plugin', 'space' => $code, 'name' => $name],
+                    ['value' => (string) $value, 'json' => false],
+                );
+            }
+        }
+
+        // The plugin manager may already have inspected this tenant before a
+        // bundled row was inserted. Invalidate both caches so this same
+        // upgrade process sees and migrates the newly registered packages.
+        if ($created) {
             PluginRepo::resetRuntimeCache();
             if (app()->bound('plugin')) {
                 app('plugin')->forgetRuntimeCache();
             }
         }
-
-        Setting::query()->firstOrCreate(
-            ['type' => 'plugin', 'space' => self::PRODUCT_REVIEWS, 'name' => 'status'],
-            ['value' => '1', 'json' => false],
-        );
-        Setting::query()->firstOrCreate(
-            ['type' => 'plugin', 'space' => self::PRODUCT_REVIEWS, 'name' => 'display_limit'],
-            ['value' => '6', 'json' => false],
-        );
 
         SettingRepo::clearCache();
     }
@@ -70,7 +123,29 @@ class BundledPluginSynchronizer
             return;
         }
 
-        $this->synchronize();
+        if (! Schema::hasTable('plugins') || ! Schema::hasTable('settings')) {
+            throw new RuntimeException('Bundled plugins cannot be synchronized before the commerce schema is migrated.');
+        }
+
+        $definition = self::PACKAGES[self::PRODUCT_REVIEWS];
+        $record     = Plugin::query()->firstOrCreate(
+            ['code' => self::PRODUCT_REVIEWS],
+            ['type' => $definition['type']],
+        );
+        foreach ($definition['settings'] as $name => $value) {
+            Setting::query()->firstOrCreate(
+                ['type' => 'plugin', 'space' => self::PRODUCT_REVIEWS, 'name' => $name],
+                ['value' => (string) $value, 'json' => false],
+            );
+        }
+        if ($record->wasRecentlyCreated) {
+            PluginRepo::resetRuntimeCache();
+            if (app()->bound('plugin')) {
+                app('plugin')->forgetRuntimeCache();
+            }
+        }
+        SettingRepo::clearCache();
+
         $plugin = app('plugin')->getPlugin(self::PRODUCT_REVIEWS);
         if ($plugin === null) {
             throw new RuntimeException('The bundled LONGOS Product Reviews package is missing.');
@@ -94,10 +169,46 @@ class BundledPluginSynchronizer
                 }
             }
         }
-        $this->assertReady();
+        $this->assertProductReviewsReady();
     }
 
     public function assertReady(): void
+    {
+        $missing = [];
+        foreach (self::PACKAGES as $code => $definition) {
+            if (! Plugin::query()->where('code', $code)->exists()) {
+                $missing[] = "{$code} (registration)";
+
+                continue;
+            }
+            foreach ($definition['tables'] as $table) {
+                if (! Schema::hasTable($table)) {
+                    $missing[] = "{$code} ({$table})";
+                }
+            }
+        }
+
+        if ($missing !== []) {
+            throw new RuntimeException('Bundled LONGOS plugins are incomplete: ' . implode(', ', $missing) . '.');
+        }
+    }
+
+    /** @return array<string, list<string>> */
+    public static function requiredTables(): array
+    {
+        return array_map(
+            static fn (array $definition): array => $definition['tables'],
+            self::PACKAGES,
+        );
+    }
+
+    /** @return list<string> */
+    public static function packageCodes(): array
+    {
+        return array_keys(self::PACKAGES);
+    }
+
+    private function assertProductReviewsReady(): void
     {
         if (! Schema::hasTable('longos_product_reviews')) {
             throw new RuntimeException('The bundled LONGOS Product Reviews migration did not create its required table.');

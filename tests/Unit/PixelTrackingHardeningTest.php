@@ -137,6 +137,7 @@ class PixelTrackingHardeningTest extends TestCase
         self::assertStringContainsString("add_hook_filter('repository.order.create.after'", $bootstrap);
         self::assertStringContainsString('rememberOrderContext($order, request())', $bootstrap);
         self::assertStringContainsString('PixelEventDispatcher::dispatch(', $bootstrap);
+        self::assertStringContainsString("app('router')->has('shop.pixel_tracking.events.store')", $bootstrap);
 
         $job = (string) file_get_contents($root . '/plugins/PixelTracking/Jobs/SendTrackingEvent.php');
         self::assertStringContainsString('implements ShouldQueue', $job);

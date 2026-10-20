@@ -571,6 +571,24 @@ class CheckoutService
                     continue;
                 }
 
+                $requiredRoutes = match ((string) $method['code']) {
+                    'paypal' => ['shop.paypal.create', 'shop.paypal.capture'],
+                    'stripe' => ['shop.stripe.intent', 'shop.stripe_capture'],
+                    default  => [],
+                };
+                $missingRoutes = array_values(array_filter(
+                    $requiredRoutes,
+                    static fn (string $route): bool => ! app('router')->has($route),
+                ));
+                if ($missingRoutes !== []) {
+                    Log::warning('Payment plugin skipped because its runtime routes are unavailable.', [
+                        'plugin'         => $method['code'],
+                        'missing_routes' => $missingRoutes,
+                    ]);
+
+                    continue;
+                }
+
                 $viewPath = hook_filter('service.payment.pay.view_path', Str::studly($method['code']) . '::checkout.payment');
                 if (! is_string($viewPath) || ! view()->exists($viewPath)) {
                     Log::warning('Payment plugin skipped because its checkout template is missing.', [

@@ -253,6 +253,9 @@ class SaasWebInstallerTest extends TestCase
         self::assertStringContainsString('{--if-needed', $saasUpgrade);
         self::assertStringContainsString('longos-saas-upgrade.fingerprint', $saasUpgrade);
         self::assertStringContainsString("glob(database_path('migrations/*.php'))", $saasUpgrade);
+        self::assertStringContainsString("glob(database_path('seeders/*.php'))", $saasUpgrade);
+        self::assertStringContainsString("glob(app_path('Saas/*.php'))", $saasUpgrade);
+        self::assertStringContainsString("glob(app_path('Services/*.php'))", $saasUpgrade);
         self::assertStringContainsString("glob(config_path('*.php'))", $saasUpgrade);
         self::assertStringContainsString("glob(base_path('routes/*.php'))", $saasUpgrade);
 

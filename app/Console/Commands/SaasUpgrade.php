@@ -156,9 +156,12 @@ class SaasUpgrade extends Command
     {
         $files = array_merge(
             glob(database_path('migrations/*.php')) ?: [],
+            glob(database_path('seeders/*.php')) ?: [],
             glob(base_path('plugins/*/Migrations/*.php')) ?: [],
             glob(config_path('*.php')) ?: [],
             glob(base_path('routes/*.php')) ?: [],
+            glob(app_path('Saas/*.php')) ?: [],
+            glob(app_path('Services/*.php')) ?: [],
             glob(app_path('Providers/*.php')) ?: [],
             glob(app_path('Console/Commands/*.php')) ?: [],
             glob(base_path('beike/*/Routes/*.php')) ?: [],

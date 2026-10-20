@@ -285,13 +285,20 @@ return [
 
     'free_plugin_codes' => [
         'flat_shipping',
+        // These packages ship with LONGOS itself. Their administration must
+        // never depend on the upstream marketplace or an external licence
+        // endpoint, especially while provisioning an isolated tenant.
+        'longos_christmas',
+        'longos_live_chat',
+        'longos_product_reviews',
+        'pixel_tracking',
+        'shopify_product_transfer',
         'openai',
         'paypal',
         'social',
         'stripe',
         'wintopay',
         'youdao',
-        'pixel_tracking',
         'bk_ai',
         'gd_migrate_image_paths',
     ],

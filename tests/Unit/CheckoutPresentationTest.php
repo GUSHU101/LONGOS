@@ -215,6 +215,9 @@ class CheckoutPresentationTest extends TestCase
         self::assertStringContainsString('Payment plugin skipped during discovery.', $plugins);
         self::assertStringContainsString('Shipping plugin skipped during discovery.', $plugins);
         self::assertStringContainsString('Payment plugin skipped while building checkout methods.', $checkout);
+        self::assertStringContainsString('Payment plugin skipped because its runtime routes are unavailable.', $checkout);
+        self::assertStringContainsString("'paypal' => ['shop.paypal.create', 'shop.paypal.capture']", $checkout);
+        self::assertStringContainsString("'stripe' => ['shop.stripe.intent', 'shop.stripe_capture']", $checkout);
         self::assertStringContainsString('CartService::resetRuntimeCache()', $checkout);
         self::assertStringContainsString('Payment plugin skipped because its checkout template is missing.', $checkout);
         self::assertStringContainsString("self::UNPAID => ['reserveStock'", $state);

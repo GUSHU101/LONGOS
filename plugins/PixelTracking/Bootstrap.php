@@ -23,7 +23,9 @@ class Bootstrap
         });
 
         add_hook_blade('layout.header.code', function ($callback, $output, $data) {
-            if (! DesignService::isAppEmbedEnabled('pixel_tracking') || ! plugin_setting('pixel_tracking.browser_tracking', true)) {
+            if (! DesignService::isAppEmbedEnabled('pixel_tracking')
+                || ! plugin_setting('pixel_tracking.browser_tracking', true)
+                || ! app('router')->has('shop.pixel_tracking.events.store')) {
                 return $output;
             }
 
