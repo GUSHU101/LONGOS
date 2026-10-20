@@ -131,16 +131,20 @@ class SaasDockerDeploymentTest extends TestCase
     {
         $entrypoint = $this->read('docker/nginx/start.sh');
 
-        $installAt = strpos($entrypoint, 'php artisan longos:install');
-        $upgradeAt = strpos($entrypoint, 'php artisan saas:upgrade --no-maintenance --if-needed');
-        $permissionsAt = strrpos($entrypoint, 'sh scripts/container-permissions.sh');
+        $installAt      = strpos($entrypoint, 'php artisan longos:install');
+        $upgradeAt      = strpos($entrypoint, 'php artisan saas:upgrade --no-maintenance --if-needed');
+        $preflightAt    = strpos($entrypoint, 'php artisan saas:preflight --json');
+        $permissionsAt  = strrpos($entrypoint, 'sh scripts/container-permissions.sh');
         $webProcessesAt = strrpos($entrypoint, "\n    run_web_processes");
 
         self::assertIsInt($installAt);
         self::assertIsInt($upgradeAt);
+        self::assertIsInt($preflightAt);
         self::assertIsInt($permissionsAt);
         self::assertIsInt($webProcessesAt);
         self::assertGreaterThan($upgradeAt, $permissionsAt);
+        self::assertGreaterThan($upgradeAt, $preflightAt);
+        self::assertLessThan($permissionsAt, $preflightAt);
         self::assertLessThan($webProcessesAt, $permissionsAt);
         self::assertStringContainsString('flock -x 9', $entrypoint);
         self::assertStringContainsString('storage/framework/longos-deploy.lock', $entrypoint);
@@ -173,6 +177,9 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringContainsString('command: ["scheduler"]', $compose);
         self::assertStringContainsString('storage/framework/scheduler-heartbeat', $compose);
         self::assertStringContainsString('-mmin -3', $compose);
+        self::assertStringContainsString('longos:queue-health --queue=default --max-age=45', $compose);
+        self::assertStringNotContainsString('queue:monitor default', $compose);
+        self::assertStringContainsString('QueueService::hasRecentWorkerHeartbeat', $this->read('app/Console/Commands/QueueWorkerHealth.php'));
         self::assertStringContainsString('condition: service_healthy', $compose);
         self::assertMatchesRegularExpression('/mail-relay:\\R(?:.*\\R){0,5}\\s*condition: service_started/', $compose);
         self::assertStringContainsString('longos-storage:/var/www/html/storage', $compose);
@@ -225,8 +232,8 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringContainsString('display_startup_errors = Off', $phpIni);
         self::assertStringContainsString('log_errors = On', $phpIni);
         self::assertStringContainsString('expose_php = Off', $phpIni);
-        self::assertStringNotContainsString("touch(\$htaPath)", $front);
-        self::assertStringNotContainsString("copy(\$htaExamplePath, \$htaPath)", $front);
+        self::assertStringNotContainsString('touch($htaPath)', $front);
+        self::assertStringNotContainsString('copy($htaExamplePath, $htaPath)', $front);
         self::assertStringNotContainsString('DeploymentCacheInvalidator', $front);
         self::assertFileDoesNotExist(
             $this->root . '/app/Support/DeploymentCacheInvalidator.php',
@@ -239,4 +246,3 @@ class SaasDockerDeploymentTest extends TestCase
         return (string) file_get_contents($this->root . '/' . $path);
     }
 }
-

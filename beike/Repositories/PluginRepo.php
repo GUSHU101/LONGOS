@@ -12,6 +12,9 @@
 
 namespace Beike\Repositories;
 
+use App\Saas\Support\SensitiveValueRedactor;
+use App\Services\BundledPluginSynchronizer;
+use App\Services\PaymentPluginReadiness;
 use Beike\Models\Plugin;
 use Beike\Plugin\Plugin as BPlugin;
 use Beike\Shop\Services\TotalServices\ShippingService;
@@ -217,6 +220,10 @@ class PluginRepo
      */
     public static function uninstallPlugin(BPlugin $bPlugin)
     {
+        if (BundledPluginSynchronizer::isBundled((string) $bPlugin->code)) {
+            throw new RuntimeException('该插件是 LONGOS 发布包的组成部分，可在设置中停用，但不能卸载。');
+        }
+
         self::rollbackDatabase($bPlugin);
         $type = $bPlugin->type;
         $code = $bPlugin->code;
@@ -244,7 +251,7 @@ class PluginRepo
     /**
      * 数据库回滚
      */
-    public static function rollbackDatabase(BPlugin $bPlugin)
+    public static function rollbackDatabase(BPlugin $bPlugin): void
     {
         $migrationPath = "{$bPlugin->getPath()}/Migrations";
         if (is_dir($migrationPath)) {
@@ -277,9 +284,7 @@ class PluginRepo
                     }
 
                     if (! is_object($migration) || ! method_exists($migration, 'down')) {
-                        Log::error("Plugin migration invalid or missing down method: {$migrationName}");
-
-                        continue;
+                        throw new RuntimeException("Plugin migration is invalid or has no down method: {$migrationName}");
                     }
 
                     // 执行down方法
@@ -290,9 +295,24 @@ class PluginRepo
 
                     Log::info("Plugin migration rolled back successfully: {$migrationName}");
 
-                } catch (\Exception $e) {
-                    // 记录错误但继续执行
-                    Log::error('Plugin migration rollback failed: ' . basename($file) . ' - ' . $e->getMessage());
+                } catch (Throwable $e) {
+                    // Deleting the plugin row after a failed rollback creates
+                    // a deceptive half-uninstalled state. Stop immediately;
+                    // the package remains registered and can be repaired or
+                    // retried without losing its administration entry.
+                    $safeMessage = SensitiveValueRedactor::redact($e->getMessage());
+                    Log::error('Plugin migration rollback failed.', [
+                        'plugin'    => (string) $bPlugin->code,
+                        'migration' => basename($file),
+                        'exception' => $e::class,
+                        'message'   => $safeMessage,
+                    ]);
+
+                    throw new RuntimeException(
+                        '插件卸载已停止：数据库回滚失败（' . basename($file) . '）。',
+                        0,
+                        $e,
+                    );
                 }
             }
         }
@@ -368,7 +388,7 @@ class PluginRepo
                 Log::warning('Shipping plugin skipped during discovery.', [
                     'plugin'    => (string) $item->code,
                     'exception' => $e::class,
-                    'message'   => $e->getMessage(),
+                    'message'   => SensitiveValueRedactor::redact($e->getMessage()),
                 ]);
 
                 return false;
@@ -390,12 +410,14 @@ class PluginRepo
                     $item->plugin = $plugin;
                 }
 
-                return $plugin && $plugin->getEnabled();
+                return $plugin
+                    && $plugin->getEnabled()
+                    && PaymentPluginReadiness::isReady((string) $item->code);
             } catch (Throwable $e) {
                 Log::warning('Payment plugin skipped during discovery.', [
                     'plugin'    => (string) $item->code,
                     'exception' => $e::class,
-                    'message'   => $e->getMessage(),
+                    'message'   => SensitiveValueRedactor::redact($e->getMessage()),
                 ]);
 
                 return false;

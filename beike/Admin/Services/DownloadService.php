@@ -3,6 +3,7 @@
 namespace Beike\Admin\Services;
 
 use App\Saas\Support\SensitiveValueRedactor;
+use App\Services\ReleaseOwnedPluginRegistry;
 use Beike\Exceptions\PluginDownloadException;
 use Beike\Facades\BeikeHttp\Facade\Http;
 use Exception;
@@ -612,6 +613,12 @@ class DownloadService
                         ['malicious_file' => $filename]
                     );
                 }
+                if (ReleaseOwnedPluginRegistry::archiveEntryIsOwned($filename)) {
+                    throw new PluginDownloadException(
+                        'Release-owned LONGOS plugins can only be updated through a reviewed deployment.',
+                        ['release_owned_entry' => explode('/', $filename, 2)[0]]
+                    );
+                }
 
                 $operatingSystem = 0;
                 $attributes      = 0;
@@ -735,6 +742,8 @@ class DownloadService
         $targetDir     = $dirInfo[1];
         $pluginBaseDir = base_path($this->getPluginConfig('plugin_dir'));
 
+        $this->assertRuntimeInstallTarget($targetDir);
+
         if ($info['error_dir']) {
             // 文件跟命名空间不符合的插件
             $this->extractAndRename($zip, $pluginBaseDir, $info['error_dir'], $targetDir);
@@ -776,6 +785,9 @@ class DownloadService
      */
     private function extractAndRename(ZipArchive $zip, string $pluginBaseDir, string $errorDir, string $targetDir): void
     {
+        $this->assertRuntimeInstallTarget($errorDir);
+        $this->assertRuntimeInstallTarget($targetDir);
+
         if (! $zip->extractTo($pluginBaseDir)) {
             throw new PluginDownloadException(
                 __('admin.download.extract_plugin_failed'),
@@ -818,6 +830,8 @@ class DownloadService
      */
     private function extractToTargetDir(ZipArchive $zip, string $targetDir): void
     {
+        $this->assertRuntimeInstallTarget($targetDir);
+
         $pluginDir = base_path($this->getPluginConfig('plugin_dir') . '/' . $targetDir);
 
         if (! is_dir($pluginDir)) {
@@ -838,6 +852,16 @@ class DownloadService
 
         // 设置解压后文件的权限
         $this->setExtractedFilePermissions($pluginDir);
+    }
+
+    private function assertRuntimeInstallTarget(string $directory): void
+    {
+        if (ReleaseOwnedPluginRegistry::owns($directory)) {
+            throw new PluginDownloadException(
+                'Release-owned LONGOS plugins can only be updated through a reviewed deployment.',
+                ['release_owned_entry' => $directory]
+            );
+        }
     }
 
     /**

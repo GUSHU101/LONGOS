@@ -171,6 +171,12 @@ initialize_or_upgrade() {
   fi
 
   php artisan optimize
+
+  # A bootable PHP process is not sufficient proof that a release can serve
+  # production traffic. Keep the new container unavailable until this
+  # read-only gate validates built assets, security settings, database
+  # invariants, bundled plugin packages, Caddy and mail configuration.
+  php artisan saas:preflight --json
 }
 
 wait_for_application() {

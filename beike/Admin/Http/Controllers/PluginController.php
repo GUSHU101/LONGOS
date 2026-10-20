@@ -12,6 +12,7 @@
 
 namespace Beike\Admin\Http\Controllers;
 
+use App\Services\PaymentPluginReadiness;
 use Beike\Admin\Http\Resources\PluginResource;
 use Beike\Admin\Services\MarketingService;
 use Beike\Plugin\Plugin;
@@ -470,6 +471,13 @@ class PluginController extends Controller
             $plugin = app('plugin')->getPluginOrFail($code);
             $status = $request->get('status');
             if ((bool) $status) {
+                if ($plugin->getType() === 'payment') {
+                    $issues = PaymentPluginReadiness::issues((string) $plugin->code);
+                    if ($issues !== []) {
+                        return json_fail('启用失败：请先在插件设置中完成并保存支付凭据。');
+                    }
+                }
+
                 // Also apply migrations introduced after a plugin was originally installed.
                 // This is safe because Laravel skips migrations already recorded in the migrations table.
                 PluginRepo::migrateDatabase($plugin);
@@ -603,45 +611,8 @@ class PluginController extends Controller
     /** @return string[] */
     private function integrationConfigurationIssues(string $code): array
     {
-        if ($code === 'stripe') {
-            $testMode = filter_var(plugin_setting('stripe.test_mode', true), FILTER_VALIDATE_BOOLEAN);
-            $public   = trim((string) plugin_setting('stripe.publishable_key', ''));
-            $secret   = trim((string) plugin_setting('stripe.secret_key', ''));
-            $webhook  = trim((string) plugin_setting('stripe.webhook_secret', ''));
-            $prefix   = $testMode ? 'test' : 'live';
-            $issues   = [];
-            if (preg_match('/^pk_' . $prefix . '_[A-Za-z0-9_]{16,}$/', $public) !== 1) {
-                $issues[] = 'Stripe Publishable key 与当前测试/正式模式不匹配。';
-            }
-            if (preg_match('/^sk_' . $prefix . '_[A-Za-z0-9_]{16,}$/', $secret) !== 1) {
-                $issues[] = 'Stripe Secret key 与当前测试/正式模式不匹配。';
-            }
-            if (preg_match('/^whsec_[A-Za-z0-9_]{16,}$/', $webhook) !== 1) {
-                $issues[] = 'Stripe Webhook signing secret 无效。';
-            }
-
-            return $issues;
-        }
-
-        if ($code === 'paypal') {
-            $settings    = (array) plugin_setting('paypal', []);
-            $environment = ! empty($settings['sandbox_mode']) ? 'sandbox' : 'live';
-            $apiMode     = strtolower(trim((string) ($settings['api_mode'] ?? 'rest')));
-            $issues      = [];
-            $required    = $apiMode === 'nvp'
-                ? ["{$environment}_api_username", "{$environment}_api_password", "{$environment}_api_signature"]
-                : ["{$environment}_client_id", "{$environment}_secret"];
-            foreach ($required as $field) {
-                if (trim((string) ($settings[$field] ?? '')) === '') {
-                    $issues[] = 'PayPal 当前环境缺少配置：' . $field . '。';
-                }
-            }
-            $merchantId = strtoupper(trim((string) ($settings["{$environment}_merchant_id"] ?? '')));
-            if ($merchantId !== '' && preg_match('/^[2-9A-HJ-NP-Z]{13}$/', $merchantId) !== 1) {
-                $issues[] = 'PayPal Merchant ID 格式无效。';
-            }
-
-            return $issues;
+        if (in_array($code, ['stripe', 'paypal'], true)) {
+            return PaymentPluginReadiness::issues($code);
         }
 
         $issues = [];

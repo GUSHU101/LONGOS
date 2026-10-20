@@ -17,9 +17,8 @@ class BundledPluginSynchronizer
      * Runtime packages maintained and shipped as part of LONGOS.
      *
      * Existing status/configuration values are never overwritten. Payment
-     * defaults preserve the existing first-run checkout contract; the admin
-     * diagnostics still marks missing credentials until the merchant saves a
-     * complete provider configuration.
+     * providers default to disabled on new tenants and are only shown at
+     * checkout after the merchant saves a complete credential set.
      *
      * @var array<string, array{type: string, settings: array<string, scalar>, tables: list<string>}>
      */
@@ -31,12 +30,15 @@ class BundledPluginSynchronizer
         ],
         'paypal' => [
             'type'     => 'payment',
-            'settings' => ['status' => '1'],
+            // A payment provider is not usable until its credentials have
+            // passed the plugin validator. Never expose a freshly provisioned
+            // tenant to a checkout button that can only fail.
+            'settings' => ['status' => '0'],
             'tables'   => [],
         ],
         'stripe' => [
             'type'     => 'payment',
-            'settings' => ['status' => '1'],
+            'settings' => ['status' => '0'],
             'tables'   => [],
         ],
         self::PRODUCT_REVIEWS => [
@@ -176,6 +178,15 @@ class BundledPluginSynchronizer
     {
         $missing = [];
         foreach (self::PACKAGES as $code => $definition) {
+            try {
+                $package = app('plugin')->getPlugin($code);
+            } catch (\Throwable) {
+                $package = null;
+            }
+            if ($package === null || $package->getType() !== $definition['type']) {
+                $missing[] = "{$code} (package)";
+            }
+
             if (! Plugin::query()->where('code', $code)->exists()) {
                 $missing[] = "{$code} (registration)";
 
@@ -206,6 +217,11 @@ class BundledPluginSynchronizer
     public static function packageCodes(): array
     {
         return array_keys(self::PACKAGES);
+    }
+
+    public static function isBundled(string $code): bool
+    {
+        return array_key_exists(strtolower(trim($code)), self::PACKAGES);
     }
 
     private function assertProductReviewsReady(): void

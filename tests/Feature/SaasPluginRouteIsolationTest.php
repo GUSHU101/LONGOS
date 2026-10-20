@@ -209,6 +209,56 @@ class SaasPluginRouteIsolationTest extends TestCase
         self::assertFalse($manager->getEnabledPlugins()->has('stripe'));
     }
 
+    public function test_incomplete_payment_credentials_never_become_checkout_methods(): void
+    {
+        DB::table('plugins')->insert([
+            [
+                'type'       => 'payment',
+                'code'       => 'paypal',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'type'       => 'payment',
+                'code'       => 'stripe',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+        ]);
+        config([
+            'bk.plugin.paypal' => ['status' => '1', 'api_mode' => 'rest', 'sandbox_mode' => '1'],
+            'bk.plugin.stripe' => ['status' => '1', 'test_mode' => '1'],
+        ]);
+        PluginRepo::resetRuntimeCache();
+        app('plugin')->forgetRuntimeCache();
+
+        self::assertSame([], PluginRepo::getPaymentMethods()->pluck('code')->all());
+
+        config([
+            'bk.plugin.paypal.sandbox_client_id' => 'client-id-for-test',
+            'bk.plugin.paypal.sandbox_secret'    => 'secret-for-test',
+            'bk.plugin.stripe.publishable_key'   => 'pk_test_1234567890abcdef',
+            'bk.plugin.stripe.secret_key'        => 'sk_test_1234567890abcdef',
+            'bk.plugin.stripe.webhook_secret'    => 'whsec_1234567890abcdef',
+        ]);
+
+        self::assertSame(['paypal', 'stripe'], PluginRepo::getPaymentMethods()->pluck('code')->sort()->values()->all());
+
+        // Older LONGOS/BeikeShop deployments used several NVP key aliases.
+        // Readiness must follow the runtime service's compatibility rules so
+        // a safe upgrade does not hide an already functioning payment method.
+        config(['bk.plugin.paypal' => [
+            'status'          => '1',
+            'api_standard'    => 'soap',
+            'sandbox_mode'    => '1',
+            'api_username'    => 'legacy-user',
+            'api_password'    => 'legacy-password',
+            'api_signature'   => 'legacy-signature',
+        ]]);
+
+        self::assertContains('paypal', PluginRepo::getPaymentMethods()->pluck('code')->all());
+    }
+
     public function test_hooks_and_middlewares_follow_the_current_tenant_at_runtime(): void
     {
         $hook = 'tests.plugin.runtime.' . bin2hex(random_bytes(6));

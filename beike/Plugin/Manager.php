@@ -13,6 +13,7 @@
 namespace Beike\Plugin;
 
 use App\Saas\Support\SensitiveValueRedactor;
+use App\Services\ReleaseOwnedPluginRegistry;
 use Beike\Facades\BeikeHttp\Facade\Http;
 use Beike\Repositories\PluginRepo;
 use Illuminate\Contracts\Filesystem\FileNotFoundException;
@@ -426,6 +427,9 @@ class Manager
 
             if (! $this->isValidZipPath($filename, $extractPath)) {
                 throw new \Exception('Invalid file path in ZIP: ' . $filename);
+            }
+            if (ReleaseOwnedPluginRegistry::archiveEntryIsOwned($filename)) {
+                throw new \Exception('Release-owned LONGOS plugins can only be updated through a reviewed deployment.');
             }
 
             // ZIP archives can encode Unix symbolic links through external

@@ -19,6 +19,7 @@ class RuntimeLogPrivacyTest extends TestCase
             'app/Services/DeploymentUpgradeService.php',
             'app/Http/Middleware/SetLocaleInstaller.php',
             'plugins/PixelTracking/Services/ServerTrackingService.php',
+            'beike/Repositories/PluginRepo.php',
         ] as $file) {
             $source = (string) file_get_contents($root . '/' . $file);
 

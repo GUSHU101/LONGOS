@@ -13,6 +13,7 @@
 namespace Beike\Shop\Services;
 
 use App\Saas\Support\SensitiveValueRedactor;
+use App\Services\PaymentPluginReadiness;
 use Beike\Exceptions\CartException;
 use Beike\Libraries\Weight;
 use Beike\Models\Address;
@@ -594,6 +595,18 @@ class CheckoutService
                     Log::warning('Payment plugin skipped because its checkout template is missing.', [
                         'plugin' => $method['code'],
                         'view'   => is_string($viewPath) ? $viewPath : get_debug_type($viewPath),
+                    ]);
+
+                    continue;
+                }
+
+                $configurationIssues = PaymentPluginReadiness::issues((string) $method['code']);
+                if ($configurationIssues !== []) {
+                    // Never send incomplete provider credentials or their
+                    // validation details to the customer-facing checkout.
+                    Log::warning('Payment plugin skipped because its credential set is incomplete.', [
+                        'plugin'      => $method['code'],
+                        'issue_count' => count($configurationIssues),
                     ]);
 
                     continue;

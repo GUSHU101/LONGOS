@@ -111,12 +111,13 @@ Coolify 解析 Compose 后会自动生成 `SERVICE_*` 凭据。只需手动填�
 
 1. Coolify 构建新镜像；依赖严格来自 `composer.lock` 和 `package-lock.json`。
 2. 新容器取得共享部署锁，在同一锁内同步系统内置插件并只执行尚未应用的迁移。
-3. 内置插件按完整目录替换，旧版本已经删除的 PHP/静态文件不会残留；后来安装的第三方插件目录保持不变。
+3. 内置插件按完整目录替换，旧版本已经删除的 PHP/静态文件不会残留；后来安装的第三方插件目录保持不变。后台 ZIP 上传和市场下载会拒绝覆盖发布清单中的镜像自带插件，这些组件只能通过 Git/Coolify 完整发布更新。
 4. 安装、迁移和缓存构建结束后统一修复运行目录权限，避免旧日志或缓存文件导致 PHP-FPM 写入失败。
 5. MySQL、上传、第三方插件、DKIM、Postfix 队列与幂等记录保存在命名卷中。
-6. 健康检查通过后完成切换。
+6. 入口在 PHP-FPM 对外服务前自动执行只读上线预检，会验证编译资源、安全配置、数据库不变式、内置插件包、Caddy 和邮件配置；失败的新容器不会被标记为 healthy。
+7. 容器预检和健康检查都通过后才完成切换。
 
-内置运行时包括 `flat_shipping`、`paypal`、`stripe`、`longos_product_reviews`、`longos_live_chat`、`pixel_tracking` 和 `shopify_product_transfer`。首次安装会登记并迁移它们；旧租户在下次 Git/Coolify 发布时自动补齐，已有的启用状态和商户配置不会被覆盖。`pixel_tracking` 在新站默认关闭，需要在后台完成合规同意模式和渠道凭据配置后再启用。
+内置运行时包括 `flat_shipping`、`paypal`、`stripe`、`longos_product_reviews`、`longos_live_chat`、`pixel_tracking` 和 `shopify_product_transfer`。首次安装会登记并迁移它们；旧租户在下次 Git/Coolify 发布时自动补齐，已有的启用状态和商户配置不会被覆盖。`paypal`、`stripe` 和 `pixel_tracking` 在新站默认关闭；支付插件只有在后台保存与测试/正式模式匹配的完整凭据后才允许启用和进入结账可用列表，避免顾客在付款最后一步才遇到必然失败。
 
 应用内旧式“覆盖文件更新器”在 Coolify 模式下默认关闭，避免正在运行的容器修改镜像。回滚时在 Coolify Deployments 中选择上一个成功版本并 Redeploy；数据库回滚必须使用部署前备份，而不是逆向猜测迁移。
 
@@ -168,6 +169,11 @@ Compose 自动启动 Postfix/OpenDKIM 和内部 HMAC API，不开放公共 SMTP 
 
 - 新容器最多需等待一分钟才生成首次 `storage/framework/scheduler-heartbeat`，Compose 已预留 180 秒启动宽限。
 - 超过宽限仍不健康时，查看 scheduler Logs 中的第一个 Laravel 异常；不要手动在容器内另启一个 `schedule:work`。
+
+### worker 一直 unhealthy
+
+- Worker 健康检查使用共享卷中的真实队列循环心跳，不再把“积压数未超限”误当成 Worker 正常。
+- 超过 120 秒启动宽限后仍异常，查看 worker Logs 中的第一个队列或数据库错误；不要在 app 容器内额外启动 Worker。
 
 ### 构建阶段报 `ADMIN_EMAIL is missing a value`
 

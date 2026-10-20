@@ -94,7 +94,9 @@ class SettingsSeeder extends Seeder
             ['type' => 'plugin', 'space' => 'flat_shipping', 'name' => 'type', 'value' => 'fixed', 'json' => 0],
             ['type' => 'plugin', 'space' => 'flat_shipping', 'name' => 'value', 'value' => '0', 'json' => 0],
             ['type' => 'system', 'space' => 'base', 'name' => 'default_customer_group_id', 'value' => '1', 'json' => 0],
-            ['type' => 'plugin', 'space' => 'stripe', 'name' => 'status', 'value' => '1', 'json' => 0],
+            // External payment methods stay disabled until the merchant saves
+            // a complete, validated credential set in the administration UI.
+            ['type' => 'plugin', 'space' => 'stripe', 'name' => 'status', 'value' => '0', 'json' => 0],
             ['type' => 'plugin', 'space' => 'longos_product_reviews', 'name' => 'status', 'value' => '1', 'json' => 0],
             ['type' => 'plugin', 'space' => 'longos_product_reviews', 'name' => 'display_limit', 'value' => '6', 'json' => 0],
             ['type' => 'plugin', 'space' => 'longos_live_chat', 'name' => 'status', 'value' => '1', 'json' => 0],
@@ -102,7 +104,7 @@ class SettingsSeeder extends Seeder
             ['type' => 'plugin', 'space' => 'pixel_tracking', 'name' => 'status', 'value' => '0', 'json' => 0],
             ['type' => 'plugin', 'space' => 'shopify_product_transfer', 'name' => 'status', 'value' => '1', 'json' => 0],
             ['type' => 'plugin', 'space' => 'flat_shipping', 'name' => 'status', 'value' => '1', 'json' => 0],
-            ['type' => 'plugin', 'space' => 'paypal', 'name' => 'status', 'value' => '1', 'json' => 0],
+            ['type' => 'plugin', 'space' => 'paypal', 'name' => 'status', 'value' => '0', 'json' => 0],
             ['type' => 'system', 'space' => 'base', 'name' => 'rate_api_key', 'value' => '', 'json' => 0],
             ['type' => 'system', 'space' => 'base', 'name' => 'hot_keywords', 'value' => json_encode([
                 'zh_cn' => '连衣裙,运动鞋,T恤,牛仔裤,时尚,潮流,可爱童装,瑜伽健身服',

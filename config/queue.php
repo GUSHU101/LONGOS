@@ -15,6 +15,11 @@ return [
 
     'default'     => env('QUEUE_CONNECTION', 'database'),
 
+    // Keeps Docker's worker health check accurate while a job is legitimately
+    // busy. Job-specific timeouts override this lease; every completion or
+    // exception releases it immediately.
+    'worker_heartbeat_lease' => (int) env('QUEUE_WORKER_HEARTBEAT_LEASE_SECONDS', 300),
+
     /*
     |--------------------------------------------------------------------------
     | Queue Connections

@@ -144,6 +144,18 @@ class GlobalHardeningTest extends TestCase
         }
     }
 
+    public function test_runtime_plugin_installers_cannot_replace_release_owned_packages(): void
+    {
+        $registry   = file_get_contents(base_path('app/Services/ReleaseOwnedPluginRegistry.php'));
+        $manager    = file_get_contents(base_path('beike/Plugin/Manager.php'));
+        $downloader = file_get_contents(base_path('beike/Admin/Services/DownloadService.php'));
+
+        $this->assertStringContainsString('plugins/.longos-release-manifest', $registry);
+        $this->assertStringContainsString('ReleaseOwnedPluginRegistry::archiveEntryIsOwned', $manager);
+        $this->assertStringContainsString('ReleaseOwnedPluginRegistry::archiveEntryIsOwned', $downloader);
+        $this->assertStringContainsString('assertRuntimeInstallTarget($targetDir)', $downloader);
+    }
+
     public function test_malformed_local_plugin_manifest_is_isolated_instead_of_crashing_the_application(): void
     {
         $directory = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'longos-bad-plugin-' . bin2hex(random_bytes(6));
@@ -340,6 +352,9 @@ class GlobalHardeningTest extends TestCase
 
             $provider = (string) file_get_contents(dirname(__DIR__, 2) . '/app/Providers/AppServiceProvider.php');
             self::assertStringContainsString('Queue::looping', $provider);
+            self::assertStringContainsString('Queue::before', $provider);
+            self::assertStringContainsString('Queue::after', $provider);
+            self::assertStringContainsString('Queue::exceptionOccurred', $provider);
             self::assertStringContainsString('QueueService::recordWorkerHeartbeat', $provider);
             $job = (string) file_get_contents(dirname(__DIR__, 2) . '/plugins/ShopifyProductTransfer/Jobs/ProcessShopifyProductImport.php');
             self::assertStringContainsString('pulseWorkerLease', $job);
