@@ -52,6 +52,21 @@ class MailSenderProfileSecurityTest extends TestCase
         self::assertSame('orders+shop-a@mail.example.com', $service->suggestedAddress(MailSenderProfileService::ORDERS));
     }
 
+    public function test_control_site_uses_only_the_platform_sender_domain(): void
+    {
+        $control       = new Site;
+        $control->id   = 1;
+        $control->uuid = '04cf0115-cc86-4262-88e9-c7100872b5da';
+        $control->code = 'control';
+        $control->meta = ['control_site' => true];
+        config(['mail.relay.allowed_sender_domains' => ['brand-a.example.com', 'mail.example.com']]);
+        $this->app->instance(config('multitenancy.current_tenant_container_key'), $control);
+
+        $service = new MailSenderProfileService;
+        self::assertSame(['mail.example.com'], $service->availableDomains());
+        self::assertSame('orders@mail.example.com', $service->suggestedAddress(MailSenderProfileService::ORDERS));
+    }
+
     public function test_control_gateway_can_authorize_an_explicit_tenant_without_switching_current_site(): void
     {
         $target       = new Site;

@@ -62,6 +62,7 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringContainsString('SAAS_TLS_EXTERNAL_CONTROL_DOMAIN: "false"', $compose);
         self::assertStringContainsString('MAIL_RELAY_SHARED_SECRET: ${SERVICE_PASSWORD_64_MAILRELAY}', $compose);
         self::assertStringContainsString('CLOUD_MAIL_RELAY_SHARED_SECRET: ${SERVICE_PASSWORD_64_CLOUDMAIL}', $compose);
+        self::assertStringContainsString('MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-no-reply@${MAIL_RELAY_PLATFORM_SENDER_DOMAIN:-${SAAS_BASE_DOMAIN}}}', $compose);
         self::assertStringContainsString('CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}', $compose);
         self::assertStringContainsString('LONGOS_AUTO_CONFIGURE_MAIL_DNS: ${LONGOS_AUTO_CONFIGURE_MAIL_DNS:-true}', $compose);
     }

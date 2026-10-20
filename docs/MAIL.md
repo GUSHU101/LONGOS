@@ -84,7 +84,17 @@ LONGOS 后台可分别设置默认、订单、账户、退货/客服和营销五
 - 运营者已将它加入 `MAIL_RELAY_DOMAINS` 和 `MAIL_RELAY_ALLOWED_SENDER_DOMAINS`，重建中继并发布新的 DKIM 记录。
 - LONGOS 主站管理员已在“租户站点”中将该已签名发件域唯一分配给对应租户。
 
-网站访问域与邮件发件域是两类独立资源：店铺可使用 `www.example.com`，同时使用 `orders@example.com` 发信。店铺换域名不会自动改写发件地址，避免已验证的邮件身份突然失效。如果要同时换发件域，先完成 DNS/DKIM 和邮局签名，再由主站管理员分配给租户，最后进入该租户的“系统设置 → 邮件设置”修改默认或分类发件邮箱。界面会只列出“邮局已签名”且“已分配给当前租户”的域名，保存和实际投递时都会再次校验。整个过程不需要为子站创建或更换 Cloud Mail 集成令牌。
+不同子站可以同时使用完全不同的发件域。例如：
+
+```dotenv
+MAIL_RELAY_DOMAINS=mail.platform.com,brand-a.com,mail.brand-b.net
+MAIL_RELAY_ALLOWED_SENDER_DOMAINS=mail.platform.com,brand-a.com,mail.brand-b.net
+MAIL_RELAY_PLATFORM_SENDER_DOMAIN=mail.platform.com
+```
+
+部署完成并发布三个域名各自的 DKIM/SPF/DMARC 后，在主站“租户站点”中把 `brand-a.com` 分配给子站 A、把 `mail.brand-b.net` 分配给子站 B。然后分别进入两个子站的“系统设置 → 邮件设置”，点击对应“租户独立域”旁的“应用到全部发件身份”并保存。子站 A 会使用 `orders@brand-a.com` 等地址，子站 B 会使用 `orders@mail.brand-b.net` 等地址；两者仍共用主站的一枚 Cloud Mail 集成令牌，但网关会根据发件域解析租户并阻止跨租户冒用。独立发件域只能分配给一个子站，主站不会占用租户域。
+
+网站访问域与邮件发件域是两类独立资源：店铺可使用 `www.example.com`，同时使用 `orders@example.com` 发信。店铺换域名不会自动改写发件地址，避免已验证的邮件身份突然失效。如果要同时换发件域，先完成 DNS/DKIM 和邮局签名，再由主站管理员分配给租户，最后进入该租户的“系统设置 → 邮件设置”一键应用或逐项修改默认及分类发件邮箱。界面会优先列出当前租户独占域，最后才显示共享平台兜底域；保存和实际投递时都会再次校验。整个过程不需要为子站创建或更换 Cloud Mail 集成令牌。
 
 升级时安装流程会自动创建 `saas_mail_sender_domains` 分配表，并尽可能迁移旧版中能明确匹配到租户的已签名域。无法安全推断归属的域名不会自动授权，需在主站“租户站点”中分配一次。
 

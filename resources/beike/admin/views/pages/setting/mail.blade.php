@@ -17,6 +17,11 @@
     $senderSuggestions = collect(array_keys($senderCategories))->mapWithKeys(
         static fn ($category) => [$category => $senderService->suggestedAddresses($category, $availableSenderDomains)]
     )->all();
+    $senderDomainPresets = collect($availableSenderDomains)->mapWithKeys(
+        static fn ($domain) => [$domain => collect(array_keys($senderCategories))->mapWithKeys(
+            static fn ($category) => [$category => $senderService->suggestedAddresses($category, [$domain])[0] ?? '']
+        )->all()]
+    )->all();
     $defaultSenderCategory = \App\Mail\MailSenderProfileService::DEFAULT;
     $advancedSenderCategories = array_filter(
         $senderCategories,
@@ -43,6 +48,7 @@
         'testRecipient' => old('mail_test_recipient', $senderProfiles[\App\Mail\MailSenderProfileService::DEFAULT]['address']),
         'testUrl' => admin_route('settings.mail.test'),
         'diagnosticsUrl' => admin_route('settings.mail.diagnostics'),
+        'senderDomainPresets' => $senderDomainPresets,
         'labels' => [
             'testRecipient' => __('admin/setting.mail_test_recipient'),
             'testButton' => __('admin/setting.mail_test_button'),
@@ -52,6 +58,7 @@
             'diagnosticsButton' => __('admin/setting.mail_diagnostics_button'),
             'diagnosticsRunning' => __('admin/setting.mail_diagnostics_running'),
             'diagnosticsFailed' => __('admin/setting.mail_diagnostics_failed'),
+            'senderDomainApplied' => __('admin/setting.mail_sender_domain_applied'),
         ],
     ];
   @endphp
@@ -106,7 +113,11 @@
           <div class="alert {{ $availableSenderDomains ? 'alert-success' : 'alert-warning' }} py-2 mt-2 mb-0 font-size-12">
             <div class="fw-bold mb-1">{{ __('admin/setting.mail_sender_available_domains') }}</div>
             @forelse($availableSenderDomains as $senderDomain)
-              <span class="badge text-bg-light border me-1">{{ $senderDomain }}</span>
+              <span class="d-inline-flex align-items-center border rounded bg-light px-2 py-1 me-1 mb-1 gap-2">
+                <span class="font-monospace">{{ $senderDomain }}</span>
+                <span class="text-secondary">{{ $senderDomain === strtolower(trim((string) config('mail.relay.platform_sender_domain'), '.')) ? __('admin/setting.mail_sender_shared_fallback') : __('admin/setting.mail_sender_tenant_domain') }}</span>
+                <button type="button" class="btn btn-link btn-sm p-0" data-domain="{{ $senderDomain }}" @click="applySenderDomain($event.currentTarget.dataset.domain)">{{ __('admin/setting.mail_sender_apply_domain') }}</button>
+              </span>
             @empty
               <span>{{ __('admin/setting.mail_sender_no_available_domains') }}</span>
             @endforelse
@@ -347,6 +358,17 @@
         },
       },
       methods: {
+        applySenderDomain(domain) {
+          const presets = mailPageData.senderDomainPresets?.[domain] || {};
+          Object.entries(presets).forEach(([category, address]) => {
+            const input = this.$el.querySelector(`[name="mail_senders[${category}][address]"]`);
+            if (!input || !address) return;
+            input.value = address;
+            input.dispatchEvent(new Event('input', {bubbles: true}));
+            input.dispatchEvent(new Event('change', {bubbles: true}));
+          });
+          layer.msg(mailPageData.labels.senderDomainApplied);
+        },
         runDiagnostics() {
           if (this.diagnosing) return;
           this.diagnosing = true;

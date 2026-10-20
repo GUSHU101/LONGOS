@@ -52,7 +52,8 @@ Coolify 解析 Compose 后会自动生成 `SERVICE_*` 凭据。只需手动填�
 | `SAAS_DNS_TARGETS` | 源站 IP 或可信入口域名 | 特殊拓扑才需要 | 留空时自动复用 `DOMAIN` 的 DNS 路由；仅在控制站走 Cloudflare、租户域直连源站等分离入口时填写 |
 | `MAIL_RELAY_DOMAINS` | `example.com,brand.com` | 推荐 | 需要 DKIM 签名的所有发件域名 |
 | `MAIL_RELAY_ALLOWED_SENDER_DOMAINS` | 同上 | 推荐 | 允许租户选择的发件域名，必须是前一项的子集 |
-| `MAIL_FROM_ADDRESS` | `no-reply@example.com` | 否 | 平台默认发件地址 |
+| `MAIL_RELAY_PLATFORM_SENDER_DOMAIN` | `mail.platform.com` | 推荐 | 主站及未配置独立域的子站使用的共享兜底域，必须包含在前两项中 |
+| `MAIL_FROM_ADDRESS` | `no-reply@example.com` | 否 | 平台默认发件地址；留空时自动跟随 `MAIL_RELAY_PLATFORM_SENDER_DOMAIN` |
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API Token | 否 | 仅用于可选 DNS 自动发布；应在 Coolify 标记为 Secret |
 | `LONGOS_AUTO_CONFIGURE_MAIL_DNS` | `true` | 否 | 有可用 Token 时维护 LONGOS 专用邮件 DNS；不会覆盖已有 SPF/DMARC 策略 |
 
@@ -122,6 +123,8 @@ Coolify 解析 Compose 后会自动生成 `SERVICE_*` 凭据。只需手动填�
 Compose 自动启动 Postfix/OpenDKIM 和内部 HMAC API，不开放公共 SMTP 端口。LONGOS、队列和 Cloud Mail 通过私有网络调用它。
 
 部署后在 LONGOS 邮件设置中查看各发件域名需要添加的 DKIM、SPF 和 DMARC 记录。新增签名域名后更新 `MAIL_RELAY_DOMAINS` 与 `MAIL_RELAY_ALLOWED_SENDER_DOMAINS` 并在 Coolify 点击 Redeploy；已有 DKIM 私钥保存在卷中，不会重新生成。
+
+多个子站使用不同发件域时，把所有域一次性写入上述两个逗号分隔变量。Redeploy 并完成 DNS 验证后，在主站“租户站点”页把每个独立域唯一分配给对应子站，再到各子站“邮件设置”点击“应用到全部发件身份”并保存。平台域只是未配置独立域时的共享兜底，不会强迫所有子站使用同一个 From 域；Cloud Mail 仍只需要主站的一枚集成令牌。
 
 部分云服务器会封锁出站 TCP 25。若日志显示外部 SMTP 连接超时，需要向服务器提供商申请解除出站 25 限制；这与 Caddy 或 Coolify 无关。
 

@@ -70,7 +70,9 @@ x-app-environment: &app-environment
   MAIL_RELAY_PLATFORM_SENDER_DOMAIN: ${MAIL_RELAY_PLATFORM_SENDER_DOMAIN:-${SAAS_BASE_DOMAIN}}
   MAIL_RELAY_SHARED_SECRET: ${SERVICE_PASSWORD_64_MAILRELAY}
   CLOUD_MAIL_RELAY_SHARED_SECRET: ${SERVICE_PASSWORD_64_CLOUDMAIL}
-  MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-no-reply@${SAAS_BASE_DOMAIN}}
+  # Keep Laravel's global fallback aligned with the relay's actual platform
+  # signing identity when operators use a dedicated mail domain.
+  MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-no-reply@${MAIL_RELAY_PLATFORM_SENDER_DOMAIN:-${SAAS_BASE_DOMAIN}}}
   MAIL_FROM_NAME: ${MAIL_FROM_NAME:-LONGOS}
 
 x-app-volumes: &app-volumes

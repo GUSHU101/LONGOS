@@ -277,6 +277,7 @@ class SaasWebInstallerTest extends TestCase
     {
         $routes      = (string) file_get_contents($this->root . '/beike/Admin/Routes/admin.php');
         $view        = (string) file_get_contents($this->root . '/resources/beike/admin/views/pages/saas/sites.blade.php');
+        $mailView    = (string) file_get_contents($this->root . '/resources/beike/admin/views/pages/setting/mail.blade.php');
         $api         = (string) file_get_contents($this->root . '/beike/Admin/Http/Controllers/SaasSiteController.php');
         $provisioner = (string) file_get_contents($this->root . '/app/Saas/SiteProvisioner.php');
         $deletion    = (string) file_get_contents($this->root . '/app/Saas/SiteDeletionService.php');
@@ -294,6 +295,11 @@ class SaasWebInstallerTest extends TestCase
         self::assertStringContainsString('confirmation: value', $view);
         self::assertStringContainsString('assignSenderDomain(site)', $view);
         self::assertStringContainsString('mail_sender_domains', $view);
+        self::assertStringContainsString('platformSenderDomain', $view);
+        self::assertStringContainsString('senderDomainOwners', $view);
+        self::assertStringContainsString('主站不占用租户独立发件域', $view);
+        self::assertStringContainsString('senderDomainPresets', $mailView);
+        self::assertStringContainsString('applySenderDomain(domain)', $mailView);
         self::assertStringContainsString("'Cache-Control', 'no-store, private'", $api);
         self::assertStringContainsString('prepareProvisioningRuntime', $api);
         self::assertStringContainsString('assignSenderDomain(', $api);

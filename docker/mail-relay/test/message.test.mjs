@@ -7,7 +7,7 @@ import {createSignature} from '../src/security.mjs';
 
 process.env.LONGOS_RELAY_SHARED_SECRET = 'longos-longos-longos-longos-123456';
 process.env.CLOUD_MAIL_RELAY_SHARED_SECRET = 'cloud-mail-cloud-mail-cloud-123456';
-process.env.ALLOWED_SENDER_DOMAINS = 'mail.example.com';
+process.env.ALLOWED_SENDER_DOMAINS = 'mail.example.com, brand-a.example.com,mail.brand-b.example.net';
 process.env.RELAY_NO_LISTEN = 'true';
 const receiptDirectory = mkdtempSync(join(tmpdir(), 'longos-relay-test-'));
 process.env.IDEMPOTENCY_STORE_PATH = join(receiptDirectory, 'receipts.jsonl');
@@ -34,6 +34,25 @@ test('normalizes To, Cc and Bcc while keeping the envelope complete', () => {
   assert.deepEqual(result.mail.envelope.to, ['to@example.net', 'cc@example.net', 'bcc@example.net']);
   assert.equal(result.rateKey, 'longos:orders+shop-a@mail.example.com');
   assert.equal(result.senderContext.tenantCode, 'shop-a');
+});
+
+test('accepts different pre-signed sender domains for different tenants', () => {
+  for (const [address, tenantCode] of [
+    ['orders@brand-a.example.com', 'shop-a'],
+    ['orders@mail.brand-b.example.net', 'shop-b'],
+  ]) {
+    const result = normalizeMessage({
+      requestId: `tenant-domain:${tenantCode}`,
+      from: {address},
+      to: ['buyer@example.org'],
+      subject: 'Order',
+      text: 'Body',
+      senderContext: {source: 'longos', tenantCode},
+    });
+
+    assert.equal(result.mail.from.address, address);
+    assert.equal(result.senderContext.tenantCode, tenantCode);
+  }
 });
 
 test('rejects a sender outside the signing allowlist', () => {

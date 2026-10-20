@@ -34,11 +34,16 @@ class SaasSiteController extends Controller
         $this->authorizeControlPlane($request, $tenants);
 
         return view('admin::pages.saas.sites', [
-            'baseDomain'    => (string) config('saas.base_domain', ''),
-            'dnsTargets'    => (array) config('saas.dns_targets', []),
-            'databaseMode'  => (string) config('saas.database_mode', 'prefix'),
-            'adminPath'     => trim((string) admin_name(), '/'),
-            'senderDomains' => array_values(array_filter(
+            'baseDomain'            => (string) config('saas.base_domain', ''),
+            'dnsTargets'            => (array) config('saas.dns_targets', []),
+            'databaseMode'          => (string) config('saas.database_mode', 'prefix'),
+            'adminPath'             => trim((string) admin_name(), '/'),
+            'platformSenderDomain'  => strtolower(trim((string) config('mail.relay.platform_sender_domain'), '.')),
+            'senderDomainOwners'    => MailSenderDomain::query()
+                ->pluck('site_id', 'domain')
+                ->map(static fn (mixed $siteId): string => (string) $siteId)
+                ->all(),
+            'senderDomains'         => array_values(array_filter(
                 $senders->configuredDomains(),
                 static fn (string $domain): bool => $domain !== strtolower(trim((string) config('mail.relay.platform_sender_domain'), '.')),
             )),
@@ -312,6 +317,9 @@ class SaasSiteController extends Controller
         }
         if ($domain === strtolower(trim((string) config('mail.relay.platform_sender_domain'), '.'))) {
             throw ValidationException::withMessages(['domain' => '共享平台发件域会自动授权，无需分配。']);
+        }
+        if ((bool) data_get($site->meta, 'control_site', false)) {
+            throw ValidationException::withMessages(['domain' => '独立发件域只能分配给租户子站，主站使用平台发件域。']);
         }
         if (! in_array($site->status, [Site::STATUS_ACTIVE, Site::STATUS_SUSPENDED], true)) {
             throw ValidationException::withMessages(['domain' => '只能向已上线或已暂停的租户分配发件域。']);

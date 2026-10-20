@@ -282,13 +282,26 @@ class MailSenderProfileService
 
         $platformDomain = strtolower(trim((string) config('mail.relay.platform_sender_domain'), '.'));
 
-        return array_values(array_filter($domains, function (string $domain) use ($platformDomain, $site): bool {
-            if ($platformDomain !== '' && $domain === $platformDomain) {
-                return true;
-            }
+        if ((bool) data_get($site->meta, 'control_site', false)) {
+            return $platformDomain !== '' && in_array($platformDomain, $domains, true)
+                ? [$platformDomain]
+                : [];
+        }
 
-            return $this->siteOwnsDomain($site, $domain);
-        }));
+        $assigned = array_values(array_filter(
+            $domains,
+            fn (string $domain): bool => $domain !== $platformDomain && $this->siteOwnsDomain($site, $domain),
+        ));
+
+        // Prefer a tenant-specific identity once the control site has
+        // explicitly assigned it. The shared platform identity remains a
+        // safe fallback, but is listed last so independent tenant branding is
+        // the default choice in the mail settings UI.
+        if ($platformDomain !== '' && in_array($platformDomain, $domains, true)) {
+            $assigned[] = $platformDomain;
+        }
+
+        return array_values(array_unique($assigned));
     }
 
     /**
@@ -307,10 +320,7 @@ class MailSenderProfileService
 
     public function suggestedAddress(string $category): string
     {
-        $domain = strtolower(trim((string) config('mail.relay.platform_sender_domain')));
-        if ($domain === '' || ! in_array($domain, $this->configuredDomains(), true)) {
-            $domain = $this->availableDomains()[0] ?? '';
-        }
+        $domain = $this->availableDomains()[0] ?? '';
         if ($domain === '') {
             return '';
         }

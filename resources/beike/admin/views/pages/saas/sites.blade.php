@@ -99,6 +99,9 @@
               <td><strong>@{{ site.name }}</strong><div class="text-muted small font-monospace">@{{ site.code }}<span v-if="site.meta && site.meta.control_site"> · 控制站</span></div></td>
               <td><a v-if="primaryDomain(site)" :href="domainUrl(primaryDomain(site))" target="_blank" rel="noopener">@{{ primaryDomain(site).host }}</a><span v-else class="text-muted">无</span></td>
               <td>
+                <div v-if="platformSenderDomain" class="text-muted small mb-2">
+                  共享兜底：<span class="font-monospace">@{{ platformSenderDomain }}</span>
+                </div>
                 <div v-if="mailDomains(site).length" class="d-flex flex-wrap gap-1 mb-2">
                   <span v-for="item in mailDomains(site)" :key="item.id" class="badge text-bg-light border d-inline-flex align-items-center gap-1">
                     @{{ item.domain }}
@@ -106,14 +109,15 @@
                       :disabled="senderDomainBusyKey === `${site.id}:${item.id}`" @click="removeSenderDomain(site, item)"></button>
                   </span>
                 </div>
-                <div v-if="assignableSenderDomains(site).length" class="input-group input-group-sm">
+                <div v-if="!isControlSite(site) && assignableSenderDomains(site).length" class="input-group input-group-sm">
                   <select class="form-select" v-model="senderDomainDrafts[site.id]">
                     <option value="">选择已签名域名…</option>
                     <option v-for="domain in assignableSenderDomains(site)" :key="domain" :value="domain">@{{ domain }}</option>
                   </select>
                   <button type="button" class="btn btn-outline-primary" :disabled="!senderDomainDrafts[site.id] || senderDomainBusyKey !== null" @click="assignSenderDomain(site)">分配</button>
                 </div>
-                <div v-else-if="!signedSenderDomains.length" class="text-muted small">邮局尚未配置独立发件域。</div>
+                <div v-else-if="!isControlSite(site) && !signedSenderDomains.length" class="text-muted small">邮局尚未配置独立发件域。</div>
+                <div v-else-if="isControlSite(site)" class="text-muted small">主站不占用租户独立发件域。</div>
               </td>
               <td class="font-monospace small">@{{ site.database_name }}</td>
               <td>
@@ -150,7 +154,9 @@
       dnsTargets: @json(array_values($dnsTargets)),
       databaseMode: @json($databaseMode),
       adminPath: @json($adminPath),
+      platformSenderDomain: @json($platformSenderDomain),
       signedSenderDomains: @json(array_values($senderDomains)),
+      senderDomainOwners: @json($senderDomainOwners),
       loading: true,
       creating: false,
       deletingSiteId: null,
@@ -190,15 +196,19 @@
       mailDomains(site) {
         return site && Array.isArray(site.mail_sender_domains) ? site.mail_sender_domains : [];
       },
+      isControlSite(site) {
+        return Boolean(site && site.meta && site.meta.control_site);
+      },
       assignableSenderDomains(site) {
-        const assigned = new Set(this.sites.flatMap((item) => this.mailDomains(item).map((entry) => entry.domain)));
-        return this.signedSenderDomains.filter((domain) => !assigned.has(domain));
+        if (this.isControlSite(site)) return [];
+        return this.signedSenderDomains.filter((domain) => !this.senderDomainOwners[domain]);
       },
       assignSenderDomain(site) {
         const domain = this.senderDomainDrafts[site.id];
         if (!domain || this.senderDomainBusyKey !== null) return;
         this.senderDomainBusyKey = `${site.id}:new`;
         $http.post(`saas/sites/${site.id}/sender-domains`, {domain}).then(() => {
+          this.$set(this.senderDomainOwners, domain, String(site.id));
           this.$message.success('发件域已分配。');
           this.$set(this.senderDomainDrafts, site.id, '');
           return this.loadSites();
@@ -206,10 +216,11 @@
       },
       removeSenderDomain(site, item) {
         if (!site || !item || this.senderDomainBusyKey !== null) return;
-        this.$confirm(`解除 ${item.domain} 后，该租户已配置的相关发件地址将自动回退到平台发件域。确定继续吗？`, '解除发件域', {type: 'warning'})
+        this.$confirm(`解除 ${item.domain} 后，该租户已配置的相关发件地址将自动回退到其他已分配域或平台兜底域。确定继续吗？`, '解除发件域', {type: 'warning'})
           .then(() => {
             this.senderDomainBusyKey = `${site.id}:${item.id}`;
             return $http.delete(`saas/sites/${site.id}/sender-domains/${item.id}`).then(() => {
+              this.$delete(this.senderDomainOwners, item.domain);
               this.$message.success('发件域已解除。');
               return this.loadSites();
             }).finally(() => { this.senderDomainBusyKey = null; });

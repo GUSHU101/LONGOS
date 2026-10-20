@@ -461,19 +461,20 @@ class CloudMailIntegrationTokenTest extends TestCase
         $this->app->instance(config('multitenancy.current_tenant_container_key'), $shopA);
         $senders = new MailSenderProfileService;
         self::assertSame([
-            'mail.example.com',
             'shop-a.example.net',
             'shop-a-new.example.net',
             'brand-a.example.org',
             'mail.brand-a.example.org',
+            'mail.example.com',
         ], $senders->availableDomains());
         self::assertSame([
-            'orders+shop-a@mail.example.com',
             'orders@shop-a.example.net',
             'orders@shop-a-new.example.net',
             'orders@brand-a.example.org',
             'orders@mail.brand-a.example.org',
+            'orders+shop-a@mail.example.com',
         ], $senders->suggestedAddresses(MailSenderProfileService::ORDERS));
+        self::assertSame('orders@shop-a.example.net', $senders->suggestedAddress(MailSenderProfileService::ORDERS));
         $senders->assertAuthorized('orders@shop-a-new.example.net');
         // The shop uses www.brand-a.example.org while its independent From
         // domain is the explicitly assigned brand-a.example.org apex.
@@ -513,7 +514,7 @@ class CloudMailIntegrationTokenTest extends TestCase
         ]);
         $this->app->instance(config('multitenancy.current_tenant_container_key'), $control);
 
-        foreach (['orders@shop-a-new.example.net', 'orders@mail.brand-a.example.org'] as $address) {
+        foreach (['orders@shop-a-new.example.net', 'orders@mail.brand-a.example.org', 'orders@mail.nested.brand-a.example.org'] as $address) {
             $response = (new CloudMailRelayController)->send(
                 $this->sendRequest($issued['plain_text_token'], $address, 'https://admin.example.com/_longos/mail-relay/v1/send'),
                 new MailSenderProfileService,
@@ -527,6 +528,14 @@ class CloudMailIntegrationTokenTest extends TestCase
             return data_get($payload, 'senderContext.tenantId')   === $shopA->uuid
                 && data_get($payload, 'senderContext.tenantCode') === $shopA->code;
         });
+        Http::assertSent(static function (ClientRequest $request) use ($shopB): bool {
+            $payload = json_decode($request->body(), true, 64, JSON_THROW_ON_ERROR);
+
+            return data_get($payload, 'from.address')              === 'orders@mail.nested.brand-a.example.org'
+                && data_get($payload, 'senderContext.tenantId')   === $shopB->uuid
+                && data_get($payload, 'senderContext.tenantCode') === $shopB->code;
+        });
+        Http::assertSentCount(3);
 
         $assignments['brand-a.example.org']->delete();
         $assignments['mail.brand-a.example.org']->delete();
@@ -561,6 +570,12 @@ class CloudMailIntegrationTokenTest extends TestCase
         self::assertSame(201, $assign->getStatusCode());
         $assignment = MailSenderDomain::query()->where('domain', 'example-store.com')->firstOrFail();
         self::assertSame($shopA->id, $assignment->site_id);
+        $pageData = $controller->page(
+            Request::create('https://admin.example.com/admin/saas/manage', 'GET'),
+            $tenants,
+            $senders,
+        )->getData();
+        self::assertSame((string) $shopA->id, $pageData['senderDomainOwners']['example-store.com']);
 
         $duplicate = $controller->assignSenderDomain(
             Request::create(
@@ -577,6 +592,22 @@ class CloudMailIntegrationTokenTest extends TestCase
             '其他租户',
             (string) data_get(json_decode($duplicate->getContent(), true), 'message'),
         );
+
+        try {
+            $controller->assignSenderDomain(
+                Request::create(
+                    'https://admin.example.com/admin/saas/sites/' . $control->id . '/sender-domains',
+                    'POST',
+                    ['domain' => 'example-store.com'],
+                ),
+                $tenants,
+                $senders,
+                $control,
+            );
+            self::fail('The control site must not reserve a tenant sender domain.');
+        } catch (\Illuminate\Validation\ValidationException $exception) {
+            self::assertStringContainsString('租户子站', $exception->getMessage());
+        }
 
         $remove = $controller->removeSenderDomain(
             Request::create(
