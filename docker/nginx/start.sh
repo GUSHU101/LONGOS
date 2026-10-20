@@ -33,6 +33,7 @@ prepare_runtime_directories() {
   mkdir -p \
     storage/app/private \
     storage/framework/cache/data \
+    storage/framework/cache/htmlpurifier \
     storage/framework/sessions \
     storage/framework/views \
     storage/logs \

@@ -2,11 +2,21 @@
 
 namespace Tests\Unit;
 
+use Beike\Services\HtmlPurifierConfig;
 use Beike\Services\RichTextSanitizer;
 use PHPUnit\Framework\TestCase;
 
 class RichTextSanitizerTest extends TestCase
 {
+    public function test_definition_cache_uses_the_writable_laravel_storage_tree(): void
+    {
+        $path = HtmlPurifierConfig::create()->get('Cache.SerializerPath');
+
+        $normalized = str_replace('\\', '/', $path);
+        self::assertStringEndsWith('/storage/framework/cache/htmlpurifier', $normalized);
+        self::assertStringNotContainsString('/vendor/', $normalized);
+    }
+
     public function test_it_removes_executable_markup_and_unsafe_urls(): void
     {
         $clean = RichTextSanitizer::sanitize(

@@ -36,7 +36,7 @@ class RichTextSanitizer
             return self::$purifier;
         }
 
-        $config = \HTMLPurifier_Config::createDefault();
+        $config = HtmlPurifierConfig::create();
         $config->set('HTML.DefinitionID', 'longos-commerce-rich-text');
         $config->set('HTML.DefinitionRev', 1);
         $config->set('HTML.Allowed', implode(',', [

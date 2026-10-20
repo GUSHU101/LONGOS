@@ -105,6 +105,7 @@ RUN chmod 0755 /usr/local/bin/longos-entrypoint \
     && mkdir -p \
        storage/app/private \
        storage/framework/cache/data \
+       storage/framework/cache/htmlpurifier \
        storage/framework/sessions \
        storage/framework/views \
        storage/logs \

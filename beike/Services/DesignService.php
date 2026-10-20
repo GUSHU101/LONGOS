@@ -457,7 +457,7 @@ class DesignService
         $html     = self::renderCustomCodeTemplate(self::localizedValue($content['html'] ?? ''), $settings);
         $css      = self::sanitizeCustomCodeCss(self::localizedValue($content['css'] ?? ''));
 
-        $config = \HTMLPurifier_Config::createDefault();
+        $config = HtmlPurifierConfig::create();
         // HTMLPurifier's installed HTML definition is intentionally
         // conservative. Keep the custom-section vocabulary within its
         // supported elements so valid sections are preserved without runtime
@@ -1682,7 +1682,7 @@ class DesignService
         if ($html === '') {
             return '';
         }
-        $config = \HTMLPurifier_Config::createDefault();
+        $config = HtmlPurifierConfig::create();
         // Match the visual rich-text field: headings and quotes must survive
         // the server boundary instead of being silently flattened on save.
         $config->set('HTML.Allowed', 'a[href|title|target|rel],blockquote,br,b,em,h2,h3,h4,i,strong,p,ul,ol,li');

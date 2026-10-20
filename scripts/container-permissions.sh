@@ -22,7 +22,8 @@ esac
 chown root:root .
 chmod 0755 .
 
-mkdir -p storage/framework/cache storage/framework/sessions storage/framework/views \
+mkdir -p storage/framework/cache/data storage/framework/cache/htmlpurifier \
+    storage/framework/sessions storage/framework/views \
     storage/logs storage/app/private bootstrap/cache plugins public/cache public/plugin \
     public/image/catalog public/upload
 

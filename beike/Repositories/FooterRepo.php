@@ -12,6 +12,8 @@
 
 namespace Beike\Repositories;
 
+use Beike\Services\HtmlPurifierConfig;
+
 use Beike\Services\BuilderStateService;
 
 class FooterRepo
@@ -431,7 +433,7 @@ class FooterRepo
             return '';
         }
 
-        $config = \HTMLPurifier_Config::createDefault();
+        $config = HtmlPurifierConfig::create();
         $config->set('HTML.Allowed', 'a[href|title|target|rel|class],br,div[class],em[class],p[class],span[class],strong[class],b[class],i[class],ul[class],ol[class],li[class]');
         $config->set('Attr.AllowedFrameTargets', ['_blank']);
         $config->set('URI.DisableExternalResources', true);

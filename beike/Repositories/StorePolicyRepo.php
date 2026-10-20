@@ -2,6 +2,8 @@
 
 namespace Beike\Repositories;
 
+use Beike\Services\HtmlPurifierConfig;
+
 /**
  * Store policies are system settings rather than ordinary content pages.
  * This gives the footer stable URLs and keeps every policy in one admin form.
@@ -178,7 +180,7 @@ class StorePolicyRepo
         }
 
         if (self::$purifier === null) {
-            $config = \HTMLPurifier_Config::createDefault();
+            $config = HtmlPurifierConfig::create();
             $config->set('HTML.Allowed', 'a[href|title|target|rel|class],blockquote[class],br,code[class],dd[class],div[class],dl[class],dt[class],em[class],h2[class],h3[class],h4[class],h5[class],h6[class],hr,img[src|alt|width|height|class],li[class],ol[class],p[class],pre[class],s[class],span[class],strong[class],sub,sup,table[class],tbody[class],td[colspan|rowspan|class],tfoot[class],th[colspan|rowspan|scope|class],thead[class],tr[class],u[class],ul[class]');
             $config->set('Attr.AllowedFrameTargets', ['_blank']);
             $config->set('Attr.AllowedRel', ['nofollow', 'noopener', 'noreferrer']);
