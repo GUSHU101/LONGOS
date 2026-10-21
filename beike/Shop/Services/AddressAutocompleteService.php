@@ -280,8 +280,9 @@ class AddressAutocompleteService
 
         $candidateHouse = $this->stringValue($properties['housenumber'] ?? null);
         $requestedHouse = $this->requestedHouseNumber($query);
-        if ($requestedHouse                                                        !== '' && $candidateHouse !== ''
-                                                                                          && strcasecmp($requestedHouse, $candidateHouse) !== 0) {
+        if ($requestedHouse                                 !== ''
+            && $candidateHouse                              !== ''
+            && strcasecmp($requestedHouse, $candidateHouse) !== 0) {
             return null;
         }
 
