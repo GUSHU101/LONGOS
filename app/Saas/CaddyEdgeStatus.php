@@ -33,4 +33,3 @@ final class CaddyEdgeStatus
         return null;
     }
 }
-

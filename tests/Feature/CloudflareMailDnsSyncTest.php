@@ -28,13 +28,15 @@ class CloudflareMailDnsSyncTest extends TestCase
         $this->recordsPath = storage_path('framework/testing/mail-dns-' . bin2hex(random_bytes(6)));
         File::ensureDirectoryExists($this->recordsPath);
         config([
-            'mail.relay.auto_configure_dns'   => true,
-            'mail.relay.cloudflare_api_base'  => 'https://api.cloudflare.test/client/v4',
-            'mail.relay.dns_records_path'     => $this->recordsPath,
-            'mail.relay.dkim_selector'        => 'mail2026',
-            'mail.relay.hostname'             => 'mailout.brand-a.com',
-            'mail.relay.domains'              => 'brand-a.com,mail.brand-b.net',
-            'mail.relay.public_ips'           => ['8.8.8.8', '127.0.0.1', '2001:db8::1'],
+            'mail.relay.auto_configure_dns'    => true,
+            'mail.relay.cloudflare_api_base'   => 'https://api.cloudflare.test/client/v4',
+            'mail.relay.dns_records_path'      => $this->recordsPath,
+            'mail.relay.dkim_selector'         => 'mail2026',
+            'mail.relay.hostname'              => 'mailout.brand-a.com',
+            'mail.relay.domains'               => 'brand-a.com,mail.brand-b.net',
+            'mail.relay.public_ips'            => ['8.8.8.8', '127.0.0.1', '2001:db8::1'],
+            'longos.cloudflare.api_token'      => '',
+            'longos.cloudflare.api_token_file' => '',
         ]);
     }
 
@@ -127,6 +129,26 @@ class CloudflareMailDnsSyncTest extends TestCase
         self::assertFalse($pending['available']);
         self::assertSame('', $pending['value']);
         Http::assertNothingSent();
+    }
+
+    public function test_it_reads_the_api_token_from_the_config_cache_safe_layer(): void
+    {
+        config(['longos.cloudflare.api_token' => 'cloudflare-config-token']);
+
+        self::assertTrue((new CloudflareMailDnsService)->configured());
+        self::assertStringNotContainsString(
+            "env('CLOUDFLARE_API_TOKEN'",
+            (string) file_get_contents(dirname(__DIR__, 2) . '/app/Mail/CloudflareMailDnsService.php'),
+        );
+    }
+
+    public function test_it_rejects_placeholder_or_control_character_tokens(): void
+    {
+        foreach (['not-configured', "unsafe\r\ntoken"] as $token) {
+            config(['longos.cloudflare.api_token' => $token]);
+
+            self::assertFalse((new CloudflareMailDnsService)->configured());
+        }
     }
 
     public function test_it_updates_dkim_merges_duplicate_spf_and_preserves_dmarc(): void

@@ -8,8 +8,8 @@ return new class extends Migration
 {
     /** @var array<string, array<int, string>> */
     private const INDEXES = [
-        'idx_sp_import_admin_created' => ['admin_user_id', 'created_at'],
-        'idx_sp_import_status_updated' => ['status', 'updated_at'],
+        'idx_sp_import_admin_created'   => ['admin_user_id', 'created_at'],
+        'idx_sp_import_status_updated'  => ['status', 'updated_at'],
         'idx_sp_import_status_finished' => ['status', 'finished_at'],
     ];
 

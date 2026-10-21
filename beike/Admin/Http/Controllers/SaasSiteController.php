@@ -307,6 +307,7 @@ class SaasSiteController extends Controller
     ): JsonResponse {
         $this->authorizeControlPlane($request, $tenants);
         $validated = $request->validate(['domain' => ['required', 'string', 'max:253']]);
+
         try {
             $domain = DomainName::normalize($validated['domain']);
         } catch (InvalidArgumentException $exception) {

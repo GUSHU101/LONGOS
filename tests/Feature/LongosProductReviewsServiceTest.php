@@ -2,7 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Services\BundledPluginSynchronizer;
 use Beike\Repositories\PluginRepo;
 use Beike\Shop\Providers\PluginServiceProvider;
 use Closure;

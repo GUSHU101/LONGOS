@@ -63,7 +63,7 @@ class LongosRelayTransportContractTest extends TestCase
 
         self::assertStringContainsString("Route::prefix('_longos/mail-relay')", $routes);
         self::assertStringContainsString("Route::get('dns/manifest'", $routes);
-        self::assertStringContainsString("throttle:cloud-mail-dns-manifest", $routes);
+        self::assertStringContainsString('throttle:cloud-mail-dns-manifest', $routes);
         self::assertStringContainsString("RateLimiter::for('cloud-mail-dns-manifest'", file_get_contents(dirname(__DIR__, 2) . '/app/Providers/RouteServiceProvider.php'));
         self::assertStringNotContainsString('cloudflare_api_token', $controller);
         self::assertStringContainsString('ABILITY_CLOUD_MAIL_SEND', $controller);

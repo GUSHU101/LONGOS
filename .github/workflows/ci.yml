@@ -76,6 +76,9 @@ jobs:
           composer audit --locked --no-dev
           composer install --prefer-dist --no-interaction --no-progress
 
+      - name: Enforce PHP formatting
+        run: composer pint:test
+
       - name: Prepare isolated test environment
         run: |
           cp .env.example .env

@@ -532,8 +532,8 @@ class CloudMailIntegrationTokenTest extends TestCase
             $payload = json_decode($request->body(), true, 64, JSON_THROW_ON_ERROR);
 
             return data_get($payload, 'from.address')              === 'orders@mail.nested.brand-a.example.org'
-                && data_get($payload, 'senderContext.tenantId')   === $shopB->uuid
-                && data_get($payload, 'senderContext.tenantCode') === $shopB->code;
+                && data_get($payload, 'senderContext.tenantId')    === $shopB->uuid
+                && data_get($payload, 'senderContext.tenantCode')  === $shopB->code;
         });
         Http::assertSentCount(3);
 

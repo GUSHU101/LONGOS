@@ -1,5 +1,6 @@
 <?php
 
+$cloudflareApiToken   = trim((string) env('CLOUDFLARE_API_TOKEN', ''));
 $cloudflareTokenFile  = trim((string) env('CLOUDFLARE_API_TOKEN_FILE', ''));
 $cloudflareRangesPath = trim((string) env('CLOUDFLARE_IP_RANGES_PATH', ''));
 if ($cloudflareRangesPath === '') {
@@ -18,7 +19,7 @@ if ($cloudflareTokenFile !== '') {
         : dirname(__DIR__) . DIRECTORY_SEPARATOR . ltrim($cloudflareTokenFile, '/\\');
 }
 
-$cloudflareTokenInEnvironment = trim((string) env('CLOUDFLARE_API_TOKEN', '')) !== '';
+$cloudflareTokenInEnvironment = $cloudflareApiToken !== '';
 $cloudflareTokenFromFile      = false;
 foreach (array_unique($cloudflareTokenPaths) as $cloudflareTokenPath) {
     // A stale absolute path in .env must not leak an open_basedir warning into
@@ -128,6 +129,9 @@ return [
         // present. required is reserved for a server-level Coolify Caddy policy
         // because an application must not rewrite the shared proxy globally.
         'mode'                             => strtolower((string) env('LONGOS_CLOUDFLARE_MODE', 'optional')),
+        // Runtime services must read credentials through configuration so
+        // production `artisan optimize` / `config:cache` cannot hide them.
+        'api_token'                        => $cloudflareApiToken,
         'api_token_configured'             => $cloudflareTokenInEnvironment || $cloudflareTokenFromFile,
         'api_token_file_configured'        => $cloudflareTokenFromFile,
         'api_token_environment_configured' => $cloudflareTokenInEnvironment,

@@ -86,6 +86,9 @@
         ],
         "pint": [
             "./vendor/bin/pint --config=pint.json"
+        ],
+        "pint:test": [
+            "./vendor/bin/pint --test --config=pint.json"
         ]
     },
     "extra": {

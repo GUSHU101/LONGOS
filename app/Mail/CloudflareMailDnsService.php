@@ -619,20 +619,25 @@ class CloudflareMailDnsService
 
     private function apiToken(): string
     {
-        if (is_string($this->tokenOverride) && trim($this->tokenOverride) !== '') {
-            return trim($this->tokenOverride);
+        $token = is_string($this->tokenOverride)
+            ? trim($this->tokenOverride)
+            : trim((string) config('longos.cloudflare.api_token', ''));
+        if ($token === '') {
+            $path = trim((string) config('longos.cloudflare.api_token_file', ''));
+            if ($path !== '' && @is_file($path) && ! @is_link($path) && @is_readable($path)) {
+                $token = trim((string) @file_get_contents($path));
+            }
         }
 
-        $token = trim((string) env('CLOUDFLARE_API_TOKEN', ''));
-        if ($token !== '') {
-            return $token;
-        }
-
-        $path = trim((string) config('longos.cloudflare.api_token_file', ''));
-        if ($path === '' || ! @is_file($path) || @is_link($path) || ! @is_readable($path)) {
+        // Cloudflare API tokens are compact printable values. Reject malformed
+        // secrets before they can reach an Authorization header or logs.
+        $isPlaceholder       = $token === '' || $token === 'not-configured';
+        $isOversized         = strlen($token) > 4096;
+        $hasControlCharacter = preg_match('/[\x00-\x1F\x7F]/', $token) === 1;
+        if ($isPlaceholder || $isOversized || $hasControlCharacter) {
             return '';
         }
 
-        return trim((string) @file_get_contents($path));
+        return $token;
     }
 }

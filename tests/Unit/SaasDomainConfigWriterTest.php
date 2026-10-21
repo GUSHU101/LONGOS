@@ -48,5 +48,4 @@ class SaasDomainConfigWriterTest extends TestCase
             @rmdir($directory);
         }
     }
-
 }

@@ -67,7 +67,15 @@ class ShopServiceProvider extends ServiceProvider
         }
 
         $this->registerGuard();
-        $this->refreshTenantConfiguration();
+        if ($this->app->environment('testing')) {
+            // A workstation may contain storage/installed and a real database
+            // configuration. PHPUnit chooses its isolated connection after
+            // providers boot; tenant switch tasks refresh settings once that
+            // connection is ready.
+            config(['bk' => []]);
+        } else {
+            $this->refreshTenantConfiguration();
+        }
 
         if (Str::startsWith($uri, '/admin')) {
             return;

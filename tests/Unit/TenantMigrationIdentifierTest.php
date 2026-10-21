@@ -124,10 +124,10 @@ REGEX,
         self::assertSame(
             [],
             $violations,
-            "MySQL identifiers generated for prefixed tenants exceed 64 characters, or a fixed "
+            'MySQL identifiers generated for prefixed tenants exceed 64 characters, or a fixed '
                 . "foreign-key symbol would collide between tenants.\n"
-                . "Give long or dynamically declared indexes compact names and derive foreign-key symbols "
-                . "from the tenant prefix.",
+                . 'Give long or dynamically declared indexes compact names and derive foreign-key symbols '
+                . 'from the tenant prefix.',
         );
     }
 

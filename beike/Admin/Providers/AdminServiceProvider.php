@@ -56,7 +56,13 @@ class AdminServiceProvider extends ServiceProvider
 
         $this->loadCommands();
         $this->publishResources();
-        load_settings();
+        // Do not let PHPUnit inherit a workstation's installed marker and
+        // connect to its configured database before a test has selected an
+        // isolated connection. Tenant switch tasks may still call
+        // load_settings() explicitly after their test database is ready.
+        if (! $this->app->environment('testing')) {
+            load_settings();
+        }
         $this->loadRoutesFrom(__DIR__ . '/../Routes/admin.php');
         $this->registerGuard();
 

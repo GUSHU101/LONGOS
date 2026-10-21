@@ -67,7 +67,7 @@ class SaasSitesCreate extends Command
                 throw new \InvalidArgumentException('请通过 --file、--site 或 --count 指定要创建的站点。');
             }
 
-            $databaseMode = strtolower((string) config('saas.database_mode', 'prefix'));
+            $databaseMode       = strtolower((string) config('saas.database_mode', 'prefix'));
             $storageDescription = $databaseMode === 'database'
                 ? '每个站点使用独立数据库。'
                 : '每个站点使用共享数据库中的独立表命名空间。';

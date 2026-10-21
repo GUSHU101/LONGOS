@@ -12,9 +12,8 @@
 
 namespace Beike\Repositories;
 
-use Beike\Services\HtmlPurifierConfig;
-
 use Beike\Services\BuilderStateService;
+use Beike\Services\HtmlPurifierConfig;
 
 class FooterRepo
 {

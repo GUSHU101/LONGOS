@@ -53,12 +53,16 @@ class SaasProvisioningEndToEndTest extends TestCase
     {
         parent::setUp();
 
-        $app = require dirname(__DIR__, 2) . '/bootstrap/app.php';
-        $app->make(Kernel::class)->bootstrap();
-        if (! is_file(storage_path('installed'))) {
-            file_put_contents(storage_path('installed'), 'test');
+        // Reproduce a developer or CI host that already has an installed
+        // marker before Laravel boots. Providers must not use that marker to
+        // connect to the host's database while PHPUnit is selecting SQLite.
+        $installedPath = dirname(__DIR__, 2) . '/storage/installed';
+        if (! is_file($installedPath)) {
+            file_put_contents($installedPath, 'test');
             $this->createdInstalledMarker = true;
         }
+        $app = require dirname(__DIR__, 2) . '/bootstrap/app.php';
+        $app->make(Kernel::class)->bootstrap();
 
         $this->databasePath = tempnam(sys_get_temp_dir(), 'longos-e2e-');
         $this->runtimePath  = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'longos-e2e-' . bin2hex(random_bytes(6));

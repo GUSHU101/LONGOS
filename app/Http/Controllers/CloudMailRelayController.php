@@ -108,6 +108,7 @@ class CloudMailRelayController extends Controller
         if (! $this->authenticate($request, AdminUserTokenRepo::ABILITY_CLOUD_MAIL_HEALTH)) {
             return $this->error('Invalid or expired integration token.', Response::HTTP_UNAUTHORIZED);
         }
+
         try {
             $records = (new CloudflareMailDnsService)->expectedRecords();
         } catch (Throwable $exception) {

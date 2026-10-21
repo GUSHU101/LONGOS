@@ -165,7 +165,6 @@ class DomainConfigWriter
         return implode(PHP_EOL, $lines);
     }
 
-
     private function writeAtomically(string $path, string $content): void
     {
         if ($path === '') {

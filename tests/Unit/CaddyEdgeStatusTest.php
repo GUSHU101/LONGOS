@@ -28,4 +28,3 @@ class CaddyEdgeStatusTest extends TestCase
         );
     }
 }
-
