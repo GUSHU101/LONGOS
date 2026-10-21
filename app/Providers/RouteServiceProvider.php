@@ -161,6 +161,16 @@ class RouteServiceProvider extends ServiceProvider
             ];
         });
 
+        RateLimiter::for('cloud-mail-dns-manifest', function (Request $request) {
+            $credential = hash('sha256', (string) $request->bearerToken());
+            $host       = strtolower($request->getHost());
+
+            return [
+                Limit::perMinute(6)->by("cloud-mail-dns-manifest:token:{$host}:{$credential}"),
+                Limit::perHour(30)->by("cloud-mail-dns-manifest:ip:{$host}:{$request->ip()}"),
+            ];
+        });
+
         RateLimiter::for('integration-token-reveal', function (Request $request) {
             $adminId = Auth::guard(AdminUser::AUTH_GUARD)->id() ?: 'guest';
 

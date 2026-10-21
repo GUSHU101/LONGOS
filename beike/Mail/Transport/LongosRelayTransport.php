@@ -114,7 +114,7 @@ class LongosRelayTransport extends AbstractTransport
 
         $site = Site::current();
 
-        return [
+        $payload = [
             'requestId'   => $this->deliveryId($email),
             'from'        => ['address' => $from->getAddress(), 'name' => $from->getName()],
             'to'          => $to,
@@ -139,6 +139,19 @@ class LongosRelayTransport extends AbstractTransport
                 'category'     => $this->senderCategory($email),
             ],
         ];
+
+        // Symfony represents a missing alternative body as null. Keep the
+        // relay contract unambiguous by omitting absent bodies instead of
+        // serializing them as JSON null (plain-text test messages are a
+        // normal and supported case).
+        if ($payload['text'] === null) {
+            unset($payload['text']);
+        }
+        if ($payload['html'] === null) {
+            unset($payload['html']);
+        }
+
+        return $payload;
     }
 
     /** @param array<int, Address> $addresses

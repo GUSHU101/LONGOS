@@ -75,6 +75,7 @@ class CloudflareMailDnsSyncTest extends TestCase
 
         self::assertCount(7, $result['created']);
         self::assertSame([], $result['updated']);
+        self::assertSame([], $result['removed']);
         self::assertSame([], $result['warnings']);
         self::assertContains('TXT mail2026._domainkey.brand-a.com', $result['created']);
         self::assertContains('TXT mail2026._domainkey.mail.brand-b.net', $result['created']);
@@ -110,7 +111,7 @@ class CloudflareMailDnsSyncTest extends TestCase
             'type'      => 'TXT',
             'name'      => 'brand-a.com',
             'value'     => 'v=spf1 a:mailout.brand-a.com -all',
-            'mode'      => 'if_missing',
+            'mode'      => 'merged',
             'available' => true,
         ], $records);
         self::assertContains([
@@ -128,7 +129,7 @@ class CloudflareMailDnsSyncTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_it_updates_only_longos_dkim_and_preserves_existing_spf_and_dmarc(): void
+    public function test_it_updates_dkim_merges_duplicate_spf_and_preserves_dmarc(): void
     {
         config([
             'mail.relay.domains'    => 'brand-a.com',
@@ -171,15 +172,61 @@ class CloudflareMailDnsSyncTest extends TestCase
 
         $result = (new CloudflareMailDnsService('cloudflare-test-token'))->sync();
 
-        self::assertSame(['TXT mail2026._domainkey.brand-a.com'], $result['updated']);
-        self::assertContains('TXT brand-a.com', $result['preserved']);
+        self::assertSame([
+            'TXT mail2026._domainkey.brand-a.com',
+            'TXT brand-a.com',
+        ], $result['updated']);
+        self::assertSame(['TXT brand-a.com'], $result['removed']);
         self::assertContains('TXT _dmarc.brand-a.com', $result['preserved']);
-        self::assertCount(2, $result['warnings']);
-        self::assertStringContainsString('多条 v=spf1', implode('\n', $result['warnings']));
-        Http::assertSentCount(5);
+        self::assertCount(1, $result['warnings']);
+        self::assertStringContainsString('MAIL_RELAY_IPS', $result['warnings'][0]);
+        Http::assertSentCount(7);
         Http::assertNotSent(static function (ClientRequest $request): bool {
             return $request->method() === 'POST';
         });
+        Http::assertSent(static function (ClientRequest $request): bool {
+            return $request->method() === 'PATCH'
+                && str_ends_with((string) parse_url($request->url(), PHP_URL_PATH), '/dns_records/spf-existing')
+                && ($request->data()['content'] ?? null) === 'v=spf1 include:_spf.example.net a a:mailout.brand-a.com -all';
+        });
+        Http::assertSent(static function (ClientRequest $request): bool {
+            return $request->method() === 'DELETE'
+                && str_ends_with((string) parse_url($request->url(), PHP_URL_PATH), '/dns_records/spf-duplicate');
+        });
+    }
+
+    public function test_it_refuses_to_rewrite_redirect_based_spf_without_losing_semantics(): void
+    {
+        config([
+            'mail.relay.domains'    => 'brand-a.com',
+            'mail.relay.public_ips' => [],
+        ]);
+        $this->writeDkim('brand-a.com');
+
+        Http::fake(function (ClientRequest $request) {
+            $query = [];
+            parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+            $path = (string) parse_url($request->url(), PHP_URL_PATH);
+            if ($request->method() === 'GET' && str_ends_with($path, '/zones')) {
+                return Http::response(['success' => true, 'result' => [['id' => 'zone-a', 'name' => 'brand-a.com']]]);
+            }
+            if ($request->method() === 'GET' && ($query['name'] ?? '') === 'mail2026._domainkey.brand-a.com') {
+                return Http::response(['success' => true, 'result' => [[
+                    'id' => 'dkim-current', 'content' => 'v=DKIM1; h=sha256; k=rsa; p=UVVYRA==', 'proxied' => false,
+                ]]]);
+            }
+            if ($request->method() === 'GET' && ($query['name'] ?? '') === 'brand-a.com') {
+                return Http::response(['success' => true, 'result' => [[
+                    'id' => 'spf-redirect', 'content' => 'v=spf1 redirect=_spf.example.net',
+                ]]]);
+            }
+
+            return Http::response(['success' => true, 'result' => []]);
+        });
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('redirect=');
+        (new CloudflareMailDnsService('cloudflare-test-token'))->sync();
     }
 
     public function test_command_skips_without_credentials_and_fails_safely_until_public_key_exists(): void

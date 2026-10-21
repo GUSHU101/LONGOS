@@ -16,9 +16,9 @@ class MailDiagnosticsService
      */
     public function diagnose(): array
     {
-        $checks = [];
+        $checks     = [];
         $dnsRecords = [];
-        $engine = strtolower(trim((string) system_setting('base.mail_engine', config('mail.default', ''))));
+        $engine     = strtolower(trim((string) system_setting('base.mail_engine', config('mail.default', ''))));
         $this->add($checks, 'engine', $engine !== '' ? 'ok' : 'error', $engine !== '' ? "当前邮件引擎：{$engine}" : '尚未启用邮件引擎。');
 
         $profile = app(MailSenderProfileService::class)->resolve();
@@ -30,12 +30,13 @@ class MailDiagnosticsService
         );
 
         if ($engine === 'self_hosted') {
-            $this->diagnoseSelfHosted($checks, $profile['address']);
             try {
                 $dnsRecords = app(CloudflareMailDnsService::class)->expectedRecords();
             } catch (Throwable $exception) {
                 $this->add($checks, 'dns_record_preview', 'error', $exception->getMessage());
             }
+
+            $this->diagnoseSelfHosted($checks, $profile['address'], $dnsRecords);
         }
 
         $severity = ['ok' => 0, 'warning' => 1, 'error' => 2];
@@ -50,7 +51,7 @@ class MailDiagnosticsService
     }
 
     /** @param array<int, array{key: string, status: string, message: string}> $checks */
-    private function diagnoseSelfHosted(array &$checks, string $sender): void
+    private function diagnoseSelfHosted(array &$checks, string $sender, array $expectedDnsRecords): void
     {
         $enabled = (bool) config('mail.relay.enabled');
         $this->add($checks, 'relay_enabled', $enabled ? 'ok' : 'error', $enabled ? '内置邮件中继已启用。' : 'LONGOS_MAIL_RELAY_ENABLED 未启用。');
@@ -94,7 +95,44 @@ class MailDiagnosticsService
             $this->add($checks, 'mail_hostname', 'error', 'MAIL_RELAY_HOSTNAME 未配置或格式无效。');
         } else {
             $addresses = $this->addressRecords($hostname);
-            $this->add($checks, 'mail_hostname', $addresses !== [] ? 'ok' : 'error', $addresses !== [] ? "{$hostname} 已解析到 " . implode(', ', $addresses) : "{$hostname} 没有可用的 A/AAAA 记录。");
+            $expected  = $this->configuredPublicIps();
+            if ($addresses === []) {
+                $this->add($checks, 'mail_hostname', 'error', "{$hostname} 没有可用的 A/AAAA 记录。");
+            } elseif ($expected === []) {
+                $this->add($checks, 'mail_hostname', 'warning', "{$hostname} 已解析到 " . implode(', ', $addresses) . '，但 MAIL_RELAY_IPS 未配置，无法确认它是否错误地经过 Cloudflare 代理。');
+            } else {
+                $matches = array_diff($expected, $addresses) === [] && array_diff($addresses, $expected) === [];
+                $this->add(
+                    $checks,
+                    'mail_hostname',
+                    $matches ? 'ok' : 'error',
+                    $matches
+                        ? "{$hostname} 已通过 DNS-only A/AAAA 解析到邮件服务器公网 IP：" . implode(', ', $addresses)
+                        : "{$hostname} 当前解析为 " . implode(', ', $addresses) . '，与 MAIL_RELAY_IPS（' . implode(', ', $expected) . '）不一致；请运行一键配置并确保为灰云 DNS-only。',
+                );
+            }
+
+            if ($expected !== []) {
+                $ptrFailures = [];
+                foreach ($expected as $address) {
+                    $targets = $this->ptrRecords($address);
+                    if (! in_array($hostname, $targets, true)) {
+                        $ptrFailures[] = $targets === []
+                            ? "{$address}（无 PTR）"
+                            : "{$address}（当前 PTR：" . implode(', ', $targets) . '）';
+                    }
+                }
+                $this->add(
+                    $checks,
+                    'reverse_dns',
+                    $ptrFailures === [] ? 'ok' : 'error',
+                    $ptrFailures === []
+                        ? '所有邮件服务器公网 IP 的 PTR/rDNS 均已反向指向 ' . $hostname . '。'
+                        : 'PTR/rDNS 未与 MAIL_RELAY_HOSTNAME 对齐：' . implode('；', $ptrFailures) . '。PTR 只能在服务器/IP 服务商处设置。',
+                );
+            } else {
+                $this->add($checks, 'reverse_dns', 'warning', 'MAIL_RELAY_IPS 未配置，无法自动验收 PTR/rDNS。');
+            }
         }
 
         $selector = strtolower(trim((string) config('mail.relay.dkim_selector', 'mail2026')));
@@ -118,32 +156,59 @@ class MailDiagnosticsService
                 continue;
             }
 
-            $spf = $this->txtRecords($domain);
+            $spf      = $this->txtRecords($domain);
             $spfCount = $this->prefixCount($spf, 'v=spf1');
+            $spfError = $spfCount === 1 ? $this->spfValidationError($spf, 'a:' . $hostname) : null;
             $this->add(
                 $checks,
                 "spf:{$domain}",
-                $spfCount === 1 ? 'ok' : 'error',
+                $spfCount === 1 && $spfError === null ? 'ok' : 'error',
                 $spfCount === 1
-                    ? "{$domain} 已发布唯一 SPF。"
+                    ? ($spfError ?? "{$domain} 已发布唯一 SPF，且直接 DNS 查询机制未超过 10 次。")
                     : ($spfCount === 0 ? "{$domain} 缺少 SPF TXT 记录。" : "{$domain} 存在 {$spfCount} 条 SPF 记录，收件服务商会判定 PermError，请合并为一条。"),
             );
 
-            $dkimHost  = "{$selector}._domainkey.{$domain}";
-            $dkim      = $this->txtRecords($dkimHost);
-            $dkimCount = $this->prefixCount($dkim, 'v=dkim1');
-            $validDkim = $dkimCount === 1 && preg_match('/(?:^|;)\s*p\s*=\s*[A-Za-z0-9+\/=]+/i', implode(';', $dkim));
-            $this->add($checks, "dkim:{$domain}", $validDkim ? 'ok' : 'error', $validDkim ? "{$domain} 的 DKIM 记录有效。" : ($dkim === [] ? "{$dkimHost} 缺少 DKIM TXT 记录。" : ($dkimCount > 1 ? "{$dkimHost} 存在多条 DKIM 记录，请只保留当前公钥。" : "{$dkimHost} 的 DKIM TXT 记录格式无效。")));
+            $dkimHost   = "{$selector}._domainkey.{$domain}";
+            $dkim       = $this->txtRecords($dkimHost);
+            $dkimCount  = $this->prefixCount($dkim, 'v=dkim1');
+            $currentKey = $dkimCount === 1 ? $this->dkimPublicKey($dkim[0] ?? '') : '';
+            $expected   = collect($expectedDnsRecords)->first(
+                static fn (array $record): bool => strtolower((string) ($record['type'] ?? '')) === 'txt'
+                    && strtolower((string) ($record['name'] ?? ''))                             === $dkimHost
+                    && (bool) ($record['available'] ?? false),
+            );
+            $expectedKey = is_array($expected) ? $this->dkimPublicKey((string) ($expected['value'] ?? '')) : '';
+            $validDkim   = $currentKey !== '' && ($expectedKey === '' || hash_equals($expectedKey, $currentKey));
+            $this->add(
+                $checks,
+                "dkim:{$domain}",
+                $validDkim ? 'ok' : 'error',
+                $validDkim
+                    ? "{$domain} 的 DKIM 公钥与当前邮件中继一致。"
+                    : ($dkim === []
+                        ? "{$dkimHost} 缺少 DKIM TXT 记录。"
+                        : ($dkimCount > 1
+                            ? "{$dkimHost} 存在多条 DKIM 记录，请只保留当前公钥。"
+                            : ($currentKey === ''
+                                ? "{$dkimHost} 的 DKIM TXT 记录格式无效。"
+                                : "{$dkimHost} 仍是旧公钥，与当前邮件中继不一致；请运行一键配置。"))),
+            );
 
-            $dmarc = $this->txtRecords("_dmarc.{$domain}");
+            $dmarc      = $this->txtRecords("_dmarc.{$domain}");
             $dmarcCount = $this->prefixCount($dmarc, 'v=dmarc1');
+            $validDmarc = $dmarcCount                                                                          === 1
+                && preg_match('/(?:^|;)\s*p\s*=\s*(?:none|quarantine|reject)(?:\s*;|\s*$)/i', $dmarc[0] ?? '') === 1;
             $this->add(
                 $checks,
                 "dmarc:{$domain}",
-                $dmarcCount === 1 ? 'ok' : ($dmarcCount === 0 ? 'warning' : 'error'),
-                $dmarcCount === 1
+                $validDmarc ? 'ok' : ($dmarcCount === 0 ? 'warning' : 'error'),
+                $validDmarc
                     ? "{$domain} 已发布唯一 DMARC。"
-                    : ($dmarcCount === 0 ? "{$domain} 尚未发布 DMARC，建议先使用 p=none 观察。" : "_dmarc.{$domain} 存在 {$dmarcCount} 条 DMARC 记录，请合并为一条。"),
+                    : ($dmarcCount === 0
+                        ? "{$domain} 尚未发布 DMARC，建议先使用 p=none 观察。"
+                        : ($dmarcCount > 1
+                            ? "_dmarc.{$domain} 存在 {$dmarcCount} 条 DMARC 记录，请合并为一条。"
+                            : "_dmarc.{$domain} 缺少有效的 p=none/quarantine/reject 策略。")),
             );
         }
     }
@@ -220,9 +285,64 @@ class MailDiagnosticsService
         }
 
         return array_values(array_unique(array_filter(array_map(
-            static fn (array $record): string => (string) ($record['ip'] ?? $record['ipv6'] ?? ''),
+            static fn (array $record): string => self::normalizeIp((string) ($record['ip'] ?? $record['ipv6'] ?? '')),
             $records,
         ))));
+    }
+
+    /** @return array<int, string> */
+    private function ptrRecords(string $address): array
+    {
+        if (! function_exists('dns_get_record')) {
+            return [];
+        }
+
+        $reverse = self::reverseDnsName($address);
+        if ($reverse === '') {
+            return [];
+        }
+        $records = @dns_get_record($reverse, DNS_PTR);
+        if (! is_array($records)) {
+            return [];
+        }
+
+        return array_values(array_unique(array_filter(array_map(
+            fn (array $record): string => $this->normalizeDomain($record['target'] ?? ''),
+            $records,
+        ))));
+    }
+
+    private static function reverseDnsName(string $address): string
+    {
+        $packed = @inet_pton($address);
+        if ($packed === false) {
+            return '';
+        }
+        if (strlen($packed) === 4) {
+            return implode('.', array_reverse(unpack('C*', $packed))) . '.in-addr.arpa';
+        }
+
+        return implode('.', array_reverse(str_split(bin2hex($packed)))) . '.ip6.arpa';
+    }
+
+    private static function normalizeIp(string $address): string
+    {
+        $packed = @inet_pton(trim($address));
+
+        return $packed === false ? '' : (inet_ntop($packed) ?: '');
+    }
+
+    /** @return array<int, string> */
+    private function configuredPublicIps(): array
+    {
+        return array_values(array_unique(array_filter(array_map(
+            static fn (mixed $address): string => self::normalizeIp((string) $address),
+            (array) config('mail.relay.public_ips', []),
+        ), static fn (string $address): bool => filter_var(
+            $address,
+            FILTER_VALIDATE_IP,
+            FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE | FILTER_FLAG_GLOBAL_RANGE,
+        ) !== false)));
     }
 
     /** @param array<int, string> $records */
@@ -230,8 +350,51 @@ class MailDiagnosticsService
     {
         return count(array_filter(
             $records,
-            static fn (string $record): bool => str_starts_with(strtolower(trim($record)), $prefix),
+            static fn (string $record): bool => preg_match(
+                '/^' . preg_quote($prefix, '/') . '(?:[\s;]|$)/i',
+                trim($record),
+            ) === 1,
         ));
+    }
+
+    /** @param array<int, string> $records */
+    private function spfValidationError(array $records, string $requiredMechanism): ?string
+    {
+        $policy = collect($records)->first(
+            static fn (string $record): bool => preg_match('/^v=spf1(?:\s|$)/i', trim($record)) === 1,
+        );
+        if (! is_string($policy)) {
+            return 'SPF 版本标记格式无效。';
+        }
+
+        $tokens = preg_split('/\s+/', trim($policy)) ?: [];
+        array_shift($tokens);
+        if (array_filter($tokens, static fn (string $token): bool => preg_match('/^[+]?all$/i', $token) === 1) !== []) {
+            return 'SPF 包含 +all，会授权任意服务器冒用该域发信。';
+        }
+        $requiredPattern = '/^(?:\+)?' . preg_quote($requiredMechanism, '/') . '(?:\/\d+)?(?:\/\/\d+)?$/i';
+        if (array_filter($tokens, static fn (string $token): bool => preg_match($requiredPattern, $token) === 1) === []) {
+            return "SPF 尚未授权 LONGOS 邮件主机（缺少 {$requiredMechanism}）。";
+        }
+
+        $lookups = count(array_filter(
+            $tokens,
+            static fn (string $token): bool => preg_match(
+                '/^[+\-~?]?(?:include:|a(?::|\/|$)|mx(?::|\/|$)|ptr(?::|$)|exists:|redirect=)/i',
+                $token,
+            ) === 1,
+        ));
+
+        return $lookups > 10
+            ? "SPF 至少需要 {$lookups} 次 DNS 查询，超过 RFC 规定的 10 次上限。"
+            : null;
+    }
+
+    private function dkimPublicKey(string $record): string
+    {
+        return preg_match('/(?:^|;)\s*p\s*=\s*([A-Za-z0-9+\/=]+)/i', $record, $match) === 1
+            ? $match[1]
+            : '';
     }
 
     /** @param array<int, array{key: string, status: string, message: string}> $checks */

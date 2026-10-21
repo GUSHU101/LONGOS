@@ -12,6 +12,7 @@
 
 namespace Beike\Admin\Http\Controllers;
 
+use App\Mail\CloudflareMailDnsService;
 use App\Mail\MailDiagnosticsService;
 use App\Mail\MailSenderProfileService;
 use Beike\Admin\Http\Resources\CustomerGroupDetail;
@@ -32,6 +33,7 @@ use Beike\Services\VisitorCurrencyService;
 use Exception;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\RateLimiter;
@@ -218,6 +220,45 @@ class SettingController extends Controller
         RateLimiter::hit($key, 60);
 
         return json_success(trans('admin/setting.mail_diagnostics_complete'), $diagnostics->diagnose());
+    }
+
+    /** Repair the public outbound-mail DNS and return a fresh health report. */
+    public function syncMailDns(
+        Request $request,
+        CloudflareMailDnsService $dns,
+    ): JsonResponse {
+        $key = 'admin-mail-dns-sync:' . ($request->user()?->getAuthIdentifier() ?: $request->ip());
+        if (RateLimiter::tooManyAttempts($key, 2)) {
+            return json_fail(trans('admin/setting.mail_dns_sync_rate_limited'), [], 429);
+        }
+        RateLimiter::hit($key, 60);
+
+        if (! $dns->configured()) {
+            return json_fail(trans('admin/setting.mail_dns_sync_not_configured'));
+        }
+
+        $lock = Cache::lock('longos:cloudflare-mail-dns-sync', 240);
+        if (! $lock->get()) {
+            return json_fail(trans('admin/setting.mail_dns_sync_locked'), [], 409);
+        }
+
+        try {
+            $result = $dns->sync();
+        } catch (Throwable $exception) {
+            Log::warning('Manual Cloudflare mail DNS sync failed.', ['exception' => $exception::class]);
+
+            return json_fail($exception->getMessage());
+        } finally {
+            $lock->release();
+        }
+
+        return json_success(trans('admin/setting.mail_dns_sync_complete', [
+            'created' => count($result['created']),
+            'updated' => count($result['updated']),
+            'removed' => count($result['removed']),
+        ]), [
+            'sync' => $result,
+        ]);
     }
 
     /**

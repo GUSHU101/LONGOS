@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Mail\CloudflareMailDnsService;
 use App\Mail\CloudMailTenantResolver;
 use App\Mail\Exceptions\MailSenderAuthorizationException;
 use App\Mail\MailSenderProfileService;
@@ -92,6 +93,48 @@ class CloudMailRelayController extends Controller
         }
 
         return $this->forward('GET', 'health', '');
+    }
+
+    /**
+     * Return only public DNS material. Cloud Mail applies this manifest from
+     * its protected deployment runner, so the Cloudflare credential never
+     * enters LONGOS, Laravel logs, the database, or a production container.
+     */
+    public function dnsManifest(Request $request, CloudMailTenantResolver $tenants): JsonResponse
+    {
+        if (! $tenants->gatewayAvailable($request)) {
+            return $this->error('Cloud Mail integration is available only on the LONGOS control domain.', Response::HTTP_FORBIDDEN);
+        }
+        if (! $this->authenticate($request, AdminUserTokenRepo::ABILITY_CLOUD_MAIL_HEALTH)) {
+            return $this->error('Invalid or expired integration token.', Response::HTTP_UNAUTHORIZED);
+        }
+        try {
+            $records = (new CloudflareMailDnsService)->expectedRecords();
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return $this->error('Unable to prepare the public mail DNS manifest.', Response::HTTP_SERVICE_UNAVAILABLE);
+        }
+        if ($records === []) {
+            return $this->error('No outbound mail domains are configured.', Response::HTTP_CONFLICT);
+        }
+        $pending = array_values(array_map(
+            static fn (array $record): string => (string) ($record['name'] ?? ''),
+            array_filter($records, static fn (array $record): bool => ! ($record['available'] ?? false)),
+        ));
+        if ($pending !== []) {
+            return response()->json(
+                ['status' => 'pending', 'message' => 'The mail relay has not published every DKIM public key yet.', 'pending' => $pending],
+                Response::HTTP_SERVICE_UNAVAILABLE,
+                ['Cache-Control' => 'no-store, private', 'X-Content-Type-Options' => 'nosniff'],
+            );
+        }
+
+        return response()->json(
+            ['status' => 'ok', 'records' => $records],
+            Response::HTTP_OK,
+            ['Cache-Control' => 'no-store, private', 'X-Content-Type-Options' => 'nosniff'],
+        );
     }
 
     private function authenticate(Request $request, string $ability): ?AdminUserToken

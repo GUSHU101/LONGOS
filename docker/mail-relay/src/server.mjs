@@ -327,8 +327,11 @@ function normalizeMessage(body) {
     if (attachmentBytes > maxAttachmentBytes) throw Object.assign(new Error('Attachments are too large'), {status: 413});
     return {filename: cleanHeader(basename(attachment.filename || `attachment-${index + 1}`), 'filename', 255), content, contentType: cleanHeader(attachment.contentType || 'application/octet-stream', 'content type', 200), cid: attachment.contentId ? cleanHeader(attachment.contentId, 'content id', 255) : undefined, contentDisposition: attachment.disposition === 'inline' ? 'inline' : 'attachment'};
   });
-  if (body.text !== undefined && typeof body.text !== 'string') throw Object.assign(new Error('Message text must be a string'), {status: 400});
-  if (body.html !== undefined && typeof body.html !== 'string') throw Object.assign(new Error('Message HTML must be a string'), {status: 400});
+  // Treat JSON null like an omitted MIME alternative. Older LONGOS clients
+  // serialized Symfony's absent text/HTML body as null, and rejecting that
+  // made otherwise valid plain-text mail fail at the relay boundary.
+  if (body.text != null && typeof body.text !== 'string') throw Object.assign(new Error('Message text must be a string'), {status: 400});
+  if (body.html != null && typeof body.html !== 'string') throw Object.assign(new Error('Message HTML must be a string'), {status: 400});
   if (!body.text && !body.html) throw Object.assign(new Error('Message text or HTML is required'), {status: 400});
   const senderContext = normalizeSenderContext(body.senderContext);
   return {

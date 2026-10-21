@@ -13,7 +13,7 @@ class SyncCloudflareMailDns extends Command
         {--if-configured : Exit successfully when automatic DNS or its token is not configured}
         {--json : Emit a machine-readable result}';
 
-    protected $description = 'Safely publish LONGOS DKIM and missing SPF/DMARC records through Cloudflare';
+    protected $description = 'Safely publish LONGOS mail DNS and merge duplicate SPF policies through Cloudflare';
 
     public function handle(CloudflareMailDnsService $dns): int
     {
@@ -67,9 +67,10 @@ class SyncCloudflareMailDns extends Command
             $this->line(json_encode(['status' => 'ok'] + $result, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
         } else {
             $this->info(sprintf(
-                'Cloudflare 邮件 DNS 同步完成：新建 %d，更新 %d，保留 %d。',
+                'Cloudflare 邮件 DNS 同步完成：新建 %d，更新 %d，清理 %d，保留 %d。',
                 count($result['created']),
                 count($result['updated']),
+                count($result['removed']),
                 count($result['preserved']),
             ));
             foreach ($result['warnings'] as $warning) {

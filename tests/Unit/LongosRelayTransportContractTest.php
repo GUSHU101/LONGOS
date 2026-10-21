@@ -20,6 +20,8 @@ class LongosRelayTransportContractTest extends TestCase
         self::assertStringContainsString("'X-Relay-Nonce'", $source);
         self::assertStringContainsString("'X-Relay-Client'    => 'longos'", $source);
         self::assertStringContainsString("'X-Longos-Delivery-Id'", $source);
+        self::assertStringContainsString("unset(\$payload['text'])", $source);
+        self::assertStringContainsString("unset(\$payload['html'])", $source);
         self::assertStringContainsString('SMTP_INET_INTERFACES: loopback-only', $compose);
         self::assertStringContainsString('LONGOS_RELAY_SHARED_SECRET: ${SERVICE_PASSWORD_64_MAILRELAY}', $compose);
         self::assertStringContainsString('CLOUD_MAIL_RELAY_SHARED_SECRET: ${SERVICE_PASSWORD_64_CLOUDMAIL}', $compose);
@@ -60,6 +62,10 @@ class LongosRelayTransportContractTest extends TestCase
         $compose    = file_get_contents(dirname(__DIR__, 2) . '/docker-compose.yml');
 
         self::assertStringContainsString("Route::prefix('_longos/mail-relay')", $routes);
+        self::assertStringContainsString("Route::get('dns/manifest'", $routes);
+        self::assertStringContainsString("throttle:cloud-mail-dns-manifest", $routes);
+        self::assertStringContainsString("RateLimiter::for('cloud-mail-dns-manifest'", file_get_contents(dirname(__DIR__, 2) . '/app/Providers/RouteServiceProvider.php'));
+        self::assertStringNotContainsString('cloudflare_api_token', $controller);
         self::assertStringContainsString('ABILITY_CLOUD_MAIL_SEND', $controller);
         self::assertStringContainsString('ABILITY_CLOUD_MAIL_HEALTH', $controller);
         self::assertStringContainsString('assertAuthorized', $controller);

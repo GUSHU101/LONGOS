@@ -48,6 +48,7 @@
         'testRecipient' => old('mail_test_recipient', $senderProfiles[\App\Mail\MailSenderProfileService::DEFAULT]['address']),
         'testUrl' => admin_route('settings.mail.test'),
         'diagnosticsUrl' => admin_route('settings.mail.diagnostics'),
+        'dnsSyncUrl' => admin_route('settings.mail.dns-sync'),
         'senderDomainPresets' => $senderDomainPresets,
         'labels' => [
             'testRecipient' => __('admin/setting.mail_test_recipient'),
@@ -58,6 +59,11 @@
             'diagnosticsButton' => __('admin/setting.mail_diagnostics_button'),
             'diagnosticsRunning' => __('admin/setting.mail_diagnostics_running'),
             'diagnosticsFailed' => __('admin/setting.mail_diagnostics_failed'),
+            'dnsSyncButton' => __('admin/setting.mail_dns_sync_button'),
+            'dnsSyncRunning' => __('admin/setting.mail_dns_sync_running'),
+            'dnsSyncConfirm' => __('admin/setting.mail_dns_sync_confirm'),
+            'dnsSyncFailed' => __('admin/setting.mail_dns_sync_failed'),
+            'dnsSyncPropagation' => __('admin/setting.mail_dns_sync_propagation'),
             'senderDomainApplied' => __('admin/setting.mail_sender_domain_applied'),
             'dnsRecordPending' => __('admin/setting.mail_dns_record_pending'),
             'dnsRecordCopied' => __('admin/setting.mail_dns_record_copied'),
@@ -87,10 +93,16 @@
               <div class="fw-bold">{{ __('admin/setting.mail_diagnostics_title') }}</div>
               <div class="text-secondary font-size-12">{{ __('admin/setting.mail_diagnostics_help') }}</div>
             </div>
-            <button type="button" class="btn btn-outline-primary" :disabled="diagnosing" @click="runDiagnostics">
-              <i class="bi bi-heart-pulse"></i>
-              @{{ diagnosing ? source.diagnosticsRunning : source.diagnosticsButton }}
-            </button>
+            <div class="d-flex flex-wrap gap-2">
+              <button type="button" class="btn btn-primary" :disabled="diagnosing || syncingDns" @click="syncMailDns">
+                <i class="bi bi-magic"></i>
+                @{{ syncingDns ? source.dnsSyncRunning : source.dnsSyncButton }}
+              </button>
+              <button type="button" class="btn btn-outline-primary" :disabled="diagnosing || syncingDns" @click="runDiagnostics">
+                <i class="bi bi-heart-pulse"></i>
+                @{{ diagnosing ? source.diagnosticsRunning : source.diagnosticsButton }}
+              </button>
+            </div>
           </div>
           <div v-if="diagnosticChecks.length" class="mt-3 d-grid gap-2">
             <div v-for="check in diagnosticChecks" :key="check.key" class="alert py-2 px-3 mb-0"
@@ -98,6 +110,12 @@
               <i class="bi me-1" :class="check.status === 'ok' ? 'bi-check-circle' : (check.status === 'warning' ? 'bi-exclamation-triangle' : 'bi-x-circle')"></i>
               @{{ check.message }}
             </div>
+          </div>
+          <div v-if="dnsSyncMessage" class="alert alert-success py-2 px-3 mb-0 mt-3">
+            <i class="bi bi-check-circle me-1"></i>@{{ dnsSyncMessage }}
+          </div>
+          <div v-for="warning in dnsSyncWarnings" :key="warning" class="alert alert-warning py-2 px-3 mb-0 mt-2">
+            <i class="bi bi-exclamation-triangle me-1"></i>@{{ warning }}
           </div>
           <div v-if="diagnosticError" class="alert alert-danger py-2 px-3 mb-0 mt-3">@{{ diagnosticError }}</div>
           <div v-if="dnsRecords.length" class="mt-4">
@@ -121,7 +139,7 @@
                       <code v-if="record.available" class="user-select-all text-break" v-text="record.value"></code>
                       <span v-else class="text-warning" v-text="source.dnsRecordPending"></span>
                       <div class="text-secondary font-size-12">
-                        @{{ record.mode === 'if_missing' ? source.dnsModeIfMissing : source.dnsModeManaged }}
+                        @{{ record.mode === 'if_missing' ? source.dnsModeIfMissing : (record.mode === 'merged' ? source.dnsModeMerged : source.dnsModeManaged) }}
                       </div>
                     </td>
                     <td class="text-end">
@@ -372,9 +390,12 @@
         testRecipient: mailPageData.testRecipient,
         testing: false,
         diagnosing: false,
+        syncingDns: false,
         diagnosticChecks: [],
         dnsRecords: [],
         diagnosticError: '',
+        dnsSyncMessage: '',
+        dnsSyncWarnings: [],
 
         source: {
           mailEngines: [
@@ -392,9 +413,14 @@
           testSendingLabel: mailPageData.labels.testSending,
           diagnosticsButton: mailPageData.labels.diagnosticsButton,
           diagnosticsRunning: mailPageData.labels.diagnosticsRunning,
+          dnsSyncButton: mailPageData.labels.dnsSyncButton,
+          dnsSyncRunning: mailPageData.labels.dnsSyncRunning,
+          dnsSyncConfirm: mailPageData.labels.dnsSyncConfirm,
+          dnsSyncPropagation: mailPageData.labels.dnsSyncPropagation,
           dnsRecordPending: mailPageData.labels.dnsRecordPending,
           dnsRecordCopied: mailPageData.labels.dnsRecordCopied,
           dnsModeManaged: '{{ __('admin/setting.mail_dns_record_mode_managed') }}',
+          dnsModeMerged: '{{ __('admin/setting.mail_dns_record_mode_merged') }}',
           dnsModeIfMissing: '{{ __('admin/setting.mail_dns_record_mode_if_missing') }}',
         },
       },
@@ -425,6 +451,27 @@
           }).fail((xhr) => {
             this.diagnosticError = xhr.responseJSON?.message || mailPageData.labels.diagnosticsFailed;
           }).always(() => { this.diagnosing = false; });
+        },
+        syncMailDns() {
+          if (this.syncingDns || !window.confirm(this.source.dnsSyncConfirm)) return;
+          this.syncingDns = true;
+          this.diagnosticError = '';
+          this.dnsSyncMessage = '';
+          this.dnsSyncWarnings = [];
+          $.ajax({
+            url: mailPageData.dnsSyncUrl,
+            method: 'POST',
+            headers: {'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content, Accept: 'application/json'},
+          }).done((response) => {
+            const payload = response?.data?.data || response?.data || {};
+            const sync = payload.sync || {};
+            this.diagnosticChecks = [];
+            this.dnsSyncWarnings = Array.isArray(sync.warnings) ? sync.warnings : [];
+            this.dnsSyncMessage = `${response?.message || mailPageData.labels.dnsSyncButton} ${this.source.dnsSyncPropagation}`;
+            layer.msg(response?.message || mailPageData.labels.dnsSyncButton);
+          }).fail((xhr) => {
+            this.diagnosticError = xhr.responseJSON?.message || mailPageData.labels.dnsSyncFailed;
+          }).always(() => { this.syncingDns = false; });
         },
         async copyDnsValue(value) {
           if (!value) return;

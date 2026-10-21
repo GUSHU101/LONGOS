@@ -14,7 +14,7 @@ LONGOS 的 Coolify Compose 会把 Postfix、OpenDKIM 和 Cloud Mail HTTPS 中继
 4. 生成并持久化 2048 位 DKIM 密钥；
 5. 通过 LONGOS 应用网关发布 `/_longos/mail-relay`，对外仅接受有限权的系统集成令牌；
 6. 把 LONGOS 后台默认邮件引擎设为“内置邮件服务器”；
-7. 如果提供了拥有 Zone:Read + DNS:Edit 权限的 Cloudflare Token，自动发布 `MAIL_RELAY_DOMAINS` 中每个签名域的 DKIM，并在尚无策略时创建 SPF/DMARC；填写 `MAIL_RELAY_IPS` 后同时维护邮件主机 DNS-only A/AAAA。
+7. Cloud Mail 部署工作流从 LONGOS 读取受保护的公开 DNS 清单，然后在 GitHub Runner 内使用受限 Cloudflare Token 发布 DKIM/DMARC、合并唯一 SPF，并在填写 `MAIL_RELAY_IPS` 后维护 DNS-only A/AAAA；Cloudflare Token 不会发送到 LONGOS。未使用 Cloud Mail 时仍可在 Coolify 选配 Token 供后台按钮和定时同步使用。
 
 默认值根据网站域名生成：
 
@@ -31,9 +31,9 @@ MAIL_FROM_ADDRESS=no-reply@<SAAS_BASE_DOMAIN>
 
 中继会先规范化、去重再生成 DKIM：逗号两侧的空格允许，域名内部的空格、空列表、非法域名或“允许发件域不在签名域集合中”都会让容器失败并给出明确日志，避免错误域名被静默改写或在未签名状态发信。
 
-Cloudflare 自动发布默认由 `LONGOS_AUTO_CONFIGURE_MAIL_DNS=true` 开启。应用只更新 LONGOS 专用的 DKIM selector；如果域名已有 SPF 或 DMARC，会保留商家策略，不会盲目覆盖。邮件主机 A/AAAA 只使用 `MAIL_RELAY_IPS` 的明确 IP，绝不从 Cloudflare 代理后的网站域名猜测。多签名域模式下 Token 必须对每个域所属的 Cloudflare Zone 都有权限。Token 作为 Coolify 的 Secret 环境变量保存，不写入仓库；若不希望容器获得 DNS 权限，留空并在后台点击“立即检测”复制记录即可。
+Cloudflare 自动发布默认由 `LONGOS_AUTO_CONFIGURE_MAIL_DNS=true` 开启。应用只更新 LONGOS 专用的 DKIM selector；DMARC 已存在时保留原策略；SPF 会解析并保留全部现有机制，加入 LONGOS 邮件主机，然后更新为唯一一条并清理重复 SPF。危险的 `+all`、无法安全合并的 `redirect=`、冲突修饰符以及明显超过 10 次 DNS 查询的策略会停止并给出原因。邮件主机 A/AAAA 只使用 `MAIL_RELAY_IPS` 的明确 IP，绝不从 Cloudflare 代理后的网站域名猜测。推荐让 Cloud Mail GitHub 工作流读取公开清单并由 Runner 写入 Cloudflare；只有不通过该工作流部署，或希望新增发件域后由后台按钮/scheduler 独立同步时，才需要把 `CLOUDFLARE_API_TOKEN` 作为 Coolify Secret 保存。
 
-DKIM 私钥只存在 `mail-relay-dkim` 专用卷。邮件中继会把可公开的 TXT 值写入独立卷，网站容器仅以只读方式挂载该公开值。首次容器启动会自动尝试同步，后续由 scheduler 每 5 分钟幂等重试，新增发件域只需更新 Coolify 变量并 Redeploy。
+DKIM 私钥只存在 `mail-relay-dkim` 专用卷。邮件中继会把可公开的 TXT 值写入独立卷，网站容器仅以只读方式挂载该公开值。Coolify 持久配置 Token 时，首次容器启动会尝试同步，后续由 scheduler 每 5 分钟幂等重试；无持久 Token 时，新增发件域后再运行一次 Cloud Mail 部署工作流即可。
 
 升级已有站点时只需让 Coolify 部署新的 Git 提交。新镜像会从锁文件重新构建依赖和前端资源，容器入口识别持久卷中的 `storage/installed`，取得部署锁后自动升级控制库、租户库和插件并重建缓存。原域名、数据库、SaaS 配置、DKIM 私钥、队列和密钥都保留，不需要运行 `install.sh`、`migrate` 或其他服务器命令。
 
@@ -64,7 +64,7 @@ Cloud Mail 的部署工作流会自动把令牌写入 Worker Secret；后台保�
 
 先在 Coolify 的资源页面确认 `app`、`mail-relay`、`worker`、`scheduler` 和 `mysql` 都是 Running/Healthy；异常时直接打开对应服务的 Logs，无需 SSH 到服务器。
 
-然后进入 LONGOS 后台“系统 → 基础设置 → 邮件设置”，保存邮件引擎和默认发件人，再点击“立即检测”。检测会逐项检查：
+然后进入 LONGOS 后台“系统 → 基础设置 → 邮件设置”，保存邮件引擎和默认发件人，先点击“一键配置邮件 DNS”，再点击“立即检测”。一键配置会自动处理 `mailout` 灰云记录、DKIM、DMARC 和 SPF 合并；检测会逐项检查：
 
 - 默认发件身份及租户授权；
 - LONGOS 内部 HMAC 密钥是否完整且不与站内密钥复用；
@@ -72,7 +72,7 @@ Cloud Mail 的部署工作流会自动把令牌写入 Worker Secret；后台保�
 - `MAIL_RELAY_HOSTNAME` 的 A/AAAA 解析；
 - 每个签名域的 SPF、DKIM 与 DMARC。
 
-检测会在表格中展示可公开的 DNS 记录值，但不显示任何私钥或 Token。完成后使用“发送测试邮件”验证真实投递链路。后台的“已发送”准确含义是“邮件已被当前传输层或 Postfix 队列接受”，最终是否进入收件箱仍取决于公网 25 端口、PTR、DNS 身份、目标服务商策略和 IP 信誉。
+检测会把 `MAIL_RELAY_HOSTNAME` 的解析结果与 `MAIL_RELAY_IPS` 严格核对，并对每个公网 IP 查询 PTR/rDNS 是否反向指回该主机名，避免把通配符网站记录返回的 Cloudflare Anycast 地址误判为正常。表格只展示公开 DNS 值，不显示任何私钥或 Token。完成后使用“发送测试邮件”验证真实投递链路。后台的“已发送”准确含义是“邮件已被当前传输层或 Postfix 队列接受”，最终是否进入收件箱仍取决于公网 25 端口、PTR、DNS 身份、目标服务商策略和 IP 信誉。
 
 Cloud Mail 的“测试连接”会携带已创建的集成令牌调用主站 `/_longos/mail-relay/health`。返回健康状态才表示应用网关、中继和 Postfix 当前可用；接口不会泄露队列内容、地址或密钥。
 
@@ -122,7 +122,7 @@ MAIL_RELAY_PLATFORM_SENDER_DOMAIN=mail.platform.com
 - 开放出站 TCP 25；
 - 将服务器公网 IP 的 PTR/rDNS 设置为 `MAIL_RELAY_HOSTNAME`。
 
-如果提供了可写 Cloudflare Token，A、DKIM 和缺失的 SPF/DMARC 会自动发布。未提供 Token、关闭自动发布或使用其他 DNS 服务商时，在 LONGOS 后台邮件诊断页复制生成的 DKIM、SPF 和 DMARC 记录并手工发布。
+如果提供了可写 Cloudflare Token，后台“一键配置邮件 DNS”会自动处理 A/AAAA、DKIM、DMARC 和唯一 SPF。未提供 Token、关闭自动发布或使用其他 DNS 服务商时，在 LONGOS 后台邮件诊断页复制生成的记录并手工发布。
 
 建议配置：
 

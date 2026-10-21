@@ -105,17 +105,17 @@ Coolify 会自动生成并持久保存所有 `SERVICE_*` 值，包括 APP_KEY、
 
 ### 可选：Cloudflare DNS 自动化
 
-如果希望 LONGOS 自动发布自己的邮件 A、DKIM 以及缺失的 SPF/DMARC，可在 Coolify 增加并标记为 Secret：
+如果不使用 Cloud Mail GitHub 工作流、仍希望直接从 LONGOS 后台一键发布邮件 DNS，可在 Coolify 增加并标记为 Secret：
 
 ```dotenv
 LONGOS_CLOUDFLARE_MODE=optional
 LONGOS_AUTO_CONFIGURE_MAIL_DNS=true
-CLOUDFLARE_API_TOKEN=<只授权所需 Zone 的 DNS:Edit 与 Zone:Read Token>
+CLOUDFLARE_API_TOKEN=<只授权所需 Zone 的 DNS:Edit、Zone:Read Token；Email Routing 锁定记录时再加 Zone Settings:Edit>
 ```
 
-Token 必须覆盖 `MAIL_RELAY_DOMAINS` 中涉及的每个 Zone。LONGOS 不会盲目覆盖已经存在的 SPF/DMARC 策略。邮件主机 A/AAAA 只在 `MAIL_RELAY_IPS` 含有明确 IP 时自动维护，不会从网站域名猜测，避免把 Cloudflare Anycast 地址写入邮件 DNS。不使用 Cloudflare 或不想把 DNS 权限交给应用时，不填写 Token，在后台邮件设置点击“立即检测”即可查看、复制公开 DNS 记录。
+常规一体化部署无需在 Coolify 重复保存该 Token：Cloud Mail 工作流会在收信路由完成后，把 GitHub 中已有的受限 Token 临时交给 LONGOS 执行同一次同步，LONGOS 不持久化也不返回它。Token 必须覆盖 `MAIL_RELAY_DOMAINS` 中涉及的每个 Zone。LONGOS 保留已有 SPF 的所有发信机制并合并为一条，保留已有 DMARC 策略；危险的 `+all`、`redirect=`、冲突修饰符或明显超过 10 次 DNS 查询时会停止并提示。邮件主机 A/AAAA 只使用 `MAIL_RELAY_IPS` 的明确 IP。
 
-系统在 Web 容器启动后会尝试首次同步，并由 scheduler 每 5 分钟重试，不需要进入容器执行命令。DKIM 私钥始终只位于邮件中继卷；Laravel 只能读取可公开的 TXT 值。
+Coolify 保存了 Token 时，系统会在 Web 容器启动后尝试首次同步，并由 scheduler 每 5 分钟重试；管理员也可在邮件设置点击“一键配置邮件 DNS”立即执行。常规无持久 Token 模式则在每次 Cloud Mail 工作流部署时同步。DKIM 私钥始终只位于邮件中继卷；Laravel 只能读取可公开的 TXT 值。
 
 ## 6. 首次部署会自动完成什么
 

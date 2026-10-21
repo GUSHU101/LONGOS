@@ -356,6 +356,7 @@ Route::prefix($adminName)
                 Route::middleware('can:settings_update')->post('settings/currency/refresh', [Controllers\SettingController::class, 'refreshCurrencyRates'])->name('settings.currency.refresh');
                 Route::middleware('can:settings_update')->post('settings/mail/test', [Controllers\SettingController::class, 'testMail'])->name('settings.mail.test');
                 Route::middleware('can:settings_index')->post('settings/mail/diagnostics', [Controllers\SettingController::class, 'mailDiagnostics'])->name('settings.mail.diagnostics');
+                Route::middleware('can:settings_update')->post('settings/mail/dns-sync', [Controllers\SettingController::class, 'syncMailDns'])->name('settings.mail.dns-sync');
                 Route::middleware('can:settings_update')->put('settings/values', [Controllers\SettingController::class, 'updateValues'])->name('settings.update_values');
                 Route::middleware('can:settings_update')->post('settings/store_token', [Controllers\SettingController::class, 'storeDeveloperToken'])->name('settings.store_token');
                 Route::middleware('can:settings_update')->post('settings/fetch_signature_secret', [Controllers\SettingController::class, 'fetchSignatureSecret'])->name('settings.fetch_signature_secret');

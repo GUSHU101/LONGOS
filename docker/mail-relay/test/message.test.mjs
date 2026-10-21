@@ -80,6 +80,20 @@ test('rejects non-string message bodies and excessive attachment counts', () => 
   }), error => error.status === 400);
 });
 
+test('accepts a null MIME alternative from older clients', () => {
+  const base = {
+    requestId: 'nullable-body:42',
+    from: {address: 'orders+shop-a@mail.example.com'},
+    to: ['to@example.net'],
+    subject: 'Order',
+    senderContext: {source: 'longos'},
+  };
+
+  assert.equal(normalizeMessage({...base, text: 'Plain body', html: null}).mail.text, 'Plain body');
+  assert.equal(normalizeMessage({...base, text: null, html: '<p>HTML body</p>'}).mail.html, '<p>HTML body</p>');
+  assert.throws(() => normalizeMessage({...base, text: null, html: null}), error => error.status === 400);
+});
+
 test('persists accepted request receipts for restart-safe idempotency', () => {
   rememberCompletedRequest('longos:delivery:42', {accepted: true, queueId: 'delivery:42'}, 'a'.repeat(64));
   const receipts = readFileSync(process.env.IDEMPOTENCY_STORE_PATH, 'utf8');
