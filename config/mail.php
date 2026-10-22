@@ -183,7 +183,7 @@ return [
         'longos_client_configured'          => strlen($longosRelaySecret)    >= 32,
         'cloud_mail_client_configured'      => strlen($cloudMailRelaySecret) >= 32,
         'client_secrets_distinct'           => $longosRelaySecret !== ''
-            && $cloudMailRelaySecret                          !== ''
+            && $cloudMailRelaySecret                              !== ''
             && ! hash_equals($longosRelaySecret, $cloudMailRelaySecret),
         // An invalid or unsigned legacy MAIL_FROM_ADDRESS must not brick a
         // deployment. The runtime falls back to the signed platform domain;
