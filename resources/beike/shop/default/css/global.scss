@@ -362,6 +362,9 @@ img {
 .steps-wrap {
   display: flex;
   justify-content: space-around;
+  list-style: none;
+  margin: 0;
+  padding: 0;
   position: relative;
 
   &:before {
@@ -373,7 +376,7 @@ img {
     border-bottom: 3px solid #D7D7D7;
   }
 
-  > div {
+  > li {
     display: flex;
     flex-direction: column;
     align-items: center;

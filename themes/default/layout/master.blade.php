@@ -142,6 +142,7 @@
       'checkoutIndex' => shop_route('checkout.index'),
       'checkoutUpdate' => shop_route('checkout.update'),
       'checkoutConfirm' => shop_route('checkout.confirm'),
+      'loginIndex' => shop_route('login.index'),
       'analyticsVisit' => shop_route('analytics.visit'),
     ];
   @endphp
@@ -178,6 +179,8 @@
   @if (str_contains(strtolower((string) ($_SERVER['SERVER_SOFTWARE'] ?? '')), 'nginx'))
     <div class="nginx-alert d-none">{!! __('shop/common.nginx_alert') !!}</div>
   @endif
+
+  <div id="storefront-feedback" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
 
   @stack('add-scripts')
   @hook('layout.master.footer.code')

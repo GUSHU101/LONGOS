@@ -36,6 +36,12 @@
     .back-cart { align-items: center; color: #555 !important; display: flex; font-size: 13px; gap: 8px; left: 32px; position: absolute; text-decoration: none; }
     .back-cart:hover { color: #111 !important; }
     .back-arrow { font-size: 19px; line-height: 1; }
+    .checkout-progress { background: #fff; border-bottom: 1px solid #e8e8e8; padding: 16px max(20px, calc((100vw - 720px) / 2)); }
+    .checkout-progress .steps-wrap::before { border-bottom-width: 1px; top: 11px; }
+    .checkout-progress .steps-wrap > li { background: #fff; min-width: 90px; padding-inline: 8px; }
+    .checkout-progress .number-wrap { background: #fff; margin-bottom: 5px; padding-inline: 7px; }
+    .checkout-progress .number { border-width: 1px; font-size: 11px; height: 24px; width: 24px; }
+    .checkout-progress .title { font-size: 11px; font-weight: 650; }
 
     .checkout-wrapper { display: grid; gap: 65px; grid-template-columns: minmax(0, 1fr) 390px; margin: 0 auto; max-width: 1180px; padding: 45px 30px 80px; }
     .checkout-left, .checkout-right { min-width: 0; }
@@ -203,6 +209,9 @@
       body.page-checkout { background: #fff !important; }
       .checkout-header { height: 58px; }
       .checkout-header .logo { font-size: 17px; letter-spacing: 2.5px; }
+      .checkout-progress { padding: 12px 8px; }
+      .checkout-progress .steps-wrap > li { min-width: 72px; padding-inline: 3px; }
+      .checkout-progress .title { font-size: 10px; }
       .back-cart { font-size: 0; left: 15px; }
       .back-arrow { font-size: 21px; }
       .checkout-wrapper { display: flex; flex-direction: column; gap: 0; max-width: none; padding: 0 17px 100px; }
@@ -247,6 +256,9 @@
     </a>
     <a class="logo" href="{{ shop_route('home.index') }}">{{ site_brand_name() }}</a>
   </header>
+  <div class="checkout-progress">
+    @include('shared.steps', ['steps' => 2])
+  </div>
   <noscript><div class="alert alert-warning m-3" role="alert">{{ __('shop/checkout.javascript_required') }}</div></noscript>
   @if (session('success'))
     <div class="alert alert-success mx-auto mt-3 mb-0" style="max-width:1180px" role="status">{{ session('success') }}</div>

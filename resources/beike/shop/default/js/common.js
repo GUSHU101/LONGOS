@@ -48,7 +48,7 @@ export default {
     const $btn = $(event);
     const btnHtml = $btn.html();
     const loadHtml = '<span class="spinner-border spinner-border-sm"></span>';
-    $btn.html(loadHtml).prop('disabled', true);
+    $btn.html(loadHtml).prop('disabled', true).attr('aria-busy', 'true');
     $(document).find('.tooltip').remove();
 
     const postData = {
@@ -72,11 +72,14 @@ export default {
       if (!isBuyNow) {
         layer.msg(res.message)
       }
+      this.announce(res.message)
 
       if (callback) {
         callback(res)
       }
-    }).finally(() => {$btn.html(btnHtml).prop('disabled', false)})
+    }).catch((error) => {
+      this.announce(error?.response?.data?.message || error?.message || '')
+    }).finally(() => {$btn.html(btnHtml).prop('disabled', false).removeAttr('aria-busy')})
   },
 
   addWishlist(id, event) {
@@ -112,15 +115,26 @@ export default {
   },
 
   openLogin() {
+    const loginUrl = new URL(window.longosStorefrontRoutes?.loginIndex || 'login', window.location.origin);
+    loginUrl.searchParams.set('iframe', 'true');
+    const compact = window.matchMedia('(max-width: 767.98px)').matches;
     layer.open({
       type: 2,
       title: '',
       shadeClose: true,
       scrollbar: false,
-      area: ['900px', '600px'],
+      area: compact ? ['calc(100vw - 24px)', 'calc(100vh - 48px)'] : ['900px', '600px'],
       skin: 'login-pop-box',
-      content: 'login?iframe=true' //iframe的url
+      content: loginUrl.toString()
     });
+  },
+
+  announce(message) {
+    const feedback = document.getElementById('storefront-feedback');
+    if (!feedback || !message) return;
+
+    feedback.textContent = '';
+    window.requestAnimationFrame(() => { feedback.textContent = String(message); });
   },
 
   productQuickView(id, callback) {

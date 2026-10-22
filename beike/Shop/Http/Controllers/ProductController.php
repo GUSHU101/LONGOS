@@ -72,19 +72,22 @@ class ProductController extends Controller
      * @param Request $request
      * @return mixed
      */
-    public function search(Request $request)
+    public function search(Request $request, ProductFeedService $feeds)
     {
-        $keyword  = $request->get('keyword');
-        $attr     = $request->get('attr');
-        $price    = $request->get('price');
-        $products = ProductRepo::getBuilder(['keyword' => $keyword, 'attr' => $attr])
+        $rawKeyword = $request->query('keyword', '');
+        $keyword    = is_string($rawKeyword) ? mb_substr(trim($rawKeyword), 0, 120) : '';
+        $attr       = $request->get('attr');
+        $price      = $request->get('price');
+        $products   = ProductRepo::getBuilder(['keyword' => $keyword, 'attr' => $attr])
             ->where('active', true)
             ->paginate(perPage())
             ->withQueryString();
 
         $data = [
-            'products' => $products,
-            'items'    => ProductSimple::collection($products)->jsonSerialize(),
+            'products'    => $products,
+            'items'       => ProductSimple::collection($products)->jsonSerialize(),
+            'keyword'     => $keyword,
+            'recommended' => $products->isEmpty() ? $feeds->bestsellers(8) : [],
         ];
 
         $data = hook_filter('product.search.data', $data);

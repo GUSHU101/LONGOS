@@ -38,6 +38,10 @@ return [
     'select_product'           => '选择商品',
     'decrease_quantity'        => '减少商品数量',
     'increase_quantity'        => '增加商品数量',
+    'cart_updating'            => '正在更新购物车…',
+    'cart_updated'             => '购物车已更新。',
+    'cart_update_failed'       => '购物车更新失败，请重试。',
+    'checkout_wait'            => '请等待购物车更新完成后再结账。',
 
     'invalid_customer'         => '购物车客户无效',
     'empty_selected_products'  => '购物车选中商品为空',

@@ -1,14 +1,18 @@
-<div class="steps-wrap">
-  <div class="{{ $steps == 1 || $steps == 2 || $steps == 3 ? 'active':'' }}">
-    <div class="number-wrap"><span class="number">1</span></div>
-    <span class="title">{{ __('shop/steps.cart') }}</span>
-  </div>
-  <div class="{{ $steps == 2 || $steps == 3  ? 'active':'' }}">
-    <div class="number-wrap"><span class="number">2</span></div>
-    <span class="title">{{ __('shop/steps.checkout') }}</span>
-  </div>
-  <div class="{{ $steps == 3 ? 'active':'' }}">
-    <div class="number-wrap"><span class="number">3</span></div>
-    <span class="title">{{ __('shop/steps.payment') }}</span>
-  </div>
-</div>
+@php
+  $currentStep = min(3, max(1, (int) $steps));
+  $checkoutSteps = [
+    1 => __('shop/steps.cart'),
+    2 => __('shop/steps.checkout'),
+    3 => __('shop/steps.payment'),
+  ];
+@endphp
+<nav class="checkout-steps" aria-label="{{ __('shop/steps.index') }}">
+  <ol class="steps-wrap">
+    @foreach ($checkoutSteps as $stepNumber => $stepTitle)
+      <li class="{{ $stepNumber <= $currentStep ? 'active' : '' }}" @if($stepNumber === $currentStep) aria-current="step" @endif>
+        <div class="number-wrap"><span class="number">{{ $stepNumber }}</span></div>
+        <span class="title">{{ $stepTitle }}</span>
+      </li>
+    @endforeach
+  </ol>
+</nav>

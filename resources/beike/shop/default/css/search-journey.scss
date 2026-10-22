@@ -1,0 +1,144 @@
+@charset "UTF-8";
+
+body.page-search {
+  background: var(--commerce-paper, #fbfaf7);
+}
+
+body.page-search .search-page-shell {
+  padding-bottom: clamp(56px, 8vw, 100px);
+  padding-top: clamp(22px, 4vw, 52px);
+}
+
+body.page-search .search-page-header {
+  margin: 0 auto clamp(30px, 5vw, 58px);
+  max-width: 760px;
+  text-align: center;
+}
+
+body.page-search .search-page-eyebrow {
+  color: var(--commerce-muted, #6f6d66);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .14em;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+}
+
+body.page-search .search-page-header h1 {
+  color: var(--commerce-ink, #171714);
+  font-size: clamp(30px, 5vw, 52px);
+  letter-spacing: -.035em;
+  margin-bottom: 24px;
+  overflow-wrap: anywhere;
+}
+
+body.page-search .search-page-form {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #d8d6cf;
+  border-radius: 999px;
+  box-shadow: 0 10px 30px rgba(26, 25, 21, .06);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  margin-inline: auto;
+  padding: 6px 6px 6px 18px;
+}
+
+body.page-search .search-page-form:focus-within {
+  border-color: var(--commerce-ink, #171714);
+  box-shadow: 0 0 0 3px rgba(23, 23, 20, .12);
+}
+
+body.page-search .search-page-form input {
+  background: transparent;
+  border: 0;
+  color: var(--commerce-ink, #171714);
+  font-size: 16px;
+  height: 46px;
+  min-width: 0;
+  outline: 0;
+  width: 100%;
+}
+
+body.page-search .search-page-form button,
+body.page-search .search-empty-state__actions button,
+body.page-search .search-empty-state__actions a {
+  align-items: center;
+  border-radius: 999px;
+  display: inline-flex;
+  font-weight: 700;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 20px;
+}
+
+body.page-search .search-page-form button,
+body.page-search .search-empty-state__actions button {
+  background: var(--commerce-ink, #171714);
+  border: 1px solid var(--commerce-ink, #171714);
+  color: #fff;
+}
+
+body.page-search .search-result-count {
+  color: var(--commerce-muted, #6f6d66);
+  margin: 14px 0 0;
+}
+
+body.page-search .search-product-grid {
+  display: grid;
+  gap: clamp(22px, 3vw, 42px) clamp(10px, 2vw, 24px);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+body.page-search .search-empty-state {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #e3e1da;
+  border-radius: 18px;
+  display: flex;
+  flex-direction: column;
+  grid-column: 1 / -1;
+  padding: clamp(36px, 7vw, 72px) 20px;
+  text-align: center;
+}
+
+body.page-search .search-empty-state__icon {
+  align-items: center;
+  background: #f1f0eb;
+  border-radius: 50%;
+  display: flex;
+  font-size: 24px;
+  height: 58px;
+  justify-content: center;
+  margin-bottom: 18px;
+  width: 58px;
+}
+
+body.page-search .search-empty-state h2 { font-size: clamp(24px, 3vw, 34px); margin-bottom: 9px; }
+body.page-search .search-empty-state p { color: var(--commerce-muted, #6f6d66); margin: 0; max-width: 520px; }
+body.page-search .search-empty-state__actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 24px; }
+body.page-search .search-empty-state__actions a { border: 1px solid #ccc9c0; color: var(--commerce-ink, #171714); text-decoration: none; }
+body.page-search .search-recommendations { margin-top: clamp(46px, 7vw, 80px); }
+body.page-search .search-recommendations > h2 { font-size: clamp(25px, 3vw, 36px); margin-bottom: 24px; text-align: center; }
+
+@media (max-width: 991.98px) {
+  body.page-search .search-product-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 767.98px) {
+  body.page-search .breadcrumb-wrap { display: none; }
+  body.page-search .search-page-shell { padding-inline: 14px; }
+  body.page-search .search-page-header { text-align: left; }
+  body.page-search .search-page-form { border-radius: 12px; padding-left: 14px; }
+  body.page-search .search-product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 380px) {
+  body.page-search .search-page-form { grid-template-columns: auto minmax(0, 1fr); }
+  body.page-search .search-page-form button { grid-column: 1 / -1; width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.page-search * { scroll-behavior: auto !important; transition-duration: .01ms !important; }
+}

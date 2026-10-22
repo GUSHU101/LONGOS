@@ -128,11 +128,14 @@
           </dl>
 
           @hookwrapper('cart.confirm')
-          <button type="button" class="cart-checkout-button" @click="checkedBtnToCheckout">
+          <button type="button" class="cart-checkout-button" @click="checkedBtnToCheckout"
+                  :disabled="!canCheckout" :aria-busy="cartBusy ? 'true' : 'false'">
             <span>{{ __('shop/carts.to_checkout') }}</span>
             <i class="bi bi-arrow-right" aria-hidden="true"></i>
           </button>
           @endhookwrapper
+
+          <p class="cart-sync-status" role="status" aria-live="polite" aria-atomic="true">@{{ cartStatusMessage }}</p>
 
           <div class="cart-assurance-list">
             <p>
@@ -177,6 +180,11 @@
         total_quantity: @json($quantity),
         amount: @json($amount),
         amount_format: @json($amount_format),
+        pendingMutations: 0,
+        queuedQuantityUpdates: 0,
+        quantityTimers: {},
+        confirmedQuantities: {},
+        cartStatusMessage: '',
 
         @hook('shop.cart.index.vue.data')
       },
@@ -187,8 +195,9 @@
             return !this.products.length ? false : this.products.every(s => s.selected)
           },
           set(val) {
+            const previous = this.products.map(product => ({cart_id: product.cart_id, selected: product.selected}))
             this.products.map(e => e.selected = val)
-            this.allSelectedBtn()
+            this.allSelectedBtn(previous)
           }
         },
 
@@ -196,11 +205,24 @@
           return this.products.map(e => Number(e.quantity) || 0).reduce((n,m) => n + m, 0);
         },
 
+        cartBusy() {
+          return this.pendingMutations > 0 || this.queuedQuantityUpdates > 0
+        },
+
+        canCheckout() {
+          return !this.cartBusy && this.products.some(product => product.selected)
+        },
+
         @hook('shop.cart.index.vue.computed')
       },
 
       methods: {
         checkedBtnToCheckout() {
+          if (this.cartBusy) {
+            this.cartStatusMessage = '{{ __('shop/carts.checkout_wait') }}'
+            return
+          }
+
           if (!this.products.some(e => e.selected)) {
             layer.msg('{{ __('shop/carts.empty_selected_products') }}', ()=>{})
             return
@@ -210,51 +232,99 @@
         },
 
         quantityChange(quantity, cart_id, sku_id) {
-          if (!quantity || isNaN(quantity)) {
-            return
+          const product = this.products.find(item => String(item.cart_id) === String(cart_id))
+          const normalized = Math.max(1, Math.floor(Number(quantity) || 1))
+          if (product) product.quantity = normalized
+
+          if (this.quantityTimers[cart_id]) {
+            clearTimeout(this.quantityTimers[cart_id])
+          } else {
+            this.queuedQuantityUpdates += 1
           }
 
-          const self = this;
-          $http.put(cartItemUrl(cart_id), {quantity: quantity, sku_id}, {hload: true}).then((res) => {
-            this.setUpdateData(res);
-          })
+          this.cartStatusMessage = '{{ __('shop/carts.cart_updating') }}'
+          this.$set(this.quantityTimers, cart_id, setTimeout(() => {
+            this.$delete(this.quantityTimers, cart_id)
+            this.queuedQuantityUpdates = Math.max(0, this.queuedQuantityUpdates - 1)
+            const fallbackQuantity = this.confirmedQuantities[cart_id] || 1
+            this.runCartMutation(
+              () => $http.put(cartItemUrl(cart_id), {quantity: normalized, sku_id}, {hload: true}),
+              () => {
+                const currentProduct = this.products.find(item => String(item.cart_id) === String(cart_id))
+                if (currentProduct) currentProduct.quantity = fallbackQuantity
+              }
+            )
+          }, 350))
         },
 
         checkedBtnDelete(cart_id) {
-          const self = this;
-
-          $http.delete(cartItemUrl(cart_id)).then((res) => {
-            this.setUpdateData(res);
-          })
+          this.runCartMutation(() => $http.delete(cartItemUrl(cart_id)))
         },
 
         checkedCartTr(index) {
           const selected = this.products[index].selected;
           const cart_id = this.products[index].cart_id;
-          $http.post(selected ? cartSelectUrl : cartUnselectUrl, {cart_ids: [cart_id]}, {hload: true}).then((res) => {
-            this.setUpdateData(res);
-          })
+          this.runCartMutation(
+            () => $http.post(selected ? cartSelectUrl : cartUnselectUrl, {cart_ids: [cart_id]}, {hload: true}),
+            () => {
+              const currentProduct = this.products.find(item => String(item.cart_id) === String(cart_id))
+              if (currentProduct) currentProduct.selected = !selected
+            }
+          )
         },
 
-        allSelectedBtn() {
+        allSelectedBtn(previous = []) {
           const cart_ids = this.products.map(x => x.cart_id)
 
-          $http.post(this.allSelected ? cartSelectUrl : cartUnselectUrl, {cart_ids: cart_ids}, {hload: true}).then((res) => {
-            this.setUpdateData(res);
+          this.runCartMutation(
+            () => $http.post(this.allSelected ? cartSelectUrl : cartUnselectUrl, {cart_ids: cart_ids}, {hload: true}),
+            () => previous.forEach(item => {
+              const product = this.products.find(candidate => String(candidate.cart_id) === String(item.cart_id))
+              if (product) product.selected = item.selected
+            })
+          )
+        },
+
+        runCartMutation(request, onFailure = null) {
+          this.pendingMutations += 1
+          this.cartStatusMessage = '{{ __('shop/carts.cart_updating') }}'
+
+          const operation = this.cartMutationChain.then(request).then((res) => {
+            if (res?.status !== 'success' || !res?.data || !Array.isArray(res.data.carts)) {
+              const error = new Error(res?.message || '{{ __('shop/carts.cart_update_failed') }}')
+              error.cartResponse = true
+              throw error
+            }
+            this.setUpdateData(res)
+            this.cartStatusMessage = '{{ __('shop/carts.cart_updated') }}'
+            return res
+          }).catch((error) => {
+            if (onFailure) onFailure()
+            const message = error?.response?.data?.message || error?.message || '{{ __('shop/carts.cart_update_failed') }}'
+            this.cartStatusMessage = message
+            if (error?.cartResponse) layer.msg(message)
+          }).finally(() => {
+            this.pendingMutations = Math.max(0, this.pendingMutations - 1)
           })
+
+          this.cartMutationChain = operation.catch(() => {})
+          return operation
         },
 
         setUpdateData(res) {
-          if(res.status != 'success'){
-            layer.msg(res.message)
-          }
           this.products = res.data.carts
           this.amount_format = res.data.amount_format
           this.total_quantity = res.data.quantity
+          this.products.forEach(product => this.$set(this.confirmedQuantities, product.cart_id, Number(product.quantity) || 1))
           bk.getCarts()
         },
 
         @hook('shop.cart.index.vue.methods')
+      },
+
+      created() {
+        this.cartMutationChain = Promise.resolve()
+        this.products.forEach(product => this.$set(this.confirmedQuantities, product.cart_id, Number(product.quantity) || 1))
       },
 
       @hook('shop.cart.index.vue.options')

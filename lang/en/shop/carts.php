@@ -38,6 +38,10 @@ return [
     'select_product'           => 'Select product',
     'decrease_quantity'        => 'Decrease quantity for',
     'increase_quantity'        => 'Increase quantity for',
+    'cart_updating'            => 'Updating your cart…',
+    'cart_updated'             => 'Your cart is up to date.',
+    'cart_update_failed'       => 'Your cart could not be updated. Please try again.',
+    'checkout_wait'            => 'Please wait until your cart finishes updating.',
 
     'invalid_customer'         => 'Invalid customer.',
     'empty_selected_products'  => 'Empty selected products.',

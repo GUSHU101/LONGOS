@@ -1,135 +1,99 @@
 @extends('layout.master')
-@section('body-class', 'page-account-order-info')
-@section('title',  __('shop/checkout.checkout_success_title'))
+@section('body-class', 'page-order-success')
+@section('title', __('shop/checkout.checkout_success_title'))
 
 @push('header')
   <meta name="robots" content="noindex,nofollow,noarchive">
 @endpush
 
+@php
+  $paymentRequired = $order->status === \Beike\Services\StateMachineService::UNPAID;
+  $orderDetailsUrl = current_customer()
+    ? shop_route('account.order.show', $order->number)
+    : shop_route('orders.show', ['number' => $order->number]);
+@endphp
+
 @section('content')
+  <div class="container purchase-state-shell" aria-labelledby="order-result-title">
+    <div class="purchase-progress">
+      @include('shared.steps', ['steps' => 3])
+    </div>
 
-<div class="container">
-  <div class="card mt-lg-5 mt-3 w-max-1000 mx-auto">
-    <div class="card-body p-0">
-      @if ($errors->any())
-        <div class="alert alert-warning m-3" role="alert">{{ $errors->first() }}</div>
-      @endif
-      <div class="text-center">
-        <div class="text-success mb-3">
-          <i class="bi bi-check-circle checkout-success-icon"></i>
-        </div>
-        <div class="checkout-success__header__title">
-          <h1>{{ __('shop/checkout.checkout_success_title') }}</h1>
+    @if ($errors->any())
+      <div class="purchase-alert" role="alert" tabindex="-1">
+        <i class="bi bi-exclamation-circle" aria-hidden="true"></i>
+        <div><strong>{{ __('shop/checkout.payment_needs_attention') }}</strong><p>{{ $errors->first() }}</p></div>
+      </div>
+    @endif
+
+    <section class="purchase-card order-result-card">
+      <header class="purchase-card__header purchase-card__header--centered">
+        <span class="purchase-status-icon {{ $paymentRequired ? 'purchase-status-icon--pending' : 'purchase-status-icon--success' }}" aria-hidden="true">
+          <i class="bi {{ $paymentRequired ? 'bi-clock' : 'bi-check-lg' }}"></i>
+        </span>
+        <div>
+          <p class="purchase-eyebrow">{{ $paymentRequired ? __('shop/checkout.payment_required') : __('shop/checkout.order_confirmed') }}</p>
+          <h1 id="order-result-title">{{ $paymentRequired ? __('shop/checkout.order_received_title') : __('shop/checkout.checkout_success_title') }}</h1>
           @hook('checkout.success.checkout_success_title.after')
+          <p>{{ $paymentRequired ? __('shop/checkout.order_unpaid_message') : __('shop/checkout.order_paid_message') }}</p>
         </div>
-      </div>
-      <div class="checkout-success__body">
-        <div class="mt-4">
-          <div class="card mb-2 order-head">
-            <div class="card-header d-flex align-items-center justify-content-between">
-              <h5 class="card-title">{{ __('shop/account/order_info.order_details') }}</h5>
-              @if (current_customer())
-                <a class="btn btn-sm btn-primary" href="{{ shop_route('account.order.show', $order->number) }}">{{ __('common.view_more') }}</a>
-                @else
-                <a class="btn btn-sm btn-primary" href="{{ shop_route('orders.show', ['number' => $order->number]) }}">{{ __('common.view_more') }}</a>
-              @endif
-              @if ($order->status === \Beike\Services\StateMachineService::UNPAID)
-                <a class="btn btn-sm btn-outline-primary ms-2" href="{{ shop_route('orders.pay', ['number' => $order->number]) }}">{{ __('shop/checkout.retry_payment') }}</a>
-              @endif
-            </div>
-            <div class="card-body">
-              <div class="bg-light p-2 table-responsive">
-                @if (!is_mobile())
-                  <table class="table table-borderless mb-0">
-                    <thead>
-                      <tr>
-                        <th>{{ __('shop/account/order_info.order_number') }}</th>
-                        <th class="nowrap">{{ __('shop/account/order_info.order_date') }}</th>
-                        <th>{{ __('shop/account/order_info.state') }}</th>
-                        <th>{{ __('shop/account/order_info.order_amount') }}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td>{{ $order->number }}</td>
-                        <td>{{ $order->created_at }}</td>
-                        <td>
-                          {{ $order->status_format }}
-                        </td>
-                        <td>{{ currency_format($order->total, $order->currency_code, $order->currency_value) }}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                @else
-                  <div class="d-flex justify-content-between mb-2">
-                    <div>{{ __('shop/account/order_info.order_number') }}</div>
-                    <div class="fw-bold">{{ $order->number }}</div>
-                  </div>
-                  <div class="d-flex justify-content-between mb-2">
-                    <div>{{ __('shop/account/order_info.order_date') }}</div>
-                    <div class="fw-bold">{{ $order->created_at }}</div>
-                  </div>
-                  <div class="d-flex justify-content-between mb-2">
-                    <div>{{ __('shop/account/order_info.state') }}</div>
-                    <div class="fw-bold">{{ $order->status_format }}</div>
-                  </div>
-                  <div class="d-flex justify-content-between">
-                    <div>{{ __('shop/account/order_info.order_amount') }}</div>
-                    <div class="fw-bold">{{ currency_format($order->total, $order->currency_code, $order->currency_value) }}</div>
-                  </div>
-                @endif
-              </div>
-            </div>
-          </div>
+      </header>
 
-          @hookwrapper('checkout.success.address_info')
-          <div class="card">
-            <div class="card-header"><h5 class="card-title">{{ __('order.address_info') }}</h5></div>
-            <div class="card-body">
-              <table class="table">
-                <thead class="">
-                  <tr>
-                    <th>{{ __('order.shipping_address') }}</th>
-                    <th>{{ __('order.payment_address') }}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td>
-                      <div>{{ __('address.name') }}：{{ $order->shipping_customer_name }} ({{ $order->shipping_telephone }})</div>
-                      <div>
-                        {{ __('address.address') }}：
-                        {{ $order->shipping_address_1 }}
-                        {{ $order->shipping_address_2 }}
-                        {{ $order->shipping_city }}
-                        {{ $order->shipping_zone }}
-                        {{ $order->shipping_country }}
-                      </div>
-                      <div>{{ __('address.post_code') }}：{{ $order->shipping_zipcode }}</div>
-                    </td>
-                    <td>
-                      <div>{{ __('address.name') }}：{{ $order->payment_customer_name }} ({{ $order->payment_telephone }})</div>
-                      <div>
-                        {{ __('address.address') }}：
-                        {{ $order->payment_address_1 }}
-                        {{ $order->payment_address_2 }}
-                        {{ $order->payment_city }}
-                        {{ $order->payment_zone }}
-                        {{ $order->payment_country }}
-                      </div>
-                      <div>{{ __('address.post_code') }}：{{ $order->payment_zipcode }}</div>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-          @endhookwrapper
-        </div>
+      <dl class="purchase-order-facts purchase-order-facts--summary">
+        <div><dt>{{ __('shop/account/order_info.order_number') }}</dt><dd>{{ $order->number }}</dd></div>
+        <div><dt>{{ __('shop/account/order_info.order_date') }}</dt><dd>{{ $order->created_at }}</dd></div>
+        <div><dt>{{ __('shop/account/order_info.state') }}</dt><dd>{{ $order->status_format }}</dd></div>
+        <div><dt>{{ __('shop/account/order_info.order_amount') }}</dt><dd>{{ currency_format($order->total, $order->currency_code, $order->currency_value) }}</dd></div>
+      </dl>
+
+      <div class="purchase-primary-actions">
+        @if ($paymentRequired)
+          <a class="purchase-action purchase-action--primary" href="{{ shop_route('orders.pay', ['number' => $order->number]) }}">
+            <i class="bi bi-credit-card" aria-hidden="true"></i>{{ __('shop/checkout.retry_payment') }}
+          </a>
+        @endif
+        <a class="purchase-action {{ $paymentRequired ? 'purchase-action--secondary' : 'purchase-action--primary' }}" href="{{ $orderDetailsUrl }}">
+          {{ __('shop/checkout.view_order') }}
+        </a>
+        <a class="purchase-action purchase-action--text" href="{{ shop_route('home.index') }}">{{ __('shop/checkout.continue_shopping') }}</a>
       </div>
+
+      <section class="purchase-next-steps" aria-labelledby="next-steps-title">
+        <h2 id="next-steps-title">{{ __('shop/checkout.what_happens_next') }}</h2>
+        <ol>
+          <li><span>1</span><div><strong>{{ __('shop/checkout.order_saved') }}</strong><p>{{ __('shop/checkout.confirmation_updates') }}</p></div></li>
+          <li><span>2</span><div><strong>{{ $paymentRequired ? __('shop/checkout.complete_payment') : __('shop/checkout.order_processing_next') }}</strong><p>{{ $paymentRequired ? __('shop/checkout.complete_payment_help') : __('shop/checkout.order_processing_help') }}</p></div></li>
+          <li><span>3</span><div><strong>{{ __('shop/checkout.shipment_tracking') }}</strong><p>{{ __('shop/checkout.tracking_updates') }}</p></div></li>
+        </ol>
+      </section>
+
+      @hookwrapper('checkout.success.address_info')
+      <section class="purchase-addresses" aria-labelledby="delivery-details-title">
+        <h2 id="delivery-details-title">{{ __('order.address_info') }}</h2>
+        <div class="purchase-address-grid">
+          @if ($order->shipping_customer_name || $order->shipping_address_1)
+            <article>
+              <h3>{{ __('order.shipping_address') }}</h3>
+              <address>
+                <strong>{{ $order->shipping_customer_name }}</strong>
+                @if ($order->shipping_telephone)<span>{{ $order->shipping_telephone }}</span>@endif
+                <span>{{ collect([$order->shipping_address_1, $order->shipping_address_2, $order->shipping_city, $order->shipping_zone, $order->shipping_zipcode, $order->shipping_country])->filter()->implode(', ') }}</span>
+              </address>
+            </article>
+          @endif
+          <article>
+            <h3>{{ __('order.payment_address') }}</h3>
+            <address>
+              <strong>{{ $order->payment_customer_name }}</strong>
+              @if ($order->payment_telephone)<span>{{ $order->payment_telephone }}</span>@endif
+              <span>{{ collect([$order->payment_address_1, $order->payment_address_2, $order->payment_city, $order->payment_zone, $order->payment_zipcode, $order->payment_country])->filter()->implode(', ') }}</span>
+            </address>
+          </article>
+        </div>
+      </section>
+      @endhookwrapper
 
       @hook('checkout.success.footer')
-    </div>
+    </section>
   </div>
-</div>
 @endsection

@@ -34,7 +34,7 @@ body.page-cart .cart-progress .steps-wrap::before {
   top: 11px;
 }
 
-body.page-cart .cart-progress .steps-wrap > div {
+body.page-cart .cart-progress .steps-wrap > li {
   background: #fbfaf7;
   min-width: 88px;
   padding-inline: 8px;
@@ -55,7 +55,7 @@ body.page-cart .cart-progress .steps-wrap .number {
   width: 24px;
 }
 
-body.page-cart .cart-progress .steps-wrap > div.active .number {
+body.page-cart .cart-progress .steps-wrap > li.active .number {
   background: var(--cart-ink);
   border-color: var(--cart-ink);
   color: #fff;
@@ -394,6 +394,21 @@ body.page-cart .cart-checkout-button {
   width: 100%;
 }
 
+body.page-cart .cart-checkout-button:disabled {
+  box-shadow: none;
+  cursor: wait;
+  opacity: .55;
+  transform: none;
+}
+
+body.page-cart .cart-sync-status {
+  color: var(--cart-muted);
+  font-size: 12px;
+  margin: 10px 0 0;
+  min-height: 18px;
+  text-align: center;
+}
+
 body.page-cart .cart-checkout-button:hover { background: #303532; border-color: #303532; }
 
 body.page-cart .cart-assurance-list {
@@ -470,7 +485,7 @@ body.page-cart .cart-empty-action {
   body.page-cart .cart-page-shell { padding-inline: 14px; padding-top: 18px; }
   body.page-cart .cart-progress { margin-bottom: 30px; }
   body.page-cart .cart-progress .steps-wrap .title { font-size: 9px; letter-spacing: .03em; }
-  body.page-cart .cart-progress .steps-wrap > div { min-width: 72px; padding-inline: 4px; }
+  body.page-cart .cart-progress .steps-wrap > li { min-width: 72px; padding-inline: 4px; }
   body.page-cart .cart-page-heading { align-items: start; margin-bottom: 16px; padding-bottom: 17px; }
   body.page-cart .cart-page-heading h1 { font-size: 31px; }
   body.page-cart .cart-page-count { margin-top: 7px; }

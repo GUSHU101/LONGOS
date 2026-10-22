@@ -1,52 +1,62 @@
 @extends('layout.master')
 
 @section('body-class', 'page-payment')
+@section('title', __('shop/checkout.payment_page_title') . ' · ' . site_brand_name())
 
 @push('header')
   <meta name="robots" content="noindex,nofollow,noarchive">
 @endpush
 
 @section('content')
-  <x-shop-breadcrumb type="static" value="checkout.index" :text="[31231]" />
+  <x-shop-breadcrumb type="static" value="checkout.index" />
 
-  <div class="container">
-    @if (!is_mobile())
-    <div class="row mt-5 mb-5 justify-content-center">
-      <div class="col-12 col-md-9">@include('shared.steps', ['steps' => 3])</div>
+  <div class="container purchase-state-shell" aria-labelledby="payment-page-title">
+    <div class="purchase-progress">
+      @include('shared.steps', ['steps' => 3])
     </div>
+
+    @if ($errors->any())
+      <div class="purchase-alert" role="alert" tabindex="-1">
+        <i class="bi bi-exclamation-circle" aria-hidden="true"></i>
+        <div><strong>{{ __('shop/checkout.payment_needs_attention') }}</strong><p>{{ $errors->first() }}</p></div>
+      </div>
     @endif
 
-    <div class="col-12">
-      <div class="card order-wrap border">
-        <div class="card-body main-body">
-          <div class="order-top">
-            <div class="left">
-              <i class="bi bi-credit-card-2-back"></i>
-            </div>
-            <div class="right">
-              <h3 class="order-title">{{ __('shop/checkout.payment_please_pay') }}</h3>
-              <div class="order-info mb-lg-4 mb-2">
-                <table class="table table-borderless">
-                  <tbody>
-                    <tr>
-                      <td>{{ __('shop/checkout.payment_order_number') }}：<span class="fw-bold">{{ $order['number'] }}</span></td>
-                      <td>{{ __('shop/checkout.payment_amounts_payable') }}：<span class="fw-bold">{{ $order['total_format'] }}</span></td>
-                    </tr>
-                    <tr>
-                      <td>{{ __('shop/checkout.payment_payment_method') }}：<span class="fw-bold">{{ $order['payment_method_name'] }}</span></td>
-                    </tr>
-                    @hook('checkout.payment_method_name.after')
-                  </tbody>
-                </table>
-              </div>
-
-              {!! $payment !!}
-            </div>
+    <div class="payment-layout">
+      <section class="purchase-card payment-card" aria-labelledby="payment-page-title">
+        <header class="purchase-card__header">
+          <span class="purchase-status-icon purchase-status-icon--pending" aria-hidden="true"><i class="bi bi-lock"></i></span>
+          <div>
+            <p class="purchase-eyebrow">{{ __('shop/steps.payment') }}</p>
+            <h1 id="payment-page-title">{{ __('shop/checkout.payment_page_title') }}</h1>
+            <p>{{ __('shop/checkout.payment_page_intro') }}</p>
           </div>
+        </header>
 
-          @hook('payment.footer')
+        <dl class="purchase-order-facts">
+          <div><dt>{{ __('shop/checkout.payment_order_number') }}</dt><dd>{{ $order->number }}</dd></div>
+          <div><dt>{{ __('shop/checkout.payment_amounts_payable') }}</dt><dd>{{ $order->total_format }}</dd></div>
+          <div><dt>{{ __('shop/checkout.payment_payment_method') }}</dt><dd>{{ $order->payment_method_name }}</dd></div>
+        </dl>
+        @hook('checkout.payment_method_name.after')
+
+        <div class="payment-provider-surface" aria-label="{{ __('shop/checkout.payment_provider_area') }}">
+          {!! $payment !!}
         </div>
-      </div>
+
+        @hook('payment.footer')
+      </section>
+
+      <aside class="purchase-help-card" aria-labelledby="payment-help-title">
+        <span class="purchase-help-card__icon" aria-hidden="true"><i class="bi bi-shield-check"></i></span>
+        <h2 id="payment-help-title">{{ __('shop/checkout.payment_secure_title') }}</h2>
+        <p>{{ __('shop/checkout.payment_secure_notice') }}</p>
+        <p class="purchase-help-card__note">{{ __('shop/checkout.payment_not_charged_notice') }}</p>
+        <div class="purchase-help-card__links">
+          <a href="{{ shop_route('orders.show', ['number' => $order->number]) }}">{{ __('shop/checkout.view_order') }}</a>
+          <a href="{{ shop_route('home.index') }}">{{ __('shop/checkout.continue_shopping') }}</a>
+        </div>
+      </aside>
     </div>
   </div>
 @endsection
