@@ -74,7 +74,8 @@ MAIL_RELAY_HOSTNAME=mailout.example.com
 MAIL_RELAY_DOMAINS=example.com
 MAIL_RELAY_ALLOWED_SENDER_DOMAINS=example.com
 MAIL_RELAY_PLATFORM_SENDER_DOMAIN=example.com
-MAIL_RELAY_IPS=203.0.113.10
+MAIL_RELAY_IPS=
+MAIL_RELAY_AUTO_DETECT_IPS=true
 MAIL_FROM_ADDRESS=no-reply@example.com
 MAIL_FROM_NAME=LONGOS
 ```
@@ -94,7 +95,8 @@ MAIL_FROM_NAME=LONGOS
 | `MAIL_RELAY_DOMAINS` | 推荐 | 需要生成 DKIM 的域名，多个用逗号分隔 |
 | `MAIL_RELAY_ALLOWED_SENDER_DOMAINS` | 推荐 | 实际允许发信的域名，必须是签名域集合的子集 |
 | `MAIL_RELAY_PLATFORM_SENDER_DOMAIN` | 推荐 | 租户共享的稳定平台发件域 |
-| `MAIL_RELAY_IPS` | DNS 自动化时推荐 | 邮件出口的明确公网 IPv4/IPv6，多个逗号分隔；不要填 Cloudflare Anycast 地址 |
+| `MAIL_RELAY_IPS` | 特殊网络才需要 | 默认留空并由服务器多源一致性自动识别公网 IPv4；仅在独立 SMTP 出口、特殊 NAT/策略路由、多公网 IP 或已验收的 IPv6 发信时填写逗号分隔的明确 IPv4/IPv6 |
+| `MAIL_RELAY_AUTO_DETECT_IPS` | 否 | 默认 `true`；空 `MAIL_RELAY_IPS` 时要求 3 个独立 HTTPS 回显源中至少 2 个结果一致，否则拒绝修改 A/AAAA |
 | `APP_KEY_OVERRIDE` | 仅迁移 | 旧站迁移时填原站完整 `APP_KEY`；全新部署必须留空 |
 
 Coolify 会自动生成并持久保存所有 `SERVICE_*` 值，包括 APP_KEY、数据库密码、管理员初始密码、边缘鉴权密钥和邮件内部 HMAC 密钥。不要手工改写这些值，也不要把它们提交到 GitHub。首次登录密码在 Coolify 的 `SERVICE_PASSWORD_64_ADMIN` 变量中；登录后可在后台修改，后续重新部署不会重置密码。
@@ -113,7 +115,7 @@ LONGOS_AUTO_CONFIGURE_MAIL_DNS=true
 CLOUDFLARE_API_TOKEN=<只授权所需 Zone 的 DNS:Edit、Zone:Read Token；Email Routing 锁定记录时再加 Zone Settings:Edit>
 ```
 
-常规一体化部署无需在 Coolify 重复保存该 Token：Cloud Mail 工作流会在收信路由完成后，把 GitHub 中已有的受限 Token 临时交给 LONGOS 执行同一次同步，LONGOS 不持久化也不返回它。Token 必须覆盖 `MAIL_RELAY_DOMAINS` 中涉及的每个 Zone。LONGOS 保留已有 SPF 的所有发信机制并合并为一条，保留已有 DMARC 策略；危险的 `+all`、`redirect=`、冲突修饰符或明显超过 10 次 DNS 查询时会停止并提示。邮件主机 A/AAAA 只使用 `MAIL_RELAY_IPS` 的明确 IP。
+常规一体化部署无需在 Coolify 重复保存该 Token：Cloud Mail 工作流会在收信路由完成后，把 GitHub 中已有的受限 Token 临时交给 LONGOS 执行同一次同步，LONGOS 不持久化也不返回它。Token 必须覆盖 `MAIL_RELAY_DOMAINS` 中涉及的每个 Zone。LONGOS 保留已有 SPF 的所有发信机制并合并为一条，保留已有 DMARC 策略；危险的 `+all`、`redirect=`、冲突修饰符或明显超过 10 次 DNS 查询时会停止并提示。`MAIL_RELAY_IPS` 留空时，邮件主机 A/AAAA 使用服务器端至少两个独立 HTTPS 源一致识别的公网出口 IP；不会从网站 DNS 或 Cloudflare Anycast 地址猜测。自动探测不一致时失败关闭，必须手工填写。
 
 Coolify 保存了 Token 时，系统会在 Web 容器启动后尝试首次同步，并由 scheduler 每 5 分钟重试；管理员也可在邮件设置点击“一键配置邮件 DNS”立即执行。常规无持久 Token 模式则在每次 Cloud Mail 工作流部署时同步。DKIM 私钥始终只位于邮件中继卷；Laravel 只能读取可公开的 TXT 值。
 

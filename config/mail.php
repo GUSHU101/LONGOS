@@ -161,15 +161,28 @@ return [
         'platform_sender_domain'        => $platformSenderDomain,
         'public_url'                    => $relayPublicUrl,
         'public_ips'                    => $relayPublicIps,
-        'dkim_selector'                 => env('MAIL_RELAY_DKIM_SELECTOR', 'mail2026'),
-        'auto_configure_dns'            => (bool) env('LONGOS_AUTO_CONFIGURE_MAIL_DNS', true),
-        'dns_records_path'              => env('MAIL_RELAY_DNS_RECORDS_PATH', '/var/lib/longos-mail-dns'),
-        'cloudflare_api_base'           => rtrim((string) env('CLOUDFLARE_API_BASE', 'https://api.cloudflare.com/client/v4'), '/'),
-        'cloud_mail_secret'             => $cloudMailRelaySecret,
-        'max_request_bytes'             => (int) env('MAIL_RELAY_MAX_REQUEST_BYTES', 26214400),
-        'longos_client_configured'      => strlen($longosRelaySecret)    >= 32,
-        'cloud_mail_client_configured'  => strlen($cloudMailRelaySecret) >= 32,
-        'client_secrets_distinct'       => $longosRelaySecret !== ''
+        // MAIL_RELAY_IPS is an override. When it is blank, the app and
+        // mail-relay share the same Docker bridge/NAT and LONGOS accepts an
+        // automatically observed egress IP only after independent HTTPS
+        // reflectors reach quorum. Website DNS is never used for inference.
+        'auto_detect_public_ips'         => filter_var(env('MAIL_RELAY_AUTO_DETECT_IPS', true), FILTER_VALIDATE_BOOL),
+        'public_ip_detection_endpoints'  => [
+            'https://1.1.1.1/cdn-cgi/trace',
+            'https://checkip.amazonaws.com',
+            'https://api.ipify.org',
+        ],
+        'public_ip_detection_quorum'        => 2,
+        'public_ip_detection_timeout'       => 3,
+        'public_ip_detection_cache_seconds' => 900,
+        'dkim_selector'                     => env('MAIL_RELAY_DKIM_SELECTOR', 'mail2026'),
+        'auto_configure_dns'                => (bool) env('LONGOS_AUTO_CONFIGURE_MAIL_DNS', true),
+        'dns_records_path'                  => env('MAIL_RELAY_DNS_RECORDS_PATH', '/var/lib/longos-mail-dns'),
+        'cloudflare_api_base'               => rtrim((string) env('CLOUDFLARE_API_BASE', 'https://api.cloudflare.com/client/v4'), '/'),
+        'cloud_mail_secret'                 => $cloudMailRelaySecret,
+        'max_request_bytes'                 => (int) env('MAIL_RELAY_MAX_REQUEST_BYTES', 26214400),
+        'longos_client_configured'          => strlen($longosRelaySecret)    >= 32,
+        'cloud_mail_client_configured'      => strlen($cloudMailRelaySecret) >= 32,
+        'client_secrets_distinct'           => $longosRelaySecret !== ''
             && $cloudMailRelaySecret                          !== ''
             && ! hash_equals($longosRelaySecret, $cloudMailRelaySecret),
         // An invalid or unsigned legacy MAIL_FROM_ADDRESS must not brick a

@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Mail\CloudflareMailDnsService;
+use App\Mail\MailRelayPublicIpResolver;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Client\Request as ClientRequest;
@@ -28,15 +29,16 @@ class CloudflareMailDnsSyncTest extends TestCase
         $this->recordsPath = storage_path('framework/testing/mail-dns-' . bin2hex(random_bytes(6)));
         File::ensureDirectoryExists($this->recordsPath);
         config([
-            'mail.relay.auto_configure_dns'    => true,
-            'mail.relay.cloudflare_api_base'   => 'https://api.cloudflare.test/client/v4',
-            'mail.relay.dns_records_path'      => $this->recordsPath,
-            'mail.relay.dkim_selector'         => 'mail2026',
-            'mail.relay.hostname'              => 'mailout.brand-a.com',
-            'mail.relay.domains'               => 'brand-a.com,mail.brand-b.net',
-            'mail.relay.public_ips'            => ['8.8.8.8', '127.0.0.1', '2001:db8::1'],
-            'longos.cloudflare.api_token'      => '',
-            'longos.cloudflare.api_token_file' => '',
+            'mail.relay.auto_configure_dns'     => true,
+            'mail.relay.cloudflare_api_base'    => 'https://api.cloudflare.test/client/v4',
+            'mail.relay.dns_records_path'       => $this->recordsPath,
+            'mail.relay.dkim_selector'          => 'mail2026',
+            'mail.relay.hostname'               => 'mailout.brand-a.com',
+            'mail.relay.domains'                => 'brand-a.com,mail.brand-b.net',
+            'mail.relay.public_ips'             => ['8.8.8.8', '127.0.0.1', '2001:db8::1'],
+            'mail.relay.auto_detect_public_ips' => false,
+            'longos.cloudflare.api_token'       => '',
+            'longos.cloudflare.api_token_file'  => '',
         ]);
     }
 
@@ -128,6 +130,85 @@ class CloudflareMailDnsSyncTest extends TestCase
         self::assertIsArray($pending);
         self::assertFalse($pending['available']);
         self::assertSame('', $pending['value']);
+        Http::assertNothingSent();
+    }
+
+    public function test_blank_public_ips_are_safely_auto_detected_after_independent_sources_agree(): void
+    {
+        config([
+            'mail.relay.public_ips'                     => [],
+            'mail.relay.auto_detect_public_ips'         => true,
+            'mail.relay.public_ip_detection_endpoints'  => [
+                'https://first-ip.test/',
+                'https://second-ip.test/',
+                'https://third-ip.test/',
+            ],
+            'mail.relay.public_ip_detection_quorum'        => 2,
+            'mail.relay.public_ip_detection_cache_seconds' => 60,
+        ]);
+        Cache::flush();
+        $this->app->forgetInstance(MailRelayPublicIpResolver::class);
+        Http::fake([
+            'https://first-ip.test/*'  => Http::response("8.8.4.4\n", 200, ['Content-Type' => 'text/plain']),
+            'https://second-ip.test/*' => Http::response("ip=8.8.4.4\nwarp=off\n", 200, ['Content-Type' => 'text/plain']),
+            'https://third-ip.test/*'  => Http::response("1.1.1.1\n", 200, ['Content-Type' => 'text/plain']),
+        ]);
+
+        $records = (new CloudflareMailDnsService)->expectedRecords();
+
+        self::assertContains([
+            'type'      => 'A',
+            'name'      => 'mailout.brand-a.com',
+            'value'     => '8.8.4.4',
+            'mode'      => 'managed',
+            'available' => true,
+        ], $records);
+        self::assertSame('detected', app(MailRelayPublicIpResolver::class)->resolution()['source']);
+        Http::assertSentCount(2);
+    }
+
+    public function test_auto_detection_fails_closed_when_sources_do_not_agree(): void
+    {
+        config([
+            'mail.relay.public_ips'                     => [],
+            'mail.relay.auto_detect_public_ips'         => true,
+            'mail.relay.public_ip_detection_endpoints'  => [
+                'https://first-ip.test/',
+                'https://second-ip.test/',
+                'https://third-ip.test/',
+            ],
+            'mail.relay.public_ip_detection_quorum' => 2,
+        ]);
+        Cache::flush();
+        $this->app->forgetInstance(MailRelayPublicIpResolver::class);
+        Http::fake([
+            'https://first-ip.test/*'  => Http::response("8.8.8.8\n"),
+            'https://second-ip.test/*' => Http::response("1.1.1.1\n"),
+            'https://third-ip.test/*'  => Http::response("9.9.9.9\n"),
+        ]);
+
+        $resolution = app(MailRelayPublicIpResolver::class)->resolution();
+
+        self::assertSame([], $resolution['ips']);
+        self::assertSame('unavailable', $resolution['source']);
+        self::assertStringContainsString('至少两个来源一致', $resolution['message']);
+        Http::assertSentCount(3);
+    }
+
+    public function test_explicit_public_ips_override_auto_detection_without_network_requests(): void
+    {
+        config([
+            'mail.relay.public_ips'             => ['8.8.8.8'],
+            'mail.relay.auto_detect_public_ips' => true,
+        ]);
+        Cache::flush();
+        $this->app->forgetInstance(MailRelayPublicIpResolver::class);
+        Http::fake();
+
+        $resolution = app(MailRelayPublicIpResolver::class)->resolution();
+
+        self::assertSame(['8.8.8.8'], $resolution['ips']);
+        self::assertSame('configured', $resolution['source']);
         Http::assertNothingSent();
     }
 

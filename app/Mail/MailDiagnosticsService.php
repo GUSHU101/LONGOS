@@ -94,28 +94,28 @@ class MailDiagnosticsService
         if (! $this->validDomain($hostname)) {
             $this->add($checks, 'mail_hostname', 'error', 'MAIL_RELAY_HOSTNAME 未配置或格式无效。');
         } else {
-            $addresses = $this->addressRecords($hostname);
-            $expected  = $this->configuredPublicIps();
+            $addresses  = $this->addressRecords($hostname);
+            $resolution = app(MailRelayPublicIpResolver::class)->resolution();
+            $expected   = $resolution['ips'];
             if ($addresses === []) {
                 $this->add($checks, 'mail_hostname', 'error', "{$hostname} 没有可用的 A/AAAA 记录。");
             } elseif ($expected === []) {
-                $suggestedIps = implode(',', $addresses);
                 $this->add(
                     $checks,
                     'mail_hostname',
                     'warning',
-                    "{$hostname} 已解析到 " . implode(', ', $addresses)
-                        . "，但 MAIL_RELAY_IPS 未配置，无法确认它是否错误地经过 Cloudflare 代理。若这些确为邮件服务器的固定公网出口 IP，请在 Coolify 设置 MAIL_RELAY_IPS={$suggestedIps} 并重新部署。",
+                    "{$hostname} 已解析到 " . implode(', ', $addresses) . '，但' . $resolution['message'],
                 );
             } else {
                 $matches = array_diff($expected, $addresses) === [] && array_diff($addresses, $expected) === [];
+                $source  = $resolution['source']             === 'detected' ? '（服务器自动识别）' : '（MAIL_RELAY_IPS）';
                 $this->add(
                     $checks,
                     'mail_hostname',
                     $matches ? 'ok' : 'error',
                     $matches
-                        ? "{$hostname} 已通过 DNS-only A/AAAA 解析到邮件服务器公网 IP：" . implode(', ', $addresses)
-                        : "{$hostname} 当前解析为 " . implode(', ', $addresses) . '，与 MAIL_RELAY_IPS（' . implode(', ', $expected) . '）不一致；请运行一键配置并确保为灰云 DNS-only。',
+                        ? "{$hostname} 已通过 DNS-only A/AAAA 解析到邮件服务器公网 IP{$source}：" . implode(', ', $addresses)
+                        : "{$hostname} 当前解析为 " . implode(', ', $addresses) . "，与邮件出口公网 IP{$source}（" . implode(', ', $expected) . '）不一致；请重新运行 Cloud Mail 部署向导并确保为灰云 DNS-only。',
                 );
             }
 
@@ -138,7 +138,7 @@ class MailDiagnosticsService
                         : 'PTR/rDNS 未与 MAIL_RELAY_HOSTNAME 对齐：' . implode('；', $ptrFailures) . '。PTR 只能在服务器/IP 服务商处设置。',
                 );
             } else {
-                $this->add($checks, 'reverse_dns', 'warning', 'MAIL_RELAY_IPS 未配置，无法自动验收 PTR/rDNS；请先在 Coolify 填写真实固定公网出口 IP 并重新部署。');
+                $this->add($checks, 'reverse_dns', 'warning', $resolution['message'] . ' 无法自动验收 PTR/rDNS。');
             }
         }
 
@@ -337,19 +337,6 @@ class MailDiagnosticsService
         $packed = @inet_pton(trim($address));
 
         return $packed === false ? '' : (inet_ntop($packed) ?: '');
-    }
-
-    /** @return array<int, string> */
-    private function configuredPublicIps(): array
-    {
-        return array_values(array_unique(array_filter(array_map(
-            static fn (mixed $address): string => self::normalizeIp((string) $address),
-            (array) config('mail.relay.public_ips', []),
-        ), static fn (string $address): bool => filter_var(
-            $address,
-            FILTER_VALIDATE_IP,
-            FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE | FILTER_FLAG_GLOBAL_RANGE,
-        ) !== false)));
     }
 
     /** @param array<int, string> $records */

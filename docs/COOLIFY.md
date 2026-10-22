@@ -53,7 +53,8 @@ Coolify 解析 Compose 后会自动生成 `SERVICE_*` 凭据。只需手动填�
 | `MAIL_RELAY_DOMAINS` | `example.com,brand.com` | 推荐 | 需要 DKIM 签名的所有发件域名 |
 | `MAIL_RELAY_ALLOWED_SENDER_DOMAINS` | 同上 | 推荐 | 允许租户选择的发件域名，必须是前一项的子集 |
 | `MAIL_RELAY_PLATFORM_SENDER_DOMAIN` | `mail.platform.com` | 推荐 | 主站及未配置独立域的子站使用的共享兜底域，必须包含在前两项中 |
-| `MAIL_RELAY_IPS` | `203.0.113.10` | DNS 自动化时推荐 | 外发邮件服务器公网 IP，多个用逗号分隔；仅用于 DNS-only 邮件主机 A/AAAA，与网站 Caddy 路由分离 |
+| `MAIL_RELAY_IPS` | 留空 | 特殊网络才需要 | 留空时安全自动识别服务器公网 IPv4 出口；独立 SMTP 出口、特殊 NAT/策略路由、多 IP 或已验收的 IPv6 发信时才填写逗号分隔的 IPv4/IPv6 |
+| `MAIL_RELAY_AUTO_DETECT_IPS` | `true` | 否 | 要求多个独立 HTTPS 源至少两个结果一致；关闭后必须显式填写 `MAIL_RELAY_IPS` |
 | `MAIL_FROM_ADDRESS` | `no-reply@example.com` | 否 | 平台默认发件地址；留空时自动跟随 `MAIL_RELAY_PLATFORM_SENDER_DOMAIN` |
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API Token | 否 | 仅在不使用 Cloud Mail GitHub 自动同步时需要；应在 Coolify 标记为 Secret |
 | `LONGOS_AUTO_CONFIGURE_MAIL_DNS` | `true` | 否 | 有可用 Token 时维护邮件 DNS；保留已有发信来源并将 SPF 合并为唯一一条，保留 DMARC 策略 |
@@ -92,7 +93,7 @@ Coolify 解析 Compose 后会自动生成 `SERVICE_*` 凭据。只需手动填�
 - 可以使用 DNS only 或橙色云；不要使用 Flexible。
 - 项目级 Caddy 不需要 Cloudflare API Token 才能为精确域名签证。
 - 推荐由 Cloud Mail GitHub 工作流读取 LONGOS 公开 DNS 清单，再在 Runner 内复用已有受限 `CLOUDFLARE_API_TOKEN` 写入 Cloudflare，Coolify 无需重复保存。只有需要后台按钮或 scheduler 独立同步时才在 Coolify 配置它；它不用于 Caddy 证书存储。
-- 自动维护邮件主机 A/AAAA 时还需填写 `MAIL_RELAY_IPS`；LONGOS 不会把 Cloudflare Anycast 网站入口误当成邮件出口 IP。
+- 自动维护邮件主机 A/AAAA 时可以保持 `MAIL_RELAY_IPS` 为空；LONGOS 会从服务器内发起多源公网出口探测，至少两个独立结果一致才使用。它不会把 Docker 私网、网站 DNS 或 Cloudflare Anycast 入口当成邮件出口 IP。
 - 首次部署后进入“系统 → 邮件设置”点击“一键配置邮件 DNS”；除服务器商控制的 TCP 25 与 PTR/rDNS 外，不需要手工维护邮件 DNS。
 
 ## 6. 首次部署

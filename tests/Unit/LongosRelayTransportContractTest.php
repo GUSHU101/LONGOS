@@ -115,8 +115,8 @@ class LongosRelayTransportContractTest extends TestCase
 
         self::assertStringContainsString("'allow_redirects' => false", $source);
         self::assertStringContainsString("(\$payload['status'] ?? null) === 'ok'", $source);
-        self::assertStringContainsString('请在 Coolify 设置 MAIL_RELAY_IPS=', $source);
-        self::assertStringContainsString('真实固定公网出口 IP', $source);
+        self::assertStringContainsString('MailRelayPublicIpResolver::class', $source);
+        self::assertStringContainsString('服务器自动识别', $source);
     }
 
     public function test_queued_mail_failures_are_rethrown_for_laravel_retry(): void

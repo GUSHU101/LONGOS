@@ -76,7 +76,7 @@ class CloudflareMailDnsService
         }
 
         $hostname = $this->mailHostname();
-        foreach ($this->explicitIpTargets() as $target) {
+        foreach ($this->publicIpTargets() as $target) {
             $records[] = [
                 'type'      => filter_var($target, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) ? 'AAAA' : 'A',
                 'name'      => $hostname,
@@ -467,10 +467,11 @@ class CloudflareMailDnsService
      */
     private function syncMailHostname(array &$result): void
     {
-        $hostname = $this->mailHostname();
-        $targets  = $this->explicitIpTargets();
+        $hostname   = $this->mailHostname();
+        $resolution = app(MailRelayPublicIpResolver::class)->resolution();
+        $targets    = $resolution['ips'];
         if ($targets === []) {
-            $result['warnings'][] = 'MAIL_RELAY_IPS 未包含明确公网 IP，已跳过邮件主机 A/AAAA 记录；请确保 MAIL_RELAY_HOSTNAME 与服务器 PTR 人工对齐。';
+            $result['warnings'][] = $resolution['message'];
 
             return;
         }
@@ -533,19 +534,9 @@ class CloudflareMailDnsService
     }
 
     /** @return array<int, string> */
-    private function explicitIpTargets(): array
+    private function publicIpTargets(): array
     {
-        return array_values(array_unique(array_map(
-            static fn (mixed $target): string => trim((string) $target),
-            array_filter(
-                (array) config('mail.relay.public_ips', []),
-                static fn (mixed $target): bool => filter_var(
-                    trim((string) $target),
-                    FILTER_VALIDATE_IP,
-                    FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE | FILTER_FLAG_GLOBAL_RANGE,
-                ) !== false,
-            ),
-        )));
+        return app(MailRelayPublicIpResolver::class)->resolve();
     }
 
     private static function validPublicDomain(string $domain): bool

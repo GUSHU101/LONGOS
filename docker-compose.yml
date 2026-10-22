@@ -65,10 +65,12 @@ x-app-environment: &app-environment
   MAIL_MAILER: self_hosted
   MAIL_RELAY_ENDPOINT: http://mail-relay:3000
   MAIL_RELAY_HOSTNAME: ${MAIL_RELAY_HOSTNAME:-mailout.${SAAS_BASE_DOMAIN}}
-  # Optional explicit outbound server IPs. These are used only for the
-  # DNS-only mail host A/AAAA record and never inferred from Cloudflare's
-  # Anycast addresses or from the website Caddy route.
+  # Optional override for unusual NAT, policy-routing or dedicated SMTP
+  # egress. When blank, LONGOS safely detects the shared server egress IP by
+  # requiring independent HTTPS reflectors to agree. Website/Cloudflare
+  # Anycast DNS is never used as the source.
   MAIL_RELAY_IPS: ${MAIL_RELAY_IPS:-}
+  MAIL_RELAY_AUTO_DETECT_IPS: ${MAIL_RELAY_AUTO_DETECT_IPS:-true}
   MAIL_RELAY_DOMAINS: ${MAIL_RELAY_DOMAINS:-${SAAS_BASE_DOMAIN}}
   MAIL_RELAY_ALLOWED_SENDER_DOMAINS: ${MAIL_RELAY_ALLOWED_SENDER_DOMAINS:-${MAIL_RELAY_DOMAINS:-${SAAS_BASE_DOMAIN}}}
   MAIL_RELAY_PLATFORM_SENDER_DOMAIN: ${MAIL_RELAY_PLATFORM_SENDER_DOMAIN:-${SAAS_BASE_DOMAIN}}
