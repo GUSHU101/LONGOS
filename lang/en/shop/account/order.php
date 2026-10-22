@@ -11,14 +11,14 @@
  */
 
 return [
-    'index'         => 'Order',
-    'completed'     => 'Completed',
-    'cancelled'     => 'Cancelled',
-    'order_details' => 'Order Details',
-    'amount'        => 'Amount',
-    'state'         => 'State',
-    'order_number'  => 'Order Number',
-    'check'         => 'Check',
+    'index'             => 'Order',
+    'completed'         => 'Completed',
+    'cancelled'         => 'Cancelled',
+    'order_details'     => 'Order Details',
+    'amount'            => 'Amount',
+    'state'             => 'State',
+    'order_number'      => 'Order Number',
+    'check'             => 'Check',
     'list_intro'        => 'Review purchases, payment progress, delivery updates and after-sales actions in one place.',
     'filter_label'      => 'Filter orders by status',
     'items'             => 'Items',
