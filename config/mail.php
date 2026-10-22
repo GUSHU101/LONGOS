@@ -174,6 +174,14 @@ return [
         'public_ip_detection_quorum'        => 2,
         'public_ip_detection_timeout'       => 3,
         'public_ip_detection_cache_seconds' => 900,
+        // Public DoH responses expose DNS RCODEs, unlike dns_get_record(), so
+        // diagnostics can distinguish a missing PTR from SERVFAIL/REFUSED and
+        // broken reverse-zone delegation. These lookups are never cached.
+        'ptr_doh_endpoints' => [
+            'Cloudflare' => 'https://cloudflare-dns.com/dns-query',
+            'Google'     => 'https://dns.google/resolve',
+        ],
+        'ptr_doh_timeout'                   => 4,
         'dkim_selector'                     => env('MAIL_RELAY_DKIM_SELECTOR', 'mail2026'),
         'auto_configure_dns'                => (bool) env('LONGOS_AUTO_CONFIGURE_MAIL_DNS', true),
         'dns_records_path'                  => env('MAIL_RELAY_DNS_RECORDS_PATH', '/var/lib/longos-mail-dns'),

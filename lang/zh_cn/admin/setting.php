@@ -95,6 +95,7 @@ return [
     'mail_test_sent'                               => '测试邮件已发送，请检查收件箱和垃圾邮件箱。',
     'mail_test_logged'                             => '测试邮件已写入应用日志；日志模式不会投递到收件箱。',
     'mail_test_failed'                             => '测试邮件发送失败，请检查邮件配置和邮件日志。',
+    'mail_test_failed_with_reason'                 => '测试邮件发送失败：:error',
     'mail_log_retention_days'                      => '邮件日志保留天数',
     'mail_log_retention_days_help'                 => '系统每日自动删除超期的已发送/失败日志及邮件正文，避免敏感链接长期保存和数据库无限增长。范围 1–365 天。',
     'mail_log_retention_invalid'                   => '邮件日志保留天数必须是 1 到 365 之间的整数。',

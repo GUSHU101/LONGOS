@@ -3,6 +3,7 @@
 namespace Tests\Unit;
 
 use App\Mail\MailDiagnosticsService;
+use App\Mail\MailReverseDnsResolver;
 use PHPUnit\Framework\TestCase;
 use ReflectionMethod;
 
@@ -47,7 +48,7 @@ class MailDnsAddressTest extends TestCase
 
     private function reverseName(string $address): string
     {
-        $method = new ReflectionMethod(MailDiagnosticsService::class, 'reverseDnsName');
+        $method = new ReflectionMethod(MailReverseDnsResolver::class, 'reverseDnsName');
 
         return $method->invoke(null, $address);
     }

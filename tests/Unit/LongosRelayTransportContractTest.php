@@ -111,12 +111,29 @@ class LongosRelayTransportContractTest extends TestCase
 
     public function test_mail_diagnostics_rejects_redirects_and_false_health_pages(): void
     {
-        $source = file_get_contents(dirname(__DIR__, 2) . '/app/Mail/MailDiagnosticsService.php');
+        $source      = file_get_contents(dirname(__DIR__, 2) . '/app/Mail/MailDiagnosticsService.php');
+        $ptrResolver = file_get_contents(dirname(__DIR__, 2) . '/app/Mail/MailReverseDnsResolver.php');
 
         self::assertStringContainsString("'allow_redirects' => false", $source);
         self::assertStringContainsString("(\$payload['status'] ?? null) === 'ok'", $source);
         self::assertStringContainsString('MailRelayPublicIpResolver::class', $source);
+        self::assertStringContainsString('MailReverseDnsResolver::class', $source);
         self::assertStringContainsString('服务器自动识别', $source);
+        self::assertStringContainsString("'allow_redirects' => false", $ptrResolver);
+        self::assertStringContainsString("'application/dns-json'", $ptrResolver);
+        self::assertStringContainsString("2       => 'SERVFAIL'", $ptrResolver);
+        self::assertStringContainsString("5       => 'REFUSED'", $ptrResolver);
+    }
+
+    public function test_admin_mail_test_returns_only_a_sanitized_failure_reason(): void
+    {
+        $controller = file_get_contents(dirname(__DIR__, 2) . '/beike/Admin/Http/Controllers/SettingController.php');
+        $mailLog    = file_get_contents(dirname(__DIR__, 2) . '/beike/Models/MailLog.php');
+
+        self::assertStringContainsString('$safeError = $this->redactMailTestError($e->getMessage())', $controller);
+        self::assertStringContainsString("'reason'    => \$safeError", $controller);
+        self::assertStringContainsString('json_fail($this->mailTestFailureMessage($safeError))', $controller);
+        self::assertStringContainsString('SensitiveValueRedactor::redact', $mailLog);
     }
 
     public function test_queued_mail_failures_are_rethrown_for_laravel_retry(): void

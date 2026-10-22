@@ -132,7 +132,7 @@ Coolify 解析 Compose 后会自动生成 `SERVICE_*` 凭据。只需手动填�
 
 Compose 自动启动 Postfix/OpenDKIM 和内部 HMAC API，不开放公共 SMTP 端口。LONGOS、队列和 Cloud Mail 通过私有网络调用它。DKIM 私钥只保存在中继容器专用卷；网站容器只读挂载可公开的 TXT 值。
 
-部署后在 LONGOS 邮件设置点击“立即检测”，可直接查看和复制各发件域的 DKIM、SPF、DMARC 及明确配置的邮件主机 A/AAAA。有持久 Cloudflare Token 时，容器启动后会尝试立即同步，调度器每 5 分钟幂等重试；否则 Cloud Mail 工作流从受保护端点读取只含公开值的 DNS 清单，并由 GitHub Runner 直接写入 Cloudflare。Cloudflare Token 不会发送到 LONGOS。自动化只更新 LONGOS selector 的 DKIM，保留现有 DMARC 策略，并把所有 SPF 发信机制安全合并为唯一一条。
+部署后在 LONGOS 邮件设置点击“立即检测”，可直接查看和复制各发件域的 DKIM、SPF、DMARC 及明确配置的邮件主机 A/AAAA。PTR/rDNS 由两个独立公共 DoH 解析器交叉验收并显示 DNS RCODE，因此服务商反向区域的 `SERVFAIL/REFUSED` 不会再被误写成普通“无 PTR”；解析结果不做持久缓存。有持久 Cloudflare Token 时，容器启动后会尝试立即同步，调度器每 5 分钟幂等重试；否则 Cloud Mail 工作流从受保护端点读取只含公开值的 DNS 清单，并由 GitHub Runner 直接写入 Cloudflare。Cloudflare Token 不会发送到 LONGOS。自动化只更新 LONGOS selector 的 DKIM，保留现有 DMARC 策略，并把所有 SPF 发信机制安全合并为唯一一条。
 
 新增签名域名后更新 `MAIL_RELAY_DOMAINS` 与 `MAIL_RELAY_ALLOWED_SENDER_DOMAINS` 并在 Coolify 点击 Redeploy；新域会自动生成独立 DKIM，已有私钥保存在卷中，不会重新生成。
 

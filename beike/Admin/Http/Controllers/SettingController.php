@@ -375,14 +375,16 @@ class SettingController extends Controller
 
             return json_success(trans($engine === 'log' ? 'admin/setting.mail_test_logged' : 'admin/setting.mail_test_sent'));
         } catch (Throwable $e) {
+            $safeError = $this->redactMailTestError($e->getMessage());
             Log::warning('Admin mail configuration test failed.', [
                 'engine'    => $engine,
                 'recipient' => $data['recipient'],
                 'exception' => $e::class,
+                'reason'    => $safeError,
             ]);
             $this->markTestMailFailed($data['recipient'], $subject, $body, $engine, $e);
 
-            return json_fail(trans('admin/setting.mail_test_failed'));
+            return json_fail($this->mailTestFailureMessage($safeError));
         }
     }
 
@@ -424,6 +426,17 @@ class SettingController extends Controller
     private function redactMailTestError(string $message): string
     {
         return MailLog::sanitizeError($message);
+    }
+
+    private function mailTestFailureMessage(string $safeError): string
+    {
+        if ($safeError === '') {
+            return trans('admin/setting.mail_test_failed');
+        }
+
+        return trans('admin/setting.mail_test_failed_with_reason', [
+            'error' => mb_substr($safeError, 0, 500),
+        ]);
     }
 
     private function recordTestMail(string $recipient, string $subject, string $body, string $engine, string $status, ?string $error = null): void

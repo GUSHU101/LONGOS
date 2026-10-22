@@ -121,21 +121,33 @@ class MailDiagnosticsService
 
             if ($expected !== []) {
                 $ptrFailures = [];
+                $ptrWarnings = [];
+                $ptrResolver = app(MailReverseDnsResolver::class);
                 foreach ($expected as $address) {
-                    $targets = $this->ptrRecords($address);
-                    if (! in_array($hostname, $targets, true)) {
-                        $ptrFailures[] = $targets === []
-                            ? "{$address}（无 PTR）"
-                            : "{$address}（当前 PTR：" . implode(', ', $targets) . '）';
+                    $lookup  = $ptrResolver->resolve($address);
+                    $targets = $lookup['targets'];
+                    if ($lookup['state'] === 'unavailable') {
+                        $ptrWarnings[] = "{$address}（{$lookup['message']}）";
+                    } elseif (! in_array($hostname, $targets, true)) {
+                        $ptrFailures[] = "{$address}（{$lookup['message']}）";
+                    } elseif ($lookup['state'] === 'partial') {
+                        $ptrWarnings[] = "{$address}（已包含 {$hostname}，但{$lookup['message']}）";
+                    } elseif (count($targets) > 1) {
+                        $ptrWarnings[] = "{$address}（PTR 已包含 {$hostname}，但还返回其他目标：" . implode(', ', array_diff($targets, [$hostname])) . '）';
                     }
                 }
+
+                $status  = $ptrFailures !== [] ? 'error' : ($ptrWarnings !== [] ? 'warning' : 'ok');
+                $message = match ($status) {
+                    'ok'      => '所有邮件服务器公网 IP 的 PTR/rDNS 均已由独立公共解析器确认反向指向 ' . $hostname . '。',
+                    'warning' => 'PTR/rDNS 已找到目标，但公共解析结果尚未完全稳定：' . implode('；', $ptrWarnings),
+                    default   => 'PTR/rDNS 未与 MAIL_RELAY_HOSTNAME 对齐：' . implode('；', $ptrFailures) . '。PTR 只能在服务器/IP 服务商处设置。',
+                };
                 $this->add(
                     $checks,
                     'reverse_dns',
-                    $ptrFailures === [] ? 'ok' : 'error',
-                    $ptrFailures === []
-                        ? '所有邮件服务器公网 IP 的 PTR/rDNS 均已反向指向 ' . $hostname . '。'
-                        : 'PTR/rDNS 未与 MAIL_RELAY_HOSTNAME 对齐：' . implode('；', $ptrFailures) . '。PTR 只能在服务器/IP 服务商处设置。',
+                    $status,
+                    $message,
                 );
             } else {
                 $this->add($checks, 'reverse_dns', 'warning', $resolution['message'] . ' 无法自动验收 PTR/rDNS。');
@@ -295,41 +307,6 @@ class MailDiagnosticsService
             static fn (array $record): string => self::normalizeIp((string) ($record['ip'] ?? $record['ipv6'] ?? '')),
             $records,
         ))));
-    }
-
-    /** @return array<int, string> */
-    private function ptrRecords(string $address): array
-    {
-        if (! function_exists('dns_get_record')) {
-            return [];
-        }
-
-        $reverse = self::reverseDnsName($address);
-        if ($reverse === '') {
-            return [];
-        }
-        $records = @dns_get_record($reverse, DNS_PTR);
-        if (! is_array($records)) {
-            return [];
-        }
-
-        return array_values(array_unique(array_filter(array_map(
-            fn (array $record): string => $this->normalizeDomain($record['target'] ?? ''),
-            $records,
-        ))));
-    }
-
-    private static function reverseDnsName(string $address): string
-    {
-        $packed = @inet_pton($address);
-        if ($packed === false) {
-            return '';
-        }
-        if (strlen($packed) === 4) {
-            return implode('.', array_reverse(unpack('C*', $packed))) . '.in-addr.arpa';
-        }
-
-        return implode('.', array_reverse(str_split(bin2hex($packed)))) . '.ip6.arpa';
     }
 
     private static function normalizeIp(string $address): string

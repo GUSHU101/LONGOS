@@ -75,7 +75,9 @@ Cloud Mail 的部署工作流会自动把令牌写入 Worker Secret；后台保�
 - `MAIL_RELAY_HOSTNAME` 的 A/AAAA 解析；
 - 每个签名域的 SPF、DKIM 与 DMARC。
 
-检测会把 `MAIL_RELAY_HOSTNAME` 的解析结果与有效邮件出口 IP（显式 `MAIL_RELAY_IPS` 或自动识别值）严格核对，并对每个公网 IP 查询 PTR/rDNS 是否反向指回该主机名，避免把通配符网站记录返回的 Cloudflare Anycast 地址误判为正常。表格只展示公开 DNS 值，不显示任何私钥或 Token。完成后使用“发送测试邮件”验证真实投递链路。后台的“已发送”准确含义是“邮件已被当前传输层或 Postfix 队列接受”，最终是否进入收件箱仍取决于公网 25 端口、PTR、DNS 身份、目标服务商策略和 IP 信誉。
+检测会把 `MAIL_RELAY_HOSTNAME` 的解析结果与有效邮件出口 IP（显式 `MAIL_RELAY_IPS` 或自动识别值）严格核对，并对每个公网 IP 查询 PTR/rDNS 是否反向指回该主机名，避免把通配符网站记录返回的 Cloudflare Anycast 地址误判为正常。PTR 通过 Cloudflare 与 Google 两个独立公共 DoH 解析器交叉验收；会明确区分尚未发布的 `NXDOMAIN/NODATA`、权威区域故障导致的 `SERVFAIL/REFUSED`、传播不一致和检测服务不可用，不再把所有失败笼统显示成“无 PTR”。公共检测服务都不可用时才回退到容器本地 DNS，并显示警告而不是误报通过。
+
+表格只展示公开 DNS 值，不显示任何私钥或 Token。完成后使用“发送测试邮件”验证真实投递链路。后台的“已发送”准确含义是“邮件已被当前传输层或 Postfix 队列接受”，最终是否进入收件箱仍取决于公网 25 端口、PTR、DNS 身份、目标服务商策略和 IP 信誉。测试提交失败时，管理员页面会显示经过统一脱敏和长度限制的直接原因，完整的脱敏结果仍保存在邮件日志中；Token、密码、签名和带凭据 URL 不会回显。
 
 Cloud Mail 的“测试连接”会携带已创建的集成令牌调用主站 `/_longos/mail-relay/health`。返回健康状态才表示应用网关、中继和 Postfix 当前可用；接口不会泄露队列内容、地址或密钥。
 
@@ -160,6 +162,8 @@ SaaS 模式的生产调度由独立 `scheduler` 容器逐租户执行清理，�
 
 - 后台诊断显示“无法连接内置中继”：在 Coolify 检查 `mail-relay` 是否健康、应用与中继是否同属私有 `longos` 网络，以及 `MAIL_RELAY_ENDPOINT=http://mail-relay:3000`。
 - 中继健康但外部收不到：先确认云服务器允许出站 TCP 25，并让服务商把公网 IP 的 PTR/rDNS 设置成 `MAIL_RELAY_HOSTNAME`。
+- PTR 显示 `SERVFAIL/REFUSED` 或 `lame delegation`：这不是缓存或“等待 TTL”能够修复的问题；向 IP 服务商提交反向区域委派/权威服务器故障工单。只有公共查询返回 `Status=0` 且 PTR 指向 `MAIL_RELAY_HOSTNAME` 才算生效。
+- 测试邮件提交失败：先读取页面显示的脱敏原因，再到“邮件日志”打开最新 `system_test` 记录；中继容器日志中的 `mail_queued` 表示 Postfix 已接收，后续退信则按 Postfix 日志定位目标服务商响应。
 - DKIM 失败：重新读取 `/var/lib/dkim` 中生成的 TXT，完整发布到 `<selector>._domainkey.<domain>`；长公钥在 DNS 控制台可能被分段展示，这是正常的。
 - Cloudflare 用户：邮件主机 A/AAAA 必须使用“仅 DNS”，不能开橙色云；LONGOS 网站域名仍可使用橙色云和 Full (strict)。Cloudflare 不会代理服务器到收件方的 SMTP 投递。
 - 只有队列邮件不发送：检查 `worker` 容器和 `failed_jobs`；修复后重试失败任务时会复用稳定投递 ID，已被中继接受的邮件不会重复提交。

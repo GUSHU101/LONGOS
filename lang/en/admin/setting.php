@@ -97,6 +97,7 @@ return [
     'mail_test_sent'                               => 'Test email sent. Check the inbox and spam folder.',
     'mail_test_logged'                             => 'The test message was written to the application log. Log mode does not deliver to an inbox.',
     'mail_test_failed'                             => 'Test email could not be sent. Check the mail configuration and mail logs.',
+    'mail_test_failed_with_reason'                 => 'Test email could not be sent: :error',
     'mail_log_retention_days'                      => 'Mail log retention (days)',
     'mail_log_retention_days_help'                 => 'LONGOS removes expired sent/failed logs and message bodies daily to limit sensitive-link retention and unbounded database growth. Allowed range: 1–365 days.',
     'mail_log_retention_invalid'                   => 'Mail log retention must be an integer between 1 and 365 days.',
