@@ -34,7 +34,7 @@ class CloudMailRelayController extends Controller
         }
 
         $raw = $request->getContent();
-        $max = max(1024, (int) config('mail.relay.max_request_bytes', 26214400));
+        $max = max(1024, (int) config('mail.relay.max_request_bytes', 33554432));
         if ($raw === '' || strlen($raw) > $max) {
             return $this->error('Request body is empty or too large.', Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
         }
@@ -78,6 +78,9 @@ class CloudMailRelayController extends Controller
             'category'   => $category,
         ];
         $encoded = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        if (strlen($encoded) > $max) {
+            return $this->error('Request body is too large after sender context normalization.', Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
+        }
 
         return $this->forward('POST', 'v1/send', $encoded);
     }
@@ -191,6 +194,10 @@ class CloudMailRelayController extends Controller
         $parts  = parse_url($endpoint);
         $scheme = strtolower((string) ($parts['scheme'] ?? ''));
         $host   = strtolower((string) ($parts['host'] ?? ''));
+
+        if (isset($parts['user']) || isset($parts['pass']) || isset($parts['query']) || isset($parts['fragment'])) {
+            return false;
+        }
 
         return $scheme === 'https' || ($scheme === 'http' && in_array($host, ['mail-relay', '127.0.0.1', 'localhost'], true));
     }

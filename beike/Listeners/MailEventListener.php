@@ -34,21 +34,23 @@ class MailEventListener
             $mailData = $this->extractMailData($message);
 
             $values = [
-                'delivery_id'     => $mailData['delivery_id'],
-                'to_email'        => $mailData['to_email'],
-                'to_name'         => $mailData['to_name'],
-                'from_email'      => $mailData['from_email'],
-                'from_name'       => $mailData['from_name'],
-                'subject'         => $mailData['subject'],
-                'content'         => $mailData['content'],
-                'mail_type'       => $mailData['mail_type'] ?: $this->detectMailType($mailData['subject'], $mailData['content']),
-                'transport'       => $this->getCurrentTransport(),
-                'status'          => MailLog::STATUS_PENDING,
-                'error_message'   => null,
-                'sent_at'         => null,
-                'headers'         => $mailData['headers'],
-                'attachments'     => $mailData['attachments'],
-                'last_attempt_at' => now(),
+                'delivery_id'          => $mailData['delivery_id'],
+                'relay_submission_id'  => null,
+                'transport_message_id' => null,
+                'to_email'             => $mailData['to_email'],
+                'to_name'              => $mailData['to_name'],
+                'from_email'           => $mailData['from_email'],
+                'from_name'            => $mailData['from_name'],
+                'subject'              => $mailData['subject'],
+                'content'              => $mailData['content'],
+                'mail_type'            => $mailData['mail_type'] ?: $this->detectMailType($mailData['subject'], $mailData['content']),
+                'transport'            => $this->getCurrentTransport(),
+                'status'               => MailLog::STATUS_PENDING,
+                'error_message'        => null,
+                'sent_at'              => null,
+                'headers'              => $mailData['headers'],
+                'attachments'          => $mailData['attachments'],
+                'last_attempt_at'      => now(),
             ];
 
             // A queued notification carries the same delivery id through all
@@ -119,11 +121,12 @@ class MailEventListener
             $mailLog   = MailLog::find($mailLogId);
 
             if ($mailLog) {
+                $receipt = $this->relayReceipt($message);
                 $mailLog->update([
                     'status'        => MailLog::STATUS_SENT,
                     'error_message' => null,
                     'sent_at'       => now(),
-                ]);
+                ] + $receipt);
             }
 
         } catch (\Exception $e) {
@@ -321,5 +324,27 @@ class MailEventListener
         $sqlState = (string) ($exception->errorInfo[0] ?? '');
 
         return in_array($sqlState, ['23000', '23505'], true);
+    }
+
+    /** @return array<string, string> */
+    private function relayReceipt(mixed $message): array
+    {
+        $receipt = [];
+        $headers = $message->getHeaders();
+
+        $submission = $headers->get('X-Longos-Relay-Submission-ID')?->getBodyAsString();
+        if (is_string($submission) && preg_match('/^[a-zA-Z0-9._:-]{1,128}$/', $submission) === 1) {
+            $receipt['relay_submission_id'] = $submission;
+        }
+
+        $messageId = $headers->get('X-Longos-Relay-Message-ID')?->getBodyAsString();
+        if (is_string($messageId)
+            && $messageId !== ''
+            && strlen($messageId) <= 255
+            && preg_match('/[\x00-\x1F\x7F]/', $messageId) !== 1) {
+            $receipt['transport_message_id'] = $messageId;
+        }
+
+        return $receipt;
     }
 }

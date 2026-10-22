@@ -34,7 +34,7 @@ const clientSecrets = new Map([
   ['longos', process.env.LONGOS_RELAY_SHARED_SECRET || ''],
   ['cloud-mail', process.env.CLOUD_MAIL_RELAY_SHARED_SECRET || ''],
 ].filter(([, secret]) => secret));
-const maxRequestBytes = positiveInt(process.env.MAX_REQUEST_BYTES, 25 * 1024 * 1024, 'MAX_REQUEST_BYTES');
+const maxRequestBytes = positiveInt(process.env.MAX_REQUEST_BYTES, 32 * 1024 * 1024, 'MAX_REQUEST_BYTES');
 const maxAttachmentBytes = positiveInt(process.env.MAX_ATTACHMENT_BYTES, 20 * 1024 * 1024, 'MAX_ATTACHMENT_BYTES');
 const maxAttachments = positiveInt(process.env.MAX_ATTACHMENTS, 25, 'MAX_ATTACHMENTS');
 const maxRecipients = positiveInt(process.env.MAX_RECIPIENTS, 50, 'MAX_RECIPIENTS');
@@ -71,6 +71,9 @@ if (clientSecrets.has('longos') && clientSecrets.has('cloud-mail')
 if (allowedSenderDomains.size === 0) throw new Error('ALLOWED_SENDER_DOMAINS must contain at least one domain');
 if (!idempotencyStorePath) throw new Error('IDEMPOTENCY_STORE_PATH is required for restart-safe delivery');
 if (maxAttachmentBytes > maxRequestBytes) throw new Error('MAX_ATTACHMENT_BYTES must not exceed MAX_REQUEST_BYTES');
+if (Math.ceil(maxAttachmentBytes / 3) * 4 + 64 * 1024 > maxRequestBytes) {
+  throw new Error('MAX_REQUEST_BYTES must allow for base64 attachment expansion and message metadata');
+}
 if (idempotencyRetentionSeconds < signatureWindowSeconds * 2) {
   throw new Error('IDEMPOTENCY_RETENTION_SECONDS must be at least twice SIGNATURE_WINDOW_SECONDS');
 }
@@ -85,7 +88,16 @@ let globalRateBucket = {minute: -1, count: 0};
 let receiptStoreHealthy = true;
 let lastReceiptCompaction = 0;
 let lastHealthCheck = 0;
-let cachedHealth = {healthy: false, queueDepth: maxQueueMessages + 1};
+let cachedHealth = {
+  healthy: false,
+  queueDepth: maxQueueMessages + 1,
+  components: {
+    postfix: false,
+    opendkim: false,
+    queue: false,
+    receiptStore: false,
+  },
+};
 
 function receiptCapacityAvailable(key = '') {
   return completedRequests.has(key)
@@ -422,7 +434,15 @@ async function handleSend(request, response) {
   try {
     const info = await transporter.sendMail(mail);
     acceptedByPostfix = true;
-    const result = {accepted: true, queueId: requestId, messageId: info.messageId || mail.messageId};
+    // requestId is a durable LONGOS submission identifier, not Postfix's
+    // internal queue ID. Keep queueId for older clients while returning the
+    // accurately named field to all current clients.
+    const result = {
+      accepted: true,
+      submissionId: requestId,
+      queueId: requestId,
+      messageId: info.messageId || mail.messageId,
+    };
     rememberCompletedRequest(requestKey, result, requestHash);
     console.info(JSON.stringify({
       event: 'mail_queued',
@@ -459,27 +479,37 @@ function relayHealth(force = false) {
   const queueDepth = queue.status === 0
     ? String(queue.stdout || '').split('\n').filter(line => line.trim() !== '').length
     : maxQueueMessages + 1;
-  const healthy = postfix.status === 0
-    && opendkim.status === 0
-    && queue.status === 0
-    && queueDepth <= maxQueueMessages
-    && receiptCapacityAvailable()
-    && receiptStoreHealthy
-    && storeWritable;
+  const components = {
+    postfix: postfix.status === 0,
+    opendkim: opendkim.status === 0,
+    queue: queue.status === 0 && queueDepth <= maxQueueMessages,
+    receiptStore: receiptCapacityAvailable() && receiptStoreHealthy && storeWritable,
+  };
+  const healthy = Object.values(components).every(Boolean);
   lastHealthCheck = Date.now();
-  cachedHealth = {healthy, queueDepth};
+  cachedHealth = {healthy, queueDepth, components};
   return cachedHealth;
+}
+
+function healthPayload(health) {
+  return {
+    status: health.healthy ? 'ok' : 'degraded',
+    queueDepth: health.queueDepth,
+    queueLimit: maxQueueMessages,
+    uncertainRequests: uncertainRequests.size,
+    idempotencyRecords: completedRequests.size + uncertainRequests.size,
+    idempotencyCapacity: maxIdempotencyRecords,
+    components: Object.fromEntries(
+      Object.entries(health.components).map(([name, ready]) => [name, ready ? 'ok' : 'degraded']),
+    ),
+  };
 }
 
 const server = http.createServer(async (request, response) => {
   try {
     if (request.method === 'GET' && request.url === '/health') {
       const health = relayHealth(true);
-      return json(response, health.healthy ? 200 : 503, {
-        status: health.healthy ? 'ok' : 'degraded',
-        queueDepth: health.queueDepth,
-        uncertainRequests: uncertainRequests.size,
-      });
+      return json(response, health.healthy ? 200 : 503, healthPayload(health));
     }
     if (request.method === 'POST' && request.url === '/v1/send') return await handleSend(request, response);
     return json(response, 404, {message: 'Not found'});
@@ -507,6 +537,7 @@ process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 
 export {
+  healthPayload,
   normalizeMessage,
   positiveInt,
   rememberCompletedRequest,

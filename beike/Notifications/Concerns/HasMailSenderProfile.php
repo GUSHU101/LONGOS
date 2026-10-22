@@ -9,10 +9,10 @@ use Illuminate\Support\Str;
 trait HasMailSenderProfile
 {
     /** Relay/network failures get bounded retries; the delivery id deduplicates accepted attempts. */
-    public int $tries = 3;
+    public int $tries = 5;
 
     /** @var array<int, int> */
-    public array $backoff = [10, 60];
+    public array $backoff = [30, 120, 300, 900];
 
     /** Persisted with the queued notification, so retries remain idempotent. */
     protected ?string $mailDeliveryId = null;

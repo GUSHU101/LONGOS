@@ -134,6 +134,8 @@ Compose 自动启动 Postfix/OpenDKIM 和内部 HMAC API，不开放公共 SMTP 
 
 部署后在 LONGOS 邮件设置点击“立即检测”，可直接查看和复制各发件域的 DKIM、SPF、DMARC 及明确配置的邮件主机 A/AAAA。PTR/rDNS 由两个独立公共 DoH 解析器交叉验收并显示 DNS RCODE，因此服务商反向区域的 `SERVFAIL/REFUSED` 不会再被误写成普通“无 PTR”；解析结果不做持久缓存。有持久 Cloudflare Token 时，容器启动后会尝试立即同步，调度器每 5 分钟幂等重试；否则 Cloud Mail 工作流从受保护端点读取只含公开值的 DNS 清单，并由 GitHub Runner 直接写入 Cloudflare。Cloudflare Token 不会发送到 LONGOS。自动化只更新 LONGOS selector 的 DKIM，保留现有 DMARC 策略，并把所有 SPF 发信机制安全合并为唯一一条。
 
+“立即检测”还会分别显示 Postfix、OpenDKIM、邮件队列和持久回执存储的状态，包括队列深度/上限、回执占用和状态不确定的投递数。这能区分“中继不可用”、“DKIM 签名进程异常”和“对方邮服导致队列积压”。
+
 新增签名域名后更新 `MAIL_RELAY_DOMAINS` 与 `MAIL_RELAY_ALLOWED_SENDER_DOMAINS` 并在 Coolify 点击 Redeploy；新域会自动生成独立 DKIM，已有私钥保存在卷中，不会重新生成。
 
 多个子站使用不同发件域时，把所有域一次性写入上述两个逗号分隔变量。Redeploy 并完成 DNS 验证后，在主站“租户站点”页把每个独立域唯一分配给对应子站，再到各子站“邮件设置”点击“应用到全部发件身份”并保存。平台域只是未配置独立域时的共享兜底，不会强迫所有子站使用同一个 From 域；Cloud Mail 仍只需要主站的一枚集成令牌。

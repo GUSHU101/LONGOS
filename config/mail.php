@@ -96,10 +96,14 @@ return [
         // The Docker installer provisions this authenticated relay on the
         // private LONGOS network. Postfix itself only listens on loopback.
         'self_hosted' => [
-            'transport' => 'longos_relay',
-            'endpoint'  => env('MAIL_RELAY_ENDPOINT', 'http://mail-relay:3000'),
-            'secret'    => $longosRelaySecret,
-            'timeout'   => (int) env('MAIL_RELAY_TIMEOUT', 30),
+            'transport'            => 'longos_relay',
+            'endpoint'             => env('MAIL_RELAY_ENDPOINT', 'http://mail-relay:3000'),
+            'secret'               => $longosRelaySecret,
+            'timeout'              => (int) env('MAIL_RELAY_TIMEOUT', 30),
+            'max_request_bytes'    => (int) env('MAIL_RELAY_MAX_REQUEST_BYTES', 33554432),
+            'max_attachment_bytes' => (int) env('MAIL_RELAY_MAX_ATTACHMENT_BYTES', 20971520),
+            'max_attachments'      => (int) env('MAIL_RELAY_MAX_ATTACHMENTS', 25),
+            'max_recipients'       => (int) env('MAIL_RELAY_MAX_RECIPIENTS', 50),
         ],
 
         'ses'      => [
@@ -187,7 +191,10 @@ return [
         'dns_records_path'                  => env('MAIL_RELAY_DNS_RECORDS_PATH', '/var/lib/longos-mail-dns'),
         'cloudflare_api_base'               => rtrim((string) env('CLOUDFLARE_API_BASE', 'https://api.cloudflare.com/client/v4'), '/'),
         'cloud_mail_secret'                 => $cloudMailRelaySecret,
-        'max_request_bytes'                 => (int) env('MAIL_RELAY_MAX_REQUEST_BYTES', 26214400),
+        'max_request_bytes'                 => (int) env('MAIL_RELAY_MAX_REQUEST_BYTES', 33554432),
+        'max_attachment_bytes'              => (int) env('MAIL_RELAY_MAX_ATTACHMENT_BYTES', 20971520),
+        'max_attachments'                   => (int) env('MAIL_RELAY_MAX_ATTACHMENTS', 25),
+        'max_recipients'                    => (int) env('MAIL_RELAY_MAX_RECIPIENTS', 50),
         'longos_client_configured'          => strlen($longosRelaySecret)    >= 32,
         'cloud_mail_client_configured'      => strlen($cloudMailRelaySecret) >= 32,
         'client_secrets_distinct'           => $longosRelaySecret !== ''

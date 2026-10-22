@@ -58,3 +58,20 @@ test('rejects non-canonical base64 before allocating an attachment', () => {
     attachments: [{filename: 'bad.txt', content: 'YQ==='}],
   }), /Invalid base64 attachment/);
 });
+
+test('reports component health, queue capacity and receipt capacity without message data', () => {
+  const payload = relay.healthPayload({
+    healthy: false,
+    queueDepth: 12,
+    components: {postfix: true, opendkim: false, queue: true, receiptStore: true},
+  });
+
+  assert.equal(payload.status, 'degraded');
+  assert.equal(payload.queueDepth, 12);
+  assert.equal(payload.queueLimit, 1000);
+  assert.equal(payload.components.postfix, 'ok');
+  assert.equal(payload.components.opendkim, 'degraded');
+  assert.equal(typeof payload.idempotencyCapacity, 'number');
+  assert.equal(Object.hasOwn(payload, 'messages'), false);
+  assert.equal(Object.hasOwn(payload, 'recipients'), false);
+});

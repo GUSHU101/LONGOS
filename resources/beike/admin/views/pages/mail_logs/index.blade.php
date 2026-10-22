@@ -217,7 +217,7 @@
                        class="btn btn-default" title="{{ __('admin/mail_log.view_detail') }}">
                       <i class="bi bi-eye"></i>
                     </a>
-                    @if($log->status === 'failed')
+                    @if($log->status === 'failed' && count((array) $log->attachments) === 0)
                       <button type="button" class="btn btn-outline-warning"
                               onclick="resendMail({{ $log->id }})" title="{{ __('admin/mail_log.resend') }}">
                         <i class="bi bi-arrow-clockwise"></i>

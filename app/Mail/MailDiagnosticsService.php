@@ -84,7 +84,57 @@ class MailDiagnosticsService
                 $healthy = $response->getStatusCode() === 200
                     && is_array($payload)
                     && ($payload['status'] ?? null) === 'ok';
-                $this->add($checks, 'relay_health', $healthy ? 'ok' : 'error', $healthy ? '中继 API、Postfix 和去重回执存储运行正常。' : '中继健康检查返回异常状态。');
+                $components = is_array($payload['components'] ?? null) ? $payload['components'] : [];
+                $degraded   = collect($components)
+                    ->filter(static fn (mixed $status): bool => $status !== 'ok')
+                    ->keys()
+                    ->map(static fn (mixed $name): string => match ((string) $name) {
+                        'postfix'      => 'Postfix',
+                        'opendkim'     => 'OpenDKIM',
+                        'queue'        => '邮件队列',
+                        'receiptStore' => '去重回执存储',
+                        default        => (string) $name,
+                    })
+                    ->values()
+                    ->all();
+                $this->add(
+                    $checks,
+                    'relay_health',
+                    $healthy ? 'ok' : 'error',
+                    $healthy
+                        ? '中继 API、Postfix、OpenDKIM 和去重回执存储运行正常。'
+                        : ($degraded === [] ? '中继健康检查返回异常状态。' : '中继组件异常：' . implode('、', $degraded) . '。'),
+                );
+
+                if (is_array($payload)) {
+                    $queueDepth = filter_var($payload['queueDepth'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
+                    $queueLimit = filter_var($payload['queueLimit'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+                    if ($queueDepth !== false && $queueLimit !== false) {
+                        $queueRatio  = $queueDepth / $queueLimit;
+                        $queueStatus = $queueDepth > $queueLimit ? 'error' : ($queueRatio >= 0.8 ? 'warning' : 'ok');
+                        $this->add(
+                            $checks,
+                            'relay_queue',
+                            $queueStatus,
+                            "Postfix 队列当前 {$queueDepth} 封，安全上限 {$queueLimit} 封。"
+                                . ($queueStatus === 'warning' ? '队列接近上限，请检查对方拒收或延迟日志。' : ''),
+                        );
+                    }
+
+                    $uncertain = filter_var($payload['uncertainRequests'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
+                    $records   = filter_var($payload['idempotencyRecords'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
+                    $capacity  = filter_var($payload['idempotencyCapacity'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+                    if ($uncertain !== false && $records !== false && $capacity !== false) {
+                        $receiptStatus = $uncertain > 0 || ($records / $capacity) >= 0.8 ? 'warning' : 'ok';
+                        $this->add(
+                            $checks,
+                            'relay_receipts',
+                            $receiptStatus,
+                            "去重回执 {$records}/{$capacity}，状态不确定的投递 {$uncertain} 封。"
+                                . ($uncertain > 0 ? '为防止重复发信，这些投递不会被自动重复提交。' : ''),
+                        );
+                    }
+                }
             } catch (Throwable) {
                 $this->add($checks, 'relay_health', 'error', '无法连接内置中继 API，请检查 mail-relay 容器与 Docker 网络。');
             }
@@ -239,6 +289,13 @@ class MailDiagnosticsService
         }
         $scheme = strtolower((string) parse_url($endpoint, PHP_URL_SCHEME));
         $host   = strtolower((string) parse_url($endpoint, PHP_URL_HOST));
+
+        if (parse_url($endpoint, PHP_URL_USER)        !== null
+            || parse_url($endpoint, PHP_URL_PASS)     !== null
+            || parse_url($endpoint, PHP_URL_QUERY)    !== null
+            || parse_url($endpoint, PHP_URL_FRAGMENT) !== null) {
+            return false;
+        }
 
         return $scheme === 'https' || ($scheme === 'http' && in_array($host, ['mail-relay', '127.0.0.1', 'localhost'], true));
     }

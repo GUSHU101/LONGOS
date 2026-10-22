@@ -233,6 +233,12 @@ class MailLogController extends Controller
         $subject   = trim((string) $mailLog->subject);
         $content   = (string) $mailLog->content;
 
+        // Audit rows retain attachment metadata, not attachment bytes. Never
+        // claim that a partial replay succeeded after silently dropping files.
+        if (count((array) $mailLog->attachments) > 0) {
+            return json_fail(__('admin/mail_log.resend_attachments_unavailable'));
+        }
+
         // Replaying a record must never turn a malformed or manually edited
         // database row into an arbitrary mail-header injection.
         if (! filter_var($recipient, FILTER_VALIDATE_EMAIL) || $subject === '' || $content === '' || preg_match('/[\r\n]/', $subject)) {
@@ -267,6 +273,7 @@ class MailLogController extends Controller
 
             return json_success(__('admin/mail_log.resend_success'));
         } catch (Throwable $e) {
+            $safeError = MailLog::sanitizeError($e->getMessage());
             Log::warning('Admin mail log resend failed.', [
                 'mail_log_id' => $mailLog->id,
                 'recipient'   => $recipient,
@@ -282,33 +289,37 @@ class MailLogController extends Controller
                     ->where('status', MailLog::STATUS_PENDING)
                     ->limit(1)
                     ->update([
-                        'status'        => MailLog::STATUS_FAILED,
-                        'error_message' => MailLog::sanitizeError($e->getMessage()),
+                        'status'          => MailLog::STATUS_FAILED,
+                        'error_message'   => $safeError,
+                        'last_attempt_at' => now(),
                     ]);
 
                 if ($updated) {
-                    return json_fail(__('admin/mail_log.resend_failed_message'));
+                    return json_fail(__('admin/mail_log.resend_failed_with_reason', ['reason' => $safeError]));
                 }
 
                 MailLog::query()->create([
-                    'to_email'      => $recipient,
-                    'to_name'       => $mailLog->to_name,
-                    'from_email'    => (string) config('mail.from.address', ''),
-                    'from_name'     => (string) config('mail.from.name', ''),
-                    'subject'       => $subject,
-                    'content'       => $content,
-                    'mail_type'     => (string) ($mailLog->mail_type ?: 'other'),
-                    'transport'     => (string) config('mail.default', ''),
-                    'status'        => MailLog::STATUS_FAILED,
-                    'error_message' => MailLog::sanitizeError($e->getMessage()),
-                    'headers'       => ['X-BK-Mail-Resend-Of' => (string) $mailLog->id],
-                    'attachments'   => [],
+                    'delivery_id'     => 'resend:' . $mailLog->id,
+                    'to_email'        => $recipient,
+                    'to_name'         => $mailLog->to_name,
+                    'from_email'      => (string) config('mail.from.address', ''),
+                    'from_name'       => (string) config('mail.from.name', ''),
+                    'subject'         => $subject,
+                    'content'         => $content,
+                    'mail_type'       => (string) ($mailLog->mail_type ?: 'other'),
+                    'transport'       => (string) config('mail.default', ''),
+                    'status'          => MailLog::STATUS_FAILED,
+                    'attempts'        => 1,
+                    'error_message'   => $safeError,
+                    'headers'         => ['X-BK-Mail-Resend-Of' => (string) $mailLog->id],
+                    'attachments'     => [],
+                    'last_attempt_at' => now(),
                 ]);
             } catch (Throwable $logException) {
                 Log::warning('Unable to record failed mail resend.', ['exception' => $logException::class]);
             }
 
-            return json_fail(__('admin/mail_log.resend_failed_message'));
+            return json_fail(__('admin/mail_log.resend_failed_with_reason', ['reason' => $safeError]));
         }
     }
 }

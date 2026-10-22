@@ -15,7 +15,7 @@ class LongosRelayTransportContractTest extends TestCase
         $source     = file_get_contents(dirname(__DIR__, 2) . '/beike/Mail/Transport/LongosRelayTransport.php');
         $provider   = file_get_contents(dirname(__DIR__, 2) . '/beike/Shop/Providers/ShopServiceProvider.php');
 
-        self::assertStringContainsString("'transport' => 'longos_relay'", $config);
+        self::assertMatchesRegularExpression("/'transport'\\s*=>\\s*'longos_relay'/", $config);
         self::assertStringContainsString("hash_hmac('sha256'", $source);
         self::assertStringContainsString("'X-Relay-Nonce'", $source);
         self::assertStringContainsString("'X-Relay-Client'    => 'longos'", $source);
@@ -27,6 +27,7 @@ class LongosRelayTransportContractTest extends TestCase
         self::assertStringContainsString('CLOUD_MAIL_RELAY_SHARED_SECRET: ${SERVICE_PASSWORD_64_CLOUDMAIL}', $compose);
         self::assertStringContainsString('MAIL_RELAY_DOMAINS:-${SAAS_BASE_DOMAIN}', $compose);
         self::assertStringContainsString('MAIL_RELAY_DNS_RECORDS_PATH: /var/lib/longos-mail-dns', $compose);
+        self::assertStringContainsString('MAIL_RELAY_MAX_REQUEST_BYTES:-33554432', $compose);
         self::assertStringContainsString('mail-relay-dns:/var/lib/longos-mail-dns:ro', $compose);
         self::assertStringContainsString('mail-relay-dns:/var/lib/mail-relay-dns', $compose);
         self::assertStringContainsString('DNS_RECORDS_PATH: /var/lib/mail-relay-dns', $compose);
@@ -85,7 +86,11 @@ class LongosRelayTransportContractTest extends TestCase
         self::assertStringContainsString('globalRateLimitExceeded()', $source);
         self::assertStringContainsString('senderRateLimitExceeded(rateKey)', $source);
         self::assertStringContainsString('Relay idempotency capacity is exhausted', $source);
-        self::assertStringContainsString('&& receiptCapacityAvailable()', $source);
+        self::assertStringContainsString('receiptStore: receiptCapacityAvailable()', $source);
+        self::assertStringContainsString('idempotencyCapacity: maxIdempotencyRecords', $source);
+        self::assertStringContainsString('submissionId: requestId', $source);
+        self::assertStringContainsString('base64 attachment expansion and message metadata', $source);
+        self::assertStringContainsString("'allow_redirects' => false", file_get_contents(dirname(__DIR__, 2) . '/beike/Mail/Transport/LongosRelayTransport.php'));
         self::assertStringNotContainsString('while (completedRequests.size + uncertainRequests.size > maxIdempotencyRecords)', $source);
         self::assertStringContainsString('const requestKey = `${relayClient}:${requestId}`', $source);
         self::assertStringContainsString('nonceScope: relayClient', $source);
@@ -144,8 +149,8 @@ class LongosRelayTransportContractTest extends TestCase
         self::assertStringContainsString('catch (\\Throwable $e)', $channel);
         self::assertStringContainsString('throw $e;', $channel);
         self::assertStringNotContainsString('// 不抛出异常，静默失败', $channel);
-        self::assertStringContainsString('public int $tries = 3;', $trait);
-        self::assertStringContainsString('public array $backoff = [10, 60];', $trait);
+        self::assertStringContainsString('public int $tries = 5;', $trait);
+        self::assertStringContainsString('public array $backoff = [30, 120, 300, 900];', $trait);
         self::assertStringContainsString('$mailDeliveryId', $trait);
         self::assertStringContainsString('hash(\'sha256\', implode(\',\', $recipients))', $trait);
     }

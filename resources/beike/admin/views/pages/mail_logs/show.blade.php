@@ -6,7 +6,7 @@
 
 @section('content')
   @section('page-title-right')
-    @if($mail_log->status === 'failed')
+    @if($mail_log->status === 'failed' && count((array) $mail_log->attachments) === 0)
       <button type="button" class="btn btn-outline-info" onclick="app.resend()">
         <i class="bi bi-arrow-clockwise"></i> {{ __('admin/mail_log.resend') }}
       </button>
@@ -61,6 +61,18 @@
               <div class="col-sm-9"><code>{{ $mail_log->delivery_id }}</code></div>
             </div>
           @endif
+          @if($mail_log->relay_submission_id)
+            <div class="row mb-3">
+              <div class="col-sm-3"><strong>{{ __('admin/mail_log.relay_submission_id') }}：</strong></div>
+              <div class="col-sm-9"><code>{{ $mail_log->relay_submission_id }}</code></div>
+            </div>
+          @endif
+          @if($mail_log->transport_message_id)
+            <div class="row mb-3">
+              <div class="col-sm-3"><strong>{{ __('admin/mail_log.transport_message_id') }}：</strong></div>
+              <div class="col-sm-9"><code class="text-break">{{ $mail_log->transport_message_id }}</code></div>
+            </div>
+          @endif
           <div class="row mb-3">
             <div class="col-sm-3"><strong>{{ __('admin/mail_log.attempts') }}：</strong></div>
             <div class="col-sm-9">{{ max(1, (int) $mail_log->attempts) }}</div>
@@ -92,6 +104,11 @@
                   {{ $mail_log->error_message }}
                 </div>
               </div>
+            </div>
+          @endif
+          @if($mail_log->status === 'failed' && count((array) $mail_log->attachments) > 0)
+            <div class="alert alert-warning mb-0">
+              {{ __('admin/mail_log.resend_attachments_unavailable') }}
             </div>
           @endif
         </div>

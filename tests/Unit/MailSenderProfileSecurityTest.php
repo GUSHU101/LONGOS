@@ -216,4 +216,45 @@ class MailSenderProfileSecurityTest extends TestCase
         self::assertSame('orders', $payload['senderContext']['category']);
         self::assertSame('shop-a', $payload['senderContext']['tenantCode']);
     }
+
+    public function test_transport_records_only_valid_relay_receipt_metadata(): void
+    {
+        $email     = (new Email)->from('orders@mail.example.com')->to('to@example.net')->subject('Order')->text('Body');
+        $transport = new LongosRelayTransport('http://mail-relay:3000', str_repeat('a', 32));
+        $method    = new ReflectionMethod($transport, 'recordRelayReceipt');
+
+        $method->invoke($transport, $email, [
+            'submissionId' => 'delivery:42',
+            'messageId'    => '<delivery.42@mail.example.com>',
+        ]);
+
+        self::assertSame('delivery:42', $email->getHeaders()->get('X-Longos-Relay-Submission-ID')->getBodyAsString());
+        self::assertSame('<delivery.42@mail.example.com>', $email->getHeaders()->get('X-Longos-Relay-Message-ID')->getBodyAsString());
+
+        $method->invoke($transport, $email, [
+            'submissionId' => "bad\r\nheader",
+            'messageId'    => "bad\r\nheader",
+        ]);
+
+        self::assertSame('delivery:42', $email->getHeaders()->get('X-Longos-Relay-Submission-ID')->getBodyAsString());
+        self::assertSame('<delivery.42@mail.example.com>', $email->getHeaders()->get('X-Longos-Relay-Message-ID')->getBodyAsString());
+    }
+
+    public function test_transport_rejects_oversized_attachments_before_network_submission(): void
+    {
+        $email = (new Email)
+            ->from('orders+shop-a@mail.example.com')
+            ->to('to@example.net')
+            ->subject('Order')
+            ->text('Body')
+            ->attach(str_repeat('x', 11), 'large.txt', 'text/plain');
+        $transport = new LongosRelayTransport('http://mail-relay:3000', str_repeat('a', 32), 30, [
+            'max_request_bytes'    => 1024,
+            'max_attachment_bytes' => 10,
+        ]);
+        $method = new ReflectionMethod($transport, 'payload');
+
+        $this->expectExceptionMessage('attachments exceed the configured size limit');
+        $method->invoke($transport, $email);
+    }
 }

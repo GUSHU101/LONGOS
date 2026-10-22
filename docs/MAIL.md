@@ -71,7 +71,7 @@ Cloud Mail 的部署工作流会自动把令牌写入 Worker Secret；后台保�
 
 - 默认发件身份及租户授权；
 - LONGOS 内部 HMAC 密钥是否完整且不与站内密钥复用；
-- 中继 API、Postfix 与持久化去重回执是否健康；
+- 中继 API、Postfix、OpenDKIM、Postfix 队列与持久化去重回执是否分别健康；同时显示队列深度/上限、回执容量和状态不确定的投递数；
 - `MAIL_RELAY_HOSTNAME` 的 A/AAAA 解析；
 - 每个签名域的 SPF、DKIM 与 DMARC。
 
@@ -149,6 +149,8 @@ _dmarc.example.com   TXT   "v=DMARC1; p=none; rua=mailto:dmarc@example.com"
 ## 邮件审计、重试与自动清理
 
 LONGOS 会把同一队列通知的所有尝试合并到同一个稳定投递 ID，并记录尝试次数。中继也会把“客户端身份 + 投递 ID + 完整请求摘要”作为去重键：相同内容的网络重试返回原回执，不会再次提交；同一 ID 携带不同内容会被拒绝，避免错误覆盖旧邮件。
+
+传输层接收后，审计记录还会保存 LONGOS 中继提交 ID 和 RFC Message-ID，便于将后台记录与 `mail-relay`/Postfix 日志对应。历史日志只保存附件元数据而不保存文件字节；带附件的失败邮件必须从原业务重新触发，后台不会静默丢弃附件后重发。
 
 在邮件设置中可将“邮件日志保留天数”设为 1–365 天，默认 30 天。调度器每天自动：
 

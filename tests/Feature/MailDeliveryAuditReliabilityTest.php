@@ -44,6 +44,7 @@ class MailDeliveryAuditReliabilityTest extends TestCase
             '2025_07_22_083341_create_mail_logs_table.php',
             '2025_07_22_095733_add_transport_to_mail_logs_table.php',
             '2026_10_15_020000_harden_mail_delivery_audit.php',
+            '2026_10_22_000000_add_relay_receipts_to_mail_logs.php',
         ] as $migration) {
             (require base_path('database/migrations/' . $migration))->up();
         }
@@ -77,6 +78,9 @@ class MailDeliveryAuditReliabilityTest extends TestCase
         self::assertSame(2, $mailLog->attempts);
         self::assertSame((string) $mailLog->id, $retry->getHeaders()->get('X-Mail-Log-ID')->getBodyAsString());
 
+        $retry->getHeaders()->addTextHeader('X-Longos-Relay-Submission-ID', 'delivery:tenant-7:order-12');
+        $retry->getHeaders()->addTextHeader('X-Longos-Relay-Message-ID', '<delivery.12@example.com>');
+
         $sent = new LaravelSentMessage(new SymfonySentMessage($retry, Envelope::create($retry)));
         $listener->handleMessageSent(new MessageSent($sent));
 
@@ -84,6 +88,8 @@ class MailDeliveryAuditReliabilityTest extends TestCase
         self::assertSame(MailLog::STATUS_SENT, $mailLog->status);
         self::assertNotNull($mailLog->sent_at);
         self::assertNull($mailLog->error_message);
+        self::assertSame('delivery:tenant-7:order-12', $mailLog->relay_submission_id);
+        self::assertSame('<delivery.12@example.com>', $mailLog->transport_message_id);
     }
 
     public function test_retention_marks_abandoned_attempts_failed_and_prunes_only_expired_terminal_logs(): void
