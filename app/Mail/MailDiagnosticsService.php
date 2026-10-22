@@ -99,7 +99,14 @@ class MailDiagnosticsService
             if ($addresses === []) {
                 $this->add($checks, 'mail_hostname', 'error', "{$hostname} 没有可用的 A/AAAA 记录。");
             } elseif ($expected === []) {
-                $this->add($checks, 'mail_hostname', 'warning', "{$hostname} 已解析到 " . implode(', ', $addresses) . '，但 MAIL_RELAY_IPS 未配置，无法确认它是否错误地经过 Cloudflare 代理。');
+                $suggestedIps = implode(',', $addresses);
+                $this->add(
+                    $checks,
+                    'mail_hostname',
+                    'warning',
+                    "{$hostname} 已解析到 " . implode(', ', $addresses)
+                        . "，但 MAIL_RELAY_IPS 未配置，无法确认它是否错误地经过 Cloudflare 代理。若这些确为邮件服务器的固定公网出口 IP，请在 Coolify 设置 MAIL_RELAY_IPS={$suggestedIps} 并重新部署。",
+                );
             } else {
                 $matches = array_diff($expected, $addresses) === [] && array_diff($addresses, $expected) === [];
                 $this->add(
@@ -131,7 +138,7 @@ class MailDiagnosticsService
                         : 'PTR/rDNS 未与 MAIL_RELAY_HOSTNAME 对齐：' . implode('；', $ptrFailures) . '。PTR 只能在服务器/IP 服务商处设置。',
                 );
             } else {
-                $this->add($checks, 'reverse_dns', 'warning', 'MAIL_RELAY_IPS 未配置，无法自动验收 PTR/rDNS。');
+                $this->add($checks, 'reverse_dns', 'warning', 'MAIL_RELAY_IPS 未配置，无法自动验收 PTR/rDNS；请先在 Coolify 填写真实固定公网出口 IP 并重新部署。');
             }
         }
 

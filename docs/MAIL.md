@@ -29,6 +29,8 @@ MAIL_FROM_ADDRESS=no-reply@<SAAS_BASE_DOMAIN>
 
 需要自定义时，在 Coolify 环境变量中设置同名值并 Redeploy。`MAIL_RELAY_DOMAINS` 和 `MAIL_RELAY_ALLOWED_SENDER_DOMAINS` 支持逗号分隔的多个域名；留空时 Laravel 和 Compose 从 `SAAS_BASE_DOMAIN` 推导。首次打开后台邮件设置时，默认、订单、账户、退货/客服和营销五类发件人会按当前租户自动填充。
 
+采用 Cloud Mail 本地部署向导时，不必把 Cloudflare Token 长期保存到 LONGOS/Coolify：在 Coolify 设置或修改 `MAIL_RELAY_IPS` 并重新部署 LONGOS 后，再运行一次 Cloud Mail 向导即可用当次输入的 Token 同步 A/AAAA、SPF、DKIM 和 DMARC。此模式下后台会明确显示“由 Cloud Mail 部署向导管理”，并隐藏需要持久 Token 的手动同步按钮；“立即检测”和邮件发送不受影响。只有确实需要从 LONGOS 后台按钮或 scheduler 独立修改 Cloudflare DNS 时，才配置 `CLOUDFLARE_API_TOKEN` Secret。
+
 中继会先规范化、去重再生成 DKIM：逗号两侧的空格允许，域名内部的空格、空列表、非法域名或“允许发件域不在签名域集合中”都会让容器失败并给出明确日志，避免错误域名被静默改写或在未签名状态发信。
 
 Cloudflare 自动发布默认由 `LONGOS_AUTO_CONFIGURE_MAIL_DNS=true` 开启。应用只更新 LONGOS 专用的 DKIM selector；DMARC 已存在时保留原策略；SPF 会解析并保留全部现有机制，加入 LONGOS 邮件主机，然后更新为唯一一条并清理重复 SPF。危险的 `+all`、无法安全合并的 `redirect=`、冲突修饰符以及明显超过 10 次 DNS 查询的策略会停止并给出原因。邮件主机 A/AAAA 只使用 `MAIL_RELAY_IPS` 的明确 IP，绝不从 Cloudflare 代理后的网站域名猜测。推荐让 Cloud Mail GitHub 工作流读取公开清单并由 Runner 写入 Cloudflare；只有不通过该工作流部署，或希望新增发件域后由后台按钮/scheduler 独立同步时，才需要把 `CLOUDFLARE_API_TOKEN` 作为 Coolify Secret 保存。

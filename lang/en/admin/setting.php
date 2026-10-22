@@ -114,6 +114,7 @@ return [
     'mail_dns_sync_failed'                         => 'Mail DNS configuration failed. Review the reason below.',
     'mail_dns_sync_propagation'                    => 'Cloudflare accepted the changes. Allow a few minutes for public DNS propagation, then run diagnostics.',
     'mail_dns_sync_not_configured'                 => 'A Cloudflare API token with access to this DNS zone has not been configured.',
+    'mail_dns_sync_external_help'                  => 'No Cloudflare token is stored in LONGOS. The Cloud Mail deployment wizard can safely manage mail DNS with the token entered for that run. Configure CLOUDFLARE_API_TOKEN as a Coolify secret only if direct synchronization from this page is required.',
     'mail_dns_sync_locked'                         => 'Another mail DNS synchronization is running. Run diagnostics again shortly.',
     'mail_dns_sync_rate_limited'                   => 'Mail DNS configuration is being run too frequently. Try again in one minute.',
     'mail_dns_records_title'                       => 'Sender-domain DNS records',

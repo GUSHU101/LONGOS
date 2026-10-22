@@ -303,6 +303,9 @@ class SaasWebInstallerTest extends TestCase
         self::assertStringContainsString('主站不占用租户独立发件域', $view);
         self::assertStringContainsString('senderDomainPresets', $mailView);
         self::assertStringContainsString('applySenderDomain(domain)', $mailView);
+        self::assertStringContainsString("'dnsSyncAvailable' => \$dnsSyncAvailable", $mailView);
+        self::assertStringContainsString('v-if="dnsSyncAvailable"', $mailView);
+        self::assertStringContainsString('v-if="!dnsSyncAvailable"', $mailView);
         self::assertStringContainsString("'Cache-Control', 'no-store, private'", $api);
         self::assertStringContainsString('prepareProvisioningRuntime', $api);
         self::assertStringContainsString('assignSenderDomain(', $api);

@@ -43,12 +43,14 @@
     if ($savedMailEngine === '' && config('mail.relay.enabled')) {
         $savedMailEngine = 'self_hosted';
     }
+    $dnsSyncAvailable = app(\App\Mail\CloudflareMailDnsService::class)->configured();
     $mailPageData = [
         'mailEngine' => $savedMailEngine,
         'testRecipient' => old('mail_test_recipient', $senderProfiles[\App\Mail\MailSenderProfileService::DEFAULT]['address']),
         'testUrl' => admin_route('settings.mail.test'),
         'diagnosticsUrl' => admin_route('settings.mail.diagnostics'),
         'dnsSyncUrl' => admin_route('settings.mail.dns-sync'),
+        'dnsSyncAvailable' => $dnsSyncAvailable,
         'senderDomainPresets' => $senderDomainPresets,
         'labels' => [
             'testRecipient' => __('admin/setting.mail_test_recipient'),
@@ -64,6 +66,7 @@
             'dnsSyncConfirm' => __('admin/setting.mail_dns_sync_confirm'),
             'dnsSyncFailed' => __('admin/setting.mail_dns_sync_failed'),
             'dnsSyncPropagation' => __('admin/setting.mail_dns_sync_propagation'),
+            'dnsSyncExternalHelp' => __('admin/setting.mail_dns_sync_external_help'),
             'senderDomainApplied' => __('admin/setting.mail_sender_domain_applied'),
             'dnsRecordPending' => __('admin/setting.mail_dns_record_pending'),
             'dnsRecordCopied' => __('admin/setting.mail_dns_record_copied'),
@@ -94,7 +97,7 @@
               <div class="text-secondary font-size-12">{{ __('admin/setting.mail_diagnostics_help') }}</div>
             </div>
             <div class="d-flex flex-wrap gap-2">
-              <button type="button" class="btn btn-primary" :disabled="diagnosing || syncingDns" @click="syncMailDns">
+              <button v-if="dnsSyncAvailable" type="button" class="btn btn-primary" :disabled="diagnosing || syncingDns" @click="syncMailDns">
                 <i class="bi bi-magic"></i>
                 @{{ syncingDns ? source.dnsSyncRunning : source.dnsSyncButton }}
               </button>
@@ -103,6 +106,9 @@
                 @{{ diagnosing ? source.diagnosticsRunning : source.diagnosticsButton }}
               </button>
             </div>
+          </div>
+          <div v-if="!dnsSyncAvailable" class="alert alert-info py-2 px-3 mb-0 mt-3">
+            <i class="bi bi-shield-check me-1"></i>@{{ source.dnsSyncExternalHelp }}
           </div>
           <div v-if="diagnosticChecks.length" class="mt-3 d-grid gap-2">
             <div v-for="check in diagnosticChecks" :key="check.key" class="alert py-2 px-3 mb-0"
@@ -391,6 +397,7 @@
         testing: false,
         diagnosing: false,
         syncingDns: false,
+        dnsSyncAvailable: mailPageData.dnsSyncAvailable === true,
         diagnosticChecks: [],
         dnsRecords: [],
         diagnosticError: '',
@@ -417,6 +424,7 @@
           dnsSyncRunning: mailPageData.labels.dnsSyncRunning,
           dnsSyncConfirm: mailPageData.labels.dnsSyncConfirm,
           dnsSyncPropagation: mailPageData.labels.dnsSyncPropagation,
+          dnsSyncExternalHelp: mailPageData.labels.dnsSyncExternalHelp,
           dnsRecordPending: mailPageData.labels.dnsRecordPending,
           dnsRecordCopied: mailPageData.labels.dnsRecordCopied,
           dnsModeManaged: '{{ __('admin/setting.mail_dns_record_mode_managed') }}',
@@ -453,7 +461,7 @@
           }).always(() => { this.diagnosing = false; });
         },
         syncMailDns() {
-          if (this.syncingDns || !window.confirm(this.source.dnsSyncConfirm)) return;
+          if (!this.dnsSyncAvailable || this.syncingDns || !window.confirm(this.source.dnsSyncConfirm)) return;
           this.syncingDns = true;
           this.diagnosticError = '';
           this.dnsSyncMessage = '';

@@ -112,6 +112,7 @@ return [
     'mail_dns_sync_failed'                         => '邮件 DNS 自动配置失败，请查看下方原因。',
     'mail_dns_sync_propagation'                    => 'Cloudflare 已接受变更；公共 DNS 可能需要几分钟生效，之后再点击“立即检测”。',
     'mail_dns_sync_not_configured'                 => '尚未配置可管理该域名 DNS 的 Cloudflare API Token。',
+    'mail_dns_sync_external_help'                  => '当前未在 LONGOS 中持久保存 Cloudflare Token。邮件 DNS 可由 Cloud Mail 部署向导使用本次输入的 Token 安全管理；只有希望在此页面直接同步时，才需要在 Coolify Secret 中配置 CLOUDFLARE_API_TOKEN。',
     'mail_dns_sync_locked'                         => '另一个邮件 DNS 同步正在运行，请稍后重新检测。',
     'mail_dns_sync_rate_limited'                   => '自动配置操作过于频繁，请一分钟后再试。',
     'mail_dns_records_title'                       => '发件域 DNS 记录',
