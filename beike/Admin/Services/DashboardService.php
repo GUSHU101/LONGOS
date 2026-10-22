@@ -20,7 +20,7 @@ class DashboardService
 {
     public const VALID_TIME_RANGES = ['today', 'yesterday', 'week', 'month'];
 
-    private const CACHE_SCHEMA_VERSION = 'v2-human-confirmed-visits';
+    private const CACHE_SCHEMA_VERSION = 'v3-period-aware-visit-fallback';
 
     private MockDataGenerator $mockDataGenerator;
 
@@ -331,8 +331,11 @@ class DashboardService
                     'key'        => 'visitors',
                     'name'       => __('admin/dashboard.funnel_visitors'),
                     'value'      => $visits,
-                    'percentage' => 100,
-                    'width'      => 100,
+                    // A zero visitor baseline is not 100% conversion. The
+                    // previous hard-coded values made an empty period look
+                    // healthy and also drew a full-width bar next to zero.
+                    'percentage' => $visits > 0 ? 100 : 0,
+                    'width'      => round(($visits / $maxValue) * 100, 1),
                 ],
                 [
                     'key'        => 'product_viewers',
@@ -1381,9 +1384,14 @@ class DashboardService
 
     private function storefrontVisitsInRange(array $dateRange): bool
     {
+        // Schema availability only says that the new ledger can be queried;
+        // it does not mean this period contains usable traffic. During a
+        // rolling upgrade (or before a visitor confirms the staged browser
+        // request) product views may already exist while the confirmed visit
+        // ledger is empty. In that case the legacy data is the only honest
+        // source and must remain the period-level fallback.
         return $this->memoizeRange('visit_ledger_available', $dateRange, fn (): bool => $this->storefrontVisitsAvailable()
-            && ($this->storefrontVisitConfirmationAvailable()
-                || $this->storefrontVisitQuery()->whereBetween('bucket_at', $dateRange)->exists()));
+            && $this->storefrontVisitQuery()->whereBetween('bucket_at', $dateRange)->exists());
     }
 
     private function storefrontVisitConfirmationAvailable(): bool

@@ -186,6 +186,46 @@ class DashboardAccuracyTest extends TestCase
         self::assertNotContains('DE', array_column($service->getVisitorCountryRanking('today'), 'code'));
     }
 
+    public function test_empty_confirmed_visit_ledger_falls_back_to_product_view_metrics_for_the_period(): void
+    {
+        // The confirmation column exists, but no staged visit in the selected
+        // period has become a confirmed human visit. Product views still hold
+        // two distinct visitors and must keep every traffic panel consistent.
+        DB::table('storefront_visits')->update([
+            'human_confirmed_at'  => null,
+            'confirmation_method' => null,
+        ]);
+
+        $overview = (new DashboardService)->getOverview('today');
+
+        self::assertSame('product_views', $overview['meta']['traffic_source']);
+        self::assertSame(2, $overview['meta']['tracked_visitors']);
+        self::assertSame(2, $overview['stats']['visitors']['current']);
+        self::assertSame([2, 2], array_slice(array_column($overview['funnel'], 'value'), 0, 2));
+        self::assertSame([100, 100.0], array_slice(array_column($overview['funnel'], 'percentage'), 0, 2));
+        self::assertSame(2, array_sum(array_column($overview['sources'], 'value')));
+        self::assertSame(2, array_sum(array_column($overview['countries'], 'visitors')));
+        self::assertSame(3, array_sum($overview['trends']['pv']));
+        self::assertSame(2, array_sum($overview['trends']['uv']));
+    }
+
+    public function test_empty_funnel_does_not_present_zero_visitors_as_one_hundred_percent(): void
+    {
+        DB::table('storefront_visits')->delete();
+        DB::table('product_views')->delete();
+        DB::table('dashboard_events')->delete();
+        DB::table('order_products')->delete();
+        DB::table('order_histories')->delete();
+        DB::table('orders')->delete();
+
+        $funnel = (new DashboardService)->getFunnelData('today');
+
+        self::assertSame(0, $funnel[0]['value']);
+        self::assertSame(0, $funnel[0]['percentage']);
+        self::assertSame(0.0, $funnel[0]['width']);
+        self::assertSame([0, 0, 0, 0, 0], array_column($funnel, 'value'));
+    }
+
     public function test_replayed_paid_history_does_not_move_old_revenue_into_today(): void
     {
         DB::table('orders')->insert([
@@ -365,9 +405,10 @@ class DashboardAccuracyTest extends TestCase
             && $currentRangeQueries($query));
 
         // Basic cards, the funnel and metadata all need the same value. The
-        // overview computes it once instead of issuing three identical reads.
+        // overview performs one period-level availability check and one
+        // visitor count instead of repeating either query for every panel.
         self::assertCount(1, $visitorCounts);
-        self::assertCount(0, $visitChecks);
+        self::assertCount(1, $visitChecks);
 
         DB::table('storefront_visits')->insert([
             'bucket_at'           => '2026-10-08 11:00:00',

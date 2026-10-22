@@ -424,7 +424,7 @@
 
 .commerce-funnel__label { color: var(--dashboard-text); font-size: 12px; font-weight: 600; }
 .commerce-funnel__track { height: 22px; overflow: hidden; border-radius: 6px; background: var(--dashboard-panel-muted); }
-.commerce-funnel__fill { display: block; min-width: 3px; height: 100%; border-radius: inherit; background: var(--dashboard-primary); opacity: .85; }
+.commerce-funnel__fill { display: block; min-width: 0; height: 100%; border-radius: inherit; background: var(--dashboard-primary); opacity: .85; }
 .commerce-funnel__value { color: var(--dashboard-muted); font-size: 11px; text-align: right; }
 .commerce-funnel__value strong { display: block; color: var(--dashboard-text); font-size: 13px; }
 
