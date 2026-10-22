@@ -1,315 +1,277 @@
+@php
+  $isSignedIn = (bool) current_customer();
+  $canManageOrder = $isSignedIn || in_array((string) $order->number, array_map('strval', session('guest_order_numbers', [])), true);
+  $statusTone = match ($order->status) {
+    'unpaid' => 'danger',
+    'paid' => 'primary',
+    'shipped' => 'info',
+    'completed' => 'success',
+    'refunding' => 'warning',
+    default => 'secondary',
+  };
+  $hasCustomerAction = in_array($order->status, ['unpaid', 'paid', 'shipped'], true);
+@endphp
+
 @if ($errors->any())
-  @foreach ($errors->all() as $error)
-    <x-shop-alert type="danger" msg="{{ $error }}" class="mt-4" />
-  @endforeach
+  <div class="alert alert-danger order-detail-alert" role="alert" tabindex="-1">
+    <strong>{{ __('shop/account/order_info.action_failed') }}</strong>
+    <ul class="mb-0 mt-2">
+      @foreach ($errors->all() as $error)
+        <li>{{ $error }}</li>
+      @endforeach
+    </ul>
+  </div>
 @endif
 
-<div class="card mb-lg-4 mb-2 order-head">
-  <div class="card-header d-flex align-items-center justify-content-between">
-    <h6 class="card-title">{{ __('shop/account/order_info.order_details') }}</h6>
-    <div>
-      @if ($order->status == 'unpaid')
-        <a href="{{ shop_route('orders.pay', ['number' => $order->number, 'email' => request('email')]) }}" class="btn btn-primary btn-sm nowrap">{{ __('shop/account/order_info.to_pay') }}</a>
-      @endif
-      @if ($order->status == 'unpaid' || $order->status == 'paid')
-        <button class="btn btn-outline-secondary btn-sm cancel-order" type="button">{{ __('shop/account/order_info.cancel') }}</button>
-      @endif
-      @if ($order->status == 'shipped')
-        <button class="btn btn-primary btn-sm shipped-ed" type="button">{{ __('shop/account/order_info.confirm_receipt') }}</button>
-      @endif
-      @hook('account.order.info.order_details.top.btns')
+<article class="order-detail" aria-labelledby="order-detail-title">
+  <section class="card order-overview mb-lg-4 mb-3">
+    <div class="card-body">
+      <div class="order-overview__top">
+        <div>
+          @if ($isSignedIn)
+            <a class="order-detail__back" href="{{ shop_route('account.order.index') }}">
+              <i class="bi bi-arrow-left" aria-hidden="true"></i>
+              {{ __('shop/account/order_info.back_to_orders') }}
+            </a>
+          @endif
+          <p class="order-overview__eyebrow">{{ __('shop/account/order_info.order_details') }}</p>
+          <h1 class="order-overview__title" id="order-detail-title">{{ __('shop/account/order_info.order_number') }} {{ $order->number }}</h1>
+          <div class="order-overview__meta">
+            <time datetime="{{ $order->created_at?->toAtomString() }}">{{ $order->created_at }}</time>
+            <button class="order-copy-button" type="button"
+              data-copy-order="{{ $order->number }}"
+              data-copy-success="{{ __('shop/account/order.number_copied') }}"
+              data-copy-error="{{ __('shop/account/order.copy_failed') }}"
+              aria-label="{{ __('shop/account/order.copy_number', ['number' => $order->number]) }}">
+              <i class="bi bi-copy" aria-hidden="true"></i>
+            </button>
+          </div>
+        </div>
+        <span class="order-status-badge order-status-badge--{{ $statusTone }}">{{ $order->status_format }}</span>
+      </div>
+
+      <p class="order-overview__hint">{{ __('shop/account/order_info.status_hint_' . $order->status) }}</p>
+
+      <div class="order-overview__actions" aria-label="{{ __('shop/account/order.actions_for', ['number' => $order->number]) }}">
+        @if ($canManageOrder)
+          @if ($order->status == 'unpaid')
+            <a href="{{ shop_route('orders.pay', ['number' => $order->number]) }}" class="btn btn-primary">{{ __('shop/account/order_info.to_pay') }}</a>
+          @endif
+          @if ($order->status == 'shipped')
+            <button class="btn btn-primary" type="button"
+              data-order-action="complete"
+              data-action-url="{{ shop_route('orders.complete', ['number' => $order->number]) }}"
+              data-confirm="{{ __('shop/account/order_info.confirm_receipt_prompt') }}"
+              data-processing="{{ __('shop/account/order_info.processing') }}"
+              data-error="{{ __('shop/account/order_info.action_failed') }}">
+              {{ __('shop/account/order_info.confirm_receipt') }}
+            </button>
+          @endif
+          @if ($order->status == 'unpaid' || $order->status == 'paid')
+            <button class="btn btn-outline-danger" type="button"
+              data-order-action="cancel"
+              data-action-url="{{ shop_route('orders.cancel', ['number' => $order->number]) }}"
+              data-confirm="{{ $order->status == 'paid' ? __('shop/account/order_info.refund_prompt') : __('shop/account/order_info.cancel_prompt') }}"
+              data-processing="{{ __('shop/account/order_info.processing') }}"
+              data-error="{{ __('shop/account/order_info.action_failed') }}">
+              {{ $order->status == 'paid' ? __('shop/account/order_info.request_refund') : __('shop/account/order_info.cancel') }}
+            </button>
+          @endif
+        @elseif ($hasCustomerAction)
+          <p class="order-overview__session-notice mb-0" role="note">
+            <i class="bi bi-shield-lock" aria-hidden="true"></i>
+            {{ __('shop/account/order_info.session_required') }}
+          </p>
+        @endif
+        @hook('account.order.info.order_details.top.btns')
+      </div>
     </div>
-  </div>
-  <div class="card-body">
-    @hookwrapper('account.order_info.order_details.before')
-    <div class="bg-light p-2 table-responsive rounded-2">
-      @if (!is_mobile())
+  </section>
+
+  @hookwrapper('account.order_info.order_details.before')
+  <section class="card order-detail-card mb-lg-4 mb-3" aria-labelledby="order-summary-title">
+    <div class="card-header"><h2 class="card-title h5" id="order-summary-title">{{ __('shop/account/order_info.order_summary') }}</h2></div>
+    <div class="card-body">
+      <div class="table-responsive order-facts-table">
         <table class="table table-borderless mb-0">
+          <caption class="visually-hidden">{{ __('shop/account/order_info.order_summary') }}</caption>
           <thead>
             <tr>
               @hook('account.order_info.order_details.table.head.before')
-              <th class="nowrap">{{ __('shop/account/order_info.order_number') }}</th>
-              <th class="nowrap">{{ __('shop/account/order_info.order_date') }}</th>
-              <th class="nowrap">{{ __('shop/account/order_info.state') }}</th>
-              <th class="nowrap">{{ __('shop/account/order_info.order_amount') }}</th>
-              <th class="nowrap">{{ __('shop/checkout.payment_method') }}</th>
-              <th class="nowrap">{{ __('shop/checkout.delivery_method') }}</th>
+              <th scope="col">{{ __('shop/account/order_info.order_number') }}</th>
+              <th scope="col">{{ __('shop/account/order_info.order_date') }}</th>
+              <th scope="col">{{ __('shop/account/order_info.state') }}</th>
+              <th scope="col">{{ __('shop/account/order_info.order_amount') }}</th>
+              <th scope="col">{{ __('shop/checkout.payment_method') }}</th>
+              <th scope="col">{{ __('shop/checkout.delivery_method') }}</th>
               @hook('account.order_info.table.head.after')
             </tr>
           </thead>
           <tbody>
             <tr>
               @hook('account.order_info.order_details.table.body.before')
-              <td>{{ $order->number }}</td>
-              <td class="nowrap">{{ $order->created_at }}</td>
-              <td class="nowrap">
-                @if ($order->status == 'unpaid')
-                <span class="text-danger">{{ $order->status_format }}</span>
-                @elseif ($order->status == 'cancelled')
-                <span class="text-secondary">{{ $order->status_format }}</span>
-                @else
-                <span class="text-success">{{ $order->status_format }}</span>
-                @endif
-              </td>
-              <td>{{ currency_format($order->total, $order->currency_code, $order->currency_value) }}</td>
-              <td>{{ $order->payment_method_name }}</td>
-              <td>{{ $order->shipping_method_name }}</td>
+              <td data-label="{{ __('shop/account/order_info.order_number') }}">{{ $order->number }}</td>
+              <td data-label="{{ __('shop/account/order_info.order_date') }}">{{ $order->created_at }}</td>
+              <td data-label="{{ __('shop/account/order_info.state') }}"><span class="order-status-badge order-status-badge--{{ $statusTone }}">{{ $order->status_format }}</span></td>
+              <td data-label="{{ __('shop/account/order_info.order_amount') }}"><strong>{{ currency_format($order->total, $order->currency_code, $order->currency_value) }}</strong></td>
+              <td data-label="{{ __('shop/checkout.payment_method') }}">{{ $order->payment_method_name ?: __('shop/account/order_info.not_available') }}</td>
+              <td data-label="{{ __('shop/checkout.delivery_method') }}">{{ $order->shipping_method_name ?: __('shop/account/order_info.not_required') }}</td>
               @hook('account.order_info.table.body.after')
             </tr>
           </tbody>
         </table>
-      @else
-        <div>
-          <div class="d-flex justify-content-between mb-2">
-            <div>{{ __('shop/account/order_info.order_number') }}</div>
-            <div class="fw-bold">{{ $order->number }}</div>
-          </div>
-          <div class="d-flex justify-content-between mb-2">
-            <div>{{ __('shop/account/order_info.order_date') }}</div>
-            <div class="fw-bold">{{ $order->created_at }}</div>
-          </div>
-          <div class="d-flex justify-content-between mb-2">
-            <div>{{ __('shop/account/order_info.state') }}</div>
-            <div class="fw-bold">
-              @if ($order->status == 'unpaid')
-              <span class="text-danger">{{ $order->status_format }}</span>
-              @elseif ($order->status == 'cancelled')
-              <span class="text-secondary">{{ $order->status_format }}</span>
-              @else
-              <span class="text-success">{{ $order->status_format }}</span>
-              @endif
-            </div>
-          </div>
-          <div class="d-flex justify-content-between mb-2">
-            <div>{{ __('shop/account/order_info.order_amount') }}</div>
-            <div class="fw-bold">{{ currency_format($order->total, $order->currency_code, $order->currency_value) }}</div>
-          </div>
-          <div class="d-flex justify-content-between mb-2">
-            <div>{{ __('shop/checkout.payment_method') }}</div>
-            <div class="fw-bold">{{ $order->payment_method_name }}</div>
-          </div>
-          <div class="d-flex justify-content-between">
-            <div>{{ __('shop/checkout.delivery_method') }}</div>
-            <div class="fw-bold">{{ $order->shipping_method_name }}</div>
-          </div>
-        </div>
-      @endif
+      </div>
     </div>
+  </section>
+  @endhookwrapper
+
+  @hookwrapper('account.order_info.products')
+  <section class="card order-detail-card mb-lg-4 mb-3" aria-labelledby="order-items-title">
+    <div class="card-header">
+      <h2 class="card-title h5" id="order-items-title">{{ __('shop/account/order_info.order_items') }}</h2>
+      <span class="order-card-count">{{ __('shop/account/order.items_count', ['count' => $order->orderProducts->sum('quantity')]) }}</span>
+    </div>
+    <div class="card-body order-product-list">
+      @foreach ($order->orderProducts as $product)
+        <article class="order-product">
+          <a class="order-product__image" href="{{ shop_route('products.show', ['product' => $product->product_id, 'variant' => $product->product_sku]) }}" tabindex="-1" aria-hidden="true">
+            <img src="{{ image_resize($product->image) }}" alt="" loading="lazy">
+          </a>
+          <div class="order-product__content">
+            <h3 class="order-product__name"><a href="{{ shop_route('products.show', ['product' => $product->product_id, 'variant' => $product->product_sku]) }}">{{ $product->name }}</a></h3>
+            @hook('order_info.product_name.after', $product)
+            <dl class="order-product__pricing">
+              <div><dt>{{ __('order.product_price') }}</dt><dd>{{ currency_format($product->price, $order->currency_code, $order->currency_value) }}</dd></div>
+              <div><dt>{{ __('order.product_quantity') }}</dt><dd>{{ $product->quantity }}</dd></div>
+              <div><dt>{{ __('order.product_sub_price') }}</dt><dd>{{ currency_format($product->price * $product->quantity, $order->currency_code, $order->currency_value) }}</dd></div>
+            </dl>
+          </div>
+          @if ($isSignedIn && $order->status == 'completed')
+            <a href="{{ shop_route('account.rma.create', [$product->id]) }}" class="btn btn-outline-primary btn-sm order-product__after-sales">{{ __('shop/account/order_info.apply_after_sales') }}</a>
+          @endif
+        </article>
+      @endforeach
+    </div>
+  </section>
+  @endhookwrapper
+
+  <div class="order-detail-grid">
+    @hookwrapper('account.order_info.address_info')
+    <section class="card order-detail-card" aria-labelledby="order-address-title">
+      <div class="card-header"><h2 class="card-title h5" id="order-address-title">{{ __('order.address_info') }}</h2></div>
+      <div class="card-body order-address-grid">
+        @if ($order->shipping_country)
+          <section class="order-address" aria-labelledby="shipping-address-title">
+            <h3 id="shipping-address-title">{{ __('order.shipping_address') }}</h3>
+            <address>
+              <strong>{{ $order->shipping_customer_name }}</strong>
+              @if ($order->shipping_telephone)<span>{{ $order->shipping_telephone }}</span>@endif
+              <span>{{ collect([$order->shipping_address_1, $order->shipping_address_2, $order->shipping_city, $order->shipping_zone, $order->shipping_country])->filter()->join(' ') }}</span>
+              @if ($order->shipping_zipcode)<span>{{ __('address.post_code') }}: {{ $order->shipping_zipcode }}</span>@endif
+            </address>
+          </section>
+        @endif
+        <section class="order-address" aria-labelledby="payment-address-title">
+          <h3 id="payment-address-title">{{ __('order.payment_address') }}</h3>
+          <address>
+            <strong>{{ $order->payment_customer_name }}</strong>
+            @if ($order->payment_telephone)<span>{{ $order->payment_telephone }}</span>@endif
+            <span>{{ collect([$order->payment_address_1, $order->payment_address_2, $order->payment_city, $order->payment_zone, $order->payment_country])->filter()->join(' ') }}</span>
+            @if ($order->payment_zipcode)<span>{{ __('address.post_code') }}: {{ $order->payment_zipcode }}</span>@endif
+          </address>
+        </section>
+      </div>
+    </section>
+    @endhookwrapper
+
+    @hookwrapper('account.order_info.totals')
+    <section class="card order-detail-card" aria-labelledby="order-total-title">
+      <div class="card-header"><h2 class="card-title h5" id="order-total-title">{{ __('shop/account/order_info.order_total') }}</h2></div>
+      <div class="card-body">
+        <dl class="order-total-list">
+          @foreach ($order->orderTotals as $total)
+            <div class="{{ $total->code === 'order_total' ? 'order-total-list__grand' : '' }}">
+              <dt>{{ $total->title }}</dt>
+              <dd>{{ currency_format($total->value, $order->currency_code, $order->currency_value) }}</dd>
+            </div>
+          @endforeach
+        </dl>
+      </div>
+    </section>
     @endhookwrapper
   </div>
-</div>
 
-@hookwrapper('account.order_info.address_info')
-<div class="card mb-lg-4 mb-2">
-  <div class="card-header"><h6 class="card-title">{{ __('order.address_info') }}</h6></div>
-  <div class="card-body">
-    <table class="table ">
-      <thead class="">
-        <tr>
-          @if ($order->shipping_country)
-            <th>{{ __('order.shipping_address') }}</th>
-          @endif
-          <th>{{ __('order.payment_address') }}</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          @if ($order->shipping_country)
-            <td>
-              <div>
-                {{ __('address.name') }}：{{ $order->shipping_customer_name }}
-                @if ($order->shipping_telephone)
-                ({{ $order->shipping_telephone }})
-                @endif
-              </div>
-              <div>
-                {{ __('address.address') }}：
-                {{ $order->shipping_address_1 }}
-                {{ $order->shipping_address_2 }}
-                {{ $order->shipping_city }}
-                {{ $order->shipping_zone }}
-                {{ $order->shipping_country }}
-              </div>
-              <div>{{ __('address.post_code') }}：{{ $order->shipping_zipcode }}</div>
-            </td>
-          @endif
-          <td>
-            <div>
-              {{ __('address.name') }}：{{ $order->payment_customer_name }}
-              @if ($order->payment_telephone)
-              ({{ $order->payment_telephone }})
-              @endif
-            </div>
-            <div>
-              {{ __('address.address') }}：
-              {{ $order->payment_address_1 }}
-              {{ $order->payment_address_2 }}
-              {{ $order->payment_city }}
-              {{ $order->payment_zone }}
-              {{ $order->payment_country }}
-            </div>
-            <div>{{ __('address.post_code') }}：{{ $order->payment_zipcode }}</div>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-</div>
-@endhookwrapper
+  @if ($order->comment)
+    @hookwrapper('account.order_info.comment')
+    <section class="card order-detail-card mb-lg-4 mb-3" aria-labelledby="order-comment-title">
+      <div class="card-header"><h2 class="card-title h5" id="order-comment-title">{{ __('order.comment') }}</h2></div>
+      <div class="card-body"><p class="order-comment mb-0">{{ $order->comment }}</p></div>
+    </section>
+    @endhookwrapper
+  @endif
 
-@hookwrapper('account.order_info.products')
-<div class="card mb-lg-4 mb-2">
-  <div class="card-header">
-    <h6 class="card-title">{{ __('shop/account/order_info.order_items') }}</h6>
-  </div>
-  <div class="card-body">
-    @foreach ($order->orderProducts as $product)
-      <div class="product-list">
-        <div class="d-flex">
-          <div class="left border d-flex rounded-2 overflow-hidden justify-content-center align-items-center wh-80"><img src="{{ image_resize($product->image) }}" alt="{{ $product->name }}" class="img-fluid"></div>
-          <div class="right">
-            <div class="name">
-              <a class="text-dark" href="{{ shop_route('products.show', ['product' => $product->product_id, 'variant' => $product->product_sku]) }}">{{ $product->name }}</a>
-              @hook('order_info.product_name.after', $product)
-            </div>
-            <div class="price">
-              {{ currency_format($product->price, $order->currency_code, $order->currency_value) }}
-              x {{ $product->quantity }}
-              = {{ currency_format($product->price * $product->quantity, $order->currency_code, $order->currency_value) }}
-            </div>
-          </div>
+  @foreach ($html_items as $item)
+    {!! $item !!}
+  @endforeach
+
+  @hook('account.order_info.after')
+
+  @if ($order->orderShipments->count())
+    @hookwrapper('account.order_info.shipments')
+    <section class="card order-detail-card mb-lg-4 mb-3" aria-labelledby="order-shipments-title">
+      <div class="card-header"><h2 class="card-title h5" id="order-shipments-title">{{ __('order.order_shipments') }}</h2></div>
+      <div class="card-body">
+        <div class="table-responsive">
+          <table class="table order-shipment-table mb-0">
+            <thead><tr><th scope="col">{{ __('order.express_company') }}</th><th scope="col">{{ __('order.express_number') }}</th><th scope="col">{{ __('order.history_created_at') }}</th><th scope="col"><span class="visually-hidden">{{ __('shop/account/order.actions') }}</span></th></tr></thead>
+            <tbody>
+              @foreach ($order->orderShipments as $ship)
+                @php
+                  $trackingUrl = \Beike\Services\ShipmentService::trackingUrl($ship);
+                @endphp
+                <tr>
+                  <td>{{ $ship->express_company }}</td>
+                  <td><code>{{ $ship->express_number }}</code></td>
+                  <td>{{ $ship->created_at }}</td>
+                  <td class="text-end">
+                    @if ($trackingUrl)
+                      <a class="btn btn-sm btn-outline-primary" href="{{ $trackingUrl }}" target="_blank" rel="noopener noreferrer" aria-label="{{ __('shop/account/order_info.track_number', ['number' => $ship->express_number]) }}">{{ __('order.track_shipment') }} <span aria-hidden="true">↗</span></a>
+                    @else
+                      <span class="text-muted">{{ __('shop/account/order_info.tracking_pending') }}</span>
+                    @endif
+                  </td>
+                </tr>
+              @endforeach
+            </tbody>
+          </table>
         </div>
-        @if ($order->status == 'completed')
-          <a href="{{ shop_route('account.rma.create', [$product->id]) }}" style="white-space: nowrap;"
-            class="btn btn-outline-primary btn-sm">{{ __('shop/account/order_info.apply_after_sales') }}</a>
-        @endif
       </div>
-    @endforeach
-  </div>
-</div>
-@endhookwrapper
+    </section>
+    @endhookwrapper
+  @endif
 
-@hookwrapper('account.order_info.totals')
-<div class="card mb-lg-4 mb-2">
-  <div class="card-header">
-    <h6 class="card-title">{{ __('shop/account/order_info.order_total') }}</h6>
-  </div>
-  <div class="card-body">
-    <table class="table table-bordered border">
-      <tbody>
-        @foreach (array_chunk($order->orderTotals->all(), 2) as $totals)
-          <tr>
-            @foreach ($totals as $total)
-              <td class="bg-light wp-200">{{ $total->title }}</td>
-              <td><strong>{{ currency_format($total->value, $order->currency_code, $order->currency_value) }}</strong></td>
-            @endforeach
-          </tr>
-        @endforeach
-      </tbody>
-    </table>
-  </div>
-</div>
-@endhookwrapper
-
-@if ($order->comment)
-  @hookwrapper('account.order_info.comment')
-  <div class="card mb-lg-4 mb-2">
-    <div class="card-header">
-      <h6 class="card-title">{{ __('order.comment') }}</h6>
-    </div>
-    <div class="card-body">
-      {{ $order->comment }}
-    </div>
-  </div>
-  @endhookwrapper
-@endif
-
-@foreach ($html_items as $item)
-  {!! $item !!}
-@endforeach
-
-@hook('account.order_info.after')
-
-@if ($order->orderShipments->count())
-  @hookwrapper('account.order_info.shipments')
-  <div class="card mb-lg-4 mb-2">
-    <div class="card-header"><h6 class="card-title">{{ __('order.order_shipments') }}</h6></div>
-    <div class="card-body">
-      <div class="table-push">
-        <table class="table ">
-          <thead class="">
-            <tr>
-              <th>{{ __('order.express_company') }}</th>
-              <th>{{ __('order.express_number') }}</th>
-              <th>{{ __('order.history_created_at') }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            @foreach ($order->orderShipments as $ship)
-            @php
-              $trackingUrl = \Beike\Services\ShipmentService::trackingUrl($ship);
-            @endphp
-            <tr>
-              <td>{{ $ship->express_company }}</td>
-              <td>
-                <span>{{ $ship->express_number }}</span>
-                @if ($trackingUrl)
-                  <a class="btn btn-sm btn-outline-primary ms-2" href="{{ $trackingUrl }}" target="_blank" rel="noopener noreferrer">{{ __('order.track_shipment') }}</a>
-                @endif
-              </td>
-              <td>{{ $ship->created_at }}</td>
-            </tr>
-            @endforeach
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-  @endhookwrapper
-@endif
-
-@if ($order->orderHistories->count())
-  <div class="card mb-lg-4 mb-2">
-    <div class="card-header">
-      <h6 class="card-title">{{ __('shop/account/order_info.order_status') }}</h6>
-    </div>
-    <div class="card-body">
-      <table class="table ">
-        <thead class="">
-          <tr>
-            <th>{{ __('shop/account/order_info.state') }}</th>
-            <th>{{ __('shop/account/order_info.remark') }}</th>
-            <th>{{ __('shop/account/order_info.update_time') }}</th>
-          </tr>
-        </thead>
-        <tbody>
+  @if ($order->orderHistories->count())
+    <section class="card order-detail-card mb-lg-4 mb-3" aria-labelledby="order-history-title">
+      <div class="card-header"><h2 class="card-title h5" id="order-history-title">{{ __('shop/account/order_info.order_status') }}</h2></div>
+      <div class="card-body">
+        <ol class="order-timeline">
           @foreach ($order->orderHistories as $orderHistory)
-            <tr>
-              <td>{{ $orderHistory->status_format }}</td>
-              <td><span class="fw-bold">{{ $orderHistory->comment }}</span></td>
-              <td><span class="fw-bold">{{ $orderHistory->created_at }}</span></td>
-            </tr>
+            <li class="order-timeline__item {{ $loop->first ? 'is-current' : '' }}">
+              <span class="order-timeline__marker" aria-hidden="true"></span>
+              <div class="order-timeline__content">
+                <div class="order-timeline__heading">
+                  <strong>{{ $orderHistory->status_format }}</strong>
+                  @if ($loop->first)<span class="order-timeline__current">{{ __('shop/account/order_info.current_status') }}</span>@endif
+                  <time datetime="{{ $orderHistory->created_at?->toAtomString() }}">{{ $orderHistory->created_at }}</time>
+                </div>
+                <p>{{ $orderHistory->comment ?: __('shop/account/order_info.no_remark') }}</p>
+              </div>
+            </li>
           @endforeach
-        </tbody>
-      </table>
-    </div>
-  </div>
-@endif
+        </ol>
+      </div>
+    </section>
+  @endif
 
-@push('add-scripts')
-  <script>
-    $('.shipped-ed').click(function(event) {
-      $http.post('orders/{{ $order->number }}/complete', {email: @json(request('email'))}).then((res) => {
-        layer.msg(res.message)
-        window.location.reload()
-      })
-    });
-
-    $('.cancel-order').click(function(event) {
-      $http.post('orders/{{ $order->number }}/cancel', {email: @json(request('email'))}).then((res) => {
-        layer.msg(res.message)
-        window.location.reload()
-      })
-    });
-  </script>
-@endpush
+  <div class="visually-hidden" role="status" aria-live="polite" aria-atomic="true" data-order-feedback></div>
+</article>

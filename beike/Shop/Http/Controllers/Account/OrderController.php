@@ -30,11 +30,17 @@ class OrderController extends Controller
      */
     public function index(Request $request): View
     {
+        $status = $request->query('status', '');
+        $status = is_string($status) ? $status : '';
+        if (! in_array($status, array_diff(StateMachineService::ORDER_STATUS, [StateMachineService::CREATED]), true)) {
+            $status = '';
+        }
+
         $filters = [
             'customer' => current_customer(),
-            'status'   => $request->get('status'),
+            'status'   => $status,
         ];
-        $orders = OrderRepo::filterOrders($filters);
+        $orders = OrderRepo::filterOrders($filters)->withQueryString();
         $data   = [
             'orders' => OrderSimpleList::collection($orders),
         ];
@@ -53,6 +59,7 @@ class OrderController extends Controller
     {
         $customer = current_customer();
         $order    = OrderRepo::getOrderByNumber($number, $customer);
+        abort_if(empty($order), 404);
         $data     = hook_filter('account.order.show.data', ['order' => $order, 'html_items' => []]);
 
         return view('account/order_info', $data);
@@ -98,6 +105,9 @@ class OrderController extends Controller
         if (empty($customer) || empty($order)) {
             throw new \Exception(trans('shop/order.invalid_order'));
         }
+        if ($order->status !== StateMachineService::SHIPPED) {
+            throw new \Exception(trans('shop/account/order_info.action_unavailable'));
+        }
         $comment = trans('shop/order.confirm_order');
         StateMachineService::getInstance($order)->changeStatus(StateMachineService::COMPLETED, $comment);
 
@@ -118,6 +128,9 @@ class OrderController extends Controller
         $order    = OrderRepo::getOrderByNumber($number, $customer);
         if (empty($customer) || empty($order)) {
             throw new \Exception(trans('shop/order.invalid_order'));
+        }
+        if (! in_array($order->status, [StateMachineService::UNPAID, StateMachineService::PAID], true)) {
+            throw new \Exception(trans('shop/account/order_info.action_unavailable'));
         }
         $comment = trans('shop/order.cancel_order');
         if ($order->status == StateMachineService::PAID) {

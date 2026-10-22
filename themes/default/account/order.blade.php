@@ -10,155 +10,132 @@
       <x-shop-sidebar />
 
       <div class="col-12 col-md-9">
-        @if (!is_mobile())
-        <div class="card mb-4 account-card order-wrap h-min-600">
-          <div class="card-header d-flex justify-content-between align-items-center">
-            <h5 class="card-title">{{ __('shop/account/order.index') }}</h5>
-          </div>
+        <section class="card account-card order-list-panel" aria-labelledby="order-list-title">
+          <header class="card-header order-list-heading">
+            <div>
+              <h1 class="card-title h4 mb-1" id="order-list-title">{{ __('shop/account/order.index') }}</h1>
+              <p class="order-list-intro mb-0">{{ __('shop/account/order.list_intro') }}</p>
+            </div>
+          </header>
+
           <div class="card-body">
             @include('account.order_status')
-            <div class="table-responsive">
-              <table class="table">
-                @if (count($orders))
+
+            @if (count($orders))
+              <div class="order-card-list" role="list" aria-label="{{ __('shop/account/order.index') }}">
                 @hookwrapper('account.order.table_header', $orders)
-                  @foreach ($orders as $order)
-                    <tbody>
-                      <tr class="sep-row"><td colspan="4"></td></tr>
-                      <tr class="head-tr">
-                        <td colspan="4">
-                          <span class="order-created me-4">{{ $order->created_at }}</span>
-                          <span
-                            class="order-number">{{ __('shop/account/order.order_number') }}：{{ $order->number }}</span>
-                        </td>
-                      </tr>
-                      @foreach ($order->orderProducts as $product)
-                        <tr class="{{ $loop->first ? 'first-tr' : '' }}">
-                          <td>
-                            <div class="product-info">
-                              <div class="img border d-flex justify-content-center align-items-center wh-60"><img src="{{ image_resize($product->image) }}" alt="{{ $product->name }}" class="img-fluid"></div>
-                              <div class="name w-max-600">
-                                <a class="text-dark" href="{{ shop_route('products.show', ['product' => $product->product_id, 'variant' => $product->product_sku]) }}">{{ $product->name }}</a>
-                                <div class="quantity mt-1 text-secondary">x {{ $product->quantity }}</div>
-                                @hook('account.order.list.name.after', $product)
-                              </div>
+                  @hookwrapper('account.order.mobile_table_header', $orders)
+                    @foreach ($orders as $order)
+                      @php
+                        $statusTone = match ($order->status) {
+                          'unpaid' => 'danger',
+                          'paid' => 'primary',
+                          'shipped' => 'info',
+                          'completed' => 'success',
+                          'refunding' => 'warning',
+                          default => 'secondary',
+                        };
+                        $itemCount = $order->orderProducts->sum('quantity');
+                        $detailId = 'order-' . $order->number;
+                      @endphp
+                      <article class="order-card" role="listitem" aria-labelledby="{{ $detailId }}-title">
+                        <header class="order-card__header">
+                          <div class="order-card__identity">
+                            <span class="order-card__eyebrow">{{ __('shop/account/order.order_number') }}</span>
+                            <div class="order-card__number-row">
+                              <h2 class="order-card__number" id="{{ $detailId }}-title">{{ $order->number }}</h2>
+                              <button class="order-copy-button" type="button"
+                                data-copy-order="{{ $order->number }}"
+                                data-copy-success="{{ __('shop/account/order.number_copied') }}"
+                                data-copy-error="{{ __('shop/account/order.copy_failed') }}"
+                                aria-label="{{ __('shop/account/order.copy_number', ['number' => $order->number]) }}">
+                                <i class="bi bi-copy" aria-hidden="true"></i>
+                              </button>
                             </div>
-                          </td>
-                          @if ($loop->first)
-                            <td rowspan="{{ $loop->count }}">
-                              {{ currency_format($order->total, $order->currency_code, $order->currency_value) }}</td>
-                            <td rowspan="{{ $loop->count }}">
-                              @if ($order->status == 'unpaid')
-                              <span class="text-danger">{{ $order->status_format }}</span>
-                              @elseif ($order->status == 'cancelled')
-                              <span class="text-secondary">{{ $order->status_format }}</span>
-                              @else
-                              <span class="text-success">{{ $order->status_format }}</span>
-                              @endif
-                            </td>
-                            <td rowspan="{{ $loop->count }}" class="text-end">
-                              @hook('account.order.actions', $order)
+                            <time class="order-card__date" datetime="{{ $order->created_at?->toAtomString() }}">{{ $order->created_at }}</time>
+                          </div>
+                          <span class="order-status-badge order-status-badge--{{ $statusTone }}">{{ $order->status_format }}</span>
+                        </header>
 
-                              <a href="{{ shop_route('account.order.show', ['number' => $order->number]) }}" class="btn btn-outline-secondary btn-sm mb-2 w-100">{{ __('shop/account/order.check') }}</a>
-                              @if ($order->status == 'unpaid')
-                                <a href="{{ shop_route('orders.pay', $order->number) }}" class="btn w-100 btn-primary btn-sm nowrap mb-2">{{ __('shop/account/order_info.to_pay') }}</a>
-                              @endif
+                        <div class="order-card__body">
+                          <div class="order-card__products" aria-label="{{ __('shop/account/order_info.order_items') }}">
+                            @foreach ($order->orderProducts as $product)
+                              <div class="order-card-product">
+                                <a class="order-card-product__image" href="{{ shop_route('products.show', ['product' => $product->product_id, 'variant' => $product->product_sku]) }}" tabindex="-1" aria-hidden="true">
+                                  <img src="{{ image_resize($product->image) }}" alt="" loading="lazy">
+                                </a>
+                                <div class="order-card-product__content">
+                                  <a class="order-card-product__name" href="{{ shop_route('products.show', ['product' => $product->product_id, 'variant' => $product->product_sku]) }}">{{ $product->name }}</a>
+                                  <span class="order-card-product__quantity">{{ __('shop/account/order.quantity', ['quantity' => $product->quantity]) }}</span>
+                                  @hook('account.order.list.name.after', $product)
+                                </div>
+                              </div>
+                            @endforeach
+                          </div>
 
-                              @if ($order->status == 'unpaid' || $order->status == 'paid')
-                              <button class="btn btn-outline-danger btn-sm cancel-order w-100" data-number="{{ $order->number }}" type="button">{{ __('shop/account/order_info.cancel') }}</button>
-                              @endif
+                          <dl class="order-card__summary">
+                            <div>
+                              <dt>{{ __('shop/account/order.items') }}</dt>
+                              <dd>{{ __('shop/account/order.items_count', ['count' => $itemCount]) }}</dd>
+                            </div>
+                            <div>
+                              <dt>{{ __('shop/account/order.amount') }}</dt>
+                              <dd class="order-card__total">{{ currency_format($order->total, $order->currency_code, $order->currency_value) }}</dd>
+                            </div>
+                          </dl>
+                        </div>
 
-                              @hook('account.order.actions_after', $order)
-                            </td>
+                        <footer class="order-card__actions" aria-label="{{ __('shop/account/order.actions_for', ['number' => $order->number]) }}">
+                          @hook('account.order.actions', $order)
+
+                          @if ($order->status == 'unpaid')
+                            <a href="{{ shop_route('orders.pay', ['number' => $order->number]) }}" class="btn btn-primary">{{ __('shop/account/order_info.to_pay') }}</a>
+                          @elseif ($order->status == 'shipped')
+                            <button class="btn btn-primary" type="button"
+                              data-order-action="complete"
+                              data-action-url="{{ shop_route('orders.complete', ['number' => $order->number]) }}"
+                              data-confirm="{{ __('shop/account/order_info.confirm_receipt_prompt') }}"
+                              data-processing="{{ __('shop/account/order_info.processing') }}"
+                              data-error="{{ __('shop/account/order_info.action_failed') }}">
+                              {{ __('shop/account/order_info.confirm_receipt') }}
+                            </button>
                           @endif
-                        </tr>
-                      @endforeach
-                    </tbody>
-                  @endforeach
-                @endhookwrapper
-                @else
-                  <tbody>
-                    <tr><td colspan="4" class="border-0"><x-shop-no-data /></td></tr>
-                  </tbody>
-                @endif
-              </table>
-            </div>
 
-            {{ $orders->links('shared/pagination/bootstrap-4') }}
-          </div>
-        </div>
-        @else
-        <div class="order-mb-wrap">
-          @include('account.order_status')
-          @if (count($orders))
-            @hookwrapper('account.order.mobile_table_header', $orders)
-            @foreach ($orders as $order)
-            <div class="order-mb-list card mb-3">
-              <div class="card-body">
-                <div class="header-wrapper d-flex justify-content-between">
-                  <div>{{ __('shop/account/order.order_number') }}：{{ $order->number }}</div>
-                  <div>
-                    @if ($order->status == 'unpaid')
-                    <span class="text-danger">{{ $order->status_format }}</span>
-                    @elseif ($order->status == 'cancelled')
-                    <span class="text-secondary">{{ $order->status_format }}</span>
-                    @else
-                    <span class="text-success">{{ $order->status_format }}</span>
-                    @endif
-                  </div>
-                </div>
-                <div class="content-wrapper">
-                  <a class="order-product-wrap mb-2" href="{{ shop_route('account.order.show', ['number' => $order->number]) }}" aria-label="{{ __('shop/account/order.check') }} {{ $order->number }}">
-                    @foreach ($order->orderProducts as $product)
-                    <div class="product-info d-flex mb-2">
-                      <div class="img border d-flex justify-content-center align-items-center wh-60"><img src="{{ $product->image }}" alt="{{ $product->name }}" class="img-fluid"></div>
-                      <div class="name ms-2">
-                        <div>{{ $product->name }}</div>
-                        <div class="quantity mt-1 text-secondary">x {{ $product->quantity }}</div>
-                      </div>
-                    </div>
+                          <a href="{{ shop_route('account.order.show', ['number' => $order->number]) }}" class="btn btn-outline-primary">{{ __('shop/account/order.check') }}</a>
+
+                          @if ($order->status == 'unpaid' || $order->status == 'paid')
+                            <button class="btn btn-link order-card__danger-action" type="button"
+                              data-order-action="cancel"
+                              data-action-url="{{ shop_route('orders.cancel', ['number' => $order->number]) }}"
+                              data-confirm="{{ $order->status == 'paid' ? __('shop/account/order_info.refund_prompt') : __('shop/account/order_info.cancel_prompt') }}"
+                              data-processing="{{ __('shop/account/order_info.processing') }}"
+                              data-error="{{ __('shop/account/order_info.action_failed') }}">
+                              {{ $order->status == 'paid' ? __('shop/account/order_info.request_refund') : __('shop/account/order_info.cancel') }}
+                            </button>
+                          @endif
+
+                          @hook('account.order.actions_after', $order)
+                        </footer>
+                      </article>
                     @endforeach
-                  </a>
-                </div>
-                <div class="footer-wrapper">
-                  <div class="d-flex justify-content-between">
-                    <div class="text-secondary">{{ $order->created_at }}</div>
-                    <div class="fw-bold">{{ __('admin/order.total') }}：<span class="amount text-primary">{{ currency_format($order->total, $order->currency_code, $order->currency_value) }}</span></div>
-                  </div>
-                  <div class="footer-btns d-flex justify-content-end mt-2">
-                    @hook('account.order.actions', $order)
-                    @if ($order->status == 'unpaid')
-                      <a href="{{ shop_route('orders.pay', $order->number) }}" class="btn btn-primary btn-sm nowrap">{{ __('shop/account/order_info.to_pay') }}</a>
-                      <button class="btn btn-outline-danger ms-2 btn-sm cancel-order" data-number="{{ $order->number }}" type="button">{{ __('shop/account/order_info.cancel') }}</button>
-                    @endif
-                    <a href="{{ shop_route('account.order.show', ['number' => $order->number]) }}"
-                      class="btn btn-outline-secondary btn-sm ms-2">{{ __('shop/account/order.check') }}</a>
-                    @hook('account.order.actions_after', $order)
-                  </div>
-                </div>
+                  @endhookwrapper
+                @endhookwrapper
               </div>
-            </div>
-            @endforeach
-            @endhookwrapper
 
-            {{ $orders->links('shared/pagination/bootstrap-4') }}
-          @else
-            <x-shop-no-data />
-          @endif
-        </div>
-        @endif
+              <div class="order-list-pagination">{{ $orders->links('shared/pagination/bootstrap-4') }}</div>
+            @else
+              <div class="order-list-empty" role="status">
+                <span class="order-list-empty__icon" aria-hidden="true"><i class="bi bi-bag"></i></span>
+                <h2 class="h5">{{ __('shop/account/order.empty_title') }}</h2>
+                <p>{{ __('shop/account/order.empty_description') }}</p>
+                <a class="btn btn-primary" href="{{ shop_route('home.index') }}">{{ __('shop/account/order.start_shopping') }}</a>
+              </div>
+            @endif
+
+            <div class="visually-hidden" role="status" aria-live="polite" aria-atomic="true" data-order-feedback></div>
+          </div>
+        </section>
       </div>
     </div>
   </div>
 @endsection
-
-@push('add-scripts')
-<script>
-  $('.cancel-order').click(function(event) {
-    var number = $(this).data('number')
-    $http.post(`orders/${number}/cancel`).then((res) => {
-      layer.msg(res.message)
-      window.location.reload()
-    })
-  });
-</script>
-@endpush

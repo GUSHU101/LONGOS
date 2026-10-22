@@ -154,7 +154,12 @@ class OrderRepo
     public static function getOrderByNumber($number, $customer = null)
     {
         $builder = Order::query()
-            ->with(['orderProducts', 'orderTotals', 'orderHistories'])
+            ->with([
+                'orderProducts',
+                'orderTotals',
+                'orderHistories' => fn ($query) => $query->orderByDesc('created_at')->orderByDesc('id'),
+                'orderShipments' => fn ($query) => $query->orderByDesc('created_at')->orderByDesc('id'),
+            ])
             ->where('number', $number);
 
         $customerId = 0;

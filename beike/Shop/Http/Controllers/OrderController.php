@@ -77,6 +77,10 @@ class OrderController extends Controller
         $order   = $this->authorizedOrder($request, $number);
         $comment = trans('shop/order.cancel_order');
 
+        if (! in_array($order->status, [StateMachineService::UNPAID, StateMachineService::PAID], true)) {
+            throw new CartException(trans('shop/account/order_info.action_unavailable'));
+        }
+
         if ($order->status == StateMachineService::PAID) {
             StateMachineService::getInstance($order)->changeStatus(StateMachineService::REFUNDING, $comment);
         } else {
@@ -92,6 +96,10 @@ class OrderController extends Controller
     public function complete(Request $request, $number)
     {
         $order = $this->authorizedOrder($request, $number);
+        if ($order->status !== StateMachineService::SHIPPED) {
+            throw new CartException(trans('shop/account/order_info.action_unavailable'));
+        }
+
         StateMachineService::getInstance($order)->changeStatus(
             StateMachineService::COMPLETED,
             trans('shop/order.confirm_order')

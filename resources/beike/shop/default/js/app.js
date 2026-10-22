@@ -20,6 +20,7 @@ import './product';
 import './header'
 import './footer'
 import './order-tracking'
+import './order-actions'
 import './campaign-offer'
 import './bootstrap-validation'
 
