@@ -211,13 +211,8 @@
         smartFeatureAvailable: @json((bool) ($smart_assignment_available ?? false)),
         smartUrlTemplate: @json($smart_products_url_template ?? ''),
         smartRuleUrlTemplate: @json($smart_rule_url_template ?? ''),
-        smartTitleTemplate: @json(__('admin/category.smart_title', ['category' => '__CATEGORY__'])),
-        smartSummaryTemplate: @json(__('admin/category.smart_summary', [
-          'scanned' => '__SCANNED__',
-          'eligible' => '__ELIGIBLE__',
-          'matches' => '__MATCHES__',
-          'returned' => '__RETURNED__',
-        ])),
+        smartTitleTemplate: @json($smart_title_template),
+        smartSummaryTemplate: @json($smart_summary_template),
         defaultProps: {
           children: 'children',
           label: 'name'

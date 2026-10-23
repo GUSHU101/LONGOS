@@ -209,6 +209,35 @@ class ProductCategoryAssignmentTest extends TestCase
         self::assertStringContainsString('openBatchCategoryDialog', $productsView);
         self::assertStringContainsString('openSmartProducts', $categoriesView);
         self::assertStringContainsString('autoAssign($product)', file_get_contents(base_path('beike/Admin/Services/ProductService.php')));
+
+        $this->assertEveryAdminBladeViewCompiles();
+    }
+
+    private function assertEveryAdminBladeViewCompiles(): void
+    {
+        $directory = new \RecursiveDirectoryIterator(
+            base_path('resources/beike/admin/views'),
+            \FilesystemIterator::SKIP_DOTS,
+        );
+        $files  = new \RecursiveIteratorIterator($directory);
+        $parser = (new \PhpParser\ParserFactory)->createForNewestSupportedVersion();
+        $count  = 0;
+
+        foreach ($files as $file) {
+            if (! $file->isFile() || ! str_ends_with($file->getFilename(), '.blade.php')) {
+                continue;
+            }
+
+            $source = file_get_contents($file->getPathname());
+            self::assertIsString($source, $file->getPathname());
+            self::assertNotNull(
+                $parser->parse(app('blade.compiler')->compileString($source)),
+                $file->getPathname(),
+            );
+            $count++;
+        }
+
+        self::assertGreaterThan(0, $count);
     }
 
     private function category(string $name, string $keywords = '', bool $active = true): Category

@@ -53,6 +53,18 @@ class CategoryController extends Controller
             'smart_rule_url_template' => $smartAssignmentAvailable
                 ? admin_route('categories.smart_products.rule', ['category' => '__CATEGORY__'])
                 : '',
+            // Precompute translated JavaScript templates here. Passing a
+            // multi-line associative array through Blade's @json directive
+            // can be parsed as an unterminated PHP expression.
+            'smart_title_template' => __('admin/category.smart_title', [
+                'category' => '__CATEGORY__',
+            ]),
+            'smart_summary_template' => __('admin/category.smart_summary', [
+                'scanned'  => '__SCANNED__',
+                'eligible' => '__ELIGIBLE__',
+                'matches'  => '__MATCHES__',
+                'returned' => '__RETURNED__',
+            ]),
         ];
         $data = hook_filter('admin.category.index.data', $data);
 
