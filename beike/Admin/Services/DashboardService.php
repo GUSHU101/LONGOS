@@ -1532,7 +1532,12 @@ class DashboardService
             })
             ->selectRaw("{$firstCandidateIdentity} AS visitor_identity")
             ->selectRaw("MIN({$firstCandidateId}) AS id")
-            ->groupBy('visitor_identity');
+            // The joined subquery also exposes a visitor_identity column.
+            // MySQL resolves GROUP BY visitor_identity to that joined column
+            // instead of this SELECT alias and rejects the candidate columns
+            // under ONLY_FULL_GROUP_BY. Group by the complete expression so
+            // the chosen candidate is deterministic on every SQL engine.
+            ->groupByRaw($firstCandidateIdentity);
         if ($this->storefrontVisitConfirmationAvailable()) {
             $firstVisits->whereNotNull('first_visit_candidate.human_confirmed_at');
         }
@@ -1651,7 +1656,10 @@ class DashboardService
                 })
                 ->selectRaw("{$latestCandidateIdentity} AS visitor_identity")
                 ->selectRaw("MAX({$latestCandidateId}) AS id")
-                ->groupBy('visitor_identity');
+                // See storefrontSourceCounts(): the joined timestamp query
+                // has the same alias, so grouping by the explicit identity
+                // expression is required by MySQL's ONLY_FULL_GROUP_BY mode.
+                ->groupByRaw($latestCandidateIdentity);
             if ($this->storefrontVisitConfirmationAvailable()) {
                 $latestVisits->whereNotNull('latest_visit_candidate.human_confirmed_at');
             }

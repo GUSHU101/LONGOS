@@ -69,10 +69,10 @@ class DashboardMysqlCompatibilityTest extends TestCase
             DB::setDefaultConnection($this->previousConnection);
             Config::set('database.default', $this->previousConnection);
             Carbon::setTestNow();
+            restore_error_handler();
+            restore_exception_handler();
         }
 
-        restore_error_handler();
-        restore_exception_handler();
         parent::tearDown();
     }
 
