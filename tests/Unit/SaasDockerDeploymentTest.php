@@ -220,6 +220,7 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringNotContainsString('longos-mail-relay:latest', $compose);
         self::assertStringContainsString('postfix status >/dev/null 2>&1', $relay);
         self::assertStringContainsString('pgrep -x opendkim >/dev/null 2>&1', $relay);
+        self::assertStringContainsString("spawnSync('pgrep', ['-x', 'master']", $this->read('docker/mail-relay/src/server.mjs'));
         self::assertStringContainsString('chown -R node:node /var/lib/mail-relay-state', $relay);
         self::assertStringContainsString('gosu node:node node /app/src/server.mjs', $relay);
         self::assertStringContainsString('A required mail relay process exited', $relay);

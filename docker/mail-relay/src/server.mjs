@@ -473,7 +473,10 @@ function relayHealth(force = false) {
   } catch {
     storeWritable = false;
   }
-  const postfix = spawnSync('postfix', ['status'], {stdio: 'ignore', timeout: 3000});
+  // The administrative status command can report failure when this API
+  // correctly runs as an unprivileged user. The root entrypoint already
+  // supervises it; here verify the master process plus the user-facing queue.
+  const postfix = spawnSync('pgrep', ['-x', 'master'], {stdio: 'ignore', timeout: 3000});
   const opendkim = spawnSync('pgrep', ['-x', 'opendkim'], {stdio: 'ignore', timeout: 3000});
   const queue = spawnSync('postqueue', ['-j'], {encoding: 'utf8', timeout: 5000, maxBuffer: 4 * 1024 * 1024});
   const queueDepth = queue.status === 0

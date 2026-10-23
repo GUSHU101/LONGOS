@@ -361,6 +361,7 @@ jobs:
             exit 1
           fi
 
+          wait_for_healthy mail-relay 60
           docker compose exec -T mail-relay node -e \
             "fetch('http://127.0.0.1:3000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
           # The HTTP/HMAC parser handles untrusted message metadata and must
