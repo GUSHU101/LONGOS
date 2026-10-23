@@ -41,8 +41,9 @@ class MailReverseDnsResolverTest extends TestCase
 
         $result = $resolver->resolve('64.112.40.130');
 
-        self::assertSame('error', $result['state']);
+        self::assertSame('indeterminate', $result['state']);
         self::assertSame([], $result['targets']);
+        self::assertStringContainsString('无法确认 PTR 是否已发布', $result['message']);
         self::assertStringContainsString('SERVFAIL', $result['message']);
         self::assertStringContainsString('REFUSED', $result['message']);
         self::assertStringContainsString('lame delegation', $result['message']);

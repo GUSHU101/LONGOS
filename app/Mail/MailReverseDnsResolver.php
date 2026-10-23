@@ -84,9 +84,9 @@ class MailReverseDnsResolver
 
         if ($errors !== []) {
             return $this->result(
-                'error',
+                'indeterminate',
                 [],
-                '反向 DNS 权威查询失败：' . implode('；', [...$errors, ...$missing, ...$unavailable]),
+                '公共反向 DNS 查询失败，当前无法确认 PTR 是否已发布：' . implode('；', [...$errors, ...$missing, ...$unavailable]),
             );
         }
 

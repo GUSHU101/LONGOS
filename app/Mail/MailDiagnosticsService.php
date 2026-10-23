@@ -176,7 +176,9 @@ class MailDiagnosticsService
                 foreach ($expected as $address) {
                     $lookup  = $ptrResolver->resolve($address);
                     $targets = $lookup['targets'];
-                    if ($lookup['state'] === 'unavailable') {
+                    if ($lookup['state'] === 'indeterminate') {
+                        $ptrWarnings[] = "{$address}（{$lookup['message']}。这不能证明 PTR 值错误，但公网收件服务器目前也无法可靠读取；请联系 IP 服务商修复反向 DNS 区域的委派或权威服务器发布。）";
+                    } elseif ($lookup['state'] === 'unavailable') {
                         $ptrWarnings[] = "{$address}（{$lookup['message']}）";
                     } elseif (! in_array($hostname, $targets, true)) {
                         $ptrFailures[] = "{$address}（{$lookup['message']}）";
@@ -190,7 +192,7 @@ class MailDiagnosticsService
                 $status  = $ptrFailures !== [] ? 'error' : ($ptrWarnings !== [] ? 'warning' : 'ok');
                 $message = match ($status) {
                     'ok'      => '所有邮件服务器公网 IP 的 PTR/rDNS 均已由独立公共解析器确认反向指向 ' . $hostname . '。',
-                    'warning' => 'PTR/rDNS 已找到目标，但公共解析结果尚未完全稳定：' . implode('；', $ptrWarnings),
+                    'warning' => 'PTR/rDNS 尚未完成公网验收：' . implode('；', $ptrWarnings),
                     default   => 'PTR/rDNS 未与 MAIL_RELAY_HOSTNAME 对齐：' . implode('；', $ptrFailures) . '。PTR 只能在服务器/IP 服务商处设置。',
                 };
                 $this->add(
