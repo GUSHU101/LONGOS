@@ -1286,10 +1286,11 @@ class DashboardService
             return 0;
         }
 
-        $visitors = ProductView::query()
+        $visitorKey = $this->productViewVisitorKeyExpression();
+        $visitors   = ProductView::query()
             ->whereBetween('created_at', $dateRange)
-            ->selectRaw($this->productViewVisitorKeyExpression() . ' AS visitor_key')
-            ->groupBy('visitor_key');
+            ->selectRaw("{$visitorKey} AS visitor_key")
+            ->groupByRaw($visitorKey);
 
         return DB::query()->fromSub($visitors, 'dashboard_product_viewers')->count();
     }
@@ -1309,7 +1310,7 @@ class DashboardService
             $uniqueCartVisitors = $model
                 ->whereBetween('created_at', $dateRange)
                 ->selectRaw("{$visitorKey} AS visitor_key")
-                ->groupBy('visitor_key');
+                ->groupByRaw($visitorKey);
 
             return DB::query()->fromSub($uniqueCartVisitors, 'dashboard_unique_cart_visitors')->count();
         });
@@ -1417,17 +1418,19 @@ class DashboardService
         $queries = [];
 
         if ($this->storefrontVisitsAvailable()) {
+            $identity  = $this->storefrontVisitIdentityExpression();
             $queries[] = $this->storefrontVisitQuery()
                 ->whereBetween('bucket_at', $dateRange)
-                ->selectRaw($this->storefrontVisitIdentityExpression() . ' AS visitor_identity')
-                ->groupBy('visitor_identity');
+                ->selectRaw("{$identity} AS visitor_identity")
+                ->groupByRaw($identity);
         }
 
         if ($this->productViewsAvailable()) {
+            $identity  = $this->productViewVisitorKeyExpression();
             $queries[] = ProductView::query()
                 ->whereBetween('created_at', $dateRange)
-                ->selectRaw($this->productViewVisitorKeyExpression() . ' AS visitor_identity')
-                ->groupBy('visitor_identity');
+                ->selectRaw("{$identity} AS visitor_identity")
+                ->groupByRaw($identity);
         }
 
         $query = array_shift($queries);
@@ -1448,10 +1451,12 @@ class DashboardService
             return null;
         }
 
+        $identity = $this->storefrontVisitIdentityExpression();
+
         return $this->storefrontVisitQuery()
             ->whereBetween('bucket_at', $dateRange)
-            ->selectRaw($this->storefrontVisitIdentityExpression() . ' AS visitor_identity')
-            ->groupBy('visitor_identity');
+            ->selectRaw("{$identity} AS visitor_identity")
+            ->groupByRaw($identity);
     }
 
     private function productViewsWithoutConfirmedVisit(array $dateRange): \Illuminate\Database\Eloquent\Builder
@@ -1519,7 +1524,7 @@ class DashboardService
             ->whereBetween('bucket_at', $dateRange)
             ->selectRaw("{$visitorIdentity} AS visitor_identity")
             ->selectRaw('MIN(first_seen_at) AS first_seen_at')
-            ->groupBy('visitor_identity');
+            ->groupByRaw($visitorIdentity);
 
         // A deterministic ID tie-break prevents duplicate counting when an
         // import contains two rows with the same captured timestamp.
@@ -1600,11 +1605,12 @@ class DashboardService
 
     private function countLegacyProductViewVisitors(array $dateRange, bool $excludeConfirmedVisits = false): int
     {
-        $visitors = ($excludeConfirmedVisits
+        $visitorKey = $this->productViewVisitorKeyExpression();
+        $visitors   = ($excludeConfirmedVisits
             ? $this->productViewsWithoutConfirmedVisit($dateRange)
             : ProductView::query()->whereBetween('created_at', $dateRange))
-            ->selectRaw($this->productViewVisitorKeyExpression() . ' AS visitor_key')
-            ->groupBy('visitor_key');
+            ->selectRaw("{$visitorKey} AS visitor_key")
+            ->groupByRaw($visitorKey);
 
         return DB::query()->fromSub($visitors, 'legacy_source_visitors')->count();
     }
@@ -1646,7 +1652,7 @@ class DashboardService
                 ->whereBetween('bucket_at', $dateRange)
                 ->selectRaw("{$visitorIdentity} AS visitor_identity")
                 ->selectRaw('MAX(last_seen_at) AS last_seen_at')
-                ->groupBy('visitor_identity');
+                ->groupByRaw($visitorIdentity);
             $latestCandidateId       = $this->qualifiedColumn('latest_visit_candidate', 'id');
             $latestCandidateIdentity = $this->storefrontVisitIdentityExpression('latest_visit_candidate');
             $latestVisits            = DB::table('storefront_visits as latest_visit_candidate')
@@ -1803,11 +1809,12 @@ class DashboardService
             return 0;
         }
 
-        $visitors = DashboardEvent::query()
+        $visitorKey = $this->paymentInformationVisitorKeyExpression();
+        $visitors   = DashboardEvent::query()
             ->where('event_type', 'payment_information_added')
             ->whereBetween('created_at', $dateRange)
-            ->selectRaw($this->paymentInformationVisitorKeyExpression() . ' AS visitor_key')
-            ->groupBy('visitor_key');
+            ->selectRaw("{$visitorKey} AS visitor_key")
+            ->groupByRaw($visitorKey);
 
         return DB::query()->fromSub($visitors, 'dashboard_payment_information_visitors')->count();
     }
@@ -2168,7 +2175,7 @@ class DashboardService
             ->whereBetween('created_at', $dateRange)
             ->whereNull('deleted_at')
             ->selectRaw("{$buyerKey} AS buyer_key")
-            ->groupBy('buyer_key');
+            ->groupByRaw($buyerKey);
 
         return DB::query()->fromSub($buyers, 'dashboard_order_creators')->count();
     }
