@@ -11,6 +11,8 @@ return [
     'more_errors'                   => '另有 :count 条明细未展开显示，请根据上述问题检查同类数据。',
     'import_failed'                 => 'Shopify CSV 导入失败，请检查文件格式；详细错误已记录到服务器日志。',
     'import_item_failed'            => '该商品导入失败，详细错误已记录到服务器日志。',
+    'import_identity_conflict'      => '回收站商品或历史导入映射仍占用其中一个 SKU。LONGOS 已安全取消该商品导入；更新后请重试，或先永久删除发生冲突的回收站商品。',
+    'import_database_failed'        => '数据库拒绝写入该商品，未留下不完整数据；详细原因已记录到服务器日志。',
     'image_warning'                 => ':handle：有 :count 张远程图片无法保存到本地，已从商品中忽略。',
     'replace_image_download_failed' => '有 :count 张图片下载失败，已取消本次覆盖导入。原商品和图片均保持不变，请稍后重试。',
     'importing'                     => '正在校验、下载图片并导入…',

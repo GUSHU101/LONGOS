@@ -11,6 +11,8 @@ return [
     'more_errors'                   => ':count additional detail(s) are not expanded. Check similar rows for the issues shown above.',
     'import_failed'                 => 'The Shopify CSV import failed. Check the file format; technical details were written to the server log.',
     'import_item_failed'            => 'This product could not be imported. Technical details were written to the server log.',
+    'import_identity_conflict'      => 'A retained product or stale import mapping still owns one of these SKU identities. LONGOS cancelled this product safely; retry after this update, or permanently delete the conflicting recycled product.',
+    'import_database_failed'        => 'The database rejected this product. No partial product was saved; technical details were written to the server log.',
     'image_warning'                 => ':handle: :count remote image(s) could not be stored locally and were omitted.',
     'replace_image_download_failed' => 'Replacement was cancelled because :count image(s) could not be downloaded. The existing product and images were left unchanged; try again.',
     'importing'                     => 'Validating, downloading images, and importing…',

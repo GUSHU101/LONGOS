@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use Beike\Admin\Services\RemoteImageImporter;
 use Beike\Models\CategoryPath;
 use Beike\Models\Product;
+use Beike\Repositories\ProductRepo;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Artisan;
@@ -645,6 +646,89 @@ class ShopifyProductTransferImportTest extends TestCase
         self::assertSame(1, Product::query()->count());
         self::assertSame('Updated shared variants', Product::query()->firstOrFail()->descriptions()->firstOrFail()->name);
         self::assertCount(2, Product::query()->firstOrFail()->skus()->pluck('sku')->unique());
+    }
+
+    public function test_reimport_restores_a_soft_deleted_multi_variant_product_without_sku_collisions(): void
+    {
+        $service = new ShopifyCsvService;
+        $csv     = $this->csv([
+            'Title', 'URL handle', 'Option1 name', 'Option1 value', 'SKU', 'Price',
+        ], [
+            ['Recoverable case', 'recoverable-case', 'Device', 'Phone A', 'REUSED-SKU', '10.00'],
+            ['', 'recoverable-case', 'Device', 'Phone B', 'REUSED-SKU', '12.00'],
+            ['', 'recoverable-case', 'Device', 'Phone C', 'REUSED-SKU', '14.00'],
+        ]);
+
+        $created = $service->import(UploadedFile::fake()->createWithContent('recoverable.csv', $csv), false);
+        self::assertSame(1, $created['created']);
+        self::assertSame(3, $created['adjusted_skus']);
+
+        $original   = Product::query()->firstOrFail();
+        $originalId = (int) $original->id;
+        $original->delete();
+        self::assertSame(0, Product::query()->count());
+        self::assertSame(1, Product::withTrashed()->count());
+
+        $restored = $service->import(UploadedFile::fake()->createWithContent('recoverable-again.csv', $csv), false);
+
+        self::assertSame(0, $restored['created']);
+        self::assertSame(1, $restored['updated']);
+        self::assertSame(0, $restored['skipped']);
+        self::assertSame(0, $restored['failed']);
+        self::assertSame($originalId, (int) Product::query()->firstOrFail()->id);
+        self::assertSame(1, Product::withTrashed()->count());
+        self::assertCount(3, Product::query()->firstOrFail()->skus()->pluck('sku')->unique());
+        self::assertSame(3, DB::table('shopify_product_variant_skus')->count());
+    }
+
+    public function test_reimport_repairs_identity_mappings_left_by_a_historical_hard_delete(): void
+    {
+        $service = new ShopifyCsvService;
+        $csv     = $this->csv(['Title', 'URL handle', 'SKU', 'Price'], [[
+            'Recreated case', 'recreated-case', 'RECREATED-SKU', '20.00',
+        ]]);
+
+        self::assertSame(1, $service->import(
+            UploadedFile::fake()->createWithContent('recreated.csv', $csv),
+            false,
+        )['created']);
+        Product::query()->firstOrFail()->delete();
+        ProductRepo::forceDeleteTrashed();
+        self::assertSame(0, Product::withTrashed()->count());
+        self::assertSame(1, DB::table('shopify_product_variant_skus')->count());
+
+        $recreated = $service->import(
+            UploadedFile::fake()->createWithContent('recreated-again.csv', $csv),
+            false,
+        );
+
+        self::assertSame(1, $recreated['created']);
+        self::assertSame(0, $recreated['failed']);
+        self::assertSame(1, Product::query()->count());
+        self::assertSame(1, DB::table('shopify_product_variant_skus')->count());
+        self::assertSame(
+            (int) Product::query()->firstOrFail()->id,
+            (int) DB::table('shopify_product_variant_skus')->value('product_id'),
+        );
+    }
+
+    public function test_permanent_product_deletion_removes_shopify_identity_mappings(): void
+    {
+        (new \Plugin\ShopifyProductTransfer\Bootstrap)->boot();
+        $csv = $this->csv(['Title', 'URL handle', 'SKU', 'Price'], [[
+            'Disposable case', 'disposable-case', 'DISPOSABLE-SKU', '20.00',
+        ]]);
+
+        self::assertSame(1, (new ShopifyCsvService)->import(
+            UploadedFile::fake()->createWithContent('disposable.csv', $csv),
+            false,
+        )['created']);
+        Product::query()->firstOrFail()->delete();
+        ProductRepo::forceDeleteTrashed();
+
+        self::assertSame(0, Product::withTrashed()->count());
+        self::assertSame(0, DB::table('shopify_product_handles')->count());
+        self::assertSame(0, DB::table('shopify_product_variant_skus')->count());
     }
 
     public function test_blank_replacement_inventory_preserves_stock_but_explicit_zero_clears_it(): void

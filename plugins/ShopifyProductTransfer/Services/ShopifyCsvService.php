@@ -11,6 +11,7 @@ use Beike\Models\CategoryDescription;
 use Beike\Models\Product;
 use Beike\Models\ProductSku;
 use Beike\Repositories\CategoryRepo;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -272,9 +273,7 @@ class ShopifyCsvService
                         if (! $e instanceof \InvalidArgumentException) {
                             report($e);
                         }
-                        $detail = $e instanceof \InvalidArgumentException
-                            ? $e->getMessage()
-                            : trans('ShopifyProductTransfer::transfer.import_item_failed');
+                        $detail = $this->publicImportError($e);
                         $this->addError($result, 'Handle ' . $handle . ' (line ' . $this->lineSummary($group['lines']) . '): ' . $detail);
                     } finally {
                         $processed++;
@@ -424,7 +423,7 @@ class ShopifyCsvService
 
         $handle   = $this->canonicalHandle($handle, $title);
         $existing = $this->findExistingProduct($handle, $rows, false);
-        if ($existing && ! $replaceExisting) {
+        if ($existing && ! $replaceExisting && ! $existing->trashed()) {
             // A legacy LONGOS product can be found through its unique SKU
             // before it has a Shopify Handle mapping. Persist the Handle now
             // so a later Shopify product that legitimately reuses this SKU
@@ -472,8 +471,9 @@ class ShopifyCsvService
             $outcome = DB::transaction(function () use ($handle, $rows, $replaceExisting, $title, $downloaded, $missingImages, $locale, $weightClass, $variables, $images, $skus, $skuMappings, $skuBuild, $body): array {
                 // Re-check while locked because another request may have
                 // imported the same Handle while images were downloading.
-                $current = $this->findExistingProduct($handle, $rows, true);
-                if ($current && ! $replaceExisting) {
+                $current   = $this->findExistingProduct($handle, $rows, true);
+                $restoring = (bool) $current?->trashed();
+                if ($current && ! $replaceExisting && ! $restoring) {
                     return [
                         'state'            => 'skipped',
                         'warnings'         => 0,
@@ -482,7 +482,7 @@ class ShopifyCsvService
                         'downloaded_paths' => [],
                     ];
                 }
-                if ($current && $replaceExisting && $missingImages > 0) {
+                if ($current && ($replaceExisting || $restoring) && $missingImages > 0) {
                     // A transient Shopify/CDN failure must never turn a
                     // replacement import into destructive partial data. The
                     // surrounding catch removes any newly downloaded files,
@@ -525,6 +525,14 @@ class ShopifyCsvService
                 ];
 
                 $service = app(ProductService::class);
+                if ($restoring) {
+                    // Deleting a LONGOS product is intentionally reversible:
+                    // its variants and Shopify identity mappings remain in
+                    // place. A merchant who imports that Handle again expects
+                    // the product to return, not a second product to collide
+                    // with the retained SKU rows.
+                    $current->restore();
+                }
                 $product = $current ? $service->update($current, $data) : $service->create($data);
                 if ($current) {
                     // ProductService intentionally leaves gallery management
@@ -781,7 +789,7 @@ class ShopifyCsvService
             $mapping      = ($lock ? $mappingQuery->lockForUpdate() : $mappingQuery)->first();
             $id           = $mapping?->product_id;
             if ($id) {
-                $productQuery = Product::query()->whereKey($id);
+                $productQuery = Product::withTrashed()->whereKey($id);
                 $product      = ($lock ? $productQuery->lockForUpdate() : $productQuery)->first();
                 if ($product) {
                     // Shopify Handle is the authoritative product identity.
@@ -823,7 +831,7 @@ class ShopifyCsvService
             }
         }
 
-        $productQuery = Product::query()->whereKey($id);
+        $productQuery = Product::withTrashed()->whereKey($id);
 
         return ($lock ? $productQuery->lockForUpdate() : $productQuery)->first();
     }
@@ -834,7 +842,7 @@ class ShopifyCsvService
             return;
         }
         $owner = DB::table('shopify_product_handles')->where('handle', $handle)->lockForUpdate()->value('product_id');
-        if ($owner && ! Product::query()->whereKey($owner)->exists()) {
+        if ($owner && ! Product::withTrashed()->whereKey($owner)->exists()) {
             DB::table('shopify_product_handles')->where('handle', $handle)->delete();
             $owner = null;
         }
@@ -873,8 +881,52 @@ class ShopifyCsvService
             ->values()
             ->all();
         if ($rows !== []) {
+            // Old releases could leave identity rows behind after the product
+            // was permanently deleted. Remove only mappings whose owner no
+            // longer exists; mappings belonging to live or recoverable
+            // products must continue to protect their stock identity.
+            $internalSkus = collect($rows)->pluck('internal_sku')->all();
+            $ownerIds     = DB::table('shopify_product_variant_skus')
+                ->whereIn('internal_sku', $internalSkus)
+                ->lockForUpdate()
+                ->pluck('product_id')
+                ->map(static fn ($id): int => (int) $id)
+                ->unique()
+                ->values();
+            if ($ownerIds->isNotEmpty()) {
+                $existingOwnerIds = Product::withTrashed()
+                    ->whereIn('id', $ownerIds)
+                    ->pluck('id')
+                    ->map(static fn ($id): int => (int) $id);
+                $orphanOwnerIds = $ownerIds->diff($existingOwnerIds)->all();
+                if ($orphanOwnerIds !== []) {
+                    DB::table('shopify_product_variant_skus')->whereIn('product_id', $orphanOwnerIds)->delete();
+                }
+            }
+
             DB::table('shopify_product_variant_skus')->insert($rows);
         }
+    }
+
+    private function publicImportError(\Throwable $exception): string
+    {
+        if ($exception instanceof \InvalidArgumentException) {
+            return $exception->getMessage();
+        }
+
+        if ($exception instanceof QueryException) {
+            $sqlState = (string) ($exception->errorInfo[0] ?? $exception->getCode());
+            $message  = strtolower($exception->getMessage());
+            if (in_array($sqlState, ['23000', '23505'], true)
+                || str_contains($message, 'unique constraint')
+                || str_contains($message, 'duplicate entry')) {
+                return trans('ShopifyProductTransfer::transfer.import_identity_conflict');
+            }
+
+            return trans('ShopifyProductTransfer::transfer.import_database_failed');
+        }
+
+        return trans('ShopifyProductTransfer::transfer.import_item_failed');
     }
 
     private function writeProduct($out, Product $product, ?string $savedHandle, array $sourceSkus = []): void
