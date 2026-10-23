@@ -27,6 +27,20 @@ class StorefrontVisitService
     /** @var array<string, bool> */
     private static array $confirmationColumnsAvailability = [];
 
+    public static function visitorKeyForSession(?string $sessionId): ?string
+    {
+        $sessionId = trim((string) $sessionId);
+        if ($sessionId === '') {
+            return null;
+        }
+
+        $secret = (string) config('app.key', '');
+
+        return $secret !== ''
+            ? hash_hmac('sha256', $sessionId, $secret)
+            : hash('sha256', $sessionId);
+    }
+
     public function stage(Request $request, mixed $response): void
     {
         if (! $this->shouldStage($request, $response)) {
@@ -181,10 +195,10 @@ class StorefrontVisitService
             return;
         }
 
-        $secret     = (string) config('app.key', '');
-        $visitorKey = $secret !== ''
-            ? hash_hmac('sha256', $sessionId, $secret)
-            : hash('sha256', $sessionId);
+        $visitorKey = self::visitorKeyForSession($sessionId);
+        if ($visitorKey === null) {
+            return;
+        }
         $now      = now();
         $bucketAt = $now->copy()->startOfHour();
 

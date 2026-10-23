@@ -199,6 +199,7 @@
         'of_total' => __('admin/dashboard.of_total'),
         'storefront_visits' => __('admin/dashboard.source_visit_ledger'),
         'product_views' => __('admin/dashboard.source_legacy_views'),
+        'combined' => __('admin/dashboard.source_combined_ledger'),
         'unavailable' => __('admin/dashboard.source_unavailable'),
         'export_failed' => __('admin/dashboard.export_report_failed_plain'),
         'today' => __('admin/dashboard.today'),

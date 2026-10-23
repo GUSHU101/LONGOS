@@ -213,6 +213,7 @@ return [
     'of_total'                       => '占总访客',
     'source_visit_ledger'            => '精确访客账本',
     'source_legacy_views'            => '兼容商品浏览数据',
+    'source_combined_ledger'         => '精确访客账本 + 商品浏览补充',
     'source_unavailable'             => '尚未启用访问追踪',
     'export_report_failed_plain'     => '报表导出失败，请稍后重试',
     'get_overview_failed'            => '暂时无法生成数据看板，请稍后重试。',

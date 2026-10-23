@@ -20,6 +20,7 @@ use Beike\Models\ProductCategory;
 use Beike\Models\ProductDescription;
 use Beike\Models\ProductRelation;
 use Beike\Models\ProductSku;
+use Beike\Services\StorefrontVisitService;
 use Beike\Services\VisitorCurrencyService;
 use Beike\Shop\Http\Resources\ProductSimple;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -35,6 +36,8 @@ class ProductRepo
     private static $allProductsWithName;
 
     private static ?bool $productViewCountryColumnAvailable = null;
+
+    private static ?bool $productViewVisitorKeyColumnAvailable = null;
 
     private static function getLikeOperator(): string
     {
@@ -602,6 +605,10 @@ class ProductRepo
             'user_agent'  => request()->header('user-agent'),
         ];
 
+        if (self::productViewVisitorKeyTrackingAvailable()) {
+            $viewData['visitor_key'] = StorefrontVisitService::visitorKeyForSession($viewData['session_id']);
+        }
+
         // Keep storefront traffic safe during a rolling deployment: stores
         // that have not run the dashboard-country migration continue to log
         // normal product views, while upgraded stores capture a trusted local
@@ -622,9 +629,19 @@ class ProductRepo
         return self::$productViewCountryColumnAvailable;
     }
 
+    private static function productViewVisitorKeyTrackingAvailable(): bool
+    {
+        if (self::$productViewVisitorKeyColumnAvailable === null) {
+            self::$productViewVisitorKeyColumnAvailable = Schema::hasColumn('product_views', 'visitor_key');
+        }
+
+        return self::$productViewVisitorKeyColumnAvailable;
+    }
+
     public static function resetRuntimeCache(): void
     {
-        self::$allProductsWithName               = null;
-        self::$productViewCountryColumnAvailable = null;
+        self::$allProductsWithName                  = null;
+        self::$productViewCountryColumnAvailable    = null;
+        self::$productViewVisitorKeyColumnAvailable = null;
     }
 }

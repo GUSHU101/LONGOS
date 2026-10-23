@@ -213,6 +213,7 @@ return [
     'of_total'                       => 'of visitors',
     'source_visit_ledger'            => 'Accurate visit ledger',
     'source_legacy_views'            => 'Legacy product views',
+    'source_combined_ledger'         => 'Visit ledger + product-view recovery',
     'source_unavailable'             => 'Traffic tracking is not enabled',
     'export_report_failed_plain'     => 'Report export failed. Please try again.',
     'get_overview_failed'            => 'The dashboard snapshot could not be generated. Please try again.',

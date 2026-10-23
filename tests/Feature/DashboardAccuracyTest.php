@@ -209,6 +209,37 @@ class DashboardAccuracyTest extends TestCase
         self::assertSame(2, array_sum($overview['trends']['uv']));
     }
 
+    public function test_partial_visit_ledger_merges_product_only_visitors_across_every_traffic_panel(): void
+    {
+        DB::table('product_views')->insert([
+            'product_id'   => 3,
+            'customer_id'  => 0,
+            'session_id'   => 'product-only-guest',
+            'visitor_key'  => str_repeat('c', 64),
+            'ip'           => '10.0.0.30',
+            'referer'      => 'https://www.bing.com/search?q=longos',
+            'country_code' => 'GB',
+            'created_at'   => '2026-10-08 11:30:00',
+            'updated_at'   => '2026-10-08 11:30:00',
+        ]);
+
+        $overview = (new DashboardService)->getOverview('today');
+
+        self::assertSame('combined', $overview['meta']['traffic_source']);
+        self::assertSame(3, $overview['meta']['tracked_visitors']);
+        self::assertSame(3, $overview['stats']['visitors']['current']);
+        self::assertSame([3, 3], array_slice(array_column($overview['funnel'], 'value'), 0, 2));
+        self::assertSame([100, 100.0], array_slice(array_column($overview['funnel'], 'percentage'), 0, 2));
+        self::assertSame(3, array_sum(array_column($overview['sources'], 'value')));
+        self::assertSame(1, collect($overview['sources'])->firstWhere('key', 'bing')['value']);
+        self::assertSame(3, array_sum(array_column($overview['countries'], 'visitors')));
+        self::assertSame(1, collect($overview['countries'])->firstWhere('code', 'GB')['visitors']);
+        // A visitor can appear in more than one hourly bucket; the period KPI
+        // above remains de-duplicated while the time series stays per bucket.
+        self::assertSame(4, array_sum($overview['trends']['uv']));
+        self::assertGreaterThanOrEqual(3, array_sum($overview['trends']['pv']));
+    }
+
     public function test_empty_funnel_does_not_present_zero_visitors_as_one_hundred_percent(): void
     {
         DB::table('storefront_visits')->delete();
@@ -397,8 +428,9 @@ class DashboardAccuracyTest extends TestCase
                 && in_array('2026-10-08 12:00:00', $bindings, true);
         };
 
-        $visitorCounts = array_filter($queries, static fn (array $query): bool => str_contains(strtolower($query['query']), 'count(distinct "visitor_key")')
+        $visitorCounts = array_filter($queries, static fn (array $query): bool => str_contains(strtolower($query['query']), 'dashboard_unique_visitors')
             && str_contains(strtolower($query['query']), 'storefront_visits')
+            && str_contains(strtolower($query['query']), 'product_views')
             && $currentRangeQueries($query));
         $visitChecks = array_filter($queries, static fn (array $query): bool => str_contains(strtolower($query['query']), 'select exists')
             && str_contains(strtolower($query['query']), 'storefront_visits')
@@ -467,6 +499,7 @@ class DashboardAccuracyTest extends TestCase
             $table->unsignedBigInteger('customer_id')->nullable();
             $table->string('ip')->nullable();
             $table->string('session_id')->nullable();
+            $table->char('visitor_key', 64)->nullable();
             $table->string('referer')->nullable();
             $table->string('country_code', 2)->nullable();
             $table->timestamps();
@@ -559,9 +592,9 @@ class DashboardAccuracyTest extends TestCase
             ],
         ]);
         DB::table('product_views')->insert([
-            ['product_id' => 1, 'customer_id' => 7, 'session_id' => 'member-a', 'ip' => '10.0.0.1', 'referer' => 'https://google.com/search', 'country_code' => 'CN', 'created_at' => '2026-10-08 09:01:00', 'updated_at' => '2026-10-08 09:01:00'],
-            ['product_id' => 1, 'customer_id' => 7, 'session_id' => 'member-b', 'ip' => '10.0.0.2', 'referer' => 'https://google.com/search', 'country_code' => 'CN', 'created_at' => '2026-10-08 09:02:00', 'updated_at' => '2026-10-08 09:02:00'],
-            ['product_id' => 2, 'customer_id' => 0, 'session_id' => 'guest-a', 'ip' => '10.0.0.3', 'referer' => null, 'country_code' => 'CN', 'created_at' => '2026-10-08 09:03:00', 'updated_at' => '2026-10-08 09:03:00'],
+            ['product_id' => 1, 'customer_id' => 7, 'session_id' => 'member-a', 'visitor_key' => str_repeat('a', 64), 'ip' => '10.0.0.1', 'referer' => 'https://google.com/search', 'country_code' => 'CN', 'created_at' => '2026-10-08 09:01:00', 'updated_at' => '2026-10-08 09:01:00'],
+            ['product_id' => 1, 'customer_id' => 7, 'session_id' => 'member-b', 'visitor_key' => str_repeat('a', 64), 'ip' => '10.0.0.2', 'referer' => 'https://google.com/search', 'country_code' => 'CN', 'created_at' => '2026-10-08 09:02:00', 'updated_at' => '2026-10-08 09:02:00'],
+            ['product_id' => 2, 'customer_id' => 0, 'session_id' => 'guest-a', 'visitor_key' => str_repeat('b', 64), 'ip' => '10.0.0.3', 'referer' => null, 'country_code' => 'CN', 'created_at' => '2026-10-08 09:03:00', 'updated_at' => '2026-10-08 09:03:00'],
         ]);
         DB::table('dashboard_events')->insert([
             ['event_type' => 'cart_added', 'product_id' => 1, 'customer_id' => 7, 'session_id' => 'member-a', 'quantity' => 2, 'ip' => '10.0.0.1', 'created_at' => '2026-10-08 09:10:00', 'updated_at' => '2026-10-08 09:10:00'],

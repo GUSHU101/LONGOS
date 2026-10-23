@@ -20,7 +20,7 @@ class DashboardService
 {
     public const VALID_TIME_RANGES = ['today', 'yesterday', 'week', 'month'];
 
-    private const CACHE_SCHEMA_VERSION = 'v3-period-aware-visit-fallback';
+    private const CACHE_SCHEMA_VERSION = 'v4-unified-visitor-ledger';
 
     private MockDataGenerator $mockDataGenerator;
 
@@ -39,6 +39,8 @@ class DashboardService
     private ?bool $productViewRefererAvailable = null;
 
     private ?bool $productViewCountryAvailable = null;
+
+    private ?bool $productViewVisitorKeyAvailable = null;
 
     private ?bool $storefrontVisitsAvailable = null;
 
@@ -266,9 +268,7 @@ class DashboardService
             }
 
             $dateRange = $this->getDateRange($timeRange);
-            $sources   = $this->storefrontVisitsInRange($dateRange)
-                ? $this->storefrontSourceCounts($dateRange)
-                : $this->legacyProductViewSourceCounts($dateRange);
+            $sources   = $this->unifiedSourceCounts($dateRange);
             $total     = array_sum($sources);
 
             if ($total === 0) {
@@ -458,9 +458,7 @@ class DashboardService
             }
 
             $dateRange = $this->getDateRange($timeRange);
-            $rows      = $this->storefrontVisitsInRange($dateRange)
-                ? $this->storefrontCountryRows($dateRange)
-                : $this->legacyProductViewCountryRows($dateRange);
+            $rows      = $this->unifiedCountryRows($dateRange);
 
             if ($rows->isEmpty()) {
                 return [];
@@ -1273,23 +1271,12 @@ class DashboardService
     private function countUniqueVisitors(array $dateRange): int
     {
         return $this->memoizeRange('unique_visitors', $dateRange, function () use ($dateRange): int {
-            if ($this->storefrontVisitsInRange($dateRange)) {
-                return $this->storefrontVisitQuery()
-                    ->whereBetween('bucket_at', $dateRange)
-                    ->distinct()
-                    ->count('visitor_key');
-            }
-
-            if (! $this->productViewsAvailable()) {
+            $visitors = $this->unifiedVisitorIdentityQuery($dateRange);
+            if ($visitors === null) {
                 return 0;
             }
 
-            $uniqueVisitors = ProductView::query()
-                ->whereBetween('created_at', $dateRange)
-                ->selectRaw($this->productViewVisitorKeyExpression() . ' AS visitor_key')
-                ->groupBy('visitor_key');
-
-            return DB::query()->fromSub($uniqueVisitors, 'dashboard_unique_visitors')->count();
+            return DB::query()->fromSub($visitors, 'dashboard_unique_visitors')->count();
         });
     }
 
@@ -1371,6 +1358,16 @@ class DashboardService
         return $this->productViewCountryAvailable;
     }
 
+    private function productViewVisitorKeyAvailable(): bool
+    {
+        if ($this->productViewVisitorKeyAvailable === null) {
+            $this->productViewVisitorKeyAvailable = $this->productViewsAvailable()
+                && Schema::hasColumn('product_views', 'visitor_key');
+        }
+
+        return $this->productViewVisitorKeyAvailable;
+    }
+
     private function storefrontVisitsAvailable(): bool
     {
         if ($this->storefrontVisitsAvailable === null) {
@@ -1415,6 +1412,60 @@ class DashboardService
         return $query;
     }
 
+    private function unifiedVisitorIdentityQuery(array $dateRange): \Illuminate\Database\Query\Builder|\Illuminate\Database\Eloquent\Builder|null
+    {
+        $queries = [];
+
+        if ($this->storefrontVisitsAvailable()) {
+            $queries[] = $this->storefrontVisitQuery()
+                ->whereBetween('bucket_at', $dateRange)
+                ->selectRaw($this->storefrontVisitIdentityExpression() . ' AS visitor_identity')
+                ->groupBy('visitor_identity');
+        }
+
+        if ($this->productViewsAvailable()) {
+            $queries[] = ProductView::query()
+                ->whereBetween('created_at', $dateRange)
+                ->selectRaw($this->productViewVisitorKeyExpression() . ' AS visitor_identity')
+                ->groupBy('visitor_identity');
+        }
+
+        $query = array_shift($queries);
+        if ($query === null) {
+            return null;
+        }
+
+        foreach ($queries as $additionalQuery) {
+            $query->union($additionalQuery);
+        }
+
+        return $query;
+    }
+
+    private function confirmedStorefrontVisitorIdentities(array $dateRange): ?\Illuminate\Database\Eloquent\Builder
+    {
+        if (! $this->storefrontVisitsAvailable()) {
+            return null;
+        }
+
+        return $this->storefrontVisitQuery()
+            ->whereBetween('bucket_at', $dateRange)
+            ->selectRaw($this->storefrontVisitIdentityExpression() . ' AS visitor_identity')
+            ->groupBy('visitor_identity');
+    }
+
+    private function productViewsWithoutConfirmedVisit(array $dateRange): \Illuminate\Database\Eloquent\Builder
+    {
+        $query  = ProductView::query()->whereBetween('created_at', $dateRange);
+        $visits = $this->confirmedStorefrontVisitorIdentities($dateRange);
+
+        if ($visits !== null) {
+            $query->whereNotIn(DB::raw($this->productViewVisitorKeyExpression()), $visits);
+        }
+
+        return $query;
+    }
+
     private function cartProductsSessionAvailable(): bool
     {
         if ($this->cartProductsSessionAvailable === null) {
@@ -1442,28 +1493,46 @@ class DashboardService
     }
 
     /** @return array<string, int> */
+    private function unifiedSourceCounts(array $dateRange): array
+    {
+        return $this->memoizeRange('source_counts', $dateRange, function () use ($dateRange): array {
+            $sources = $this->storefrontVisitsInRange($dateRange)
+                ? $this->storefrontSourceCounts($dateRange)
+                : [];
+
+            foreach ($this->legacyProductViewSourceCounts($dateRange, true) as $key => $count) {
+                $sources[$key] = ($sources[$key] ?? 0) + $count;
+            }
+
+            return $sources;
+        });
+    }
+
+    /** @return array<string, int> */
     private function storefrontSourceCounts(array $dateRange): array
     {
         // IDs are insertion order, not event order. Imports and delayed writes
         // can insert an older visit after a newer one, so first-touch
         // attribution must be selected by the captured timestamp.
+        $visitorIdentity = $this->storefrontVisitIdentityExpression();
         $firstVisitTimes = $this->storefrontVisitQuery()
             ->whereBetween('bucket_at', $dateRange)
-            ->select('visitor_key')
+            ->selectRaw("{$visitorIdentity} AS visitor_identity")
             ->selectRaw('MIN(first_seen_at) AS first_seen_at')
-            ->groupBy('visitor_key');
+            ->groupBy('visitor_identity');
 
         // A deterministic ID tie-break prevents duplicate counting when an
         // import contains two rows with the same captured timestamp.
-        $firstCandidateId = $this->qualifiedColumn('first_visit_candidate', 'id');
-        $firstVisits      = DB::table('storefront_visits as first_visit_candidate')
-            ->joinSub($firstVisitTimes, 'first_visit_time', function ($join): void {
-                $join->on('first_visit_candidate.visitor_key', '=', 'first_visit_time.visitor_key')
+        $firstCandidateId       = $this->qualifiedColumn('first_visit_candidate', 'id');
+        $firstCandidateIdentity = $this->storefrontVisitIdentityExpression('first_visit_candidate');
+        $firstVisits            = DB::table('storefront_visits as first_visit_candidate')
+            ->joinSub($firstVisitTimes, 'first_visit_time', function ($join) use ($firstCandidateIdentity): void {
+                $join->on(DB::raw($firstCandidateIdentity), '=', 'first_visit_time.visitor_identity')
                     ->on('first_visit_candidate.first_seen_at', '=', 'first_visit_time.first_seen_at');
             })
-            ->select('first_visit_candidate.visitor_key')
+            ->selectRaw("{$firstCandidateIdentity} AS visitor_identity")
             ->selectRaw("MIN({$firstCandidateId}) AS id")
-            ->groupBy('first_visit_candidate.visitor_key');
+            ->groupBy('visitor_identity');
         if ($this->storefrontVisitConfirmationAvailable()) {
             $firstVisits->whereNotNull('first_visit_candidate.human_confirmed_at');
         }
@@ -1487,20 +1556,21 @@ class DashboardService
      *
      * @return array<string, int>
      */
-    private function legacyProductViewSourceCounts(array $dateRange): array
+    private function legacyProductViewSourceCounts(array $dateRange, bool $excludeConfirmedVisits = false): array
     {
         if (! $this->productViewsAvailable()) {
             return [];
         }
 
         if (! $this->productViewRefererAvailable()) {
-            $count = $this->countLegacyProductViewVisitors($dateRange);
+            $count = $this->countLegacyProductViewVisitors($dateRange, $excludeConfirmedVisits);
 
             return $count > 0 ? ['direct' => $count] : [];
         }
 
-        $firstViews = ProductView::query()
-            ->whereBetween('created_at', $dateRange)
+        $firstViews = ($excludeConfirmedVisits
+            ? $this->productViewsWithoutConfirmedVisit($dateRange)
+            : ProductView::query()->whereBetween('created_at', $dateRange))
             ->selectRaw('MIN(id) AS id')
             ->groupByRaw($this->productViewVisitorKeyExpression());
         $referer = $this->qualifiedColumn('source_view', 'referer');
@@ -1523,10 +1593,11 @@ class DashboardService
         return $sources;
     }
 
-    private function countLegacyProductViewVisitors(array $dateRange): int
+    private function countLegacyProductViewVisitors(array $dateRange, bool $excludeConfirmedVisits = false): int
     {
-        $visitors = ProductView::query()
-            ->whereBetween('created_at', $dateRange)
+        $visitors = ($excludeConfirmedVisits
+            ? $this->productViewsWithoutConfirmedVisit($dateRange)
+            : ProductView::query()->whereBetween('created_at', $dateRange))
             ->selectRaw($this->productViewVisitorKeyExpression() . ' AS visitor_key')
             ->groupBy('visitor_key');
 
@@ -1565,20 +1636,22 @@ class DashboardService
             // Country may be resolved after the first request. Use the actual last
             // seen timestamp rather than the greatest ID so delayed/backfilled
             // rows cannot overwrite a visitor's latest verified country.
+            $visitorIdentity  = $this->storefrontVisitIdentityExpression();
             $latestVisitTimes = $this->storefrontVisitQuery()
                 ->whereBetween('bucket_at', $dateRange)
-                ->select('visitor_key')
+                ->selectRaw("{$visitorIdentity} AS visitor_identity")
                 ->selectRaw('MAX(last_seen_at) AS last_seen_at')
-                ->groupBy('visitor_key');
-            $latestCandidateId = $this->qualifiedColumn('latest_visit_candidate', 'id');
-            $latestVisits      = DB::table('storefront_visits as latest_visit_candidate')
-                ->joinSub($latestVisitTimes, 'latest_visit_time', function ($join): void {
-                    $join->on('latest_visit_candidate.visitor_key', '=', 'latest_visit_time.visitor_key')
+                ->groupBy('visitor_identity');
+            $latestCandidateId       = $this->qualifiedColumn('latest_visit_candidate', 'id');
+            $latestCandidateIdentity = $this->storefrontVisitIdentityExpression('latest_visit_candidate');
+            $latestVisits            = DB::table('storefront_visits as latest_visit_candidate')
+                ->joinSub($latestVisitTimes, 'latest_visit_time', function ($join) use ($latestCandidateIdentity): void {
+                    $join->on(DB::raw($latestCandidateIdentity), '=', 'latest_visit_time.visitor_identity')
                         ->on('latest_visit_candidate.last_seen_at', '=', 'latest_visit_time.last_seen_at');
                 })
-                ->select('latest_visit_candidate.visitor_key')
+                ->selectRaw("{$latestCandidateIdentity} AS visitor_identity")
                 ->selectRaw("MAX({$latestCandidateId}) AS id")
-                ->groupBy('latest_visit_candidate.visitor_key');
+                ->groupBy('visitor_identity');
             if ($this->storefrontVisitConfirmationAvailable()) {
                 $latestVisits->whereNotNull('latest_visit_candidate.human_confirmed_at');
             }
@@ -1597,14 +1670,15 @@ class DashboardService
         });
     }
 
-    private function legacyProductViewCountryRows(array $dateRange)
+    private function legacyProductViewCountryRows(array $dateRange, bool $excludeConfirmedVisits = false)
     {
         if (! $this->productViewCountryAvailable()) {
             return collect();
         }
 
-        $latestViews = ProductView::query()
-            ->whereBetween('created_at', $dateRange)
+        $latestViews = ($excludeConfirmedVisits
+            ? $this->productViewsWithoutConfirmedVisit($dateRange)
+            : ProductView::query()->whereBetween('created_at', $dateRange))
             ->selectRaw('MAX(id) AS id')
             ->groupByRaw($this->productViewVisitorKeyExpression());
         $countryCode = $this->qualifiedColumn('country_view', 'country_code');
@@ -1619,6 +1693,35 @@ class DashboardService
             ->orderByDesc('visitors')
             ->orderBy('country_code')
             ->get();
+    }
+
+    private function unifiedCountryRows(array $dateRange)
+    {
+        return $this->memoizeRange('unified_country_rows', $dateRange, function () use ($dateRange) {
+            $counts = [];
+            $rows   = $this->storefrontVisitsInRange($dateRange)
+                ? $this->storefrontCountryRows($dateRange)
+                : collect();
+
+            foreach ($rows as $row) {
+                $code          = strtoupper((string) $row->country_code);
+                $counts[$code] = ($counts[$code] ?? 0) + (int) $row->visitors;
+            }
+
+            foreach ($this->legacyProductViewCountryRows($dateRange, true) as $row) {
+                $code          = strtoupper((string) $row->country_code);
+                $counts[$code] = ($counts[$code] ?? 0) + (int) $row->visitors;
+            }
+
+            return collect($counts)
+                ->map(static fn (int $visitors, string $countryCode): object => (object) [
+                    'country_code' => $countryCode,
+                    'visitors'     => $visitors,
+                ])
+                ->sort(static fn (object $left, object $right): int => ($right->visitors <=> $left->visitors)
+                    ?: ($left->country_code <=> $right->country_code))
+                ->values();
+        });
     }
 
     private function cartAddsInRange(array $dateRange): int
@@ -1657,12 +1760,32 @@ class DashboardService
         };
     }
 
-    private function productViewVisitorKeyExpression(): string
+    private function storefrontVisitIdentityExpression(?string $table = null): string
     {
+        $customerId = $table ? $this->qualifiedColumn($table, 'customer_id') : 'customer_id';
+        $visitorKey = $table ? $this->qualifiedColumn($table, 'visitor_key') : 'visitor_key';
+
         return match (DB::connection()->getDriverName()) {
-            'pgsql'  => "CASE WHEN customer_id IS NOT NULL AND customer_id > 0 THEN 'customer:' || customer_id::text ELSE COALESCE(NULLIF(session_id, ''), NULLIF(ip, ''), 'view:' || id::text) END",
-            'sqlite' => "CASE WHEN customer_id IS NOT NULL AND customer_id > 0 THEN 'customer:' || CAST(customer_id AS TEXT) ELSE COALESCE(NULLIF(session_id, ''), NULLIF(ip, ''), 'view:' || CAST(id AS TEXT)) END",
-            default  => "CASE WHEN customer_id IS NOT NULL AND customer_id > 0 THEN CONCAT('customer:', customer_id) ELSE COALESCE(NULLIF(session_id, ''), NULLIF(ip, ''), CONCAT('view:', id)) END",
+            'pgsql'  => "CASE WHEN {$customerId} IS NOT NULL AND {$customerId} > 0 THEN 'customer:' || {$customerId}::text ELSE 'visitor:' || {$visitorKey} END",
+            'sqlite' => "CASE WHEN {$customerId} IS NOT NULL AND {$customerId} > 0 THEN 'customer:' || CAST({$customerId} AS TEXT) ELSE 'visitor:' || {$visitorKey} END",
+            default  => "CASE WHEN {$customerId} IS NOT NULL AND {$customerId} > 0 THEN CONCAT('customer:', {$customerId}) ELSE CONCAT('visitor:', {$visitorKey}) END",
+        };
+    }
+
+    private function productViewVisitorKeyExpression(?string $table = null): string
+    {
+        $customerId = $table ? $this->qualifiedColumn($table, 'customer_id') : 'customer_id';
+        $sessionId  = $table ? $this->qualifiedColumn($table, 'session_id') : 'session_id';
+        $ip         = $table ? $this->qualifiedColumn($table, 'ip') : 'ip';
+        $id         = $table ? $this->qualifiedColumn($table, 'id') : 'id';
+        $visitorKey = $this->productViewVisitorKeyAvailable()
+            ? ($table ? $this->qualifiedColumn($table, 'visitor_key') : 'visitor_key')
+            : null;
+
+        return match (DB::connection()->getDriverName()) {
+            'pgsql'  => "CASE WHEN {$customerId} IS NOT NULL AND {$customerId} > 0 THEN 'customer:' || {$customerId}::text ELSE COALESCE(" . ($visitorKey ? "'visitor:' || NULLIF({$visitorKey}, ''), " : '') . "'session:' || NULLIF({$sessionId}, ''), 'ip:' || NULLIF({$ip}, ''), 'view:' || {$id}::text) END",
+            'sqlite' => "CASE WHEN {$customerId} IS NOT NULL AND {$customerId} > 0 THEN 'customer:' || CAST({$customerId} AS TEXT) ELSE COALESCE(" . ($visitorKey ? "'visitor:' || NULLIF({$visitorKey}, ''), " : '') . "'session:' || NULLIF({$sessionId}, ''), 'ip:' || NULLIF({$ip}, ''), 'view:' || CAST({$id} AS TEXT)) END",
+            default  => "CASE WHEN {$customerId} IS NOT NULL AND {$customerId} > 0 THEN CONCAT('customer:', {$customerId}) ELSE COALESCE(" . ($visitorKey ? "CONCAT('visitor:', NULLIF({$visitorKey}, '')), " : '') . "CONCAT('session:', NULLIF({$sessionId}, '')), CONCAT('ip:', NULLIF({$ip}, '')), CONCAT('view:', {$id})) END",
         };
     }
 
@@ -1894,37 +2017,96 @@ class DashboardService
      */
     private function productViewBuckets(array $dateRange, string $granularity): array
     {
-        if ($this->storefrontVisitsInRange($dateRange)) {
+        $buckets = [];
+
+        if ($this->storefrontVisitsAvailable()) {
             $bucketAt = $this->qualifiedColumn('storefront_visits', 'bucket_at');
             $bucket   = $this->timeBucketExpression($bucketAt, $granularity);
             $rows     = $this->storefrontVisitQuery()
                 ->whereBetween('bucket_at', $dateRange)
-                ->selectRaw("{$bucket} AS bucket, SUM(page_views) AS pv_count, COUNT(DISTINCT visitor_key) AS uv_count")
+                ->selectRaw("{$bucket} AS bucket, SUM(page_views) AS pv_count")
                 ->groupBy(DB::raw($bucket))
                 ->get();
 
-            return $rows->mapWithKeys(static fn ($row) => [(string) $row->bucket => [
-                'pv_count' => (int) $row->pv_count,
-                'uv_count' => (int) $row->uv_count,
-            ]])->all();
+            foreach ($rows as $row) {
+                $buckets[(string) $row->bucket] = [
+                    'pv_count' => (int) $row->pv_count,
+                    'uv_count' => 0,
+                ];
+            }
         }
 
-        if (! $this->productViewsAvailable()) {
+        if ($this->productViewsAvailable()) {
+            $createdAt = $this->qualifiedColumn('product_views', 'created_at');
+            $bucket    = $this->timeBucketExpression($createdAt, $granularity);
+            $rows      = ProductView::query()
+                ->whereBetween('created_at', $dateRange)
+                ->selectRaw("{$bucket} AS bucket, COUNT(*) AS pv_count")
+                ->groupBy(DB::raw($bucket))
+                ->get();
+
+            foreach ($rows as $row) {
+                $key = (string) $row->bucket;
+                $buckets[$key] ??= ['pv_count' => 0, 'uv_count' => 0];
+                // Product pages are also HTML page views. Taking the larger
+                // ledger avoids both dropping product-only visitors and
+                // counting the same confirmed page twice.
+                $buckets[$key]['pv_count'] = max($buckets[$key]['pv_count'], (int) $row->pv_count);
+            }
+        }
+
+        foreach ($this->unifiedVisitorBuckets($dateRange, $granularity) as $key => $visitorCount) {
+            $buckets[$key] ??= ['pv_count' => 0, 'uv_count' => 0];
+            $buckets[$key]['uv_count'] = $visitorCount;
+            $buckets[$key]['pv_count'] = max($buckets[$key]['pv_count'], $visitorCount);
+        }
+
+        return $buckets;
+    }
+
+    /** @return array<string, int> */
+    private function unifiedVisitorBuckets(array $dateRange, string $granularity): array
+    {
+        $queries = [];
+
+        if ($this->storefrontVisitsAvailable()) {
+            $bucketAt  = $this->qualifiedColumn('storefront_visits', 'bucket_at');
+            $bucket    = $this->timeBucketExpression($bucketAt, $granularity);
+            $identity  = $this->storefrontVisitIdentityExpression();
+            $queries[] = $this->storefrontVisitQuery()
+                ->whereBetween('bucket_at', $dateRange)
+                ->selectRaw("{$bucket} AS bucket, {$identity} AS visitor_identity")
+                ->groupByRaw("{$bucket}, {$identity}");
+        }
+
+        if ($this->productViewsAvailable()) {
+            $createdAt = $this->qualifiedColumn('product_views', 'created_at');
+            $bucket    = $this->timeBucketExpression($createdAt, $granularity);
+            $identity  = $this->productViewVisitorKeyExpression();
+            $queries[] = ProductView::query()
+                ->whereBetween('created_at', $dateRange)
+                ->selectRaw("{$bucket} AS bucket, {$identity} AS visitor_identity")
+                ->groupByRaw("{$bucket}, {$identity}");
+        }
+
+        $union = array_shift($queries);
+        if ($union === null) {
             return [];
         }
 
-        $createdAt = $this->qualifiedColumn('product_views', 'created_at');
-        $bucket    = $this->timeBucketExpression($createdAt, $granularity);
-        $rows      = ProductView::query()
-            ->whereBetween('created_at', $dateRange)
-            ->selectRaw("{$bucket} AS bucket, COUNT(*) AS pv_count, COUNT(DISTINCT {$this->productViewVisitorKeyExpression()}) AS uv_count")
-            ->groupBy(DB::raw($bucket))
-            ->get();
+        foreach ($queries as $additionalQuery) {
+            $union->union($additionalQuery);
+        }
 
-        return $rows->mapWithKeys(static fn ($row) => [(string) $row->bucket => [
-            'pv_count' => (int) $row->pv_count,
-            'uv_count' => (int) $row->uv_count,
-        ]])->all();
+        $bucket = $this->qualifiedColumn('dashboard_visitor_buckets', 'bucket');
+
+        return DB::query()
+            ->fromSub($union, 'dashboard_visitor_buckets')
+            ->selectRaw("{$bucket} AS bucket, COUNT(*) AS visitor_count")
+            ->groupBy(DB::raw($bucket))
+            ->pluck('visitor_count', 'bucket')
+            ->map(static fn ($count): int => (int) $count)
+            ->all();
     }
 
     private function cartVisitorBuckets(array $dateRange, string $granularity): array
@@ -2236,12 +2418,13 @@ class DashboardService
         $previousRange   = $this->getPreviousDateRange($timeRange);
         $usesVisitLedger = $this->storefrontVisitsInRange($dateRange);
         $trackedVisitors = $this->countUniqueVisitors($dateRange);
+        $visitVisitors   = $usesVisitLedger
+            ? DB::query()->fromSub($this->confirmedStorefrontVisitorIdentities($dateRange), 'dashboard_visit_visitors')->count()
+            : 0;
         $knownCountries  = 0;
 
         if ($trackedVisitors > 0) {
-            $countryRows = $usesVisitLedger
-                ? $this->storefrontCountryRows($dateRange)
-                : $this->legacyProductViewCountryRows($dateRange);
+            $countryRows    = $this->unifiedCountryRows($dateRange);
             $knownCountries = (int) $countryRows
                 ->filter(static fn ($row): bool => preg_match('/^[A-Z]{2}$/', strtoupper((string) $row->country_code)) === 1)
                 ->sum('visitors');
@@ -2252,9 +2435,16 @@ class DashboardService
         if ($usesVisitLedger) {
             $lastSeenAt = $this->storefrontVisitQuery()->max('last_seen_at');
             $startedAt  = $this->storefrontVisitQuery()->min('first_seen_at');
-        } elseif ($this->productViewsAvailable()) {
-            $lastSeenAt = ProductView::query()->max('created_at');
-            $startedAt  = ProductView::query()->min('created_at');
+        }
+        if ($this->productViewsAvailable()) {
+            $lastProductView  = ProductView::query()->max('created_at');
+            $firstProductView = ProductView::query()->min('created_at');
+            if ($lastProductView && (! $lastSeenAt || Carbon::parse($lastProductView)->greaterThan(Carbon::parse($lastSeenAt)))) {
+                $lastSeenAt = $lastProductView;
+            }
+            if ($firstProductView && (! $startedAt || Carbon::parse($firstProductView)->lessThan(Carbon::parse($startedAt)))) {
+                $startedAt = $firstProductView;
+            }
         }
 
         $lastSeen  = $lastSeenAt ? Carbon::parse($lastSeenAt) : null;
@@ -2275,7 +2465,12 @@ class DashboardService
             'tracking_started_at'      => $startedAt ? Carbon::parse($startedAt)->toIso8601String() : null,
             'last_event_at'            => $lastSeen?->toIso8601String(),
             'freshness'                => $freshness,
-            'traffic_source'           => $usesVisitLedger ? 'storefront_visits' : ($this->productViewsAvailable() ? 'product_views' : 'unavailable'),
+            'traffic_source'           => match (true) {
+                $usesVisitLedger && $trackedVisitors > $visitVisitors => 'combined',
+                $usesVisitLedger                                      => 'storefront_visits',
+                $this->productViewsAvailable()                        => 'product_views',
+                default                                               => 'unavailable',
+            },
             'tracked_visitors'         => $trackedVisitors,
             'country_coverage_percent' => $trackedVisitors > 0 ? round(($knownCountries / $trackedVisitors) * 100, 1) : 0.0,
         ];
