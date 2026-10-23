@@ -90,6 +90,48 @@ jobs:
           npm ci --ignore-scripts
           npm run check
 
+  dashboard-mysql:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      APP_ENV: testing
+      DASHBOARD_MYSQL_TEST: '1'
+      DASHBOARD_MYSQL_HOST: 127.0.0.1
+      DASHBOARD_MYSQL_PORT: '3306'
+      DASHBOARD_MYSQL_DATABASE: longos_dashboard_test
+      DASHBOARD_MYSQL_USERNAME: longos
+      DASHBOARD_MYSQL_PASSWORD: longos-test
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: longos_dashboard_test
+          MYSQL_USER: longos
+          MYSQL_PASSWORD: longos-test
+          MYSQL_ROOT_PASSWORD: longos-root-test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: shivammathur/setup-php@d52fc211a0436f8839a587b3b5b8efddab4744ea # v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo_mysql
+          coverage: none
+          tools: composer:v2
+
+      - name: Install locked PHP dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Verify tenant-prefixed dashboard queries on MySQL 8
+        run: vendor/bin/phpunit tests/Feature/DashboardMysqlCompatibilityTest.php
+
   deployment-contract:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
