@@ -217,7 +217,17 @@
   }
 
   @media (max-width: 767.98px) {
-    .image-wrap { aspect-ratio: 4 / 5; }
+    .image-wrap {
+      aspect-ratio: auto;
+      transform: none;
+    }
+
+    .slide-media {
+      height: auto;
+      object-fit: contain;
+    }
+
+    .builder-slideshow-placeholder { min-height: 20rem; }
   }
 }
 

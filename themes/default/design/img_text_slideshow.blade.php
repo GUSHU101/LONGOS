@@ -71,6 +71,7 @@
     var slideshow = null;
     if (typeof Swiper === "function") slideshow = new Swiper ('.module-swiper-img-text-{{ $module_id }}', {
       loop: {{ count($content['images']) > 1 ? 'true' : 'false' }},
+      autoHeight: true,
       parallax : true,
       pauseOnMouseEnter: true,
       clickable :true,

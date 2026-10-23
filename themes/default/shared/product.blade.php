@@ -1,6 +1,17 @@
 @php
   $isOnSale = $product['price'] < $product['origin_price'] && $product['origin_price'] > 0;
   $saleRate = $isOnSale ? max(1, round((1 - ($product['price'] / $product['origin_price'])) * 100)) : null;
+  $cardImages = array_values($product['images'] ?? []);
+  $cardImageSrcsets = array_values($product['image_srcsets'] ?? []);
+  $placeholder = image_resize('', 640, calculate_height_by_ratio(640));
+  $buildSrcset = static fn (array $sources): string => collect($sources)
+    ->filter(fn ($source) => !empty($source['url']) && !empty($source['width']))
+    ->map(fn ($source) => $source['url'] . ' ' . (int) $source['width'] . 'w')
+    ->implode(', ');
+  $primaryImage = $cardImages[0] ?? $placeholder;
+  $primarySrcset = $buildSrcset($cardImageSrcsets[0] ?? []);
+  $secondaryImage = $cardImages[1] ?? '';
+  $secondarySrcset = $buildSrcset($cardImageSrcsets[1] ?? []);
 @endphp
 <article class="product-wrap {{ request('style_list') ?? '' }} {{ $style_list ?? '' }}">
   <div class="image">
@@ -9,18 +20,20 @@
     <a href="{{ $product['url'] }}">
       @hookwrapper('product_list.item.image')
       <img
-        width="600"
-        height="600"
+        width="800"
+        height="{{ calculate_height_by_ratio(800) }}"
         data-sizes="auto"
-        data-src="{{ $product['images'][0] ?? image_resize('', 500, 500) }}"
-        src="{{ image_resize('', 500, 500) }}"
+        data-src="{{ $primaryImage }}"
+        @if($primarySrcset) data-srcset="{{ $primarySrcset }}" @endif
+        src="{{ $placeholder }}"
         alt="{{ $product['name'] }}"
         class="img-fluid image-before lazyload" decoding="async">
-        @if (count($product['images']) > 1)
+        @if ($secondaryImage)
         <img
-        width="600"
-        height="600"
-        src="{{ $product['images'][1] ?? image_resize('', 500, 500) }}"
+        width="800"
+        height="{{ calculate_height_by_ratio(800) }}"
+        src="{{ $secondaryImage }}"
+        @if($secondarySrcset) srcset="{{ $secondarySrcset }}" sizes="(max-width: 767px) 50vw, (max-width: 1199px) 33vw, 20vw" @endif
         alt=""
         class="img-fluid image-after" loading="lazy" decoding="async">
         @endif

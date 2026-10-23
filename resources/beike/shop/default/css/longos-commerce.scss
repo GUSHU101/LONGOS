@@ -313,11 +313,16 @@ header .menu-wrap .sub-menu {
 }
 
 .product-wrap .image img {
-  mix-blend-mode: multiply;
+  image-rendering: auto;
+  mix-blend-mode: normal;
   transition: transform .35s ease;
 }
 
 .product-wrap:hover .image img { transform: scale(1.035); }
+
+@media (hover: none) {
+  .product-wrap:hover .image img { transform: none; }
+}
 
 .product-wrap .product-bottom-info { padding: 0 !important; }
 .product-wrap .product-name {
