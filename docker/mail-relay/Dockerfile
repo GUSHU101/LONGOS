@@ -9,11 +9,11 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY package.json package-lock.json ./
+COPY docker/mail-relay/package.json docker/mail-relay/package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund
 
-COPY src ./src
-COPY entrypoint.sh ./entrypoint.sh
+COPY docker/mail-relay/src ./src
+COPY docker/mail-relay/entrypoint.sh ./entrypoint.sh
 RUN chmod 0755 /app/entrypoint.sh
 
 EXPOSE 25 3000

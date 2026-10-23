@@ -236,8 +236,13 @@ services:
   # the replay-protected HMAC API is reachable from the private stack network.
   mail-relay:
     build:
-      context: ./docker/mail-relay
-      dockerfile: Dockerfile
+      # Keep every repository-built service on the repository root context.
+      # Coolify builds from its temporary Git artifact, then starts the Raw
+      # Compose project from /data/coolify/applications/<uuid>. A nested
+      # context can survive Coolify's build rewrite and be evaluated again by
+      # `compose up --build` after the temporary checkout has been removed.
+      context: .
+      dockerfile: docker/mail-relay/Dockerfile
     restart: unless-stopped
     environment:
       MAIL_HOSTNAME: ${MAIL_RELAY_HOSTNAME:-mailout.${SAAS_BASE_DOMAIN}}

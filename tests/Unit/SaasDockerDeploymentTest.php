@@ -187,9 +187,10 @@ class SaasDockerDeploymentTest extends TestCase
 
     public function test_background_services_and_state_are_persistent(): void
     {
-        $compose = $this->read('docker-compose.yml');
-        $relay   = $this->read('docker/mail-relay/entrypoint.sh');
-        $ci      = $this->read('.github/workflows/ci.yml');
+        $compose         = $this->read('docker-compose.yml');
+        $relay           = $this->read('docker/mail-relay/entrypoint.sh');
+        $relayDockerfile = $this->read('docker/mail-relay/Dockerfile');
+        $ci              = $this->read('.github/workflows/ci.yml');
 
         self::assertStringContainsString('command: ["worker"]', $compose);
         self::assertStringContainsString('command: ["scheduler"]', $compose);
@@ -205,7 +206,12 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringContainsString('mail-relay-dkim:/var/lib/dkim', $compose);
         self::assertStringContainsString('mail-relay-state:/var/lib/mail-relay-state', $compose);
         self::assertStringContainsString('mysql:8.4.11', $compose);
-        self::assertStringContainsString('FROM node:22.22.0-bookworm-slim', $this->read('docker/mail-relay/Dockerfile'));
+        self::assertStringContainsString('FROM node:22.22.0-bookworm-slim', $relayDockerfile);
+        self::assertStringNotContainsString('context: ./', $compose);
+        self::assertMatchesRegularExpression('/mail-relay:\R\s+build:\R(?:\s+#.*\R)*\s+context: \.\R\s+dockerfile: docker\/mail-relay\/Dockerfile/', $compose);
+        self::assertStringContainsString('COPY docker/mail-relay/package.json docker/mail-relay/package-lock.json ./', $relayDockerfile);
+        self::assertStringContainsString('COPY docker/mail-relay/src ./src', $relayDockerfile);
+        self::assertStringContainsString('COPY docker/mail-relay/entrypoint.sh ./entrypoint.sh', $relayDockerfile);
         self::assertStringNotContainsString('longos-app:latest', $compose);
         self::assertStringNotContainsString('longos-mail-relay:latest', $compose);
         self::assertStringContainsString('postfix status >/dev/null 2>&1', $relay);

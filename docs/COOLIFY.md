@@ -190,6 +190,15 @@ Coolify 会分别生成 build-time 和 runtime 环境文件。当管理员邮箱
 
 请确认部署的 Git 提交已包含列表形式的 `services.app.labels`。Coolify 会追加自身的管理标签；旧版 LONGOS 的映射形式标签与它合并后可能产生 `0`/`1` 数字键，并被 Docker Compose 拒绝。新版已将 Caddy 标签统一为字符串列表；更新到最新 `main` 后直接 Redeploy，无需删除环境变量或数据卷。
 
+### 启动阶段报 `docker/mail-relay not found`
+
+如果日志在“Starting new application”之后出现 `unable to prepare context`，并指向
+`/data/coolify/applications/<uuid>/docker/mail-relay`，说明部署的旧版 Compose 使用了
+子目录构建上下文。Coolify 已在临时 Git 目录完成镜像构建并清理源码，但启动命令又从
+持久应用目录执行了 `compose up --build`，因此找不到该子目录。更新到最新 `main` 后
+重新部署即可；新版将所有仓库镜像统一为根构建上下文，并由 CI 阻止该问题回归。
+此故障发生在新容器启动前，不需要删除数据库或任何持久卷。
+
 ### Cloudflare 526
 
 - 使用 Full (strict)，确认 DNS 指向当前 Coolify 服务器。

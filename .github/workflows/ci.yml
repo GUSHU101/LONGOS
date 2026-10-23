@@ -121,6 +121,15 @@ jobs:
           jq -e '.services.app.volumes[] | select(.target == "/var/lib/longos-mail-dns" and .read_only == true)' /tmp/longos-compose.json
           jq -e '.services["mail-relay"].volumes[] | select(.target == "/var/lib/mail-relay-dns" and .read_only != true)' /tmp/longos-compose.json
           jq -e '[.services.app.volumes[] | select(.target == "/var/lib/dkim")] | length == 0' /tmp/longos-compose.json
+          # Coolify removes its temporary Git artifact before Raw Compose
+          # startup. Nested build contexts can otherwise be re-evaluated from
+          # /data/coolify/applications/<uuid> and fail after old containers
+          # were already stopped. Every repository build must use root.
+          docker compose config --no-path-resolution --format json > /tmp/longos-compose-paths.json
+          jq -e '[.services[] | select(.build != null) | .build.context] | length > 0 and all(. == ".")' \
+            /tmp/longos-compose-paths.json
+          jq -e '.services["mail-relay"].build.dockerfile == "docker/mail-relay/Dockerfile"' \
+            /tmp/longos-compose-paths.json
 
       - name: Validate Coolify build-only email fallback
         run: |
