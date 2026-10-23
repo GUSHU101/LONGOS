@@ -96,7 +96,9 @@ x-app-base: &app-base
   build:
     context: .
     dockerfile: docker/nginx/Dockerfile
+  init: true
   restart: unless-stopped
+  stop_grace_period: 45s
   environment: *app-environment
   volumes: *app-volumes
   networks:
@@ -114,14 +116,11 @@ services:
       <<: *app-environment
       ADMIN_NAME: ${ADMIN_NAME:-admin}
       ADMIN_PASSWORD: ${SERVICE_PASSWORD_64_ADMIN}
+    # Keep the control plane available when outbound mail is misconfigured or
+    # restarting. The scheduler/queue retry delivery after the relay recovers.
     depends_on:
       mysql:
         condition: service_healthy
-      mail-relay:
-        # Storefront availability must not depend on temporary outbound-mail
-        # health. Failed queued mail is retried while relay diagnostics remain
-        # visible in the administration panel.
-        condition: service_started
     networks:
       longos: {}
       coolify:
@@ -212,6 +211,7 @@ services:
   mysql:
     image: mysql:8.4.11
     restart: unless-stopped
+    stop_grace_period: 60s
     environment:
       MYSQL_ROOT_PASSWORD: ${SERVICE_PASSWORD_64_DBROOT}
       MYSQL_DATABASE: ${DB_DATABASE:-longos}
@@ -243,7 +243,9 @@ services:
       # `compose up --build` after the temporary checkout has been removed.
       context: .
       dockerfile: docker/mail-relay/Dockerfile
+    init: true
     restart: unless-stopped
+    stop_grace_period: 30s
     environment:
       MAIL_HOSTNAME: ${MAIL_RELAY_HOSTNAME:-mailout.${SAAS_BASE_DOMAIN}}
       MAIL_DOMAINS: ${MAIL_RELAY_DOMAINS:-${SAAS_BASE_DOMAIN}}

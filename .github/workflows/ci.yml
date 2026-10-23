@@ -130,6 +130,8 @@ jobs:
             /tmp/longos-compose-paths.json
           jq -e '.services["mail-relay"].build.dockerfile == "docker/mail-relay/Dockerfile"' \
             /tmp/longos-compose-paths.json
+          jq -e '.services.app.depends_on.mysql.condition == "service_healthy"' /tmp/longos-compose.json
+          jq -e '.services.app.depends_on["mail-relay"] == null' /tmp/longos-compose.json
 
       - name: Validate Coolify build-only email fallback
         run: |
@@ -361,6 +363,13 @@ jobs:
 
           docker compose exec -T mail-relay node -e \
             "fetch('http://127.0.0.1:3000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+          # The HTTP/HMAC parser handles untrusted message metadata and must
+          # not run as root or be able to read the DKIM private-key volume.
+          docker compose exec -T mail-relay sh -c '
+            pid="$(pgrep -f "^node /app/src/server.mjs$" | head -n 1)"
+            test -n "$pid"
+            test "$(awk "/^Uid:/ {print \$2}" "/proc/$pid/status")" -ne 0
+          '
 
           # PHP may read the public TXT value used for optional Cloudflare
           # synchronization, but must never receive the DKIM private key.
@@ -374,12 +383,27 @@ jobs:
           # The relay must reuse the persisted private key after a container
           # restart. Regenerating it would silently invalidate published DKIM.
           dkim_path="/var/lib/dkim/${SAAS_BASE_DOMAIN}/mail2026.private"
+          docker compose exec -T --user node mail-relay test ! -r "$dkim_path"
           dkim_before="$(docker compose exec -T mail-relay sha256sum "$dkim_path" | awk '{print $1}')"
           test -n "$dkim_before"
           docker compose restart mail-relay
           wait_for_healthy mail-relay 60
           dkim_after="$(docker compose exec -T mail-relay sha256sum "$dkim_path" | awk '{print $1}')"
           test "$dkim_after" = "$dkim_before"
+
+          # Outbound mail is an auxiliary service. A broken or deliberately
+          # stopped relay must never prevent the storefront from completing a
+          # cold application start, upgrade, preflight, or health transition.
+          docker compose stop app mail-relay
+          docker compose up -d app
+          relay_container_id="$(docker compose ps -aq mail-relay)"
+          test -n "$relay_container_id"
+          test "$(docker inspect --format '{{.State.Running}}' "$relay_container_id")" = "false"
+          wait_for_app
+          docker compose exec -T app curl -fsS -o /dev/null \
+            -H "Host: ${DOMAIN}" http://127.0.0.1/
+          docker compose up -d mail-relay
+          wait_for_healthy mail-relay 60
 
           docker compose up -d worker scheduler
           wait_for_healthy worker 60

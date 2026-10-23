@@ -200,7 +200,10 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringNotContainsString('queue:monitor default', $compose);
         self::assertStringContainsString('QueueService::hasRecentWorkerHeartbeat', $this->read('app/Console/Commands/QueueWorkerHealth.php'));
         self::assertStringContainsString('condition: service_healthy', $compose);
-        self::assertMatchesRegularExpression('/mail-relay:\\R(?:.*\\R){0,5}\\s*condition: service_started/', $compose);
+        self::assertStringNotContainsString("      mail-relay:\n        condition: service_started", $compose);
+        self::assertStringContainsString('init: true', $compose);
+        self::assertStringContainsString('stop_grace_period: 45s', $compose);
+        self::assertStringContainsString('stop_grace_period: 30s', $compose);
         self::assertStringContainsString('longos-storage:/var/www/html/storage', $compose);
         self::assertStringContainsString('mysql-data:/var/lib/mysql', $compose);
         self::assertStringContainsString('mail-relay-dkim:/var/lib/dkim', $compose);
@@ -212,10 +215,13 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringContainsString('COPY docker/mail-relay/package.json docker/mail-relay/package-lock.json ./', $relayDockerfile);
         self::assertStringContainsString('COPY docker/mail-relay/src ./src', $relayDockerfile);
         self::assertStringContainsString('COPY docker/mail-relay/entrypoint.sh ./entrypoint.sh', $relayDockerfile);
+        self::assertStringContainsString('gosu procps', $relayDockerfile);
         self::assertStringNotContainsString('longos-app:latest', $compose);
         self::assertStringNotContainsString('longos-mail-relay:latest', $compose);
         self::assertStringContainsString('postfix status >/dev/null 2>&1', $relay);
         self::assertStringContainsString('pgrep -x opendkim >/dev/null 2>&1', $relay);
+        self::assertStringContainsString('chown -R node:node /var/lib/mail-relay-state', $relay);
+        self::assertStringContainsString('gosu node:node node /app/src/server.mjs', $relay);
         self::assertStringContainsString('A required mail relay process exited', $relay);
         self::assertStringContainsString('--tries=5 --backoff=30', $this->read('docker/nginx/start.sh'));
         self::assertStringContainsString('wait_for_healthy worker', $ci);

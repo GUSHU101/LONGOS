@@ -63,6 +63,7 @@ SMTP_INET_INTERFACES="${SMTP_INET_INTERFACES:-loopback-only}"
 SMTP_MYNETWORKS="${SMTP_MYNETWORKS:-127.0.0.0/8}"
 PROCESS_CHECK_INTERVAL_SECONDS="${PROCESS_CHECK_INTERVAL_SECONDS:-5}"
 DNS_RECORDS_PATH="${DNS_RECORDS_PATH:-/var/lib/mail-relay-dns}"
+IDEMPOTENCY_STORE_PATH="${IDEMPOTENCY_STORE_PATH:-/var/lib/mail-relay-state/receipts.jsonl}"
 
 case "$PROCESS_CHECK_INTERVAL_SECONDS" in
   ''|*[!0-9]*)
@@ -160,9 +161,23 @@ case "$DNS_RECORDS_PATH" in
     ;;
 esac
 
-mkdir -p /run/opendkim /etc/opendkim /var/lib/dkim "$DNS_RECORDS_PATH"
+# The HMAC-facing Node API never needs access to DKIM private keys or Postfix
+# administration. Keep its writable state inside the dedicated volume and run
+# it as the unprivileged user shipped by the official Node image. This also
+# safely adopts receipt journals created by older root-running releases.
+case "$IDEMPOTENCY_STORE_PATH" in
+  /var/lib/mail-relay-state/*) ;;
+  *)
+    echo "IDEMPOTENCY_STORE_PATH must stay inside /var/lib/mail-relay-state" >&2
+    exit 1
+    ;;
+esac
+
+mkdir -p /run/opendkim /etc/opendkim /var/lib/dkim "$DNS_RECORDS_PATH" /var/lib/mail-relay-state
 chown opendkim:opendkim /run/opendkim /var/lib/dkim
+chown -R node:node /var/lib/mail-relay-state
 chmod 0755 "$DNS_RECORDS_PATH"
+chmod 0700 /var/lib/mail-relay-state
 
 : > /etc/opendkim/KeyTable
 : > /etc/opendkim/SigningTable
@@ -244,7 +259,7 @@ postfix start
 echo "LONGOS built-in mail relay started. Publish these DKIM TXT records:"
 find /var/lib/dkim -maxdepth 3 -type f -name '*.txt' -print -exec cat {} \;
 
-node /app/src/server.mjs &
+gosu node:node node /app/src/server.mjs &
 node_pid=$!
 stopping=0
 

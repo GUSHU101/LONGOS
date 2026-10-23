@@ -102,7 +102,7 @@ Coolify 解析 Compose 后会自动生成 `SERVICE_*` 凭据。只需手动填�
 
 1. 构建 PHP 8.2、锁定的 Composer 生产依赖和 Node 22 前端资源。
 2. 启动 MySQL 8.4 与内置邮件引擎。
-3. 应用等待数据库健康；邮件引擎暂时不健康不会阻断商店上线，队列会在引擎恢复后重试。
+3. 应用只等待数据库健康，不建立对邮件中继的 Compose 启动依赖；邮件引擎配置错误、重启或暂时不健康都不会阻断商店上线，队列会在引擎恢复后重试。
 4. 自动执行 `longos:install`，创建结构、基础数据、管理员和控制站点。
 5. 写入持久卷中的安装标记并构建生产缓存。
 6. Web 健康后启动 worker 与 scheduler；scheduler 每分钟写入共享心跳，不再只依赖“容器仍在运行”的表面状态。
@@ -130,7 +130,7 @@ Coolify 解析 Compose 后会自动生成 `SERVICE_*` 凭据。只需手动填�
 
 ## 8. 邮件引擎
 
-Compose 自动启动 Postfix/OpenDKIM 和内部 HMAC API，不开放公共 SMTP 端口。LONGOS、队列和 Cloud Mail 通过私有网络调用它。DKIM 私钥只保存在中继容器专用卷；网站容器只读挂载可公开的 TXT 值。
+Compose 自动启动 Postfix/OpenDKIM 和内部 HMAC API，不开放公共 SMTP 端口。LONGOS、队列和 Cloud Mail 通过私有网络调用它。HMAC API 以非 root 账号运行，不能读取 DKIM 私钥；DKIM 私钥只保存在中继容器专用卷，网站容器也只读挂载可公开的 TXT 值。
 
 部署后在 LONGOS 邮件设置点击“立即检测”，可直接查看和复制各发件域的 DKIM、SPF、DMARC 及明确配置的邮件主机 A/AAAA。PTR/rDNS 由两个独立公共 DoH 解析器交叉验收并显示 DNS RCODE，因此服务商反向区域的 `SERVFAIL/REFUSED` 不会再被误写成普通“无 PTR”；解析结果不做持久缓存。有持久 Cloudflare Token 时，容器启动后会尝试立即同步，调度器每 5 分钟幂等重试；否则 Cloud Mail 工作流从受保护端点读取只含公开值的 DNS 清单，并由 GitHub Runner 直接写入 Cloudflare。Cloudflare Token 不会发送到 LONGOS。自动化只更新 LONGOS selector 的 DKIM，保留现有 DMARC 策略，并把所有 SPF 发信机制安全合并为唯一一条。
 

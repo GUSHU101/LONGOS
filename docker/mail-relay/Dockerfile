@@ -5,7 +5,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
     && echo "postfix postfix/mailname string localhost" | debconf-set-selections \
     && echo "postfix postfix/main_mailer_type string 'Internet Site'" | debconf-set-selections \
-    && apt-get install -y --no-install-recommends postfix opendkim opendkim-tools ca-certificates procps \
+    && apt-get install -y --no-install-recommends postfix opendkim opendkim-tools ca-certificates gosu procps \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
