@@ -1,6 +1,7 @@
 <?php
 
 return [
+    'campaign_active'         => 'Offer active',
     'campaign_expired'        => 'Offer ended',
     'campaign_daily'          => 'Daily limited-time offer',
     'campaign_ending'         => 'Offer ending soon',

@@ -11,10 +11,10 @@
         <span
           class="campaign-offer__status"
           data-campaign-status
-          data-active-label="{{ __('common.active') }}"
+          data-active-label="{{ __('shop/design.campaign_active') }}"
           data-expired-label="{{ __('shop/design.campaign_expired') }}"
           aria-live="polite"
-        ><i aria-hidden="true"></i><span data-campaign-status-label>{{ __('common.active') }}</span></span>
+        ><i aria-hidden="true"></i><span data-campaign-status-label>{{ __('shop/design.campaign_active') }}</span></span>
       </div>
       @if ($timerVisible)
         <div class="campaign-offer__countdown" data-campaign-countdown>

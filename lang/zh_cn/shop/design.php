@@ -1,6 +1,7 @@
 <?php
 
 return [
+    'campaign_active'         => '优惠进行中',
     'campaign_expired'        => '活动已结束',
     'campaign_daily'          => '每日限时优惠',
     'campaign_ending'         => '优惠即将结束',

@@ -31,7 +31,10 @@ class StorefrontDesignLocalizationTest extends TestCase
         }
 
         $campaignScript = (string) file_get_contents($this->root . '/resources/beike/shop/default/js/campaign-offer.js');
+        $campaignView   = (string) file_get_contents($this->root . '/themes/default/design/campaign_offer.blade.php');
         self::assertDoesNotMatchRegularExpression('/\p{Han}/u', $campaignScript);
+        self::assertStringContainsString("__('shop/design.campaign_active')", $campaignView);
+        self::assertStringNotContainsString("__('common.active')", $campaignView);
     }
 
     public function test_english_and_chinese_design_translation_contracts_match(): void
@@ -42,6 +45,8 @@ class StorefrontDesignLocalizationTest extends TestCase
         self::assertSame(array_keys($this->flatten($english)), array_keys($this->flatten($chinese)));
         self::assertSame('Copied', $english['copied']);
         self::assertSame('已复制', $chinese['copied']);
+        self::assertSame('Offer active', $english['campaign_active']);
+        self::assertSame('优惠进行中', $chinese['campaign_active']);
     }
 
     /** @return array<string, scalar|null> */
