@@ -12,7 +12,7 @@
 <section class="module-item section-shopify-migrated {{ $design ? 'module-item-design' : '' }}" id="module-{{ $module_id }}" @include('design.partials.section_style')>
   <div class="{{ $content['module_size'] ?? 'container-fluid' }}">
     <div class="section-shopify-migrated__content">
-      <p class="section-shopify-migrated__eyebrow">已迁移 Shopify 模块</p>
+      <p class="section-shopify-migrated__eyebrow">{{ __('shop/design.migrated_shopify_module') }}</p>
       <h2>{{ $title }}</h2>
       @if ($description)<p>{{ $description }}</p>@endif
       @if ($button)<span class="btn btn-primary" aria-hidden="true">{{ $button }}</span>@endif

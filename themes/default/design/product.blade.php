@@ -22,7 +22,7 @@
             <div class="product-grid">
               <div class="product-wrap">
                 <div class="image"><div class="product-placeholder-image" aria-hidden="true"><img src="{{ asset('image/placeholder.png') }}" class="img-fluid" alt=""></div></div>
-                <div class="product-name">请在右侧选择商品</div>
+                <div class="product-name">{{ __('shop/design.empty.product') }}</div>
                 <div class="product-price">
                   <span class="price-new">66.66</span>
                   <span class="price-lod">99.99</span>

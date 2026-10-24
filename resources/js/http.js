@@ -92,18 +92,6 @@ export default {
             return;
           }
 
-          if (res.response?.status === 404) {
-            if (typeof res.response.data === 'string' && res.response.data.includes('nginx')) {
-              layer.open({
-                type: 1,
-                title: false,
-                area: '350px',
-                content: `<div class="p-3">${$('.nginx-alert').html()}</div>`
-              });
-              return;
-            }
-          }
-
           layer.msg(res.response?.data?.message || res.message, {time: 3000}, ()=>{});
         }
       }).finally(() => {

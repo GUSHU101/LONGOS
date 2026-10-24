@@ -4,6 +4,15 @@
     // cannot safely parse the nested system_setting() call plus array access
     // and previously produced malformed cached PHP on the storefront.
     $headerAds = \Beike\Services\BuilderStateService::storefrontState()['header']['header_ads'];
+    $shopLogo = site_brand_asset('shop_logo');
+    $shopLogoWidth = 300;
+    $shopLogoHeight = 80;
+    $shopLogoPath = public_path(ltrim((string) (parse_url($shopLogo, PHP_URL_PATH) ?: $shopLogo), '/'));
+    if (is_file($shopLogoPath) && ($shopLogoSize = @getimagesize($shopLogoPath))) {
+      $shopLogoWidth = max(1, (int) $shopLogoSize[0]);
+      $shopLogoHeight = max(1, (int) $shopLogoSize[1]);
+    }
+    $shopLogoUrl = image_origin($shopLogo);
   @endphp
   @if ($headerAds['active'] && $headerAds['items'])
     <div class="store-announcement-bar" style="--announcement-background: {{ $headerAds['bg_color'] }}; --announcement-color: {{ $headerAds['color'] }};">
@@ -31,7 +40,7 @@
     <div class="container-fluid navbar-expand-lg">
       @hookwrapper('header.menu.logo')
       <div class="logo"><a href="{{ shop_route('home.index') }}">
-          <img src="{{ image_origin(site_brand_asset('shop_logo')) }}" class="img-fluid" alt="{{ site_brand_name() }}"></a>
+          <img src="{{ $shopLogoUrl }}" width="{{ $shopLogoWidth }}" height="{{ $shopLogoHeight }}" class="img-fluid" alt="{{ site_brand_name() }}"></a>
       </div>
       @endhookwrapper
       <div class="menu-wrap">
@@ -40,9 +49,9 @@
       <div class="right-btn">
         <ul class="navbar-nav flex-row">
           @hookwrapper('header.menu.icon')
-          <li class="nav-item"><a href="#offcanvas-search-top" data-bs-toggle="offcanvas" class="nav-link" aria-label="{{ __('common.input') }}"><img src="{{ asset('image/icons/search.svg') }}" class="img-fluid" alt=""></a></li>
+          <li class="nav-item"><a href="#offcanvas-search-top" data-bs-toggle="offcanvas" class="nav-link" aria-label="{{ __('common.input') }}"><img src="{{ asset('image/icons/search.svg') }}" width="24" height="24" class="img-fluid" alt=""></a></li>
           <li class="nav-item dropdown account-menu-wrap">
-            <a href="{{ shop_route('account.index') }}" class="nav-link account-menu-trigger" aria-label="{{ __('shop/account.index') }}" aria-haspopup="true" aria-expanded="false" aria-controls="header-account-menu"><img src="{{ asset('image/icons/account.svg') }}" class="img-fluid" alt=""></a>
+            <a href="{{ shop_route('account.index') }}" class="nav-link account-menu-trigger" aria-label="{{ __('shop/account.index') }}" aria-haspopup="true" aria-expanded="false" aria-controls="header-account-menu"><img src="{{ asset('image/icons/account.svg') }}" width="24" height="24" class="img-fluid" alt=""></a>
             <ul id="header-account-menu" class="dropdown-menu account-menu" aria-label="{{ __('shop/account.index') }}">
               @auth('web_shop')
                 <li class="account-menu__identity">
@@ -69,7 +78,7 @@
               type="button"
               class="nav-link position-relative btn-right-cart {{ equal_route('shop.carts.index') ? 'page-cart' : '' }}"
               aria-label="{{ __('shop/carts.index') }}">
-              <img src="{{ asset('image/icons/cart.svg') }}" class="img-fluid" alt="">
+              <img src="{{ asset('image/icons/cart.svg') }}" width="24" height="24" class="img-fluid" alt="">
               <span class="cart-badge-quantity"></span>
             </button>
           </li>
@@ -87,23 +96,23 @@
           aria-label="{{ __('shop/header.open_menu') }}"
           aria-controls="offcanvas-mobile-menu"
           aria-expanded="false">
-          <img src="{{ asset('image/icons/menu.svg') }}" alt="" class="img-fluid">
+          <img src="{{ asset('image/icons/menu.svg') }}" width="22" height="22" alt="" class="img-fluid">
         </button>
         <button type="button" class="mobile-open-search border-0 bg-transparent p-0" data-bs-toggle="offcanvas" data-bs-target="#offcanvas-search-top" aria-label="{{ __('common.input') }}">
-             <img src="{{ asset('image/icons/search.svg') }}" class="img-fluid" alt="">
+             <img src="{{ asset('image/icons/search.svg') }}" width="24" height="24" class="img-fluid" alt="">
         </button>
       </div>
       <div class="center"><a href="{{ shop_route('home.index') }}">
-          <img src="{{ image_origin(site_brand_asset('shop_logo')) }}" class="img-fluid" alt="{{ site_brand_name() }}"></a>
+          <img src="{{ $shopLogoUrl }}" width="{{ $shopLogoWidth }}" height="{{ $shopLogoHeight }}" class="img-fluid" alt="{{ site_brand_name() }}"></a>
       </div>
       <div class="right">
         <a href="{{ shop_route('account.index') }}" class="nav-link mb-account-icon" aria-label="{{ __('shop/account.index') }}">
-          <img src="{{ asset('image/icons/account.svg') }}" class="img-fluid" alt="">
+          <img src="{{ asset('image/icons/account.svg') }}" width="24" height="24" class="img-fluid" alt="">
           @if (strstr(current_route(), 'shop.account'))
             <span></span>
           @endif
         </a>
-        <a href="{{ shop_route('carts.index') }}" class="nav-link ms-3 m-cart position-relative" aria-label="{{ __('shop/carts.index') }}"><img src="{{ asset('image/icons/cart.svg') }}" alt="" class="img-fluid">
+        <a href="{{ shop_route('carts.index') }}" class="nav-link ms-3 m-cart position-relative" aria-label="{{ __('shop/carts.index') }}"><img src="{{ asset('image/icons/cart.svg') }}" width="24" height="24" alt="" class="img-fluid">
           <span class="cart-badge-quantity"></span></a>
       </div>
     </div>
@@ -119,7 +128,7 @@
     <div class="mobile-nav-drawer__topbar">
       <div class="mobile-nav-drawer__brand-wrap">
         <a href="{{ shop_route('home.index') }}" class="mobile-nav-drawer__brand" aria-label="{{ site_brand_name() }}">
-          <img src="{{ image_origin(site_brand_asset('shop_logo')) }}" alt="{{ site_brand_name() }}">
+          <img src="{{ $shopLogoUrl }}" width="{{ $shopLogoWidth }}" height="{{ $shopLogoHeight }}" alt="{{ site_brand_name() }}">
         </a>
         <h2 id="offcanvas-mobile-menu-title">{{ __('shop/header.menu_title') }}</h2>
       </div>

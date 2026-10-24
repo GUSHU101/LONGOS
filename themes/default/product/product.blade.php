@@ -7,14 +7,73 @@
 @section('og_image', $product['images'][0]['popup'] ?? '')
 @section('og_image_width', system_setting('base.product_image_origin_width'))
 @section('og_image_height', system_setting('base.product_image_origin_height'))
+@section('canonical', shop_route('products.show', ['product' => $product['id']]))
 
-@section('bk-page-loading', true)
+@php
+  $primaryProductImage = $product['images'][0] ?? null;
+@endphp
+@section('preloads')
+  @if ($primaryProductImage)
+    <link
+      rel="preload"
+      as="image"
+      href="{{ $primaryProductImage['preview'] ?? $primaryProductImage['large'] ?? $primaryProductImage['popup'] }}"
+      imagesrcset="{{ $primaryProductImage['small'] ?? $primaryProductImage['preview'] }} 480w, {{ $primaryProductImage['preview'] }} 800w, {{ $primaryProductImage['large'] ?? $primaryProductImage['popup'] }} 1200w"
+      imagesizes="(min-width: 992px) min(58vw, 820px), 100vw"
+      fetchpriority="high">
+  @endif
+@endsection
 
-@addScript(asset('vendor/vue/2.7/vue' . (!config('app.debug') ? '.min' : '') . '.js'))
+@addScript(asset('vendor/vue/2.7/vue' . (!config('app.debug') ? '.min' : '') . '.js'), ['defer' => true])
 @addStyle(asset('vendor/swiper/swiper-bundle.min.css'))
-@addScript(asset('vendor/swiper/swiper-bundle.min.js'))
+@addScript(asset('vendor/swiper/swiper-bundle.min.js'), ['defer' => true])
 
 @push('header')
+  @php
+    $schemaSkus = collect($product['skus'] ?? [])->filter(fn ($sku) => is_array($sku) && (int) ($sku['active'] ?? 0) === 1)->take(50);
+    $productCanonical = shop_route('products.show', ['product' => $product['id']]);
+    $productSchema = array_filter([
+      '@context' => 'https://schema.org',
+      '@type' => 'Product',
+      '@id' => $productCanonical . '#product',
+      'url' => $productCanonical,
+      'name' => $product['name'],
+      'description' => \Illuminate\Support\Str::limit(trim(strip_tags($product['description'] ?? ($product['meta_description'] ?? ''))), 5000, ''),
+      'image' => collect($product['images'] ?? [])->pluck('popup')->filter()->values()->all(),
+      'brand' => !empty($product['brand_name']) ? ['@type' => 'Brand', 'name' => $product['brand_name']] : null,
+      'offers' => $schemaSkus->map(static fn (array $sku): array => [
+        '@type' => 'Offer',
+        'url' => $productCanonical . (!empty($sku['sku']) ? '?variant=' . rawurlencode((string) $sku['sku']) : ''),
+        'sku' => (string) ($sku['sku'] ?? ''),
+        'priceCurrency' => strtoupper((string) ($sku['currency_code'] ?? current_currency_code())),
+        'price' => number_format(max(0, (float) ($sku['price_converted'] ?? $sku['price'] ?? 0)), 2, '.', ''),
+        'availability' => (int) ($sku['quantity'] ?? 0) > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
+        'itemCondition' => 'https://schema.org/NewCondition',
+        'seller' => ['@id' => rtrim(shop_route('home.index'), '/') . '/#organization'],
+      ])->values()->all(),
+      'aggregateRating' => !empty($product_reviews) ? [
+        '@type' => 'AggregateRating',
+        'ratingValue' => (float) $product_reviews['average'],
+        'reviewCount' => (int) $product_reviews['total'],
+        'bestRating' => 5,
+        'worstRating' => 1,
+      ] : null,
+      'review' => !empty($product_reviews['reviews']) ? collect($product_reviews['reviews'])->take(5)->map(static fn ($review): array => [
+        '@type' => 'Review',
+        'author' => ['@type' => 'Person', 'name' => $review->author_name],
+        'datePublished' => $review->reviewed_at?->toDateString(),
+        'name' => $review->title,
+        'reviewBody' => $review->body,
+        'reviewRating' => [
+          '@type' => 'Rating',
+          'ratingValue' => $review->rating,
+          'bestRating' => 5,
+          'worstRating' => 1,
+        ],
+      ])->values()->all() : null,
+    ], static fn ($value) => $value !== null && $value !== '' && $value !== []);
+  @endphp
+  <script type="application/ld+json">{!! json_encode($productSchema, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) !!}</script>
   @if ($has_video)
     <script src="{{ asset('vendor/video/video.min.js') }}" defer></script>
     <link rel="stylesheet" href="{{ asset('vendor/video/video-js.min.css') }}">
@@ -41,6 +100,9 @@
   $initialDiscountPercent = $initialOriginValue > $initialPriceValue && $initialPriceValue > 0
     ? max(1, (int) round((1 - ($initialPriceValue / $initialOriginValue)) * 100))
     : 0;
+  $desktopGalleryLimit = 5;
+  $desktopGalleryImages = array_slice($product['images'] ?? [], 0, $desktopGalleryLimit);
+  $desktopGalleryTotal = count($product['images'] ?? []);
 @endphp
 
 @section('content')
@@ -58,17 +120,18 @@
         <div class="product-image" aria-label="{{ $product['name'] }} gallery">
           @include('product.product-video')
           <div class="pdp-gallery-grid {{ $iframeClass }}" data-product-gallery>
-            @forelse ($product['images'] as $item)
+            @forelse ($desktopGalleryImages as $item)
               <button
                 type="button"
                 class="pdp-gallery-item {{ $loop->first ? 'pdp-gallery-item--featured' : '' }}"
                 data-product-gallery-open
+                data-gallery-index="{{ $loop->index }}"
                 data-gallery-image="{{ $item['popup'] ?? $item['large'] ?? $item['preview'] }}"
                 aria-label="{{ $product['name'] }} – {{ $loop->iteration }}">
                 <img
                   src="{{ $item['large'] ?? $item['preview'] }}"
-                  srcset="{{ $item['small'] ?? $item['preview'] }} 480w, {{ $item['preview'] }} 900w, {{ $item['large'] ?? $item['popup'] }} 1600w"
-                  sizes="{{ $loop->first ? '(min-width: 992px) 58vw, 100vw' : '(min-width: 992px) 29vw, 100vw' }}"
+                  srcset="{{ $item['small'] ?? $item['preview'] }} 480w, {{ $item['preview'] }} 800w, {{ $item['large'] ?? $item['popup'] }} 1200w"
+                  sizes="{{ $loop->first ? '(min-width: 992px) min(58vw, 820px), 100vw' : '(min-width: 992px) min(29vw, 410px), 100vw' }}"
                   width="{{ system_setting('base.product_image_origin_width', 800) }}"
                   height="{{ system_setting('base.product_image_origin_height', 800) }}"
                   fetchpriority="{{ $loop->first ? 'high' : 'auto' }}"
@@ -76,6 +139,9 @@
                   decoding="async"
                   alt="{{ $product['name'] }}">
                 <span class="pdp-gallery-item__zoom" aria-hidden="true"><i class="bi bi-arrows-angle-expand"></i></span>
+                @if ($loop->last && $desktopGalleryTotal > $desktopGalleryLimit)
+                  <span class="pdp-gallery-item__count">{{ __('shop/products.view_all_images', ['count' => $desktopGalleryTotal]) }}</span>
+                @endif
               </button>
             @empty
               <div class="pdp-gallery-item pdp-gallery-item--featured">
@@ -88,8 +154,13 @@
             <div class="swiper-wrapper">
               @foreach ($product['images'] as $item)
               <div class="swiper-slide d-flex align-items-center justify-content-center">
-                <img src="{{ $item['preview'] }}"
-                     srcset="{{ $item['small'] ?? $item['preview'] }} 480w, {{ $item['preview'] }} 900w, {{ $item['large'] ?? $item['popup'] }} 1600w"
+                <img src="{{ $loop->first ? $item['preview'] : 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=' }}"
+                     @if ($loop->first)
+                     srcset="{{ $item['small'] ?? $item['preview'] }} 480w, {{ $item['preview'] }} 800w, {{ $item['large'] ?? $item['popup'] }} 1200w"
+                     @else
+                     data-product-gallery-src="{{ $item['preview'] }}"
+                     data-product-gallery-srcset="{{ $item['small'] ?? $item['preview'] }} 480w, {{ $item['preview'] }} 800w, {{ $item['large'] ?? $item['popup'] }} 1200w"
+                     @endif
                      sizes="100vw"
                      fetchpriority="{{ $loop->first ? 'high' : 'auto' }}"
                      loading="{{ $loop->first ? 'eager' : 'lazy' }}"
@@ -159,41 +230,35 @@
                     : [];
                 @endphp
                 <div class="variable-group">
-                  <p class="mb-2">{{ $fallbackVariable['name'] ?? '' }}</p>
-                  <div class="variable-info">
+                  <label class="form-label mb-2">{{ $fallbackVariable['name'] ?? '' }}</label>
+                  <select class="form-select product-variant-select" disabled aria-label="{{ $fallbackVariable['name'] ?? __('shop/products.choose_variant') }}">
                     @foreach ($fallbackValues as $fallbackValue)
-                      <span class="selected">{{ $fallbackValue['name'] ?? '' }}</span>
+                      <option>{{ $fallbackValue['name'] ?? '' }}</option>
                     @endforeach
-                  </div>
+                  </select>
                 </div>
               @endforeach
             </div>
           @endif
           <div class="variables-wrap mb-md-3" v-if="source.variables.length">
             <div class="variable-group" v-for="variable, variable_index in source.variables" :key="variable_index">
-              <p class="mb-2">
+              <label class="form-label mb-2" :for="`product-variant-${variable_index}`">
                 @{{ variable.name }}
                 <span class="text-secondary" v-if="selectedVariantsIndex[variable_index] !== undefined && selectedVariantsIndex[variable_index] !== null">
                   : @{{ variable.values[selectedVariantsIndex[variable_index]].name }}
                 </span>
-              </p>
-              <div class="variable-info">
-                <button
-                  type="button"
-                  v-for="value, value_index in variable.values"
-                  @click="checkedVariableValue(variable_index, value_index, value)"
-                  :key="value_index"
-                  :disabled="value.disabled"
-                  :aria-label="value.name"
-                  :aria-pressed="value.selected ? 'true' : 'false'"
-                  data-bs-toggle="tooltip"
-                  data-bs-placement="top"
-                  :title="value.image ? value.name : ''"
-                  :class="[value.selected ? 'selected' : '', value.disabled ? 'disabled' : '', value.image ? 'is-v-image' : '']">
-                  <span class="image" v-if="value.image"><img :src="value.image" class="img-fluid" :alt="value.name"></span>
-                  <span v-else>@{{ value.name }}</span>
-                </button>
-              </div>
+              </label>
+              <select
+                class="form-select product-variant-select"
+                :id="`product-variant-${variable_index}`"
+                :value="selectedVariantsIndex[variable_index] === undefined || selectedVariantsIndex[variable_index] === null ? '' : selectedVariantsIndex[variable_index]"
+                @change="selectVariableValue(variable_index, $event)"
+                :aria-label="variable.name">
+                <option disabled value="">{{ __('shop/products.choose_variant') }}</option>
+                <option v-for="value, value_index in variable.values" :key="value_index" :value="value_index" :disabled="value.disabled">
+                  @{{ value.name }}
+                </option>
+              </select>
             </div>
           </div>
           @endhookwrapper
@@ -365,7 +430,12 @@
 
   <dialog class="pdp-media-dialog" data-product-gallery-dialog aria-label="{{ $product['name'] }}">
     <button type="button" class="pdp-media-dialog__close" data-product-gallery-close aria-label="{{ __('common.cancel') }}"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
-    <img data-product-gallery-dialog-image src="" alt="{{ $product['name'] }}">
+    <button type="button" class="pdp-media-dialog__nav pdp-media-dialog__nav--previous" data-product-gallery-previous aria-label="{{ __('shop/products.previous_image') }}"><i class="bi bi-chevron-left" aria-hidden="true"></i></button>
+    <div class="pdp-media-dialog__stage">
+      <img data-product-gallery-dialog-image src="" alt="{{ $product['name'] }}">
+      <span class="pdp-media-dialog__counter" data-product-gallery-counter aria-live="polite"></span>
+    </div>
+    <button type="button" class="pdp-media-dialog__nav pdp-media-dialog__nav--next" data-product-gallery-next aria-label="{{ __('shop/products.next_image') }}"><i class="bi bi-chevron-right" aria-hidden="true"></i></button>
   </dialog>
 
   @hook('product.detail.footer')
@@ -373,13 +443,19 @@
 
 @push('add-scripts')
   <script>
+    document.addEventListener('DOMContentLoaded', function () {
     @hook('product.detail.script.before')
 
     let swiperMobile = null;
+    let productGalleryDialogIndex = 0;
+    let activeProductGalleryImages = [];
     const isIframe = bk.getQueryString('iframe', false);
     const productImageOriginWidth = @json(system_setting('base.product_image_origin_width', 800));
     const productImageOriginHeight = @json(system_setting('base.product_image_origin_height', 800));
     const productBaseImages = @json($product['images'] ?? []);
+    const desktopProductGalleryLimit = 5;
+    const productGalleryPlaceholder = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
+    const productGalleryViewAllTemplate = @json(__('shop/products.view_all_images', ['count' => '__COUNT__']));
     const escapeProductAttribute = (value) => String(value || '')
       .replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const normalizeProductGalleryImage = (image) => {
@@ -419,8 +495,8 @@
     };
     const productImageSrcset = (image = {}) => [
       image.small ? `${image.small} 480w` : '',
-      image.preview ? `${image.preview} 900w` : '',
-      image.large ? `${image.large} 1600w` : '',
+      image.preview ? `${image.preview} 800w` : '',
+      image.large ? `${image.large} 1200w` : '',
     ].filter(Boolean).join(', ');
     const renderDesktopProductGallery = (images = []) => {
       const gallery = document.querySelector('[data-product-gallery]');
@@ -428,21 +504,25 @@
 
       const fragment = document.createDocumentFragment();
       const productName = document.querySelector('.product-name')?.textContent?.trim() || '';
-      images.forEach((image, index) => {
+      images.slice(0, desktopProductGalleryLimit).forEach((image, index, visibleImages) => {
         const button = document.createElement('button');
         button.type = 'button';
         button.className = `pdp-gallery-item${index === 0 ? ' pdp-gallery-item--featured' : ''}`;
         button.dataset.productGalleryOpen = '';
+        button.dataset.galleryIndex = String(index);
         button.dataset.galleryImage = image.popup || image.large || image.preview || '';
         button.setAttribute('aria-label', `${productName} – ${index + 1}`);
 
         const img = document.createElement('img');
         img.src = image.large || image.preview || image.popup || '';
         img.srcset = productImageSrcset(image);
-        img.sizes = index === 0 ? '(min-width: 992px) 58vw, 100vw' : '(min-width: 992px) 29vw, 100vw';
+        img.sizes = index === 0
+          ? '(min-width: 992px) min(58vw, 820px), 100vw'
+          : '(min-width: 992px) min(29vw, 410px), 100vw';
         img.alt = productName;
         img.width = productImageOriginWidth;
         img.height = productImageOriginHeight;
+        img.fetchPriority = index === 0 ? 'high' : 'auto';
         img.loading = index === 0 ? 'eager' : 'lazy';
         img.decoding = 'async';
 
@@ -451,16 +531,59 @@
         zoom.setAttribute('aria-hidden', 'true');
         zoom.innerHTML = '<i class="bi bi-arrows-angle-expand"></i>';
         button.append(img, zoom);
+        if (index === visibleImages.length - 1 && images.length > desktopProductGalleryLimit) {
+          const count = document.createElement('span');
+          count.className = 'pdp-gallery-item__count';
+          count.textContent = productGalleryViewAllTemplate.replace('__COUNT__', String(images.length));
+          button.append(count);
+        }
         fragment.append(button);
       });
       gallery.replaceChildren(fragment);
     };
+
+    const hydrateMobileProductGalleryAround = (activeIndex = 0) => {
+      const slides = Array.from(document.querySelectorAll('#swiper-mobile .swiper-slide'));
+      if (!slides.length) return;
+
+      [activeIndex, activeIndex + 1, activeIndex - 1].forEach((candidate) => {
+        if (candidate < 0 || candidate >= slides.length) return;
+        const image = slides[candidate]?.querySelector('img[data-product-gallery-src]');
+        if (!image) return;
+
+        image.src = image.dataset.productGallerySrc || image.src;
+        if (image.dataset.productGallerySrcset) image.srcset = image.dataset.productGallerySrcset;
+        delete image.dataset.productGallerySrc;
+        delete image.dataset.productGallerySrcset;
+      });
+    };
+
+    const updateProductGalleryDialog = (requestedIndex = 0) => {
+      const dialog = document.querySelector('[data-product-gallery-dialog]');
+      const dialogImage = dialog?.querySelector('[data-product-gallery-dialog-image]');
+      if (!dialog || !dialogImage || !activeProductGalleryImages.length) return;
+
+      productGalleryDialogIndex = (requestedIndex + activeProductGalleryImages.length) % activeProductGalleryImages.length;
+      const image = activeProductGalleryImages[productGalleryDialogIndex];
+      const productName = document.querySelector('.product-name')?.textContent?.trim() || '';
+      dialogImage.src = image.popup || image.large || image.preview || '';
+      dialogImage.alt = `${productName} – ${productGalleryDialogIndex + 1}`;
+      const counter = dialog.querySelector('[data-product-gallery-counter]');
+      if (counter) counter.textContent = `${productGalleryDialogIndex + 1} / ${activeProductGalleryImages.length}`;
+      dialog.classList.toggle('pdp-media-dialog--single', activeProductGalleryImages.length < 2);
+    };
+
+    activeProductGalleryImages = composeProductGalleryImages(productBaseImages);
 
     $(function () {
       descriptionImagesLazy()
       const galleryDialog = document.querySelector('[data-product-gallery-dialog]');
       galleryDialog?.addEventListener('click', function (event) {
         if (event.target === galleryDialog) galleryDialog.close();
+      });
+      galleryDialog?.addEventListener('keydown', function (event) {
+        if (event.key === 'ArrowLeft') updateProductGalleryDialog(productGalleryDialogIndex - 1);
+        if (event.key === 'ArrowRight') updateProductGalleryDialog(productGalleryDialogIndex + 1);
       });
     });
 
@@ -472,12 +595,23 @@
       const galleryTrigger = event.target.closest('[data-product-gallery-open]');
       if (galleryTrigger) {
         const dialog = document.querySelector('[data-product-gallery-dialog]');
-        const dialogImage = dialog?.querySelector('[data-product-gallery-dialog-image]');
-        const source = galleryTrigger.dataset.galleryImage;
-        if (dialog && dialogImage && source) {
-          dialogImage.src = source;
+        const index = Number.parseInt(galleryTrigger.dataset.galleryIndex || '0', 10);
+        if (dialog && activeProductGalleryImages.length) {
+          updateProductGalleryDialog(Number.isFinite(index) ? index : 0);
           if (!dialog.open && typeof dialog.showModal === 'function') dialog.showModal();
         }
+        return;
+      }
+
+      const galleryPrevious = event.target.closest('[data-product-gallery-previous]');
+      if (galleryPrevious) {
+        updateProductGalleryDialog(productGalleryDialogIndex - 1);
+        return;
+      }
+
+      const galleryNext = event.target.closest('[data-product-gallery-next]');
+      if (galleryNext) {
+        updateProductGalleryDialog(productGalleryDialogIndex + 1);
         return;
       }
 
@@ -700,6 +834,13 @@
           return Array.from({ length }, (_, i) => selected?.[i] ?? 0);
         },
 
+        selectVariableValue(variable_index, event) {
+          const value_index = Number.parseInt(event?.target?.value, 10);
+          const value = this.source.variables[variable_index]?.values?.[value_index];
+          if (!Number.isInteger(value_index) || !value || value.disabled) return;
+          this.checkedVariableValue(variable_index, value_index, value);
+        },
+
         checkedVariableValue(variable_index, value_index, value) {
           $('.product-image .swiper .swiper-slide').eq(0).addClass('active').siblings().removeClass('active');
           this.source.variables[variable_index].values.forEach((v, i) => {
@@ -865,17 +1006,19 @@
 
         updateProductImage() {
           if (this.images.length) {
+            activeProductGalleryImages = composeProductGalleryImages(this.images);
             renderDesktopProductGallery(this.images);
             if (swiperMobile) {
               swiperMobile.removeAllSlides()
               const slides = this.images.map((image, index) => `
                 <div class="swiper-slide ${index == 0 ? 'active' : ''}">
-                  <img src="${escapeProductAttribute(image.preview)}" srcset="${escapeProductAttribute(productImageSrcset(image))}" sizes="100vw" alt="${escapeProductAttribute($('.product-name').text())}" class="img-fluid seo-img" width="${productImageOriginWidth}" height="${productImageOriginHeight}" loading="${index === 0 ? 'eager' : 'lazy'}" decoding="async">
+                  <img src="${escapeProductAttribute(index === 0 ? image.preview : productGalleryPlaceholder)}" ${index === 0 ? `srcset="${escapeProductAttribute(productImageSrcset(image))}"` : `data-product-gallery-src="${escapeProductAttribute(image.preview)}" data-product-gallery-srcset="${escapeProductAttribute(productImageSrcset(image))}"`} sizes="100vw" alt="${escapeProductAttribute($('.product-name').text())}" class="img-fluid seo-img" width="${productImageOriginWidth}" height="${productImageOriginHeight}" fetchpriority="${index === 0 ? 'high' : 'auto'}" loading="${index === 0 ? 'eager' : 'lazy'}" decoding="async">
                 <\/div>
               `);
               swiperMobile.appendSlide(slides);
               swiperMobile.update();
               swiperMobile.slideTo(0, 0, false);
+              hydrateMobileProductGalleryAround(0);
               swiperMobile.pagination?.render?.();
               swiperMobile.pagination?.update?.();
             }
@@ -893,7 +1036,15 @@
               keyboard: { enabled: true, onlyInViewport: true },
               a11y: { enabled: true },
               observer: true,
-              observeParents: true
+              observeParents: true,
+              on: {
+                init(swiper) {
+                  hydrateMobileProductGalleryAround(swiper.activeIndex || 0);
+                },
+                slideChange(swiper) {
+                  hydrateMobileProductGalleryAround(swiper.activeIndex || 0);
+                }
+              }
             });
           }
         },
@@ -932,5 +1083,6 @@
 
     @hook('product.detail.script.after')
     }
+    });
   </script>
 @endpush

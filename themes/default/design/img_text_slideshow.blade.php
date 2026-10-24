@@ -18,7 +18,7 @@
                 @elseif(!empty($image['image']))
                   <img class="slide-media" src="{{ $image['image'] }}" @if($loop->first) fetchpriority="high" @else loading="lazy" @endif decoding="async" alt="{{ $image['image_alt'] ?? '' }}">
                 @elseif($design)
-                  <div class="builder-slideshow-placeholder" aria-hidden="true">请选择轮播图片或视频</div>
+                  <div class="builder-slideshow-placeholder" aria-hidden="true">{{ __('shop/design.empty.slideshow_media') }}</div>
                 @endif
                 <div class="container content-wrap {{ $image['text_position'] }}">
                   <div class="text-wrap" data-swiper-parallax-y="-100" data-swiper-parallax-duration="1000" data-swiper-parallax-opacity="0.5" >

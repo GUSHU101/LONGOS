@@ -3,7 +3,7 @@
     <article class="shopify-page">
       @if(!empty($content['page_content']['title']))<h2 class="shopify-page__heading shopify-page__heading--{{ $content['heading_size'] }}">{{ $content['page_content']['title'] }}</h2>@endif
       @if(!empty($content['page_content']['html']))<div class="shopify-page__body">{!! $content['page_content']['html'] !!}</div>
-      @elseif($design)<div class="shopify-page__empty">请选择已启用的 LONGOS 内容页以展示其内容。</div>@endif
+      @elseif($design)<div class="shopify-page__empty">{{ __('shop/design.empty.shopify_page') }}</div>@endif
     </article>
   </div>
 </section>

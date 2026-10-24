@@ -6,7 +6,7 @@
     <div class="shopify-image-banner__media" aria-hidden="true">
       @if (!empty($content['image']))<img src="{{ $content['image'] }}" alt="" loading="lazy" decoding="async">@endif
       @if (!empty($content['image_2']))<img src="{{ $content['image_2'] }}" alt="" loading="lazy" decoding="async">@endif
-      @if (!$hasImages && $design)<div class="shopify-image-banner__placeholder">请选择一张或两张横幅图片。</div>@endif
+      @if (!$hasImages && $design)<div class="shopify-image-banner__placeholder">{{ __('shop/design.empty.shopify_banner') }}</div>@endif
     </div>
     <div class="shopify-image-banner__overlay" aria-hidden="true"></div>
     <div class="shopify-image-banner__content">

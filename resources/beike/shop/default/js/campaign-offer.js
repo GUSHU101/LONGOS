@@ -61,7 +61,7 @@
     button.addEventListener('click', async () => {
       const code = button.dataset.copyCode || '';
       const label = button.querySelector('[data-copy-label]');
-      const originalLabel = label?.textContent || '复制';
+      const originalLabel = label?.textContent || root.dataset.copyLabel || 'Copy';
 
       let copied = false;
       try {
@@ -80,7 +80,9 @@
         input.remove();
       }
 
-      if (label) label.textContent = copied ? '已复制' : '复制失败';
+      if (label) label.textContent = copied
+        ? (root.dataset.copySuccess || 'Copied')
+        : (root.dataset.copyFailed || 'Copy failed');
       window.setTimeout(() => { if (label) label.textContent = originalLabel; }, 1600);
     });
   };
@@ -120,8 +122,8 @@
       countdown.dataset.state = expired ? 'expired' : 'running';
       if (statusLabel) {
         statusLabel.textContent = expired
-          ? (status?.dataset.expiredLabel || '活动已结束')
-          : (status?.dataset.activeLabel || '进行中');
+          ? (status?.dataset.expiredLabel || 'Offer ended')
+          : (status?.dataset.activeLabel || 'Active');
       }
       status?.setAttribute('data-state', expired ? 'expired' : 'active');
       const copyButton = root.querySelector('[data-copy-code]');

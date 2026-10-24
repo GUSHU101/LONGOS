@@ -16,6 +16,8 @@ return [
     'bottom_note'              => '安全购物 · 透明政策',
     'close_contact'            => '关闭联系方式',
     'trade_name'               => '商家名称',
+    'legal_entity'             => '法律主体',
+    'registration_number'      => '注册编号',
     'email'                    => '电子邮箱',
     'telephone'                => '联系电话',
     'physical_address'         => '联系地址',

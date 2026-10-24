@@ -29,7 +29,7 @@
         </article>
       @empty
         @if ($design)
-          <div class="custom-code-empty">请添加卡片以展示此精选网格。</div>
+          <div class="custom-code-empty">{{ __('shop/design.empty.feature_grid') }}</div>
         @endif
       @endforelse
     </div>

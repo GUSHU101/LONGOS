@@ -20,7 +20,7 @@
               </article>
             </li>
           @empty
-            @if($design)<li class="shopify-multicolumn__empty">请向此模块添加内容列。</li>@endif
+            @if($design)<li class="shopify-multicolumn__empty">{{ __('shop/design.empty.shopify_multicolumn') }}</li>@endif
           @endforelse
         </ul>
       </div>

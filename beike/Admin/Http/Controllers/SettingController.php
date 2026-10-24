@@ -27,6 +27,7 @@ use Beike\Repositories\SettingRepo;
 use Beike\Repositories\StorePolicyRepo;
 use Beike\Services\ApiTokenService;
 use Beike\Services\CurrencyService;
+use Beike\Services\LegacyRedirectService;
 use Beike\Services\StorePolicyTemplateService;
 use Beike\Services\TimezoneService;
 use Beike\Services\VisitorCurrencyService;
@@ -164,6 +165,16 @@ class SettingController extends Controller
         $data = hook_filter('admin.setting.policies.data', $data);
 
         return view('admin::pages.setting.policies', $data);
+    }
+
+    public function seoSettings()
+    {
+        $data = [
+            'redirects' => LegacyRedirectService::redirects(),
+        ];
+        $data = hook_filter('admin.setting.seo.data', $data);
+
+        return view('admin::pages.setting.seo', $data);
     }
 
     /** Generate a reviewable draft without persisting or publishing it. */
@@ -604,6 +615,12 @@ class SettingController extends Controller
                         'sub_title' => trans('admin/setting.policies_card_help'),
                         'url'       => admin_route('settings.policies'),
                         'icon'      => 'bi bi-file-earmark-text',
+                    ],
+                    [
+                        'title'     => trans('admin/common.settings.seo'),
+                        'sub_title' => trans('admin/setting.seo_card_help'),
+                        'url'       => admin_route('settings.seo'),
+                        'icon'      => 'bi bi-signpost-split',
                     ],
                     [
                         'title'     => trans('admin/common.admin_users_index'),

@@ -25,17 +25,17 @@
         @endforeach
       </div>
       @if($count > 1)
-        <div class="shopify-slideshow__controls" aria-label="轮播控制">
-          <button type="button" data-slide-action="previous" aria-label="上一张">‹</button>
-          <div class="shopify-slideshow__indicators shopify-slideshow__indicators--{{ $content['slider_visual'] }}" aria-label="选择轮播内容">
-            @foreach($slides as $index => $slide)<button type="button" data-slide-to="{{ $index }}" aria-label="显示第 {{ $index + 1 }} 张" aria-current="{{ $index === 0 ? 'true' : 'false' }}">@if($content['slider_visual'] === 'numbers'){{ $index + 1 }}@elseif($content['slider_visual'] === 'counter'){{ $index + 1 }} / {{ $count }}@else<span aria-hidden="true"></span>@endif</button>@endforeach
+        <div class="shopify-slideshow__controls" aria-label="{{ __('shop/design.slideshow_controls') }}" data-pause-label="{{ __('shop/design.pause_autoplay') }}" data-play-label="{{ __('shop/design.start_autoplay') }}">
+          <button type="button" data-slide-action="previous" aria-label="{{ __('shop/design.previous_slide') }}">‹</button>
+          <div class="shopify-slideshow__indicators shopify-slideshow__indicators--{{ $content['slider_visual'] }}" aria-label="{{ __('shop/design.choose_slide') }}">
+            @foreach($slides as $index => $slide)<button type="button" data-slide-to="{{ $index }}" aria-label="{{ __('shop/design.show_slide', ['number' => $index + 1]) }}" aria-current="{{ $index === 0 ? 'true' : 'false' }}">@if($content['slider_visual'] === 'numbers'){{ $index + 1 }}@elseif($content['slider_visual'] === 'counter'){{ $index + 1 }} / {{ $count }}@else<span aria-hidden="true"></span>@endif</button>@endforeach
           </div>
-          <button type="button" data-slide-action="next" aria-label="下一张">›</button>
-          @if(!empty($content['auto_rotate']))<button type="button" data-slide-action="toggle" aria-label="暂停自动播放" aria-pressed="false">Ⅱ</button>@endif
+          <button type="button" data-slide-action="next" aria-label="{{ __('shop/design.next_slide') }}">›</button>
+          @if(!empty($content['auto_rotate']))<button type="button" data-slide-action="toggle" aria-label="{{ __('shop/design.pause_autoplay') }}" aria-pressed="false">Ⅱ</button>@endif
         </div>
       @endif
     @elseif($design)
-      <div class="shopify-slideshow__empty">请添加轮播区块，并从媒体库选择图片。</div>
+      <div class="shopify-slideshow__empty">{{ __('shop/design.empty.shopify_slideshow') }}</div>
     @endif
   </div>
 </section>
@@ -51,7 +51,8 @@
   const show = (next) => { current = (next + slides.length) % slides.length; slides.forEach((slide, index) => slide.hidden = index !== current); dots.forEach((dot, index) => dot.setAttribute('aria-current', index === current ? 'true' : 'false')); };
   const stop = () => { if (timer) { clearInterval(timer); timer = undefined; } };
   const start = () => { stop(); if (playing) timer = setInterval(() => show(current + 1), Math.max(3000, Number(root.dataset.speed) || 5000)); };
-  root.querySelectorAll('[data-slide-action]').forEach((button) => button.addEventListener('click', () => { const action = button.dataset.slideAction; if (action === 'previous') show(current - 1); if (action === 'next') show(current + 1); if (action === 'toggle') { playing = !playing; button.setAttribute('aria-pressed', String(!playing)); button.setAttribute('aria-label', playing ? '暂停自动播放' : '开始自动播放'); button.textContent = playing ? 'Ⅱ' : '▶'; start(); } }));
+  const controls = root.querySelector('.shopify-slideshow__controls');
+  root.querySelectorAll('[data-slide-action]').forEach((button) => button.addEventListener('click', () => { const action = button.dataset.slideAction; if (action === 'previous') show(current - 1); if (action === 'next') show(current + 1); if (action === 'toggle') { playing = !playing; button.setAttribute('aria-pressed', String(!playing)); button.setAttribute('aria-label', playing ? (controls?.dataset.pauseLabel || 'Pause autoplay') : (controls?.dataset.playLabel || 'Start autoplay')); button.textContent = playing ? 'Ⅱ' : '▶'; start(); } }));
   dots.forEach((dot) => dot.addEventListener('click', () => { show(Number(dot.dataset.slideTo)); start(); }));
   root.addEventListener('mouseenter', stop); root.addEventListener('mouseleave', start); start();
 })();

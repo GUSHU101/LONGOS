@@ -4,7 +4,7 @@
       <div class="shopify-main-collection-banner__copy">
         @if(!empty($content['collection_content']['name']))<h1 class="shopify-main-collection-banner__title">{{ $content['collection_content']['name'] }}</h1>@endif
         @if(!empty($content['show_collection_description']) && !empty($content['collection_content']['html']))<div class="shopify-main-collection-banner__description">{!! $content['collection_content']['html'] !!}</div>@endif
-        @if($design && empty($content['collection_content']['name']))<div class="shopify-main-collection-banner__empty">请选择已启用的 LONGOS 商品分类以展示。</div>@endif
+        @if($design && empty($content['collection_content']['name']))<div class="shopify-main-collection-banner__empty">{{ __('shop/design.empty.shopify_collection_banner') }}</div>@endif
       </div>
       @if(!empty($content['show_collection_image']) && !empty($content['collection_content']['image']))<div class="shopify-main-collection-banner__media"><img src="{{ $content['collection_content']['image'] }}" alt="{{ $content['collection_content']['name'] }}" loading="eager" decoding="async"></div>@endif
     </div>

@@ -22,6 +22,7 @@ class DiscountRequest extends FormRequest
             'value_type'        => ['nullable', Rule::in(['percentage', 'fixed'])],
             'value'             => ['nullable', 'numeric', 'min:0'],
             'minimum_amount'    => ['nullable', 'numeric', 'min:0'],
+            'minimum_quantity'  => ['nullable', 'integer', 'min:0', 'max:1000000'],
             'buy_quantity'      => ['nullable', 'integer', 'min:1'],
             'get_quantity'      => ['nullable', 'integer', 'min:1'],
             'product_ids'       => ['nullable'],

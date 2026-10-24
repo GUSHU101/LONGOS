@@ -112,5 +112,5 @@ return [
     'exit_edit_tips'       => '确定要退出编辑吗?',
     'slideshow_pause'      => '暂停轮播',
     'slideshow_play'       => '播放轮播',
-    'text_powered'         => 'LONGOS &copy; ' . date('Y') . '&nbsp;·&nbsp;Built on <a href="https://beikeshop.com/" target="_blank" rel="noopener">BeikeShop</a>',
+    'text_powered'         => 'LONGOS &copy; ' . date('Y'),
 ];

@@ -83,11 +83,17 @@ class ImageService
                 return '';
             }
 
-            $extension = pathinfo($this->imagePath, PATHINFO_EXTENSION);
-            $newImage  = 'cache/' . mb_substr($this->image, 0, mb_strrpos($this->image, '.')) . '-' . $width . 'x' . $height . '.' . $extension;
+            $extension     = strtolower(pathinfo($this->imagePath, PATHINFO_EXTENSION));
+            $sourceVersion = sprintf(
+                '%x-%x',
+                (int) (filemtime($this->imagePath) ?: 0),
+                (int) (filesize($this->imagePath) ?: 0),
+            );
+            $newImage      = 'cache/' . mb_substr($this->image, 0, mb_strrpos($this->image, '.'))
+                . '-' . $width . 'x' . $height . '-v' . $sourceVersion . '.' . $extension;
 
             $newImagePath = public_path($newImage);
-            if (! is_file($newImagePath) || (filemtime($this->imagePath) > filemtime($newImagePath))) {
+            if (! is_file($newImagePath)) {
                 ini_set('memory_limit', '-1');
                 create_directories(dirname($newImage));
                 $img = Image::make($this->imagePath);

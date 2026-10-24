@@ -18,5 +18,4 @@ return [
     'no'                => '否',
     'yes'               => '是',
     'company_profile'   => '公司简介',
-    'nginx_alert'       => 'Nginx 服务器需要配置伪静态规则，点击 <a href="https://docs.beikeshop.com/install/source.html#nginx" target="_blank">查看上游兼容配置</a>',
 ];

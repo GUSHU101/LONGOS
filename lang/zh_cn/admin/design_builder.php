@@ -49,4 +49,7 @@ return [
     'module_testimonials'                          => '客户评价',
     'module_campaign_offer'                        => '折扣活动与优惠码',
     'module_payment_trust'                         => '支付与购买保障',
+    'module_story_block'                           => '故事横幅',
+    'module_feature_grid'                          => '精选卡片网格',
+    'module_social_proof'                          => '数据与信任背书',
 ];

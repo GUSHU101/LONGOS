@@ -33,7 +33,7 @@
           <div>
             <div class="pages-wrap">
               <div class="image"><div class="page-placeholder-image" aria-hidden="true"><img src="{{ asset('image/placeholder.png') }}" class="img-fluid" alt=""></div></div>
-              <div class="pages-name">请在右侧选择内容页</div>
+              <div class="pages-name">{{ __('shop/design.empty.page') }}</div>
             </div>
           </div>
           @endfor

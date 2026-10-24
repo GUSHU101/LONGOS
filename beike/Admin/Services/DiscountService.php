@@ -29,11 +29,11 @@ class DiscountService
         $code = $mode === 'code' ? strtoupper(trim((string) ($data['code'] ?? ''))) : null;
 
         if ($mode === 'code' && $code === '') {
-            throw ValidationException::withMessages(['code' => ['折扣码不能为空。']]);
+            throw ValidationException::withMessages(['code' => [trans('admin/discount.code_required')]]);
         }
 
         if ($code && Discount::query()->where('code', $code)->when($current, fn ($query) => $query->whereKeyNot($current->id))->exists()) {
-            throw ValidationException::withMessages(['code' => ['该折扣码已被使用。']]);
+            throw ValidationException::withMessages(['code' => [trans('admin/discount.code_taken')]]);
         }
 
         return [
@@ -44,6 +44,7 @@ class DiscountService
             'value_type'       => $data['value_type'] ?? 'percentage',
             'value'            => in_array($type, ['product_amount', 'order_amount'], true) ? (float) ($data['value'] ?? 0) : 0,
             'minimum_amount'   => (float) ($data['minimum_amount'] ?? 0),
+            'minimum_quantity' => max(0, (int) ($data['minimum_quantity'] ?? 0)),
             'buy_quantity'     => max(1, (int) ($data['buy_quantity'] ?? 1)),
             'get_quantity'     => max(1, (int) ($data['get_quantity'] ?? 1)),
             'product_ids'      => self::productIds($data['product_ids'] ?? []),

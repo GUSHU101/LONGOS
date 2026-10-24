@@ -1,11 +1,10 @@
 @php
   $footerIntro = is_array($footer_content['content']['intro'] ?? null) ? $footer_content['content']['intro'] : [];
   $footerContact = is_array($footer_content['content']['contact'] ?? null) ? $footer_content['content']['contact'] : [];
-  $policyProfile = system_setting('base.store_policy_profile', []);
-  $policyProfile = is_array($policyProfile) ? $policyProfile : [];
+  $policyProfile = \Beike\Services\StorePolicyTemplateService::profile();
   $footerEmail = trim((string) (($policyProfile['contact_email'] ?? '') ?: system_setting('base.email', '')));
-  $footerPhone = trim((string) (($footerContact['telephone'] ?? '') ?: ($policyProfile['contact_phone'] ?? '') ?: system_setting('base.telephone', '')));
-  $footerAddress = trim((string) (($footerContact['address'] ?? '') ?: ($policyProfile['business_address'] ?? '')));
+  $footerPhone = trim((string) (($policyProfile['contact_phone'] ?? '') ?: ($footerContact['telephone'] ?? '') ?: system_setting('base.telephone', '')));
+  $footerAddress = trim((string) (($policyProfile['business_address'] ?? '') ?: ($footerContact['address'] ?? '')));
   $footerBrandCopy = trim((string) ($footerIntro['text'] ?? ''));
   $footerBrandLogo = trim((string) ($footerIntro['logo'] ?? ''));
   $brandNamePattern = preg_quote(site_brand_name(), '#');
@@ -151,7 +150,6 @@
       <div class="longos-footer__copyright">
         <span>&copy; {{ date('Y') }} {{ site_brand_name() }}. {{ __('shop/footer.all_rights_reserved') }}</span>
         @if (!empty($footer_content['bottom']['copyright']))<span>{!! $footer_content['bottom']['copyright'] !!}</span>@endif
-        @if (!check_license())<span class="longos-footer__platform-note"><a href="{{ config('longos.legal.upstream_url') }}" target="_blank" rel="noopener noreferrer">Built on {{ config('longos.legal.upstream_name') }}</a></span>@endif
       </div>
       <span class="longos-footer__bottom-note"><i class="bi bi-check2" aria-hidden="true"></i>{{ __('shop/footer.bottom_note') }}</span>
     </div>
@@ -168,6 +166,10 @@
     </header>
     <div class="longos-contact__content">
       <div class="longos-contact__row"><span>{{ __('shop/footer.trade_name') }}</span><strong>{{ site_brand_name() }}</strong></div>
+      <div class="longos-contact__row"><span>{{ __('shop/footer.legal_entity') }}</span><strong>{{ $policyProfile['legal_name'] ?: $policyProfile['business_name'] }}</strong></div>
+      @if (!empty($policyProfile['registration_number']))
+        <div class="longos-contact__row"><span>{{ __('shop/footer.registration_number') }}</span><strong>{{ $policyProfile['registration_number'] }}</strong></div>
+      @endif
       <div class="longos-contact__row"><span>{{ __('shop/footer.email') }}</span><strong>@if($footerEmail)<a href="mailto:{{ $footerEmail }}">{{ $footerEmail }}</a>@else{{ __('shop/footer.not_provided') }}@endif</strong></div>
       <div class="longos-contact__row"><span>{{ __('shop/footer.telephone') }}</span><strong>@if($footerPhone)<a href="tel:{{ preg_replace('/[^0-9+]/', '', $footerPhone) }}">{{ $footerPhone }}</a>@else{{ __('shop/footer.not_provided') }}@endif</strong></div>
       <div class="longos-contact__row"><span>{{ __('shop/footer.physical_address') }}</span><strong>{{ $footerAddress ?: __('shop/footer.not_provided') }}</strong></div>

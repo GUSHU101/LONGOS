@@ -16,6 +16,7 @@ use App\Mail\MailSenderProfileService;
 use Beike\Repositories\SettingRepo;
 use Beike\Repositories\StorePolicyRepo;
 use Beike\Services\CurrencyService;
+use Beike\Services\LegacyRedirectService;
 use Beike\Services\StorePolicyTemplateService;
 use Beike\Services\TimezoneService;
 use Exception;
@@ -47,6 +48,7 @@ class SettingService
         $settings   = self::prepareCurrencySettings($settings);
         $settings   = self::prepareStorePolicyProfile($settings);
         $settings   = self::prepareStorePolicies($settings);
+        $settings   = self::prepareSeoSettings($settings);
         $settings   = self::prepareBrandSettings($settings);
         $settings   = self::prepareTimezoneSettings($settings);
 
@@ -284,6 +286,21 @@ class SettingService
             $settings['store_policy_profile'] = StorePolicyTemplateService::normalizeProfile(
                 $settings['store_policy_profile']
             );
+        } catch (\InvalidArgumentException $e) {
+            throw new Exception($e->getMessage());
+        }
+
+        return $settings;
+    }
+
+    private static function prepareSeoSettings(array $settings): array
+    {
+        if (! array_key_exists('seo_redirects', $settings)) {
+            return $settings;
+        }
+
+        try {
+            $settings['seo_redirects'] = LegacyRedirectService::normalize($settings['seo_redirects']);
         } catch (\InvalidArgumentException $e) {
             throw new Exception($e->getMessage());
         }

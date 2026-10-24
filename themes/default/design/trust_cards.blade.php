@@ -16,7 +16,7 @@
           @if (!empty($item['link']))</a>@else</div>@endif
         </div>
       @empty
-        @if ($design)<div class="builder-section-grid__full"><div class="custom-code-empty">请添加服务权益卡片以在此处展示。</div></div>@endif
+        @if ($design)<div class="builder-section-grid__full"><div class="custom-code-empty">{{ __('shop/design.empty.trust_cards') }}</div></div>@endif
       @endforelse
     </div>
   </div>

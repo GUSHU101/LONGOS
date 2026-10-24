@@ -21,7 +21,7 @@
                 </div>
               </details>
             @empty
-              @if($design)<div class="shopify-collapsible-content__empty">请向此模块添加可折叠内容行。</div>@endif
+              @if($design)<div class="shopify-collapsible-content__empty">{{ __('shop/design.empty.shopify_collapsible') }}</div>@endif
             @endforelse
           </div>
         </div>

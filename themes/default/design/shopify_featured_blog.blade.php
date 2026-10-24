@@ -12,16 +12,16 @@
                   @if(!empty($content['show_date']) || (!empty($content['show_author']) && !empty($article['author'])))<p class="shopify-featured-blog__meta">@if(!empty($content['show_date']) && !empty($article['date']))<time datetime="{{ $article['date'] }}">{{ $article['date'] }}</time>@endif @if(!empty($content['show_author']) && !empty($article['author']))<span>{{ $article['author'] }}</span>@endif</p>@endif
                   @if(!empty($article['title']))<h3>@if(!empty($article['url']))<a href="{{ $article['url'] }}">{{ $article['title'] }}</a>@else{{ $article['title'] }}@endif</h3>@endif
                   @if(!empty($article['summary']))<p class="shopify-featured-blog__summary">{{ $article['summary'] }}</p>@endif
-                  @if(!empty($article['url']))<a class="shopify-featured-blog__read" href="{{ $article['url'] }}">阅读文章 <span aria-hidden="true">→</span></a>@endif
+                  @if(!empty($article['url']))<a class="shopify-featured-blog__read" href="{{ $article['url'] }}">{{ __('shop/design.read_article') }} <span aria-hidden="true">→</span></a>@endif
                 </div>
               </article>
             </li>
           @empty
-            @if($design)<li class="shopify-featured-blog__empty">请选择已启用的 LONGOS 内容分类以展示最新文章。</li>@endif
+            @if($design)<li class="shopify-featured-blog__empty">{{ __('shop/design.empty.shopify_blog') }}</li>@endif
           @endforelse
         </ul>
       </div>
-      @if(!empty($content['show_view_all']) && !empty($content['view_all_url']))<div class="shopify-featured-blog__action"><a href="{{ $content['view_all_url'] }}" class="btn btn-primary">查看全部文章</a></div>@endif
+      @if(!empty($content['show_view_all']) && !empty($content['view_all_url']))<div class="shopify-featured-blog__action"><a href="{{ $content['view_all_url'] }}" class="btn btn-primary">{{ __('shop/design.view_all_articles') }}</a></div>@endif
     </div>
   </div>
 </section>

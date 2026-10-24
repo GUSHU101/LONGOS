@@ -6,20 +6,20 @@
         <ul class="shopify-collection-list__grid">
           @forelse($content['categories'] as $category)
             <li class="shopify-collection-list__item">
-              @if(!empty($category['url']))<a class="shopify-collection-list__card" href="{{ $category['url'] }}" aria-label="{{ $category['name'] ?: '商品分类' }}">
+              @if(!empty($category['url']))<a class="shopify-collection-list__card" href="{{ $category['url'] }}" aria-label="{{ $category['name'] ?: __('shop/design.collection') }}">
               @else<div class="shopify-collection-list__card">@endif
                 <div class="shopify-collection-list__media">
                   @if(!empty($category['image']))<img src="{{ $category['image'] }}" alt="" loading="lazy" decoding="async">@else<div class="shopify-collection-list__placeholder" aria-hidden="true"></div>@endif
                 </div>
-                <h3>{{ $category['name'] ?: '商品分类' }}</h3>
+                <h3>{{ $category['name'] ?: __('shop/design.collection') }}</h3>
               @if(!empty($category['url']))</a>@else</div>@endif
             </li>
           @empty
-            @if($design)<li class="shopify-collection-list__empty">请在分类区块中选择已启用的 LONGOS 商品分类。</li>@endif
+            @if($design)<li class="shopify-collection-list__empty">{{ __('shop/design.empty.shopify_collections') }}</li>@endif
           @endforelse
         </ul>
       </div>
-      @if(!empty($content['show_view_all']) && !empty($content['view_all_url']))<div class="shopify-collection-list__action"><a href="{{ $content['view_all_url'] }}" class="btn btn-primary">查看全部分类</a></div>@endif
+      @if(!empty($content['show_view_all']) && !empty($content['view_all_url']))<div class="shopify-collection-list__action"><a href="{{ $content['view_all_url'] }}" class="btn btn-primary">{{ __('shop/design.view_all_collections') }}</a></div>@endif
     </div>
   </div>
 </section>

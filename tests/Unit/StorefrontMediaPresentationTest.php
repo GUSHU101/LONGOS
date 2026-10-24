@@ -40,4 +40,23 @@ class StorefrontMediaPresentationTest extends TestCase
         self::assertStringContainsString('mix-blend-mode: normal;', $styles);
         self::assertStringContainsString('@media (hover: none)', $styles);
     }
+
+    public function test_webp_uploads_use_versioned_responsive_derivatives(): void
+    {
+        $root         = dirname(__DIR__, 2);
+        $helpers      = (string) file_get_contents($root . '/beike/Helpers.php');
+        $imageService = (string) file_get_contents($root . '/beike/Services/ImageService.php');
+        $detail       = (string) file_get_contents($root . '/beike/Shop/Http/Resources/ProductDetail.php');
+        $sku          = (string) file_get_contents($root . '/beike/Shop/Http/Resources/SkuDetail.php');
+
+        self::assertStringNotContainsString("str_contains(\$image, '.webp')", $helpers);
+        self::assertStringContainsString("str_contains(strtolower(\$image), '.gif')", $helpers);
+        self::assertStringContainsString('$sourceVersion = sprintf(', $imageService);
+        self::assertStringContainsString(". '-v' . \$sourceVersion", $imageService);
+        foreach ([$detail, $sku] as $resource) {
+            self::assertStringContainsString('image_resize($image, 800, calculate_height_by_ratio(800))', $resource);
+            self::assertStringContainsString('image_resize($image, 1200, calculate_height_by_ratio(1200))', $resource);
+            self::assertStringNotContainsString('image_resize($image, 1600,', $resource);
+        }
+    }
 }

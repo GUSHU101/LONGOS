@@ -69,6 +69,17 @@
                    name="store_policy_profile[contact_email]" value="{{ $profile['contact_email'] ?? '' }}" data-policy-profile="contact_email">
           </div>
           <div>
+            <label class="form-label" for="policy-legal-name">{{ __('admin/setting.policy_legal_name') }}</label>
+            <input class="form-control" id="policy-legal-name" type="text" maxlength="160" required autocomplete="organization"
+                   name="store_policy_profile[legal_name]" value="{{ $profile['legal_name'] ?? ($profile['business_name'] ?? '') }}" data-policy-profile="legal_name">
+            <div class="form-text">{{ __('admin/setting.policy_legal_name_help') }}</div>
+          </div>
+          <div>
+            <label class="form-label" for="policy-registration-number">{{ __('admin/setting.policy_registration_number') }}</label>
+            <input class="form-control" id="policy-registration-number" type="text" maxlength="120"
+                   name="store_policy_profile[registration_number]" value="{{ $profile['registration_number'] ?? '' }}" data-policy-profile="registration_number">
+          </div>
+          <div>
             <label class="form-label" for="policy-contact-phone">{{ __('admin/setting.policy_contact_phone') }}</label>
             <input class="form-control" id="policy-contact-phone" type="tel" maxlength="60" autocomplete="tel"
                    name="store_policy_profile[contact_phone]" value="{{ $profile['contact_phone'] ?? '' }}" data-policy-profile="contact_phone">

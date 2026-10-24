@@ -18,5 +18,4 @@ return [
     'no'              => 'No',
     'yes'             => 'Yes',
     'company_profile' => 'Company Profile',
-    'nginx_alert'     => 'Nginx rewrite rules are required. See the <a href="https://docs.beikeshop.com/install/source.html#nginx" target="_blank">upstream compatibility guide</a>.',
 ];

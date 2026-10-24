@@ -110,5 +110,5 @@ return [
     'exit_edit_tips'       => 'Are you sure you want to exit editing?',
     'slideshow_pause'      => 'Pause slideshow',
     'slideshow_play'       => 'Play slideshow',
-    'text_powered'         => 'LONGOS &copy; ' . date('Y') . '&nbsp;·&nbsp;Built on <a href="https://beikeshop.com/" target="_blank" rel="noopener">BeikeShop</a>',
+    'text_powered'         => 'LONGOS &copy; ' . date('Y'),
 ];

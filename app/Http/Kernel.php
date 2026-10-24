@@ -19,6 +19,7 @@ class Kernel extends HttpKernel
         \App\Http\Middleware\ApplySecurityHeaders::class,
         \App\Http\Middleware\EnsureTenantResolved::class,
         \App\Http\Middleware\RedirectSecondaryDomain::class,
+        \App\Http\Middleware\RedirectLegacyStorefrontPath::class,
         \Illuminate\Http\Middleware\HandleCors::class,
         \App\Http\Middleware\PreventRequestsDuringMaintenance::class,
         \Illuminate\Foundation\Http\Middleware\ValidatePostSize::class,

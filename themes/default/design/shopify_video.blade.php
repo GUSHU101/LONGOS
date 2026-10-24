@@ -16,14 +16,14 @@
           @if ($video)
             <video controls preload="metadata" @if($poster) poster="{{ $poster }}" @endif @if(!empty($content['enable_video_looping'])) loop @endif>
               <source src="{{ $video }}" type="video/mp4">
-              你的浏览器不支持 HTML 视频播放。
+              {{ __('shop/design.video_unsupported') }}
             </video>
           @else
             <iframe src="{{ $embed }}" title="{{ $description ?: $title ?: 'Video' }}" loading="lazy" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
           @endif
         </div>
       @elseif ($design)
-        <div class="shopify-video__empty">请选择媒体库视频，或填写 YouTube/Vimeo 视频地址。</div>
+        <div class="shopify-video__empty">{{ __('shop/design.empty.shopify_video') }}</div>
       @endif
       @if ($description)<p class="shopify-video__description">{{ $description }}</p>@endif
     </div>

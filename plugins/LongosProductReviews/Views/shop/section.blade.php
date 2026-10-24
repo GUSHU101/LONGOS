@@ -93,33 +93,6 @@
   </dialog>
 </section>
 
-@php
-  $reviewSchema = [
-    '@context' => 'https://schema.org',
-    '@type' => 'Product',
-    '@id' => url()->current() . '#product',
-    'name' => (string) ($product['name'] ?? ''),
-    'image' => collect($product['images'] ?? [])->pluck('popup')->filter()->values()->all(),
-    'description' => \Illuminate\Support\Str::limit(trim(strip_tags((string) ($product['description'] ?? ''))), 5000, ''),
-    'aggregateRating' => [
-      '@type' => 'AggregateRating',
-      'ratingValue' => $reviews['average'],
-      'reviewCount' => $reviews['total'],
-      'bestRating' => 5,
-      'worstRating' => 1,
-    ],
-    'review' => collect($reviews['reviews'])->take(5)->map(static fn ($review) => [
-      '@type' => 'Review',
-      'author' => ['@type' => 'Person', 'name' => $review->author_name],
-      'datePublished' => $review->reviewed_at?->toDateString(),
-      'name' => $review->title,
-      'reviewBody' => $review->body,
-      'reviewRating' => ['@type' => 'Rating', 'ratingValue' => $review->rating, 'bestRating' => 5, 'worstRating' => 1],
-    ])->values()->all(),
-  ];
-@endphp
-<script type="application/ld+json">{!! json_encode($reviewSchema, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) !!}</script>
-
 @once
   @push('add-scripts')
     <script>

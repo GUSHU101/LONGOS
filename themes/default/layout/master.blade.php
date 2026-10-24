@@ -35,8 +35,44 @@
     <!-- Generator Meta -->
     <meta name="generator" content="{{ site_brand_name() }} Commerce">
 
+    @php
+      $identityProfile = \Beike\Services\StorePolicyTemplateService::profile();
+      $organizationId = rtrim(shop_route('home.index'), '/') . '/#organization';
+      $websiteId = rtrim(shop_route('home.index'), '/') . '/#website';
+      $organizationSchema = array_filter([
+        '@type' => 'Organization',
+        '@id' => $organizationId,
+        'name' => $identityProfile['business_name'] ?: site_brand_name(),
+        'legalName' => $identityProfile['legal_name'] ?? null,
+        'identifier' => $identityProfile['registration_number'] ?? null,
+        'url' => shop_route('home.index'),
+        'logo' => image_origin(site_brand_asset('shop_logo')),
+        'email' => $identityProfile['contact_email'] ?: null,
+        'telephone' => $identityProfile['contact_phone'] ?: null,
+        'address' => !empty($identityProfile['business_address']) ? [
+          '@type' => 'PostalAddress',
+          'streetAddress' => $identityProfile['business_address'],
+        ] : null,
+      ], static fn ($value) => $value !== null && $value !== '');
+      $websiteSchema = [
+        '@type' => 'WebSite',
+        '@id' => $websiteId,
+        'url' => shop_route('home.index'),
+        'name' => site_brand_name(),
+        'publisher' => ['@id' => $organizationId],
+        'potentialAction' => [
+          '@type' => 'SearchAction',
+          'target' => shop_route('products.search') . '?keyword={search_term_string}',
+          'query-input' => 'required name=search_term_string',
+        ],
+      ];
+      $storefrontSchema = ['@context' => 'https://schema.org', '@graph' => [$organizationSchema, $websiteSchema]];
+    @endphp
+    <script type="application/ld+json">{!! json_encode($storefrontSchema, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) !!}</script>
+
     <!-- Favicon -->
     <link rel="shortcut icon" href="{{ image_origin(site_brand_asset('favicon')) }}">
+    @yield('preloads')
 
     <!-- CSS and JS -->
     @php
@@ -175,10 +211,6 @@
       }
     @endif
   </script>
-
-  @if (str_contains(strtolower((string) ($_SERVER['SERVER_SOFTWARE'] ?? '')), 'nginx'))
-    <div class="nginx-alert d-none">{!! __('shop/common.nginx_alert') !!}</div>
-  @endif
 
   <div id="storefront-feedback" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
 

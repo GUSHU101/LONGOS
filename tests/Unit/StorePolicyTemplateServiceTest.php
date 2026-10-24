@@ -95,6 +95,8 @@ class StorePolicyTemplateServiceTest extends TestCase
     {
         return [
             'business_name'             => 'LONGOS Demo LLC',
+            'legal_name'                => 'LONGOS Demo Holdings LLC',
+            'registration_number'       => 'CA-123456',
             'contact_email'             => 'support@example.com',
             'contact_phone'             => '+1 415 555 0123',
             'business_address'          => '100 Market Street, San Francisco, CA 94105, United States',

@@ -242,7 +242,6 @@ footer.longos-footer .longos-footer__bottom {
 
 footer.longos-footer .longos-footer__copyright { color: var(--footer-faint); display: flex; flex-wrap: wrap; font-size: .7rem; gap: .35rem .8rem; line-height: 1.5; }
 footer.longos-footer .longos-footer__copyright :where(p, div) { display: inline; margin: 0; }
-footer.longos-footer .longos-footer__platform-note a { color: var(--footer-muted) !important; }
 
 footer.longos-footer .longos-footer__bottom-note { align-items: center; color: var(--footer-muted); display: inline-flex; flex: 0 0 auto; font-size: .7rem; gap: .45rem; }
 footer.longos-footer .longos-footer__bottom-note i { color: var(--footer-accent); }
@@ -346,6 +345,13 @@ body.longos-contact-open { overflow: hidden; }
 
 body.page-policy { background: #f6f4ee; }
 .page-policy .policy-breadcrumb .container-fluid, .page-policy .policy-page-shell { max-width: min(var(--store-page-width, 1440px), 1440px); padding-inline: clamp(1.25rem, 4.5vw, 4.5rem); }
+.page-policy .policy-identity { background: #f8f7f3; border: 1px solid rgba(17, 24, 39, .12); border-radius: var(--store-radius, 12px); margin-top: clamp(2rem, 5vw, 4rem); padding: clamp(1.25rem, 3vw, 2rem); }
+.page-policy .policy-identity h2 { font-size: clamp(1.15rem, 2vw, 1.4rem); margin-bottom: 1rem; }
+.page-policy .policy-identity dl { display: grid; gap: .8rem 1.5rem; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; }
+.page-policy .policy-identity dl > div { min-width: 0; }
+.page-policy .policy-identity dt { color: #667085; font-size: .76rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.page-policy .policy-identity dd { margin: .2rem 0 0; overflow-wrap: anywhere; }
+@media (max-width: 575.98px) { .page-policy .policy-identity dl { grid-template-columns: minmax(0, 1fr); } }
 .page-policy .policy-document { background: #fff; border: 1px solid rgba(23,23,20,.12); margin: clamp(1rem,3vw,2.5rem) auto 0; max-width: 58rem; padding: clamp(2rem,6vw,5rem); }
 .page-policy .policy-document__header { border-bottom: 1px solid rgba(23,23,20,.14); margin-bottom: clamp(2rem,4vw,3.5rem); padding-bottom: clamp(1.5rem,3vw,2.5rem); }
 .page-policy .policy-document__eyebrow { color: #68665f; font-size: .75rem; font-weight: 600; letter-spacing: .12em; margin: 0 0 .75rem; text-transform: uppercase; }

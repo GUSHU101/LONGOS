@@ -8,7 +8,7 @@ class Discount extends Base
 {
     protected $fillable = [
         'name', 'mode', 'code', 'type', 'value_type', 'value', 'minimum_amount',
-        'buy_quantity', 'get_quantity', 'product_ids', 'gift_product_ids', 'status',
+        'minimum_quantity', 'buy_quantity', 'get_quantity', 'product_ids', 'gift_product_ids', 'status',
         'starts_at', 'ends_at',
     ];
 
@@ -20,6 +20,7 @@ class Discount extends Base
             'status'           => 'boolean',
             'value'            => 'float',
             'minimum_amount'   => 'float',
+            'minimum_quantity' => 'integer',
             'starts_at'        => 'datetime',
             'ends_at'          => 'datetime',
         ];

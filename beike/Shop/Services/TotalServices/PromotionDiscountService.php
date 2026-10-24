@@ -68,6 +68,11 @@ class PromotionDiscountService
             return 0;
         }
 
+        $minimumQuantity = max(0, (int) $rule->minimum_quantity);
+        if ($minimumQuantity > 0 && self::qualifyingQuantity($rule, $carts) < $minimumQuantity) {
+            return 0;
+        }
+
         return match ($rule->type) {
             'product_amount' => self::valueDiscount($rule, self::matchingSubtotal($rule, $carts)),
             'order_amount'   => self::valueDiscount($rule, $subTotal),
@@ -102,6 +107,15 @@ class PromotionDiscountService
         return collect($carts)
             ->filter(fn (array $cart) => self::matchesProduct($rule->product_ids ?? [], $cart))
             ->sum(fn (array $cart) => (float) ($cart['subtotal'] ?? 0));
+    }
+
+    private static function qualifyingQuantity(Discount $rule, array $carts): int
+    {
+        $productScoped = in_array($rule->type, ['product_amount', 'buy_x_get_y'], true);
+
+        return (int) collect($carts)
+            ->filter(fn (array $cart): bool => ! $productScoped || self::matchesProduct($rule->product_ids ?? [], $cart))
+            ->sum(fn (array $cart): int => max(0, (int) ($cart['quantity'] ?? 0)));
     }
 
     private static function buyXGetYDiscount(Discount $rule, array $carts): float

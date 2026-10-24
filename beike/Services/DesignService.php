@@ -1142,7 +1142,7 @@ class DesignService
         $content['change_slides_speed'] = min(9, max(3, (int) ($content['change_slides_speed'] ?? 5)));
         $content['image_behavior']      = in_array($content['image_behavior'] ?? '', ['none', 'ambient'], true) ? $content['image_behavior'] : 'none';
         $content['show_text_below']     = self::normalizeBoolean($content['show_text_below'] ?? true, true);
-        $content['accessibility_info']  = $plainText(self::localizedValue($content['accessibility_info'] ?? ''), 240) ?: '轮播横幅';
+        $content['accessibility_info']  = $plainText(self::localizedValue($content['accessibility_info'] ?? ''), 240) ?: (locale() === 'zh_cn' ? '轮播横幅' : 'Carousel banner');
 
         $slides = [];
         foreach (array_slice(is_array($content['blocks'] ?? null) ? $content['blocks'] : [], 0, 5) as $block) {
@@ -1177,7 +1177,7 @@ class DesignService
     private static function handleShopifyMainListCollections(array $content): array
     {
         $plainText                  = static fn (mixed $value, int $limit = 500): string => is_scalar($value) ? mb_substr(trim(strip_tags((string) $value)), 0, $limit) : '';
-        $content['title']           = $plainText(self::localizedValue($content['title'] ?? ''), 500) ?: '商品分类';
+        $content['title']           = $plainText(self::localizedValue($content['title'] ?? ''), 500) ?: (locale() === 'zh_cn' ? '商品分类' : 'Product collection');
         $content['sort']            = in_array($content['sort'] ?? '', ['alphabetical', 'alphabetical_reversed', 'date_reversed', 'date', 'products_high', 'products_low'], true) ? $content['sort'] : 'alphabetical';
         $content['image_ratio']     = in_array($content['image_ratio'] ?? '', ['adapt', 'portrait', 'square'], true) ? $content['image_ratio'] : 'adapt';
         $content['columns_desktop'] = min(6, max(1, (int) ($content['columns_desktop'] ?? 3)));

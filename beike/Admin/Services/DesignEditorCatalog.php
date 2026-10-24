@@ -187,8 +187,42 @@ class DesignEditorCatalog
 
     public static function core(): array
     {
-        $text = static function (string $value): array {
-            return array_fill_keys(array_column(locales(), 'code'), $value);
+        $storefrontEnglish = [
+            '限时优惠'                                                         => 'Limited-time offer', '让顾客的第一笔订单更有惊喜' => 'Make the first order feel even more rewarding', '立即选购' => 'Shop now',
+            '安心选购'                                                         => 'Shop with confidence', '向顾客清晰传达最重要的服务承诺' => 'Clearly communicate the service promises that matter most',
+            '精选品质'                                                         => 'Curated quality', '每件商品都提供清晰信息与可靠的品质标准。' => 'Every product includes clear information and dependable quality standards.',
+            '快速服务'                                                         => 'Responsive service', '让订单、物流和售后进度一目了然。' => 'Keep order, delivery, and after-sales progress easy to understand.',
+            '贴心支持'                                                         => 'Helpful support', '需要帮助时可快速联系店铺服务团队。' => 'Reach the store support team quickly whenever help is needed.',
+            '顾客真实评价'                                                     => 'What customers say', '用真实的购物体验建立顾客信任' => 'Build trust through authentic shopping experiences',
+            '商品信息很清楚，物流的每一步都可以追踪。'                         => 'The product information was clear and every delivery step was easy to track.', '林女士' => 'Alex R.', '已验证购买' => 'Verified purchase',
+            '客服回复很快，商品与描述完全一致。'                               => 'Support replied quickly and the product matched the description.', '周先生' => 'Jordan M.',
+            '结账过程很顺畅，我还会再次购买。'                                 => 'Checkout was smooth and I would happily shop here again.', '陈女士' => 'Taylor S.', '回购顾客' => 'Returning customer',
+            '多买多省'                                                         => 'Buy more, save more', '选择最适合你的优惠组合' => 'Choose the offer that works best for you', '复制优惠码并在结账时使用' => 'Copy the code and apply it at checkout',
+            '优惠不可叠加，最终资格以结账页显示为准。'                         => 'Offers cannot be combined. Final eligibility is shown at checkout.', '购买 2 件或以上' => 'Buy 2 or more', '立减 15%' => 'Save 15%', '结账时输入优惠码' => 'Enter the code at checkout',
+            '购买 3 件或以上'                                                  => 'Buy 3 or more', '85 折 + 免运费' => '15% off + free shipping', '最超值的组合' => 'Best overall value', '推荐' => 'Recommended',
+            '安心购买'                                                         => 'Purchase with confidence', '安全结账与购买保障' => 'Secure checkout and purchase protection', '安全支付' => 'Secure payments', '支持的支付方式' => 'Accepted payment methods', '可在结账时选择' => 'Available choices appear at checkout',
+            '安全结账'                                                         => 'Secure checkout', '加密支付保障' => 'Protected payment processing', '物流可追踪' => 'Tracked delivery', '随时查看订单进度' => 'Follow your order after dispatch', '30 天退换' => '30-day returns', '符合条件的商品可申请退换' => 'Eligible products may be returned',
+            '为每一个日常时刻而设计'                                           => 'Designed for every day', '用动人的方式讲述品牌故事' => 'Tell your brand story with clarity', '用一张有感染力的图片和简洁文案，介绍分类、品牌价值或当季活动。' => 'Introduce a collection, brand value, or seasonal campaign with one compelling image and concise copy.', '探索商品分类' => 'Explore the collection',
+            '按自己的方式探索'                                                 => 'Explore your way', '用清晰的视觉入口帮助顾客快速找到内容。' => 'Help customers find the right content through clear visual entry points.',
+            '新品'                                                             => 'New', '新品上新' => 'New arrivals', '展示最新系列或本季主推商品。' => 'Feature the newest collection or seasonal highlights.', '立即探索' => 'Explore now',
+            '热门'                                                             => 'Popular', '顾客喜爱' => 'Customer favorites', '展示店铺中最受欢迎的分类。' => 'Showcase the store\'s most popular collection.', '查看系列' => 'View the collection',
+            '品牌'                                                             => 'Brand', '了解我们' => 'About us', '让品牌故事成为购买决策的一部分。' => 'Make the brand story part of the purchase decision.', '阅读故事' => 'Read our story',
+            '<h2>讲述你的故事</h2><p>在这里编辑一段清晰、可读的图文内容。</p>' => '<h2>Tell your story</h2><p>Edit this section with clear, readable content.</p>',
+            '常见问题'                                                         => 'Frequently asked questions', '购买前可能想了解的信息。' => 'Helpful information before you buy.', '如何查看物流轨迹？' => 'How can I track my order?', '订单发货后，可在订单详情中实时查看物流进度。' => 'After dispatch, tracking progress is available from the order details page.',
+            '支持哪些付款方式？'                                               => 'Which payment methods are supported?', '结账页会展示当前店铺已启用的安全付款方式。' => 'The secure payment methods currently enabled by the store appear at checkout.', '如何联系店铺？' => 'How can I contact the store?', '可使用页脚中的联系方式获取订单和售后帮助。' => 'Use the contact details in the footer for order and after-sales support.',
+            '打造更好的购物体验'                                               => 'A better shopping experience', '展示准确的数据和顾客可以信赖的服务承诺。' => 'Share accurate facts and service promises customers can trust.', '平均顾客评分' => 'Average customer rating', '来自已验证的店铺反馈' => 'From verified store feedback', '客户服务' => 'Customer support', '在需要时及时提供帮助' => 'Helpful answers when they are needed', '安全' => 'Secure', '受保护的结账' => 'Protected checkout', '你的信息始终受到保护' => 'Your information stays protected',
+            '新模块'                                                           => 'New section', '新品推荐' => 'New arrivals', '添加轮播图片和文案' => 'Add a slide image and copy', '在右侧添加图片、链接和文字内容。' => 'Add images, links, and text in the editor.', '精选商品' => 'Featured products', '服务保障' => 'Service promise', '填写权益说明' => 'Describe this customer benefit', '热卖商品' => 'Bestsellers', '最新商品' => 'Latest products', '顾客正在购买的热门精选' => 'Popular products customers are buying now', '探索刚刚上架的新品' => 'Explore newly listed products',
+            '自定义区块'                                                       => 'Custom section',
+        ];
+        $text = static function (string $value) use ($storefrontEnglish): array {
+            $localized = [];
+            foreach (array_column(locales(), 'code') as $code) {
+                $localized[$code] = str_starts_with(strtolower((string) $code), 'zh')
+                    ? $value
+                    : ($storefrontEnglish[$value] ?? $value);
+            }
+
+            return $localized;
         };
         $descriptions = [
             'promo_bar'            => '在页面顶部展示活动文案和跳转入口。',
@@ -269,11 +303,11 @@ class DesignEditorCatalog
                 'benefits'  => [['icon' => '✓', 'title' => $text('安全结账'), 'text' => $text('加密支付保障'), 'gold' => false], ['icon' => '✓', 'title' => $text('物流可追踪'), 'text' => $text('随时查看订单进度'), 'gold' => false], ['icon' => '30', 'title' => $text('30 天退换'), 'text' => $text('符合条件的商品可申请退换'), 'gold' => true]],
                 'payments'  => ['visa', 'mastercard', 'amex', 'paypal', 'apple_pay', 'google_pay', 'klarna', 'afterpay', 'unionpay', 'jcb', 'discover', 'ideal'],
             ]),
-            $module('story_block', '故事横幅', [
+            $module('story_block', trans('admin/design_builder.module_story_block'), [
                 'style'   => ['background_color' => ''], 'module_size' => 'container-fluid', 'placement' => 'home', 'theme' => 'light', 'image_position' => 'right', 'image' => '',
                 'eyebrow' => $text('为每一个日常时刻而设计'), 'title' => $text('用动人的方式讲述品牌故事'), 'description' => $text('用一张有感染力的图片和简洁文案，介绍分类、品牌价值或当季活动。'), 'button_text' => $text('探索商品分类'), 'link' => ['type' => 'custom', 'value' => '', 'new_window' => false],
             ]),
-            $module('feature_grid', '精选卡片网格', [
+            $module('feature_grid', trans('admin/design_builder.module_feature_grid'), [
                 'style' => ['background_color' => ''], 'module_size' => 'container-fluid', 'placement' => 'home', 'columns' => 3, 'columns_tablet' => 2, 'columns_mobile' => 1, 'image_ratio' => 'landscape', 'card_style' => 'editorial',
                 'title' => $text('按自己的方式探索'), 'sub_title' => $text('用清晰的视觉入口帮助顾客快速找到内容。'),
                 'items' => [
@@ -282,11 +316,11 @@ class DesignEditorCatalog
                     ['image' => '', 'image_alt' => $text(''), 'eyebrow' => $text('品牌'), 'title' => $text('了解我们'), 'text' => $text('让品牌故事成为购买决策的一部分。'), 'link_label' => $text('阅读故事'), 'link' => ['type' => 'custom', 'value' => '', 'new_window' => false]],
                 ],
             ]),
-            $module('rich_text', '富文本内容', [
+            $module('rich_text', trans('admin/design_builder.module_rich_text'), [
                 'style' => ['background_color' => ''], 'module_size' => 'container', 'placement' => 'home',
                 'text'  => $text('<h2>讲述你的故事</h2><p>在这里编辑一段清晰、可读的图文内容。</p>'),
             ]),
-            $module('faq', '常见问题', [
+            $module('faq', trans('admin/design_builder.module_faq'), [
                 'style' => ['background_color' => ''], 'module_size' => 'container', 'placement' => 'home', 'style_variant' => 'divided', 'open_first' => true,
                 'title' => $text('常见问题'), 'sub_title' => $text('购买前可能想了解的信息。'),
                 'items' => [
@@ -295,13 +329,13 @@ class DesignEditorCatalog
                     ['question' => $text('如何联系店铺？'), 'answer' => $text('可使用页脚中的联系方式获取订单和售后帮助。')],
                 ],
             ]),
-            $module('social_proof', '数据与信任背书', [
+            $module('social_proof', trans('admin/design_builder.module_social_proof'), [
                 'style' => ['background_color' => ''], 'module_size' => 'container-fluid', 'placement' => 'both', 'theme' => 'ink', 'title' => $text('打造更好的购物体验'), 'sub_title' => $text('展示准确的数据和顾客可以信赖的服务承诺。'),
                 'items' => [['value' => $text('4.9 / 5'), 'label' => $text('平均顾客评分'), 'detail' => $text('来自已验证的店铺反馈')], ['value' => $text('24 / 7'), 'label' => $text('客户服务'), 'detail' => $text('在需要时及时提供帮助')], ['value' => $text('安全'), 'label' => $text('受保护的结账'), 'detail' => $text('你的信息始终受到保护')]],
             ]),
             $module('custom_code', trans('admin/design_builder.module_custom_code'), [
-                'style'    => ['background_color' => ''], 'module_size' => 'container-fluid', 'title' => '自定义区块', 'height' => 360,
-                'settings' => "{\n  \"heading\": \"创建属于你的模块\",\n  \"description\": \"可在编辑器中添加安全的 HTML 与 CSS。\"\n}",
+                'style'    => ['background_color' => ''], 'module_size' => 'container-fluid', 'title' => $text('自定义区块'), 'height' => 360,
+                'settings' => "{\n  \"heading\": \"Create your own section\",\n  \"description\": \"Add safe HTML and CSS in the editor.\"\n}",
                 'html'     => '<div class="custom-section"><h2>{{ section.settings.heading }}</h2><p>{{ section.settings.description }}</p></div>', 'css' => '.custom-section { padding: 48px 24px; text-align: center; background: #f7f7f7; border-radius: 16px; }',
             ]),
         ];

@@ -19,7 +19,7 @@
         </article>
       @empty
         @if ($design)
-          <div class="custom-code-empty">请添加信任背书内容以在此处展示。</div>
+          <div class="custom-code-empty">{{ __('shop/design.empty.social_proof') }}</div>
         @endif
       @endforelse
     </div>

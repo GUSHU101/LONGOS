@@ -14,6 +14,8 @@ class StorePolicyAdminPresentationTest extends TestCase
         $controller = (string) file_get_contents($root . '/beike/Admin/Http/Controllers/SettingController.php');
 
         self::assertStringContainsString('data-policy-profile="business_name"', $view);
+        self::assertStringContainsString('data-policy-profile="legal_name"', $view);
+        self::assertStringContainsString('data-policy-profile="registration_number"', $view);
         self::assertStringContainsString('data-policy-profile="business_address"', $view);
         self::assertStringContainsString('data-policy-profile="contact_phone"', $view);
         self::assertStringContainsString('data-policy-profile="support_hours"', $view);
@@ -27,6 +29,9 @@ class StorePolicyAdminPresentationTest extends TestCase
         self::assertStringContainsString("name('settings.policies.generate')", $routes);
         self::assertStringContainsString('function generatePolicies', $controller);
         self::assertStringContainsString('RateLimiter::attempt', $controller);
+        $storefront = (string) file_get_contents($root . '/themes/default/policies/show.blade.php');
+        self::assertStringContainsString('class="policy-identity"', $storefront);
+        self::assertStringContainsString("__('policy.legal_entity')", $storefront);
         foreach (['contact', 'payment', 'cancellation', 'cookies'] as $document) {
             self::assertStringContainsString("'{$document}' => [", (string) file_get_contents($root . '/beike/Repositories/StorePolicyRepo.php'));
         }

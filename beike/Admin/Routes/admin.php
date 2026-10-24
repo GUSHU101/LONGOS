@@ -350,6 +350,7 @@ Route::prefix($adminName)
                 Route::middleware('can:settings_index')->get('settings/picture', [Controllers\SettingController::class, 'pictureSettings'])->name('settings.picture');
                 Route::middleware('can:settings_index')->get('settings/policies', [Controllers\SettingController::class, 'policySettings'])->name('settings.policies');
                 Route::middleware('can:settings_update')->post('settings/policies/generate', [Controllers\SettingController::class, 'generatePolicies'])->name('settings.policies.generate');
+                Route::middleware('can:settings_index')->get('settings/seo', [Controllers\SettingController::class, 'seoSettings'])->name('settings.seo');
                 Route::middleware('can:settings_index')->get('settings/express', [Controllers\SettingController::class, 'expressSettings'])->name('settings.express');
                 Route::middleware('can:settings_index')->get('settings/mail', [Controllers\SettingController::class, 'mailSettings'])->name('settings.mail');
                 Route::middleware('can:settings_update')->post('settings', [Controllers\SettingController::class, 'store'])->name('settings.store');

@@ -10,7 +10,7 @@
   $mobileColumns = min(2, max(1, (int) ($moduleContent['columns_mobile'] ?? 2)));
   $moduleSize = in_array($moduleContent['module_size'] ?? '', ['container-fluid', 'container', 'w-100'], true)
     ? $moduleContent['module_size'] : 'container-fluid';
-  $emptyLabel = $feedKind === 'bestseller' ? '等待店铺产生销售数据' : '等待店铺上架商品';
+  $emptyLabel = $feedKind === 'bestseller' ? __('shop/design.waiting_for_sales') : __('shop/design.waiting_for_products');
 @endphp
 
 @if($isDesign || $products)

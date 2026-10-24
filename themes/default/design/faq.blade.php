@@ -19,7 +19,7 @@
           </div>
         </article>
       @empty
-        @if ($design)<div class="custom-code-empty">请添加问题与答案以在此处展示。</div>@endif
+        @if ($design)<div class="custom-code-empty">{{ __('shop/design.empty.faq') }}</div>@endif
       @endforelse
     </div>
   </div>

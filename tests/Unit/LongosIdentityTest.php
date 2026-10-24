@@ -47,4 +47,15 @@ class LongosIdentityTest extends TestCase
         self::assertStringContainsString('Open Software License ("OSL") v 3.0', $license);
         self::assertStringContainsString('BeikeShop', $license);
     }
+
+    public function test_runtime_product_identity_does_not_expose_upstream_branding(): void
+    {
+        $english = require $this->root . '/lang/en/common.php';
+        $chinese = require $this->root . '/lang/zh_cn/common.php';
+
+        self::assertSame('LONGOS &copy; ' . date('Y'), $english['text_powered']);
+        self::assertSame('LONGOS &copy; ' . date('Y'), $chinese['text_powered']);
+        self::assertStringNotContainsString('BeikeShop', $english['text_powered']);
+        self::assertStringNotContainsString('BeikeShop', $chinese['text_powered']);
+    }
 }

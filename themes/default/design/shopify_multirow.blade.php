@@ -4,7 +4,7 @@
       @forelse($content['blocks'] as $block)
         <article class="shopify-multirow__row shopify-multirow__row--image-{{ $block['image_position'] }}">
           <div class="shopify-multirow__media" aria-hidden="true">
-            @if(!empty($block['image']))<img src="{{ $block['image'] }}" alt="" loading="lazy" decoding="async">@elseif($design)<div class="shopify-multirow__placeholder">请为这一行选择图片。</div>@endif
+            @if(!empty($block['image']))<img src="{{ $block['image'] }}" alt="" loading="lazy" decoding="async">@elseif($design)<div class="shopify-multirow__placeholder">{{ __('shop/design.empty.shopify_multirow_image') }}</div>@endif
           </div>
           <div class="shopify-multirow__copy">
             <div class="shopify-multirow__content">
@@ -20,7 +20,7 @@
           </div>
         </article>
       @empty
-        @if($design)<div class="shopify-multirow__empty">请向此模块添加内容行。</div>@endif
+        @if($design)<div class="shopify-multirow__empty">{{ __('shop/design.empty.shopify_multirow') }}</div>@endif
       @endforelse
     </div>
   </div>

@@ -145,6 +145,7 @@ return [
         'checkout'             => 'Checkout Settings',
         'picture'              => 'Picture Settings',
         'policies'             => 'Policy Settings',
+        'seo'                  => 'SEO & URL Redirects',
         'mail'                 => 'Mail Settings',
     ],
 ];

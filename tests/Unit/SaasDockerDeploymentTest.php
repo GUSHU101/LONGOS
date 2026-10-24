@@ -252,6 +252,7 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringContainsString('location ~ \.php(?:/|$)', $nginx);
         self::assertStringNotContainsString('location ~ \.php$ {', $nginx);
         self::assertStringContainsString('location ^~ /build/', $nginx);
+        self::assertStringContainsString('location ^~ /cache/', $nginx);
         self::assertStringContainsString('max-age=31536000, immutable', $nginx);
         self::assertStringContainsString('max-age=300', $nginx);
         self::assertStringNotContainsString('expires 30d;', $nginx);

@@ -643,7 +643,11 @@ function image_resize($image, int $width = 100, int $height = 100)
         return $image;
     }
 
-    if (str_contains($image, '.gif') || str_contains($image, '.webp')) {
+    // Keep animated GIFs intact, but allow WebP uploads to use the normal
+    // derivative pipeline. Product imports are predominantly WebP; returning
+    // the original here made every responsive srcset candidate point at the
+    // same full-size file.
+    if (str_contains(strtolower($image), '.gif')) {
         return image_origin($image);
     }
 

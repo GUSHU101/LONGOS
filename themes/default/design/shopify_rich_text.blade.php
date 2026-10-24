@@ -18,7 +18,7 @@
             </div>
           @endif
         @endforeach
-        @if($design && empty($content['blocks']))<div class="shopify-rich-text__empty">请添加标题、正文、说明或按钮区块。</div>@endif
+        @if($design && empty($content['blocks']))<div class="shopify-rich-text__empty">{{ __('shop/design.empty.shopify_rich_text') }}</div>@endif
       </div>
     </div>
   </div>

@@ -2,7 +2,7 @@
   <div class="container">
     <article class="shopify-image-with-text shopify-image-with-text--{{ $content['height'] }} shopify-image-with-text--media-{{ $content['desktop_image_width'] }} shopify-image-with-text--{{ $content['layout'] }} shopify-image-with-text--{{ $content['content_layout'] }} shopify-image-with-text--position-{{ $content['desktop_content_position'] }} shopify-image-with-text--align-{{ $content['desktop_content_alignment'] }} shopify-image-with-text--mobile-align-{{ $content['mobile_content_alignment'] }} shopify-image-with-text--behavior-{{ $content['image_behavior'] }}">
       <div class="shopify-image-with-text__media" aria-hidden="true">
-        @if(!empty($content['image']))<img src="{{ $content['image'] }}" alt="" loading="lazy" decoding="async">@elseif($design)<div class="shopify-image-with-text__placeholder">请为此模块选择图片。</div>@endif
+        @if(!empty($content['image']))<img src="{{ $content['image'] }}" alt="" loading="lazy" decoding="async">@elseif($design)<div class="shopify-image-with-text__placeholder">{{ __('shop/design.empty.shopify_image') }}</div>@endif
       </div>
       <div class="shopify-image-with-text__copy">
         <div class="shopify-image-with-text__blocks">
@@ -16,7 +16,7 @@
               @endif
             @endif
           @endforeach
-          @if($design && empty($content['blocks']))<div class="shopify-image-with-text__empty">请添加标题、正文、说明或按钮区块。</div>@endif
+          @if($design && empty($content['blocks']))<div class="shopify-image-with-text__empty">{{ __('shop/design.empty.shopify_image_blocks') }}</div>@endif
         </div>
       </div>
     </article>

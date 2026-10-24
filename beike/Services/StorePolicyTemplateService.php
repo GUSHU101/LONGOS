@@ -26,6 +26,8 @@ class StorePolicyTemplateService
         $saved    = is_array($saved) ? $saved : [];
         $defaults = [
             'business_name'             => trim((string) system_setting('base.store_name', site_brand_name())),
+            'legal_name'                => trim((string) system_setting('base.store_name', site_brand_name())),
+            'registration_number'       => '',
             'contact_email'             => trim((string) system_setting('base.email', '')),
             'contact_phone'             => trim((string) system_setting('base.telephone', '')),
             'business_address'          => '',
@@ -67,6 +69,8 @@ class StorePolicyTemplateService
 
         $normalized = [
             'business_name'             => self::text($profile['business_name'] ?? '', 120),
+            'legal_name'                => self::text($profile['legal_name'] ?? ($profile['business_name'] ?? ''), 160),
+            'registration_number'       => self::text($profile['registration_number'] ?? '', 120),
             'contact_email'             => strtolower(self::text($profile['contact_email'] ?? '', 190)),
             'contact_phone'             => self::text($profile['contact_phone'] ?? '', 60),
             'business_address'          => self::text($profile['business_address'] ?? '', 500),
@@ -123,7 +127,11 @@ class StorePolicyTemplateService
     {
         $profile = self::normalizeProfile($profile, true);
 
-        $business     = self::h($profile['business_name']);
+        $businessName = self::h($profile['business_name']);
+        $legalName    = self::h($profile['legal_name']);
+        $business     = $legalName !== '' && $legalName !== $businessName
+            ? $businessName . ' (operated by ' . $legalName . ')'
+            : $businessName;
         $email        = self::h($profile['contact_email']);
         $phone        = self::h($profile['contact_phone']);
         $address      = self::h($profile['business_address']);

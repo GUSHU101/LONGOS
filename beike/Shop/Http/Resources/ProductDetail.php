@@ -47,8 +47,8 @@ class ProductDetail extends JsonResource
                     // 600px derivative from being stretched on Retina
                     // screens, while zoom always uses the uploaded original.
                     'small'   => image_resize($image, 480, calculate_height_by_ratio(480)),
-                    'preview' => image_resize($image, 900, calculate_height_by_ratio(900)),
-                    'large'   => image_resize($image, 1600, calculate_height_by_ratio(1600)),
+                    'preview' => image_resize($image, 800, calculate_height_by_ratio(800)),
+                    'large'   => image_resize($image, 1200, calculate_height_by_ratio(1200)),
                     'popup'   => image_origin($image),
                     'thumb'   => image_resize($image, 160, calculate_height_by_ratio(160)),
                 ];
@@ -90,8 +90,8 @@ class ProductDetail extends JsonResource
                         'image'         => $image ? image_resize($image) : '',
                         'gallery_image' => $image ? [
                             'small'   => image_resize($image, 480, calculate_height_by_ratio(480)),
-                            'preview' => image_resize($image, 900, calculate_height_by_ratio(900)),
-                            'large'   => image_resize($image, 1600, calculate_height_by_ratio(1600)),
+                            'preview' => image_resize($image, 800, calculate_height_by_ratio(800)),
+                            'large'   => image_resize($image, 1200, calculate_height_by_ratio(1200)),
                             'popup'   => image_origin($image),
                             'thumb'   => image_resize($image, 160, calculate_height_by_ratio(160)),
                         ] : null,

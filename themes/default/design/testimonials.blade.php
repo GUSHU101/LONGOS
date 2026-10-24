@@ -12,7 +12,7 @@
           </figure>
         </div>
       @empty
-        @if ($design)<div class="builder-section-grid__full"><div class="custom-code-empty">请添加顾客评价以在此处展示。</div></div>@endif
+        @if ($design)<div class="builder-section-grid__full"><div class="custom-code-empty">{{ __('shop/design.empty.testimonials') }}</div></div>@endif
       @endforelse
     </div>
   </div>

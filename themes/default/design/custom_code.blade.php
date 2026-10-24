@@ -6,7 +6,7 @@
     @if (!empty($content['document']))
       <iframe class="custom-code-frame" title="{{ $content['title'] ?? 'Custom section' }}" sandbox="" loading="lazy" referrerpolicy="no-referrer" srcdoc="{{ $content['document'] }}" style="height: {{ $height }}px"></iframe>
     @elseif ($design)
-      <div class="custom-code-empty">请添加 HTML 与 CSS，在此处预览隔离的自定义区块。</div>
+      <div class="custom-code-empty">{{ __('shop/design.empty.custom_code') }}</div>
     @endif
   </div>
 </section>

@@ -49,4 +49,7 @@ return [
     'module_testimonials'                          => 'Customer testimonials',
     'module_campaign_offer'                        => 'Promotion and discount code',
     'module_payment_trust'                         => 'Payments and shopping confidence',
+    'module_story_block'                           => 'Story banner',
+    'module_feature_grid'                          => 'Featured card grid',
+    'module_social_proof'                          => 'Metrics and social proof',
 ];

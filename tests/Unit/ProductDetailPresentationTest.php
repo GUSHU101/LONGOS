@@ -58,6 +58,17 @@ class ProductDetailPresentationTest extends TestCase
         }
         self::assertStringContainsString('srcset=', $product);
         self::assertStringContainsString('productImageSrcset', $product);
+        self::assertStringContainsString("array_slice(\$product['images'] ?? [], 0, \$desktopGalleryLimit)", $product);
+        self::assertStringContainsString('desktopProductGalleryLimit = 5', $product);
+        self::assertStringContainsString('data-product-gallery-src=', $product);
+        self::assertStringContainsString('hydrateMobileProductGalleryAround', $product);
+        self::assertStringContainsString('data-product-gallery-previous', $product);
+        self::assertStringContainsString('data-product-gallery-next', $product);
+        self::assertStringContainsString("@section('preloads')", $product);
+        self::assertStringContainsString('fetchpriority="high"', $product);
+        self::assertStringNotContainsString("@section('bk-page-loading', true)", $product);
+        self::assertStringNotContainsString('900w', $product);
+        self::assertStringNotContainsString('1600w', $product);
         self::assertStringContainsString('mix-blend-mode: normal !important', $styles);
         self::assertStringContainsString('class="pdp-gallery-grid', $product);
         self::assertStringContainsString('data-product-gallery-dialog', $product);
@@ -67,6 +78,8 @@ class ProductDetailPresentationTest extends TestCase
         self::assertStringContainsString('composeProductGalleryImages', $product);
         self::assertStringContainsString('this.selectedVariantImage = normalizeProductGalleryImage', $product);
         self::assertStringContainsString('swiperMobile.slideTo(0, 0, false);', $product);
+        self::assertStringContainsString('.pdp-gallery-item__count', $styles);
+        self::assertStringContainsString('.pdp-media-dialog__nav', $styles);
         self::assertStringContainsString('font-size: clamp(1.5rem, 1.8vw, 2.125rem) !important;', $styles);
         self::assertStringContainsString('body.page-product .product-description .tab-content', $styles);
         self::assertStringContainsString('class="product-assurance-list"', $product);
@@ -96,9 +109,11 @@ class ProductDetailPresentationTest extends TestCase
         self::assertStringContainsString('this.normalizeQuantity();', $product);
         self::assertStringContainsString('aria-valuemin="1"', $product);
         self::assertStringContainsString('aria-live="polite"', $product);
-        self::assertStringContainsString(':aria-pressed="value.selected', $product);
+        self::assertStringContainsString('class="form-select product-variant-select"', $product);
+        self::assertStringContainsString('@change="selectVariableValue(variable_index, $event)"', $product);
+        self::assertStringContainsString('selectVariableValue(variable_index, event)', $product);
         self::assertStringContainsString(':disabled="value.disabled"', $product);
-        self::assertStringContainsString('.variable-info > button:focus-visible', $styles);
+        self::assertStringContainsString('.product-variant-select:focus', $styles);
         self::assertStringContainsString('background: var(--pdp-bg) !important;', $styles);
         self::assertStringContainsString('grid-template-columns: 3rem 3.5rem 3rem;', $styles);
 

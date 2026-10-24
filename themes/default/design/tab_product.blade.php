@@ -17,7 +17,7 @@
           @php
             $tabActive = $design ? $editableTabsValue == $key : $loop->first;
           @endphp
-          <button class="nav-link {{ $tabActive ? 'active' : '' }}" id="tab-product-trigger-{{ $module_id }}-{{ $loop->index }}" data-bs-target="#tab-product-{{ $module_id }}-{{ $loop->index }}" data-bs-toggle="tab" type="button" role="tab" aria-controls="tab-product-{{ $module_id }}-{{ $loop->index }}" aria-selected="{{ $tabActive ? 'true' : 'false' }}">{{ $tabs['title'] ?: '未命名分组' }}</button>
+          <button class="nav-link {{ $tabActive ? 'active' : '' }}" id="tab-product-trigger-{{ $module_id }}-{{ $loop->index }}" data-bs-target="#tab-product-{{ $module_id }}-{{ $loop->index }}" data-bs-toggle="tab" type="button" role="tab" aria-controls="tab-product-{{ $module_id }}-{{ $loop->index }}" aria-selected="{{ $tabActive ? 'true' : 'false' }}">{{ $tabs['title'] ?: __('shop/design.unnamed_group') }}</button>
           @endforeach
         </div>
         <div class="tab-content">
@@ -38,7 +38,7 @@
                 <div class="product-grid">
                   <div class="product-wrap">
                     <div class="image"><div class="product-placeholder-image" aria-hidden="true"><img src="{{ asset('image/placeholder.png') }}" class="img-fluid" alt=""></div></div>
-                    <div class="product-name">请在右侧选择商品</div>
+                    <div class="product-name">{{ __('shop/design.empty.product') }}</div>
                     <div class="product-price">
                       <span class="price-new">66.66</span>
                       <span class="price-lod">99.99</span>

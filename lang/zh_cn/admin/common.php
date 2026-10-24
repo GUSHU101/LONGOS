@@ -143,6 +143,7 @@ return [
         'checkout'             => '结账设置',
         'picture'              => '图片设置',
         'policies'             => '政策设置',
+        'seo'                  => 'SEO 与 URL 重定向',
         'mail'                 => '邮件设置',
     ],
 ];

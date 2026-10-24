@@ -15,7 +15,7 @@
         </div>
         @endforeach
         @if(empty($content['brands']) && $design)
-          <div class="builder-section-grid__full"><div class="custom-code-empty">请在右侧选择需要展示的品牌。</div></div>
+          <div class="builder-section-grid__full"><div class="custom-code-empty">{{ __('shop/design.empty.brand') }}</div></div>
         @endif
       </div>
     </div>

@@ -16,6 +16,8 @@ return [
     'bottom_note'              => 'Secure shopping · Transparent policies',
     'close_contact'            => 'Close Contact Us',
     'trade_name'               => 'Trade name',
+    'legal_entity'             => 'Legal entity',
+    'registration_number'      => 'Registration number',
     'email'                    => 'Email',
     'telephone'                => 'Telephone',
     'physical_address'         => 'Physical address',
