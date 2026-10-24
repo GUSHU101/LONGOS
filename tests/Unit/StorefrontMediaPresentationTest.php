@@ -24,19 +24,24 @@ class StorefrontMediaPresentationTest extends TestCase
         self::assertStringContainsString('autoHeight: true', $second);
     }
 
-    public function test_product_cards_offer_real_responsive_image_candidates(): void
+    public function test_product_cards_never_generate_derivatives_during_storefront_requests(): void
     {
-        $root     = dirname(__DIR__, 2);
-        $resource = (string) file_get_contents($root . '/beike/Shop/Http/Resources/ProductSimple.php');
-        $card     = (string) file_get_contents($root . '/themes/default/shared/product.blade.php');
-        $styles   = (string) file_get_contents($root . '/resources/beike/shop/default/css/longos-commerce.scss');
+        $root          = dirname(__DIR__, 2);
+        $resource      = (string) file_get_contents($root . '/beike/Shop/Http/Resources/ProductSimple.php');
+        $card          = (string) file_get_contents($root . '/themes/default/shared/product.blade.php');
+        $christmasCard = (string) file_get_contents($root . '/plugins/LongosChristmasTheme/Themes/longos_christmas/shared/product.blade.php');
+        $styles        = (string) file_get_contents($root . '/resources/beike/shop/default/css/longos-commerce.scss');
 
         self::assertStringContainsString("'image_srcsets'", $resource);
-        self::assertStringContainsString('foreach ([320, 640, 960, 1280] as $width)', $resource);
         self::assertStringContainsString('getimagesize($absolutePath)', $resource);
+        self::assertStringContainsString("'url'    => image_origin(\$image)", $resource);
+        self::assertStringNotContainsString('image_resize(', $resource);
         self::assertStringContainsString('data-srcset=', $card);
         self::assertStringContainsString('data-sizes="auto"', $card);
         self::assertStringContainsString('srcset=', $card);
+        self::assertStringContainsString("\$placeholder = image_origin('');", $card);
+        self::assertStringNotContainsString('image_resize(', $card);
+        self::assertStringNotContainsString('image_resize(', $christmasCard);
         self::assertStringContainsString('mix-blend-mode: normal;', $styles);
         self::assertStringContainsString('@media (hover: none)', $styles);
     }

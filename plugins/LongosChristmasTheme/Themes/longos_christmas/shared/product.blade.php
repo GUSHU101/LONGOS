@@ -8,7 +8,7 @@
     @hook('product_list.item.image.tag')
     <a href="{{ $product['url'] }}" aria-label="{{ $product['name'] }}">
       @hookwrapper('product_list.item.image')
-      <img width="600" height="600" data-sizes="auto" data-src="{{ $product['images'][0] ?? image_resize('', 500, 500) }}" src="{{ image_resize('', 500, 500) }}" alt="{{ $product['name'] }}" class="img-fluid image-before lazyload" decoding="async">
+      <img width="600" height="600" data-sizes="auto" data-src="{{ $product['images'][0] ?? image_origin('') }}" src="{{ image_origin('') }}" alt="{{ $product['name'] }}" class="img-fluid image-before lazyload" decoding="async">
       @if (count($product['images']) > 1)
         <img width="600" height="600" src="{{ $product['images'][1] }}" alt="" class="img-fluid image-after" loading="lazy" decoding="async">
       @endif

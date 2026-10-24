@@ -67,7 +67,11 @@ class ProductSimple extends JsonResource
             'in_wishlist'            => $this->inCurrentWishlist->id ?? 0,
             'status'                 => $this->active,
             'image'                  => $firstImage,
-            'image_format'           => $firstImage ? image_resize($firstImage) : '',
+            // Derivatives must be prepared outside the storefront request.
+            // A homepage can resolve dozens of cards at once; synchronously
+            // decoding several large WebP files per product exhausts a PHP
+            // worker before Laravel can return or even report the exception.
+            'image_format'           => $firstImage ? image_origin($firstImage) : '',
 
             'images'               => $cardImages,
             'image_srcsets'        => $imageSrcsets,
@@ -77,7 +81,7 @@ class ProductSimple extends JsonResource
     }
 
     /**
-     * Build real-width candidates without upscaling the uploaded source.
+     * Describe the uploaded source without transforming it during a request.
      *
      * @return array<int, array{url: string, width: int, height: int}>
      */
@@ -103,37 +107,12 @@ class ProductSimple extends JsonResource
 
         $originWidth  = (int) $dimensions[0];
         $originHeight = (int) $dimensions[1];
-        $extension    = strtolower(pathinfo($absolutePath, PATHINFO_EXTENSION));
-        $canResize    = in_array($extension, ['jpg', 'jpeg', 'png'], true);
-        $sources      = [];
 
-        if ($canResize) {
-            foreach ([320, 640, 960, 1280] as $width) {
-                if ($width >= $originWidth) {
-                    break;
-                }
-
-                $height    = max(1, (int) round($width * $originHeight / $originWidth));
-                $sources[] = [
-                    'url'    => image_resize($image, $width, $height),
-                    'width'  => $width,
-                    'height' => $height,
-                ];
-            }
-        }
-
-        // The original is the sharpest candidate and carries its real width;
-        // browsers therefore never select a derivative that was enlarged past
-        // the pixels uploaded by the merchant.
-        if ($originWidth <= 1600 || empty($sources)) {
-            $sources[] = [
-                'url'    => image_origin($image),
-                'width'  => $originWidth,
-                'height' => $originHeight,
-            ];
-        }
-
-        return $sources;
+        return [[
+            'url'    => image_origin($image),
+            'width'  => $originWidth,
+            'height' => $originHeight,
+        ]];
     }
 
     /**

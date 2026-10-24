@@ -3,7 +3,7 @@
   $saleRate = $isOnSale ? max(1, round((1 - ($product['price'] / $product['origin_price'])) * 100)) : null;
   $cardImages = array_values($product['images'] ?? []);
   $cardImageSrcsets = array_values($product['image_srcsets'] ?? []);
-  $placeholder = image_resize('', 640, calculate_height_by_ratio(640));
+  $placeholder = image_origin('');
   $buildSrcset = static fn (array $sources): string => collect($sources)
     ->filter(fn ($source) => !empty($source['url']) && !empty($source['width']))
     ->map(fn ($source) => $source['url'] . ' ' . (int) $source['width'] . 'w')
