@@ -18,15 +18,23 @@ use Illuminate\Http\Resources\Json\JsonResource;
 class ProductDetail extends JsonResource
 {
     /**
+     * Generating derivatives is synchronous in the compatibility image
+     * service. Bound cold-cache work to the five images actually rendered in
+     * the desktop gallery; the lightbox can use uploaded originals for the
+     * remaining images without delaying or exhausting the product request.
+     */
+    private const DERIVATIVE_IMAGE_LIMIT = 5;
+
+    /**
      * @throws \Exception
      */
     public function toArray($request): array
     {
-        $images = array_filter($this->images, function ($image) {
+        $images = array_values(array_filter((array) $this->images, function ($image) {
             $isYouTube = str_contains($image, 'youtube.com/watch') || str_contains($image, 'youtu.be/');
 
             return ! str_ends_with($image, '.mp4') && ! $isYouTube;
-        });
+        }));
 
         $data = [
             'id'               => $this->id,
@@ -40,19 +48,11 @@ class ProductDetail extends JsonResource
             'video'            => $this->video                         ?? '',
             'weight'           => $this->weight                        ?? '',
             'weight_class'     => $this->weight_class                  ?? '',
-            'images'           => array_map(function ($image) {
-                return [
-                    // The product gallery is displayed at up to ~700 CSS
-                    // pixels. Supplying several real resolutions prevents a
-                    // 600px derivative from being stretched on Retina
-                    // screens, while zoom always uses the uploaded original.
-                    'small'   => image_resize($image, 480, calculate_height_by_ratio(480)),
-                    'preview' => image_resize($image, 800, calculate_height_by_ratio(800)),
-                    'large'   => image_resize($image, 1200, calculate_height_by_ratio(1200)),
-                    'popup'   => image_origin($image),
-                    'thumb'   => image_resize($image, 160, calculate_height_by_ratio(160)),
-                ];
-            }, $images ?? []),
+            'images'           => array_map(
+                static fn ($image, int $index): array => self::imagePayload($image, $index < self::DERIVATIVE_IMAGE_LIMIT),
+                $images,
+                array_keys($images),
+            ),
             'attributes'       => $this->formatAttributes(),
             'variables'        => $this->decodeVariables($this->variables),
             'skus'             => SkuDetail::collection($this->skus)->jsonSerialize(),
@@ -85,20 +85,35 @@ class ProductDetail extends JsonResource
 
                     return [
                         'name'          => $item['name'][$lang] ?? '',
-                        // Keep the compact image for the option selector, and expose a
-                        // complete responsive image contract for the main gallery.
-                        'image'         => $image ? image_resize($image) : '',
-                        'gallery_image' => $image ? [
-                            'small'   => image_resize($image, 480, calculate_height_by_ratio(480)),
-                            'preview' => image_resize($image, 800, calculate_height_by_ratio(800)),
-                            'large'   => image_resize($image, 1200, calculate_height_by_ratio(1200)),
-                            'popup'   => image_origin($image),
-                            'thumb'   => image_resize($image, 160, calculate_height_by_ratio(160)),
-                        ] : null,
+                        // Variant media is only needed after interaction. Use
+                        // the uploaded URL for every responsive slot so a
+                        // cold product request does not resize every option.
+                        'image'         => $image ? image_origin($image) : '',
+                        'gallery_image' => $image ? self::imagePayload($image, false) : null,
                     ];
                 }, $item['values']),
             ];
         }, $variables);
+    }
+
+    private static function imagePayload(mixed $image, bool $withDerivatives): array
+    {
+        $origin = image_origin($image);
+        if (! $withDerivatives) {
+            return array_fill_keys(['small', 'preview', 'large', 'popup', 'thumb'], $origin);
+        }
+
+        $small = image_resize($image, 480, calculate_height_by_ratio(480));
+
+        return [
+            'small'   => $small,
+            'preview' => image_resize($image, 800, calculate_height_by_ratio(800)),
+            'large'   => image_resize($image, 1200, calculate_height_by_ratio(1200)),
+            'popup'   => $origin,
+            // The current gallery has no thumbnail strip. Reuse the 480px
+            // candidate instead of creating a fourth derivative per image.
+            'thumb' => $small,
+        ];
     }
 
     /**

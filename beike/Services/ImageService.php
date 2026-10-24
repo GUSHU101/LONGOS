@@ -13,8 +13,8 @@
 namespace Beike\Services;
 
 use Illuminate\Support\Str;
-use Intervention\Image\Exception\NotReadableException;
 use Intervention\Image\Facades\Image;
+use Throwable;
 
 class ImageService
 {
@@ -74,6 +74,9 @@ class ImageService
      */
     public function resize(int $width = 100, int $height = 100): string
     {
+        $lock          = null;
+        $temporaryPath = null;
+
         try {
             if (! file_exists($this->imagePath)) {
                 $this->image     = $this->placeholderImage;
@@ -94,17 +97,30 @@ class ImageService
 
             $newImagePath = public_path($newImage);
             if (! is_file($newImagePath)) {
-                ini_set('memory_limit', '-1');
                 create_directories(dirname($newImage));
-                $img = Image::make($this->imagePath);
+                $lock = @fopen($newImagePath . '.lock', 'c');
+                if (! is_resource($lock) || ! flock($lock, LOCK_EX)) {
+                    return $this->originUrl();
+                }
 
-                $img->resize($width, $height, function ($constraint) {
-                    $constraint->aspectRatio();
-                });
+                // Another PHP worker may have completed the same derivative
+                // while this request waited for the filesystem lock.
+                if (! is_file($newImagePath)) {
+                    $temporaryPath = $newImagePath . '.tmp-' . getmypid() . '-' . uniqid('', true) . '.' . $extension;
+                    $img           = Image::make($this->imagePath);
 
-                $canvas = Image::canvas($width, $height);
-                $canvas->insert($img, 'center');
-                $canvas->save($newImagePath);
+                    $img->resize($width, $height, function ($constraint) {
+                        $constraint->aspectRatio();
+                    });
+
+                    $canvas = Image::canvas($width, $height);
+                    $canvas->insert($img, 'center');
+                    $canvas->save($temporaryPath);
+                    if (! @rename($temporaryPath, $newImagePath)) {
+                        return $this->originUrl();
+                    }
+                    $temporaryPath = null;
+                }
             }
 
             $data = [
@@ -115,8 +131,19 @@ class ImageService
             $newImage = $data['newImage'];
 
             return asset($newImage);
-        } catch (NotReadableException $e) {
+        } catch (Throwable) {
+            // Responsive derivatives are an optimization, never a reason to
+            // fail the product page. Unsupported codecs, corrupt uploads,
+            // memory pressure, or unwritable cache paths use the source URL.
             return $this->originUrl();
+        } finally {
+            if (is_string($temporaryPath) && is_file($temporaryPath)) {
+                @unlink($temporaryPath);
+            }
+            if (is_resource($lock)) {
+                flock($lock, LOCK_UN);
+                fclose($lock);
+            }
         }
     }
 
