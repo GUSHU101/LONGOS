@@ -152,7 +152,10 @@ h1, h2, h3, h4, h5, h6,
 
 input, select, textarea,
 .form-control, .form-select, .el-input__inner, .el-textarea__inner {
-  background: #fff !important;
+  // Keep Bootstrap's native select indicator. The background shorthand also
+  // resets background-image, which made every form-select look like a text
+  // field and hid the affordance that it can be expanded.
+  background-color: #fff !important;
   border: 1px solid var(--commerce-line) !important;
   border-radius: var(--store-radius) !important;
   box-shadow: none !important;

@@ -31,6 +31,7 @@ class ProductDetailPresentationTest extends TestCase
         $detail      = (string) file_get_contents($root . '/beike/Shop/Http/Resources/ProductDetail.php');
         $sku         = (string) file_get_contents($root . '/beike/Shop/Http/Resources/SkuDetail.php');
         $styles      = (string) file_get_contents($root . '/resources/beike/shop/default/css/product-detail-rebuild.scss');
+        $commerce    = (string) file_get_contents($root . '/resources/beike/shop/default/css/longos-commerce.scss');
         $footer      = (string) file_get_contents($root . '/themes/default/layout/footer.blade.php');
         $footerStyle = (string) file_get_contents($root . '/resources/beike/shop/default/css/footer-rebuild.scss');
 
@@ -114,6 +115,8 @@ class ProductDetailPresentationTest extends TestCase
         self::assertStringContainsString('selectVariableValue(variable_index, event)', $product);
         self::assertStringContainsString(':disabled="value.disabled"', $product);
         self::assertStringContainsString('.product-variant-select:focus', $styles);
+        self::assertStringContainsString('background-color: #fff !important;', $commerce);
+        self::assertStringNotContainsString(".form-control, .form-select, .el-input__inner, .el-textarea__inner {\n  background: #fff !important;", $commerce);
         self::assertStringContainsString('background: var(--pdp-bg) !important;', $styles);
         self::assertStringContainsString('grid-template-columns: 3rem 3.5rem 3rem;', $styles);
 
