@@ -63,6 +63,7 @@ class LongosProductReviewsTest extends TestCase
         $cards   = (string) file_get_contents($this->root . '/plugins/LongosProductReviews/Views/shop/cards.blade.php');
         $assets  = (string) file_get_contents($this->root . '/plugins/LongosProductReviews/Views/shop/assets.blade.php');
         $css     = (string) file_get_contents($this->root . '/plugins/LongosProductReviews/Static/css/reviews.css');
+        $product = (string) file_get_contents($this->root . '/themes/default/product/product.blade.php');
 
         self::assertStringContainsString('enctype="multipart/form-data"', $form);
         self::assertStringContainsString('role="combobox"', $form);
@@ -79,8 +80,9 @@ class LongosProductReviewsTest extends TestCase
         self::assertStringContainsString('data-review-rating', $section);
         self::assertStringContainsString('data-review-sort', $section);
         self::assertStringContainsString('data-review-lightbox', $section);
-        self::assertStringContainsString('application/ld+json', $section);
-        self::assertStringContainsString("'aggregateRating'", $section);
+        self::assertStringNotContainsString('application/ld+json', $section);
+        self::assertStringContainsString('application/ld+json', $product);
+        self::assertStringContainsString("'aggregateRating'", $product);
         self::assertStringContainsString("credentials: 'same-origin'", $section);
         self::assertStringContainsString('data-review-photo', $cards);
         self::assertStringContainsString('{{ $review->body }}', $cards);
