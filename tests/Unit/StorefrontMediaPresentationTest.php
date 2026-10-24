@@ -41,7 +41,7 @@ class StorefrontMediaPresentationTest extends TestCase
         self::assertStringContainsString('@media (hover: none)', $styles);
     }
 
-    public function test_webp_derivatives_are_versioned_bounded_and_failure_safe(): void
+    public function test_webp_derivatives_are_versioned_and_product_pages_are_failure_safe(): void
     {
         $root         = dirname(__DIR__, 2);
         $helpers      = (string) file_get_contents($root . '/beike/Helpers.php');
@@ -56,11 +56,8 @@ class StorefrontMediaPresentationTest extends TestCase
         self::assertStringContainsString('flock($lock, LOCK_EX)', $imageService);
         self::assertStringContainsString('catch (Throwable)', $imageService);
         self::assertStringNotContainsString("ini_set('memory_limit', '-1')", $imageService);
-        self::assertStringContainsString('private const DERIVATIVE_IMAGE_LIMIT = 5;', $detail);
-        self::assertStringContainsString('$index < self::DERIVATIVE_IMAGE_LIMIT', $detail);
-        self::assertStringContainsString('image_resize($image, 800, calculate_height_by_ratio(800))', $detail);
-        self::assertStringContainsString('image_resize($image, 1200, calculate_height_by_ratio(1200))', $detail);
-        self::assertStringNotContainsString('image_resize($image, 1600,', $detail);
+        self::assertStringContainsString("array_fill_keys(['small', 'preview', 'large', 'popup', 'thumb'], \$origin)", $detail);
+        self::assertStringNotContainsString('image_resize(', $detail);
         self::assertStringContainsString("array_fill_keys(['small', 'preview', 'large', 'popup', 'thumb'], \$origin)", $sku);
         self::assertStringNotContainsString('image_resize(', $sku);
     }

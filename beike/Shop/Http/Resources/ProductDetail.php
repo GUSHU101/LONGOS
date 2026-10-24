@@ -18,14 +18,6 @@ use Illuminate\Http\Resources\Json\JsonResource;
 class ProductDetail extends JsonResource
 {
     /**
-     * Generating derivatives is synchronous in the compatibility image
-     * service. Bound cold-cache work to the five images actually rendered in
-     * the desktop gallery; the lightbox can use uploaded originals for the
-     * remaining images without delaying or exhausting the product request.
-     */
-    private const DERIVATIVE_IMAGE_LIMIT = 5;
-
-    /**
      * @throws \Exception
      */
     public function toArray($request): array
@@ -48,11 +40,10 @@ class ProductDetail extends JsonResource
             'video'            => $this->video                         ?? '',
             'weight'           => $this->weight                        ?? '',
             'weight_class'     => $this->weight_class                  ?? '',
-            'images'           => array_map(
-                static fn ($image, int $index): array => self::imagePayload($image, $index < self::DERIVATIVE_IMAGE_LIMIT),
-                $images,
-                array_keys($images),
-            ),
+            // Product pages must never synchronously transform the complete
+            // gallery. Uploaded media is already WebP; returning it directly
+            // keeps cold-cache requests fast and prevents worker exhaustion.
+            'images'           => array_map(static fn ($image): array => self::imagePayload($image), $images),
             'attributes'       => $this->formatAttributes(),
             'variables'        => $this->decodeVariables($this->variables),
             'skus'             => SkuDetail::collection($this->skus)->jsonSerialize(),
@@ -89,31 +80,18 @@ class ProductDetail extends JsonResource
                         // the uploaded URL for every responsive slot so a
                         // cold product request does not resize every option.
                         'image'         => $image ? image_origin($image) : '',
-                        'gallery_image' => $image ? self::imagePayload($image, false) : null,
+                        'gallery_image' => $image ? self::imagePayload($image) : null,
                     ];
                 }, $item['values']),
             ];
         }, $variables);
     }
 
-    private static function imagePayload(mixed $image, bool $withDerivatives): array
+    private static function imagePayload(mixed $image): array
     {
         $origin = image_origin($image);
-        if (! $withDerivatives) {
-            return array_fill_keys(['small', 'preview', 'large', 'popup', 'thumb'], $origin);
-        }
 
-        $small = image_resize($image, 480, calculate_height_by_ratio(480));
-
-        return [
-            'small'   => $small,
-            'preview' => image_resize($image, 800, calculate_height_by_ratio(800)),
-            'large'   => image_resize($image, 1200, calculate_height_by_ratio(1200)),
-            'popup'   => $origin,
-            // The current gallery has no thumbnail strip. Reuse the 480px
-            // candidate instead of creating a fourth derivative per image.
-            'thumb' => $small,
-        ];
+        return array_fill_keys(['small', 'preview', 'large', 'popup', 'thumb'], $origin);
     }
 
     /**
