@@ -253,9 +253,12 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringNotContainsString('location ~ \.php$ {', $nginx);
         self::assertStringContainsString('location ^~ /build/', $nginx);
         self::assertStringContainsString('location ^~ /cache/', $nginx);
+        self::assertStringContainsString('location ~* ^/(?:upload|image/catalog)/', $nginx);
         self::assertStringContainsString('max-age=31536000, immutable', $nginx);
-        self::assertStringContainsString('max-age=300', $nginx);
-        self::assertStringNotContainsString('expires 30d;', $nginx);
+        self::assertStringContainsString('max-age=2592000', $nginx);
+        self::assertStringNotContainsString('max-age=300', $nginx);
+        self::assertStringContainsString('longos-image-cache:/var/www/html/public/cache', $compose);
+        self::assertMatchesRegularExpression('/\n  longos-image-cache:\s*\n/', $compose);
         self::assertStringContainsString("DB::connection(\$controlConnection)->select('SELECT 1')", $health);
         self::assertStringContainsString("['status' => 'degraded'], 503", $health);
         self::assertStringContainsString("['settings', 'sessions', 'admin_users']", $health);

@@ -54,7 +54,8 @@ class GlobalAccessibilityPresentationTest extends TestCase
 
         self::assertMatchesRegularExpression('/<button\s+type="button"\s+class="pdp-gallery-item /', $product);
         self::assertStringContainsString('data-product-gallery-open', $product);
-        self::assertStringContainsString('aria-label="{{ $product[\'name\'] }} – {{ $loop->iteration }}"', $product);
+        self::assertStringContainsString('aria-label="{{ $galleryButtonLabel }}"', $product);
+        self::assertStringContainsString("\$galleryButtonLabel .= ' · ' . __('shop/products.view_all_images'", $product);
         self::assertStringContainsString('<dialog class="pdp-media-dialog"', $product);
         self::assertStringContainsString('type="button" class="pdp-media-dialog__close"', $product);
         self::assertStringNotContainsString('class="product-gallery-thumb"', $product);

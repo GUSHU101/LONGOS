@@ -42,9 +42,8 @@ class ProductSimple extends JsonResource
         $imageSrcsets = [];
 
         foreach ($images as $index => $image) {
-            // Product cards only render the first image and the optional hover
-            // image. Build responsive derivatives for those two instead of
-            // stretching a single 560px thumbnail on high-density screens.
+            // Product cards render the first image and optional hover image.
+            // Resolve cached responsive derivatives for only those two.
             $sources        = $index < 2 ? $this->cardImageSources($image) : [];
             $cardImages[]   = $this->cardImageFallback($image, $sources);
             $imageSrcsets[] = $sources;
@@ -67,10 +66,7 @@ class ProductSimple extends JsonResource
             'in_wishlist'            => $this->inCurrentWishlist->id ?? 0,
             'status'                 => $this->active,
             'image'                  => $firstImage,
-            // Derivatives must be prepared outside the storefront request.
-            // A homepage can resolve dozens of cards at once; synchronously
-            // decoding several large WebP files per product exhausts a PHP
-            // worker before Laravel can return or even report the exception.
+            // Missing derivatives are queued, never decoded in this request.
             'image_format'           => $firstImage ? image_origin($firstImage) : '',
 
             'images'               => $cardImages,
@@ -81,7 +77,7 @@ class ProductSimple extends JsonResource
     }
 
     /**
-     * Describe the uploaded source without transforming it during a request.
+     * Describe cached card sources without transforming them in the request.
      *
      * @return array<int, array{url: string, width: int, height: int}>
      */
@@ -108,11 +104,29 @@ class ProductSimple extends JsonResource
         $originWidth  = (int) $dimensions[0];
         $originHeight = (int) $dimensions[1];
 
-        return [[
-            'url'    => image_origin($image),
-            'width'  => $originWidth,
-            'height' => $originHeight,
-        ]];
+        $sources = [];
+        foreach ([360, 560, 800] as $width) {
+            if ($width >= $originWidth) {
+                break;
+            }
+
+            $height    = calculate_height_by_ratio($width);
+            $sources[] = [
+                'url'    => image_cached_resize($image, $width, $height),
+                'width'  => $width,
+                'height' => $height,
+            ];
+        }
+
+        if ($sources === [] || $originWidth <= 800) {
+            $sources[] = [
+                'url'    => image_origin($image),
+                'width'  => $originWidth,
+                'height' => $originHeight,
+            ];
+        }
+
+        return $sources;
     }
 
     /**

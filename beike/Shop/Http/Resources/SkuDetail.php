@@ -25,12 +25,18 @@ class SkuDetail extends JsonResource
             'position'            => $this->position,
             'active'              => $this->active,
             'images'              => array_map(function ($image) {
-                // SKU media is loaded only after a shopper changes a variant.
-                // Returning the uploaded URL avoids synchronously generating
-                // several derivatives for every SKU during the initial page.
                 $origin = image_origin($image);
 
-                return array_fill_keys(['small', 'preview', 'large', 'popup', 'thumb'], $origin);
+                return [
+                    // SKU media is prepared when it is also present in the
+                    // base gallery. Do not enqueue hundreds of unused variant
+                    // images during initial render.
+                    'small'   => image_cached_resize($image, 480, calculate_height_by_ratio(480), false),
+                    'preview' => image_cached_resize($image, 800, calculate_height_by_ratio(800), false),
+                    'large'   => image_cached_resize($image, 1200, calculate_height_by_ratio(1200), false),
+                    'popup'   => $origin,
+                    'thumb'   => image_cached_resize($image, 160, calculate_height_by_ratio(160), false),
+                ];
             }, $this->images ?? []),
             'model'                  => $this->model,
             'sku'                    => $this->sku,

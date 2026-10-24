@@ -121,13 +121,19 @@
           @include('product.product-video')
           <div class="pdp-gallery-grid {{ $iframeClass }}" data-product-gallery>
             @forelse ($desktopGalleryImages as $item)
+              @php
+                $galleryButtonLabel = $product['name'] . ' – ' . $loop->iteration;
+                if ($loop->last && $desktopGalleryTotal > $desktopGalleryLimit) {
+                  $galleryButtonLabel .= ' · ' . __('shop/products.view_all_images', ['count' => $desktopGalleryTotal]);
+                }
+              @endphp
               <button
                 type="button"
                 class="pdp-gallery-item {{ $loop->first ? 'pdp-gallery-item--featured' : '' }}"
                 data-product-gallery-open
                 data-gallery-index="{{ $loop->index }}"
                 data-gallery-image="{{ $item['popup'] ?? $item['large'] ?? $item['preview'] }}"
-                aria-label="{{ $product['name'] }} – {{ $loop->iteration }}">
+                aria-label="{{ $galleryButtonLabel }}">
                 <img
                   src="{{ $item['large'] ?? $item['preview'] }}"
                   srcset="{{ $item['small'] ?? $item['preview'] }} 480w, {{ $item['preview'] }} 800w, {{ $item['large'] ?? $item['popup'] }} 1200w"
@@ -511,7 +517,10 @@
         button.dataset.productGalleryOpen = '';
         button.dataset.galleryIndex = String(index);
         button.dataset.galleryImage = image.popup || image.large || image.preview || '';
-        button.setAttribute('aria-label', `${productName} – ${index + 1}`);
+        const viewAllText = index === visibleImages.length - 1 && images.length > desktopProductGalleryLimit
+          ? productGalleryViewAllTemplate.replace('__COUNT__', String(images.length))
+          : '';
+        button.setAttribute('aria-label', `${productName} – ${index + 1}${viewAllText ? ` · ${viewAllText}` : ''}`);
 
         const img = document.createElement('img');
         img.src = image.large || image.preview || image.popup || '';
@@ -531,10 +540,10 @@
         zoom.setAttribute('aria-hidden', 'true');
         zoom.innerHTML = '<i class="bi bi-arrows-angle-expand"></i>';
         button.append(img, zoom);
-        if (index === visibleImages.length - 1 && images.length > desktopProductGalleryLimit) {
+        if (viewAllText) {
           const count = document.createElement('span');
           count.className = 'pdp-gallery-item__count';
-          count.textContent = productGalleryViewAllTemplate.replace('__COUNT__', String(images.length));
+          count.textContent = viewAllText;
           button.append(count);
         }
         fragment.append(button);
@@ -576,7 +585,6 @@
     activeProductGalleryImages = composeProductGalleryImages(productBaseImages);
 
     $(function () {
-      descriptionImagesLazy()
       const galleryDialog = document.querySelector('[data-product-gallery-dialog]');
       galleryDialog?.addEventListener('click', function (event) {
         if (event.target === galleryDialog) galleryDialog.close();
@@ -1080,6 +1088,7 @@
         }
       });
     };
+    descriptionImagesLazy();
 
     @hook('product.detail.script.after')
     }

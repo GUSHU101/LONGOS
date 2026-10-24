@@ -51,19 +51,37 @@ class StorefrontMediaPresentationTest extends TestCase
         $root         = dirname(__DIR__, 2);
         $helpers      = (string) file_get_contents($root . '/beike/Helpers.php');
         $imageService = (string) file_get_contents($root . '/beike/Services/ImageService.php');
+        $job          = (string) file_get_contents($root . '/app/Jobs/GenerateImageDerivative.php');
         $detail       = (string) file_get_contents($root . '/beike/Shop/Http/Resources/ProductDetail.php');
         $sku          = (string) file_get_contents($root . '/beike/Shop/Http/Resources/SkuDetail.php');
 
         self::assertStringNotContainsString("str_contains(\$image, '.webp')", $helpers);
         self::assertStringContainsString("str_contains(strtolower(\$image), '.gif')", $helpers);
         self::assertStringContainsString('$sourceVersion = sprintf(', $imageService);
-        self::assertStringContainsString(". '-v' . \$sourceVersion", $imageService);
+        self::assertStringContainsString("self::DERIVATIVE_VERSION . '-v' . \$sourceVersion", $imageService);
         self::assertStringContainsString('flock($lock, LOCK_EX)', $imageService);
+        self::assertStringContainsString("['jpg', 'jpeg', 'webp'], true) ? 82 : null", $imageService);
         self::assertStringContainsString('catch (Throwable)', $imageService);
         self::assertStringNotContainsString("ini_set('memory_limit', '-1')", $imageService);
-        self::assertStringContainsString("array_fill_keys(['small', 'preview', 'large', 'popup', 'thumb'], \$origin)", $detail);
+        self::assertStringContainsString('function image_cached_resize(', $helpers);
+        self::assertStringContainsString('public function cachedResize(', $imageService);
+        self::assertStringContainsString("config('queue.default', 'sync') !== 'sync'", $imageService);
+        self::assertStringContainsString('implements ShouldBeUnique, ShouldQueue', $job);
+        self::assertStringContainsString("'preview' => image_cached_resize(\$image, 800", $detail);
+        self::assertStringContainsString("'popup'   => \$origin", $detail);
         self::assertStringNotContainsString('image_resize(', $detail);
-        self::assertStringContainsString("array_fill_keys(['small', 'preview', 'large', 'popup', 'thumb'], \$origin)", $sku);
+        self::assertStringContainsString("'preview' => image_cached_resize(\$image, 800", $sku);
+        self::assertStringContainsString('calculate_height_by_ratio(800), false', $sku);
         self::assertStringNotContainsString('image_resize(', $sku);
+    }
+
+    public function test_storefront_media_uses_long_lived_cache_headers(): void
+    {
+        $nginx = (string) file_get_contents(dirname(__DIR__, 2) . '/docker/nginx/nginx-site.conf');
+
+        self::assertStringContainsString('location ~* ^/(?:upload|image/catalog)/', $nginx);
+        self::assertStringContainsString('max-age=31536000, immutable', $nginx);
+        self::assertStringContainsString('location ~* ^/plugin/', $nginx);
+        self::assertStringContainsString('max-age=2592000', $nginx);
     }
 }

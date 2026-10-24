@@ -834,7 +834,7 @@
   &__tiers { display: grid; gap: .55rem; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: .7rem; }
   &__tier { align-items: center; background: linear-gradient(180deg, #fff, #fdfbf9); border: 1px solid var(--campaign-line); border-radius: .8rem; display: flex; gap: .6rem; min-height: 5.6rem; padding: .75rem .6rem; position: relative; &.is-best { background: linear-gradient(135deg, #eff8f2, #fff); border-color: #bad8c4; } }
   &__badge { background: var(--campaign-green); border-radius: .35rem; color: #fff; font-size: .75rem; font-weight: 800; letter-spacing: .05em; padding: .23rem .35rem; position: absolute; right: .45rem; top: -.4rem; }
-  &__quantity { align-items: center; background: #fff1ef; border-radius: .62rem; color: var(--campaign-red); display: flex; flex: 0 0 2.75rem; flex-direction: column; height: 2.75rem; justify-content: center; strong { font-size: 1.15rem; line-height: 1; } small { font-size: .75rem; font-weight: 800; margin-top: .15rem; } }
+  &__quantity { align-items: center; background: #fff1ef; border-radius: .62rem; color: #872b23; display: flex; flex: 0 0 2.75rem; flex-direction: column; height: 2.75rem; justify-content: center; strong { font-size: 1.15rem; line-height: 1; } small { color: currentColor; font-size: .75rem; font-weight: 800; margin-top: .15rem; } }
   &__tier.is-best &__quantity { background: #eaf5ed; color: var(--campaign-green); }
   &__tier > div { display: flex; flex-direction: column; min-width: 0; }
   &__condition { color: var(--campaign-muted); font-size: .75rem; font-weight: 700; }

@@ -32,6 +32,7 @@ class ProductDetailPresentationTest extends TestCase
         $sku         = (string) file_get_contents($root . '/beike/Shop/Http/Resources/SkuDetail.php');
         $styles      = (string) file_get_contents($root . '/resources/beike/shop/default/css/product-detail-rebuild.scss');
         $commerce    = (string) file_get_contents($root . '/resources/beike/shop/default/css/longos-commerce.scss');
+        $master      = (string) file_get_contents($root . '/themes/default/layout/master.blade.php');
         $footer      = (string) file_get_contents($root . '/themes/default/layout/footer.blade.php');
         $footerStyle = (string) file_get_contents($root . '/resources/beike/shop/default/css/footer-rebuild.scss');
 
@@ -63,10 +64,18 @@ class ProductDetailPresentationTest extends TestCase
         self::assertStringContainsString('desktopProductGalleryLimit = 5', $product);
         self::assertStringContainsString('data-product-gallery-src=', $product);
         self::assertStringContainsString('hydrateMobileProductGalleryAround', $product);
+        self::assertStringContainsString('descriptionImagesLazy();', $product);
+        self::assertGreaterThan(
+            strpos($product, 'const descriptionImagesLazy = () =>'),
+            strpos($product, 'descriptionImagesLazy();'),
+            'Description lazy-loading must run only after its function is initialized.',
+        );
         self::assertStringContainsString('data-product-gallery-previous', $product);
         self::assertStringContainsString('data-product-gallery-next', $product);
         self::assertStringContainsString("@section('preloads')", $product);
         self::assertStringContainsString('fetchpriority="high"', $product);
+        self::assertStringContainsString("\$deferProductScripts = trim(\$__env->yieldContent('body-class')) === 'page-product';", $master);
+        self::assertStringContainsString("js/app.js') }}\" @if(\$deferProductScripts) defer @endif", $master);
         self::assertStringNotContainsString("@section('bk-page-loading', true)", $product);
         self::assertStringNotContainsString('900w', $product);
         self::assertStringNotContainsString('1600w', $product);

@@ -188,8 +188,12 @@ header {
 
     .logo {
       img {
+        display: block;
+        height: auto;
         max-width: 200px;
         max-height: 50px;
+        object-fit: contain;
+        width: auto;
         @media (max-width: 1200px) {
           max-width: 160px;
         }

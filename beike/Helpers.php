@@ -655,6 +655,21 @@ function image_resize($image, int $width = 100, int $height = 100)
 }
 
 /**
+ * Return a cached responsive image and enqueue a missing derivative without
+ * performing image decoding in the storefront request.
+ */
+function image_cached_resize($image, int $width = 100, int $height = 100, bool $schedule = true): string
+{
+    $image = $image['src'] ?? $image;
+
+    if (Str::startsWith($image, 'http') || str_contains(strtolower((string) $image), '.gif')) {
+        return image_origin($image);
+    }
+
+    return (new \Beike\Services\ImageService($image))->cachedResize($width, $height, $schedule);
+}
+
+/**
  * 获取原图地址
  * @throws Exception
  */

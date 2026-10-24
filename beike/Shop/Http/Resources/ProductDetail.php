@@ -40,9 +40,9 @@ class ProductDetail extends JsonResource
             'video'            => $this->video                         ?? '',
             'weight'           => $this->weight                        ?? '',
             'weight_class'     => $this->weight_class                  ?? '',
-            // Product pages must never synchronously transform the complete
-            // gallery. Uploaded media is already WebP; returning it directly
-            // keeps cold-cache requests fast and prevents worker exhaustion.
+            // Product pages never synchronously transform the gallery. The
+            // response uses ready derivatives and queues missing ones while
+            // keeping the uploaded source as a first-visit fallback.
             'images'           => array_map(static fn ($image): array => self::imagePayload($image), $images),
             'attributes'       => $this->formatAttributes(),
             'variables'        => $this->decodeVariables($this->variables),
@@ -76,22 +76,28 @@ class ProductDetail extends JsonResource
 
                     return [
                         'name'          => $item['name'][$lang] ?? '',
-                        // Variant media is only needed after interaction. Use
-                        // the uploaded URL for every responsive slot so a
-                        // cold product request does not resize every option.
+                        // Variant media is only needed after interaction, so
+                        // consume prepared derivatives without queueing every
+                        // possible option during the initial request.
                         'image'         => $image ? image_origin($image) : '',
-                        'gallery_image' => $image ? self::imagePayload($image) : null,
+                        'gallery_image' => $image ? self::imagePayload($image, false) : null,
                     ];
                 }, $item['values']),
             ];
         }, $variables);
     }
 
-    private static function imagePayload(mixed $image): array
+    private static function imagePayload(mixed $image, bool $schedule = true): array
     {
         $origin = image_origin($image);
 
-        return array_fill_keys(['small', 'preview', 'large', 'popup', 'thumb'], $origin);
+        return [
+            'small'   => image_cached_resize($image, 480, calculate_height_by_ratio(480), $schedule),
+            'preview' => image_cached_resize($image, 800, calculate_height_by_ratio(800), $schedule),
+            'large'   => image_cached_resize($image, 1200, calculate_height_by_ratio(1200), $schedule),
+            'popup'   => $origin,
+            'thumb'   => image_cached_resize($image, 160, calculate_height_by_ratio(160), $schedule),
+        ];
     }
 
     /**

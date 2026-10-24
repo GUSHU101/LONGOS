@@ -12,7 +12,9 @@
       $shopLogoWidth = max(1, (int) $shopLogoSize[0]);
       $shopLogoHeight = max(1, (int) $shopLogoSize[1]);
     }
-    $shopLogoUrl = image_origin($shopLogo);
+    $shopLogoDerivativeWidth = min(400, $shopLogoWidth);
+    $shopLogoDerivativeHeight = max(1, (int) round($shopLogoDerivativeWidth * ($shopLogoHeight / $shopLogoWidth)));
+    $shopLogoUrl = image_cached_resize($shopLogo, $shopLogoDerivativeWidth, $shopLogoDerivativeHeight);
   @endphp
   @if ($headerAds['active'] && $headerAds['items'])
     <div class="store-announcement-bar" style="--announcement-background: {{ $headerAds['bg_color'] }}; --announcement-color: {{ $headerAds['color'] }};">
