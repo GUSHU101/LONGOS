@@ -371,6 +371,9 @@ class PluginController extends Controller
             $fields['tiktok_pixels']   = \Plugin\PixelTracking\Services\PixelProfiles::normalizeForStorage($fields['tiktok_pixels'] ?? '[]', 'tiktok');
             $fields['snapchat_pixels'] = \Plugin\PixelTracking\Services\PixelProfiles::normalizeForStorage($fields['snapchat_pixels'] ?? '[]', 'snapchat');
         }
+        if ($plugin->code === 'paypal') {
+            $fields = \Plugin\Paypal\Services\PaypalSettings::normalizeForStorage($fields);
+        }
 
         // Saving an enabled plugin from the web UI also applies migrations
         // introduced by a newer package. This keeps panel deployments usable

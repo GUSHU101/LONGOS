@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use Plugin\Paypal\Services\PaypalSettings;
+
 final class PaymentPluginReadiness
 {
     /** @return list<string> */
@@ -45,7 +47,7 @@ final class PaymentPluginReadiness
     /** @return list<string> */
     private static function paypalIssues(): array
     {
-        $settings    = (array) plugin_setting('paypal', []);
+        $settings    = PaypalSettings::all();
         $environment = ! empty($settings['sandbox_mode']) ? 'sandbox' : 'live';
         $apiMode     = strtolower(trim(self::firstValue($settings, ['api_mode', 'api_standard', 'paypal_api_mode'], 'rest')));
         $apiMode     = in_array(str_replace([' ', '-'], '_', $apiMode), ['nvp', 'soap', 'nvp_soap', 'nvp/soap'], true)

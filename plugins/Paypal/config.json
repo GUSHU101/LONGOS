@@ -9,7 +9,7 @@
         "en": "Pay securely with PayPal."
     },
     "type": "payment",
-    "version": "v1.3.0",
+    "version": "v1.4.0",
     "icon": "/image/logo.png",
     "author": {
         "name": "成都光大网络科技有限公司",

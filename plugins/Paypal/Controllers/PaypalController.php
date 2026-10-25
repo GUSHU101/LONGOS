@@ -8,10 +8,6 @@
  * @author     guangda <service@guangda.work>
  * @created    2022-08-10 18:57:56
  * @modified   2022-08-10 18:57:56
- *
- * https://www.zongscan.com/demo333/1311.html
- * https://clickysoft.com/how-to-integrate-paypal-payment-gateway-in-laravel/
- * https://www.positronx.io/how-to-integrate-paypal-payment-gateway-in-laravel/
  */
 
 namespace Plugin\Paypal\Controllers;
@@ -63,20 +59,21 @@ class PaypalController
             $order = $this->resolvePaypalOrder($orderNumber);
 
             return $this->withPaymentLock('create', (int) $order->id, function () use ($order, $orderNumber): JsonResponse {
-                $paypalService = $this->initPaypal($order->fresh());
+                $paypalService = $this->initPaypal($order->fresh(), true);
                 $storedResult  = $this->getAnyStoredCompletedResult((int) $order->id);
                 if ($storedResult !== null) {
-                    $storedIsNvp = isset($storedResult['token'], $storedResult['response']);
+                    $storedIsNvp = $this->isStoredNvpResult($storedResult);
                     if ($paypalService->isNvpApi() !== $storedIsNvp) {
                         throw new \RuntimeException('Stored PayPal payment does not match the configured API mode.');
                     }
-                    if (! $storedIsNvp) {
-                        $paypalService->validateRestCapture($storedResult, (string) ($storedResult['id'] ?? ''));
-                    }
-                    $this->markOrderPaid($paypalService, $order, $storedResult);
-                    $storedResult['recovered'] = true;
+                    $providerId = (string) ($storedIsNvp ? ($storedResult['token'] ?? '') : ($storedResult['id'] ?? ''));
+                    $paypalService->validateStoredCapture($storedResult, $providerId);
+                    $safeResult = PaypalService::safeProviderResult($storedResult, $storedIsNvp);
+                    $this->persistSafeResult($order->id, $paypalService, $safeResult, $providerId);
+                    $this->markOrderPaid($paypalService, $order, $safeResult);
+                    $safeResult['recovered'] = true;
 
-                    return response()->json($storedResult);
+                    return response()->json($safeResult);
                 }
 
                 $reusable = $this->getReusableCreatedResult((int) $order->id, $paypalService->isNvpApi());
@@ -93,17 +90,18 @@ class PaypalController
                 if (! is_array($paypalOrder) || trim((string) ($paypalOrder['id'] ?? '')) === '') {
                     throw new \RuntimeException('PayPal did not return a payment order id.');
                 }
+                $safeResult = PaypalService::safeProviderResult($paypalOrder, $paypalService->isNvpApi());
                 OrderPaymentRepo::createOrUpdatePayment($order->id, [
-                    'transaction_id' => (string) $paypalOrder['id'],
+                    'transaction_id' => (string) $safeResult['id'],
                     'request'        => [
                         'stage'        => 'create',
                         'order_number' => $orderNumber,
                         'api_mode'     => $paypalService->getApiMode(),
                     ],
-                    'response' => $paypalOrder,
+                    'response' => $safeResult,
                 ]);
 
-                return response()->json($paypalOrder);
+                return response()->json($safeResult);
             });
         } catch (Throwable $e) {
             return $this->paymentError($e, 'PayPal order creation failed.');
@@ -144,23 +142,19 @@ class PaypalController
                 }
 
                 $this->assertProviderOrderBinding((int) $order->id, $paypalOrderId);
-                $storedResult = $this->getStoredCompletedResult((int) $order->id, $paypalOrderId);
-                if ($storedResult !== null && in_array((string) $order->status, StateMachineService::getValidStatuses(), true)) {
-                    return response()->json($storedResult);
-                }
-
-                $paypalService = $this->initPaypal($order);
+                $storedResult  = $this->getStoredCompletedResult((int) $order->id, $paypalOrderId);
+                $paypalService = $this->initPaypal($order, true);
                 if ($paypalService->isNvpApi() !== $isNvpRequest) {
                     throw new \RuntimeException('PayPal callback does not match the configured API mode.');
                 }
 
                 if ($storedResult !== null) {
-                    if (! $isNvpRequest) {
-                        $paypalService->validateRestCapture($storedResult, $paypalOrderId);
-                    }
-                    $this->markOrderPaid($paypalService, $order, $storedResult);
+                    $paypalService->validateStoredCapture($storedResult, $paypalOrderId);
+                    $safeResult = PaypalService::safeProviderResult($storedResult, $isNvpRequest);
+                    $this->persistSafeResult($order->id, $paypalService, $safeResult, $paypalOrderId);
+                    $this->markOrderPaid($paypalService, $order, $safeResult);
 
-                    return response()->json($storedResult);
+                    return response()->json($safeResult);
                 }
 
                 OrderPaymentRepo::createOrUpdatePayment($order->id, [
@@ -176,13 +170,11 @@ class PaypalController
                     $result = $paypalService->captureRestPayment($paypalOrderId);
                 }
 
-                OrderPaymentRepo::createOrUpdatePayment($order->id, [
-                    'transaction_id' => $paypalService->getCaptureTransactionId($result) ?: $paypalOrderId,
-                    'response'       => $result,
-                ]);
-                $this->markOrderPaid($paypalService, $order, $result);
+                $safeResult = PaypalService::safeProviderResult($result, $isNvpRequest);
+                $this->persistSafeResult($order->id, $paypalService, $safeResult, $paypalOrderId);
+                $this->markOrderPaid($paypalService, $order, $safeResult);
 
-                return response()->json($result);
+                return response()->json($safeResult);
             });
         } catch (Throwable $e) {
             return $this->paymentError($e, 'PayPal payment capture failed.');
@@ -197,7 +189,7 @@ class PaypalController
         $payerId     = $this->getNvpPayerId($data, $request);
 
         if ($orderNumber === '' || $token === '' || $payerId === '') {
-            return $this->redirectWithMessage($request, $this->getFailureRedirectUrl($orderNumber), 'error', 'Paypal payment failed.');
+            return $this->redirectWithMessage($request, $this->getFailureRedirectUrl($orderNumber), 'error', trans('Paypal::checkout.failed'));
         }
 
         try {
@@ -206,35 +198,39 @@ class PaypalController
             return $this->withPaymentLock('return', (int) $order->id, function () use ($order, $token, $payerId, $data, $request, $orderNumber): RedirectResponse {
                 $order = $order->fresh();
                 $this->assertProviderOrderBinding((int) $order->id, $token);
-                $storedResult = $this->getStoredCompletedResult((int) $order->id, $token);
-                if ($storedResult !== null && in_array((string) $order->status, StateMachineService::getValidStatuses(), true)) {
-                    return $this->redirectWithMessage($request, $this->getSuccessRedirectUrl($orderNumber), 'success', 'Paypal payment completed.');
-                }
-
-                $paypalService = $this->initPaypal($order);
+                $storedResult  = $this->getStoredCompletedResult((int) $order->id, $token);
+                $paypalService = $this->initPaypal($order, true);
                 if (! $paypalService->isNvpApi()) {
                     throw new \RuntimeException('PayPal callback does not match the configured API mode.');
                 }
 
-                OrderPaymentRepo::createOrUpdatePayment($order->id, ['request' => $this->safeCaptureRequest($data)]);
-                $result = $storedResult ?? $paypalService->captureNvpPayment($token, $payerId);
-                OrderPaymentRepo::createOrUpdatePayment($order->id, [
-                    'transaction_id' => $paypalService->getCaptureTransactionId($result) ?: $token,
-                    'response'       => $result,
-                ]);
-                $this->markOrderPaid($paypalService, $order, $result);
+                if ($storedResult !== null) {
+                    $paypalService->validateStoredCapture($storedResult, $token);
+                    $safeResult = PaypalService::safeProviderResult($storedResult, true);
+                    $this->persistSafeResult($order->id, $paypalService, $safeResult, $token);
+                    $this->markOrderPaid($paypalService, $order, $safeResult);
 
-                $paid = $paypalService->isPaymentSuccessful($result);
+                    return $this->redirectWithMessage($request, $this->getSuccessRedirectUrl($orderNumber), 'success', trans('Paypal::checkout.completed'));
+                }
+
+                OrderPaymentRepo::createOrUpdatePayment($order->id, ['request' => $this->safeCaptureRequest($data)]);
+                $result = $paypalService->captureNvpPayment($token, $payerId);
+                $paypalService->validateStoredCapture($result, $token);
+                $safeResult = PaypalService::safeProviderResult($result, true);
+                $this->persistSafeResult($order->id, $paypalService, $safeResult, $token);
+                $this->markOrderPaid($paypalService, $order, $safeResult);
+
+                $paid = $paypalService->isPaymentSuccessful($safeResult);
 
                 return $this->redirectWithMessage(
                     $request,
                     $paid ? $this->getSuccessRedirectUrl($orderNumber) : $this->getFailureRedirectUrl($orderNumber),
                     $paid ? 'success' : 'error',
-                    $paid ? 'Paypal payment completed.' : 'Paypal payment is not completed.'
+                    $paid ? trans('Paypal::checkout.completed') : trans('Paypal::checkout.not_completed')
                 );
             });
         } catch (Throwable $e) {
-            return $this->redirectWithMessage($request, $this->getFailureRedirectUrl($orderNumber), 'error', 'Paypal payment failed.');
+            return $this->redirectWithMessage($request, $this->getFailureRedirectUrl($orderNumber), 'error', trans('Paypal::checkout.failed'));
         }
     }
 
@@ -243,7 +239,7 @@ class PaypalController
         $data        = $request->all();
         $orderNumber = $this->getOrderNumberFromData($data, $request);
 
-        return $this->redirectWithMessage($request, $this->getFailureRedirectUrl($orderNumber), 'error', 'Paypal payment was cancelled.');
+        return $this->redirectWithMessage($request, $this->getFailureRedirectUrl($orderNumber), 'error', trans('Paypal::checkout.cancelled'));
     }
 
     public function nvpNotify(Request $request)
@@ -281,6 +277,13 @@ class PaypalController
 
                     return response('IGNORED', 200);
                 }
+                $boundToken = $this->getBoundNvpToken((int) $order->id);
+                if ($boundToken !== '') {
+                    // IPN can arrive before the customer's browser return.
+                    // Preserve the approved checkout token so that the later
+                    // callback can still prove its local order binding.
+                    $result['token'] = $boundToken;
+                }
                 OrderPaymentRepo::createOrUpdatePayment($order->id, [
                     'transaction_id' => $result['id'],
                     'callback'       => $result,
@@ -306,6 +309,14 @@ class PaypalController
         if ($paypalService->isPaymentSuccessful($result)) {
             StateMachineService::getInstance($order)->markPaid();
         }
+    }
+
+    private function persistSafeResult(int $orderId, PaypalService $paypalService, array $result, string $fallbackId): void
+    {
+        OrderPaymentRepo::createOrUpdatePayment($orderId, [
+            'transaction_id' => $paypalService->getCaptureTransactionId($result) ?: $fallbackId,
+            'response'       => $result,
+        ]);
     }
 
     private function getRequestData(Request $request): array
@@ -409,6 +420,26 @@ class PaypalController
         return strtoupper(trim((string) ($result['status'] ?? ''))) === 'COMPLETED' ? $result : null;
     }
 
+    private function isStoredNvpResult(array $result): bool
+    {
+        return isset($result['token'])
+            || isset($result['verified_ipn'])
+            || (isset($result['amount'], $result['currency'], $result['order_number']) && ! isset($result['purchase_units']));
+    }
+
+    private function getBoundNvpToken(int $orderId): string
+    {
+        $payment = OrderPayment::query()->where('order_id', $orderId)->first();
+        if (! $payment) {
+            return '';
+        }
+
+        $result = $this->decodePaymentResponse($payment->response);
+        $token  = trim((string) ($result['token'] ?? ''));
+
+        return preg_match('/^[A-Za-z0-9-]{10,128}$/', $token) === 1 ? $token : '';
+    }
+
     private function getReusableCreatedResult(int $orderId, bool $nvp): ?array
     {
         $payment = OrderPayment::query()->where('order_id', $orderId)->first();
@@ -434,7 +465,7 @@ class PaypalController
     {
         return array_intersect_key($data, array_flip([
             'orderNumber', 'order_number', 'paypalOrderId', 'paypal_order_id',
-            'token', 'paypalToken', 'PayerID', 'payerId', 'payer_id',
+            'token', 'paypalToken',
         ]));
     }
 
@@ -470,7 +501,7 @@ class PaypalController
             return '';
         }
 
-        $message = preg_replace('/(client[_ -]?secret|access[_ -]?token|authorization|password)\s*[:=]\s*[^\s,;]+/i', '$1=[redacted]', $message) ?? $message;
+        $message = preg_replace('/(client[_ -]?secret|access[_ -]?token|authorization|api[_ -]?username|password|signature|pwd|payer[_ -]?id)\s*[:=]\s*[^\s,;]+/i', '$1=[redacted]', $message) ?? $message;
 
         return mb_substr($message, 0, 500);
     }

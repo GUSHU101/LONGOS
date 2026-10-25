@@ -20,6 +20,7 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
+use Plugin\Paypal\Services\PaypalSettings;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -244,6 +245,12 @@ class SaasPluginRouteIsolationTest extends TestCase
 
         self::assertSame(['paypal', 'stripe'], PluginRepo::getPaymentMethods()->pluck('code')->sort()->values()->all());
 
+        $encryptedPaypal = PaypalSettings::normalizeForStorage([
+            'sandbox_secret' => 'encrypted-secret-for-test',
+        ]);
+        config(['bk.plugin.paypal.sandbox_secret' => $encryptedPaypal['sandbox_secret']]);
+        self::assertContains('paypal', PluginRepo::getPaymentMethods()->pluck('code')->all());
+
         // Older LONGOS/BeikeShop deployments used several NVP key aliases.
         // Readiness must follow the runtime service's compatibility rules so
         // a safe upgrade does not hide an already functioning payment method.
@@ -257,6 +264,34 @@ class SaasPluginRouteIsolationTest extends TestCase
         ]]);
 
         self::assertContains('paypal', PluginRepo::getPaymentMethods()->pluck('code')->all());
+    }
+
+    public function test_paypal_upgrade_encrypts_existing_plaintext_credentials(): void
+    {
+        DB::table('settings')->insert([
+            'type'       => 'plugin',
+            'space'      => 'paypal',
+            'name'       => 'sandbox_secret',
+            'value'      => 'legacy-plaintext-secret',
+            'json'       => false,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $migration = require base_path('plugins/Paypal/Migrations/2026_10_24_000000_encrypt_paypal_secrets.php');
+        $migration->up();
+
+        $stored = (string) DB::table('settings')
+            ->where('space', 'paypal')
+            ->where('name', 'sandbox_secret')
+            ->value('value');
+
+        self::assertStringStartsWith(PaypalSettings::ENCRYPTED_PREFIX, $stored);
+        self::assertStringNotContainsString('legacy-plaintext-secret', $stored);
+        self::assertSame('legacy-plaintext-secret', PaypalSettings::decryptForRuntime(['sandbox_secret' => $stored])['sandbox_secret']);
+
+        $migration->down();
+        self::assertSame($stored, DB::table('settings')->where('name', 'sandbox_secret')->value('value'));
     }
 
     public function test_hooks_and_middlewares_follow_the_current_tenant_at_runtime(): void

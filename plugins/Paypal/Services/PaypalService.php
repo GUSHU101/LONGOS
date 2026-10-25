@@ -14,6 +14,8 @@ namespace Plugin\Paypal\Services;
 
 use Beike\Shop\Services\PaymentService;
 use GuzzleHttp\Client;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Crypt;
 use Srmklive\PayPal\Services\PayPal;
 
 class PaypalService extends PaymentService
@@ -41,9 +43,8 @@ class PaypalService extends PaymentService
             parent::__construct($order);
         }
 
-        if (! $this->isNvpApi()) {
-            $this->initPaypal();
-        }
+        // REST authentication is deliberately lazy. Recovery paths can verify
+        // an already persisted capture without making another OAuth request.
     }
 
     /**
@@ -60,10 +61,12 @@ class PaypalService extends PaymentService
             'sandbox' => [
                 'client_id'     => $paypalSetting['sandbox_client_id'] ?? '',
                 'client_secret' => $paypalSetting['sandbox_secret']    ?? '',
+                'app_id'        => '',
             ],
             'live' => [
                 'client_id'     => $paypalSetting['live_client_id'] ?? '',
                 'client_secret' => $paypalSetting['live_secret']    ?? '',
+                'app_id'        => '',
             ],
             'payment_action' => 'Sale',
             'currency'       => $this->getPaymentCurrency(),
@@ -80,8 +83,11 @@ class PaypalService extends PaymentService
             'timeout'         => 30,
             'verify'          => true,
         ]));
-        $token              = $this->paypalClient->getAccessToken();
-        $this->paypalClient->setAccessToken($token);
+        $this->authenticateRestClient(
+            $mode,
+            (string) ($config[$mode]['client_id'] ?? ''),
+            (string) ($config[$mode]['client_secret'] ?? '')
+        );
     }
 
     /**
@@ -414,6 +420,85 @@ class PaypalService extends PaymentService
         return trim((string) ($result['purchase_units'][0]['payments']['captures'][0]['id'] ?? ''));
     }
 
+    /**
+     * Keep only fields needed for reconciliation, retry recovery, and payment
+     * validation. PayPal capture responses may include payer names, emails,
+     * addresses, and funding details that LONGOS does not need to retain or
+     * send back to the storefront browser.
+     */
+    public static function safeProviderResult(array $result, bool $nvp): array
+    {
+        if ($nvp) {
+            return self::safeNvpResult($result);
+        }
+
+        $units = [];
+        foreach ((array) ($result['purchase_units'] ?? []) as $unit) {
+            if (! is_array($unit)) {
+                continue;
+            }
+
+            $captures = [];
+            foreach ((array) data_get($unit, 'payments.captures', []) as $capture) {
+                if (! is_array($capture)) {
+                    continue;
+                }
+
+                $captures[] = self::compactValues([
+                    'id'            => self::scalarString($capture['id'] ?? null),
+                    'status'        => self::scalarString($capture['status'] ?? null),
+                    'amount'        => self::safeMoney($capture['amount'] ?? null),
+                    'final_capture' => is_bool($capture['final_capture'] ?? null) ? $capture['final_capture'] : null,
+                    'payee'         => self::safePayee($capture['payee'] ?? null),
+                ]);
+            }
+
+            $units[] = self::compactValues([
+                'reference_id' => self::scalarString($unit['reference_id'] ?? null),
+                'custom_id'    => self::scalarString($unit['custom_id'] ?? null),
+                'invoice_id'   => self::scalarString($unit['invoice_id'] ?? null),
+                'amount'       => self::safeMoney($unit['amount'] ?? null),
+                'payee'        => self::safePayee($unit['payee'] ?? null),
+                'payments'     => $captures === [] ? null : ['captures' => $captures],
+            ]);
+        }
+
+        return self::compactValues([
+            'id'             => self::scalarString($result['id'] ?? null),
+            'status'         => self::scalarString($result['status'] ?? null),
+            'purchase_units' => $units,
+        ]);
+    }
+
+    public function validateStoredCapture(array $result, string $expectedProviderId): void
+    {
+        if (! $this->isNvpApi()) {
+            $this->validateRestCapture($result, $expectedProviderId);
+
+            return;
+        }
+
+        $safe = self::safeProviderResult($result, true);
+        if (! $this->isPaymentSuccessful($safe)) {
+            throw new \RuntimeException('PayPal payment was not completed.');
+        }
+        if ($expectedProviderId !== '' && ! hash_equals((string) ($safe['token'] ?? ''), $expectedProviderId)) {
+            throw new \RuntimeException('PayPal capture response does not match the approved checkout token.');
+        }
+        if (preg_match('/^[A-Za-z0-9-]{8,64}$/', (string) ($safe['id'] ?? '')) !== 1) {
+            throw new \RuntimeException('PayPal capture response is missing a valid transaction id.');
+        }
+        if (($safe['amount'] ?? null) === null || $this->formatAmount($safe['amount']) !== $this->formatPaymentAmount()) {
+            throw new \RuntimeException('PayPal payment amount does not match the order amount.');
+        }
+        if (strtoupper((string) ($safe['currency'] ?? '')) !== $this->getPaymentCurrency()) {
+            throw new \RuntimeException('PayPal payment currency does not match the order currency.');
+        }
+        if (! hash_equals($this->getOrderNumber(), (string) ($safe['order_number'] ?? ''))) {
+            throw new \RuntimeException('PayPal order reference does not match the local order.');
+        }
+    }
+
     public function isNvpApi(): bool
     {
         return $this->getApiMode() === self::API_MODE_NVP;
@@ -447,6 +532,154 @@ class PaypalService extends PaymentService
             'signature' => $credentials['signature'],
             'timeout'   => $timeout,
         ]);
+    }
+
+    /**
+     * Reuse PayPal OAuth tokens until shortly before expiry. The cached value
+     * is encrypted with APP_KEY and the cache key contains only one-way hashes
+     * of the credentials, so neither the token nor credentials are exposed by
+     * inspecting Redis/database cache entries.
+     */
+    private function authenticateRestClient(string $mode, string $clientId, string $secret): void
+    {
+        if ($this->paypalClient === null) {
+            throw new \RuntimeException('PayPal REST client is unavailable.');
+        }
+
+        $cacheKey = 'paypal:oauth:' . hash('sha256', $mode . '|' . $clientId . '|' . $secret);
+
+        try {
+            $encrypted = Cache::get($cacheKey);
+            if (is_string($encrypted) && $encrypted !== '') {
+                $cached = json_decode(Crypt::decryptString($encrypted), true);
+                if (is_array($cached)
+                    && trim((string) ($cached['access_token'] ?? '')) !== ''
+                    && trim((string) ($cached['token_type'] ?? ''))   !== '') {
+                    $this->paypalClient->setAccessToken($cached);
+
+                    return;
+                }
+            }
+        } catch (\Throwable) {
+            // A cache outage or stale APP_KEY must not prevent a fresh PayPal
+            // authentication request.
+        }
+
+        $token = $this->paypalClient->getAccessToken();
+        if (! is_array($token)
+            || trim((string) ($token['access_token'] ?? '')) === ''
+            || trim((string) ($token['token_type'] ?? ''))   === '') {
+            throw new \RuntimeException('PayPal did not return a valid access token.');
+        }
+
+        $expiresIn = max(60, (int) ($token['expires_in'] ?? 300));
+        $ttl       = max(60, $expiresIn - min(120, (int) floor($expiresIn / 5)));
+        $cacheable = array_intersect_key($token, array_flip(['access_token', 'token_type', 'app_id']));
+
+        try {
+            Cache::put(
+                $cacheKey,
+                Crypt::encryptString(json_encode($cacheable, JSON_THROW_ON_ERROR)),
+                now()->addSeconds($ttl)
+            );
+        } catch (\Throwable) {
+            // The current request already has a valid token. Caching is only a
+            // latency optimization and must never make checkout fail.
+        }
+    }
+
+    private static function safeNvpResult(array $result): array
+    {
+        $details  = is_array($result['details'] ?? null) ? $result['details'] : [];
+        $response = is_array($result['response'] ?? null) ? $result['response'] : [];
+        $raw      = is_array($result['raw'] ?? null) ? $result['raw'] : [];
+        $approval = self::safeApprovalUrl($result['approval_url'] ?? null);
+
+        return self::compactValues([
+            'id'           => self::scalarString($result['id'] ?? $result['token'] ?? null),
+            'token'        => self::scalarString($result['token'] ?? $details['TOKEN'] ?? $response['TOKEN'] ?? null),
+            'status'       => self::scalarString($result['status'] ?? $response['PAYMENTINFO_0_PAYMENTSTATUS'] ?? $raw['ACK'] ?? null),
+            'approval_url' => $approval,
+            'links'        => $approval === null ? null : [[
+                'href'   => $approval,
+                'rel'    => 'approve',
+                'method' => 'GET',
+            ]],
+            'amount' => self::scalarString(
+                $result['amount']
+                ?? $details['PAYMENTREQUEST_0_AMT']
+                ?? $details['AMT']
+                ?? $response['PAYMENTINFO_0_AMT']
+                ?? $response['AMT']
+                ?? null
+            ),
+            'currency' => self::scalarString(
+                $result['currency']
+                ?? $details['PAYMENTREQUEST_0_CURRENCYCODE']
+                ?? $details['CURRENCYCODE']
+                ?? $response['PAYMENTINFO_0_CURRENCYCODE']
+                ?? $response['CURRENCYCODE']
+                ?? null
+            ),
+            'order_number' => self::scalarString(
+                $result['order_number']
+                ?? $details['PAYMENTREQUEST_0_INVNUM']
+                ?? $details['INVNUM']
+                ?? $response['PAYMENTINFO_0_INVNUM']
+                ?? $response['INVNUM']
+                ?? null
+            ),
+        ]);
+    }
+
+    private static function safeMoney(mixed $value): ?array
+    {
+        if (! is_array($value)) {
+            return null;
+        }
+
+        $money = self::compactValues([
+            'currency_code' => self::scalarString($value['currency_code'] ?? null),
+            'value'         => self::scalarString($value['value'] ?? null),
+        ]);
+
+        return $money === [] ? null : $money;
+    }
+
+    private static function safePayee(mixed $value): ?array
+    {
+        if (! is_array($value)) {
+            return null;
+        }
+
+        $merchantId = self::scalarString($value['merchant_id'] ?? null);
+
+        return $merchantId === null ? null : ['merchant_id' => $merchantId];
+    }
+
+    private static function safeApprovalUrl(mixed $value): ?string
+    {
+        if (! is_scalar($value)) {
+            return null;
+        }
+
+        $url    = trim((string) $value);
+        $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
+        $host   = strtolower((string) parse_url($url, PHP_URL_HOST));
+
+        return $scheme === 'https' && in_array($host, ['www.paypal.com', 'www.sandbox.paypal.com'], true)
+            ? $url
+            : null;
+    }
+
+    private static function scalarString(mixed $value): ?string
+    {
+        return is_scalar($value) && trim((string) $value) !== '' ? trim((string) $value) : null;
+    }
+
+    private static function compactValues(array $values): array
+    {
+        return array_filter($values, static fn ($value): bool => $value !== null && $value !== '' && $value !== []);
     }
 
     private function getNvpCredentials(array $paypalSetting, string $mode): array
@@ -522,9 +755,7 @@ class PaypalService extends PaymentService
 
     private function getPaypalSetting(): array
     {
-        $paypalSetting = plugin_setting('paypal');
-
-        return is_array($paypalSetting) ? $paypalSetting : [];
+        return PaypalSettings::all();
     }
 
     private function getPaypalEnvironment(array $paypalSetting = []): string

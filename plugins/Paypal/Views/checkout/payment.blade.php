@@ -23,11 +23,27 @@
     'merchant-id' => $paypalMerchantId,
   ], static fn ($value) => $value !== '');
   $paypalSdkUrl = 'https://www.paypal.com/sdk/js?' . http_build_query($paypalSdkQuery, '', '&', PHP_QUERY_RFC3986);
+  $paypalMessages = [
+    'connecting' => __('Paypal::checkout.connecting'),
+    'redirecting' => __('Paypal::checkout.redirecting'),
+    'creating' => __('Paypal::checkout.creating'),
+    'approve' => __('Paypal::checkout.approve'),
+    'confirming' => __('Paypal::checkout.confirming'),
+    'completed' => __('Paypal::checkout.completed'),
+    'cancelled' => __('Paypal::checkout.cancelled'),
+    'failed' => __('Paypal::checkout.failed'),
+    'not_completed' => __('Paypal::checkout.not_completed'),
+    'start_failed' => __('Paypal::checkout.start_failed'),
+    'load_failed' => __('Paypal::checkout.load_failed'),
+    'display_failed' => __('Paypal::checkout.display_failed'),
+    'unavailable' => __('Paypal::checkout.unavailable'),
+    'missing_order_id' => __('Paypal::checkout.missing_order_id'),
+  ];
 @endphp
 
 @if($paypalCurrency !== $paypalDisplayCurrency)
   <div class="alert alert-info mt-3 mb-0" role="note">
-    PayPal will process this payment in USD because {{ $paypalDisplayCurrency }} is not reliably supported for this merchant account.
+    {{ __('Paypal::checkout.currency_conversion', ['currency' => $paypalDisplayCurrency]) }}
   </div>
 @endif
 
@@ -35,42 +51,49 @@
   <script>
     (function () {
       const orderNumber = {!! json_encode($paypalOrderNumber, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) !!};
+      const messages = @json($paypalMessages);
       const status = document.getElementById('paypal-payment-status');
-      if (status) status.textContent = 'Connecting to PayPal…';
+      if (status) status.textContent = messages.connecting;
       fetch(@json($paypalCreateUrl), {
         method: 'POST',
         headers: {'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content'), 'Content-Type': 'application/json', 'Accept': 'application/json'},
         body: JSON.stringify({orderNumber: orderNumber})
       }).then(function (response) {
         return response.json().catch(function () { return {}; }).then(function (data) {
-          if (!response.ok) throw new Error(data.message || 'PayPal payment failed.');
+          if (!response.ok) throw new Error(data.message || messages.failed);
           return data;
         });
       }).then(function (orderData) {
         if (orderData.status === 'COMPLETED') {
-          if (status) status.textContent = 'Payment completed. Redirecting…';
+          if (status) status.textContent = messages.completed;
           window.location.assign(@json(shop_route('checkout.success', ['order_number' => $paypalOrderNumber])));
           return;
         }
-        if (!orderData.approval_url) throw new Error(orderData.message || 'PayPal payment failed.');
-        if (status) status.textContent = 'Redirecting to PayPal…';
+        if (!orderData.approval_url) throw new Error(orderData.message || messages.failed);
+        if (status) status.textContent = messages.redirecting;
         window.location.assign(orderData.approval_url);
       }).catch(function (error) {
-        if (status) status.textContent = error.message || 'PayPal payment could not be started.';
-        layer.msg(error.message || 'PayPal payment could not be started.');
+        const message = error.message || messages.start_failed;
+        if (status) status.textContent = message;
+        if (window.layer && typeof window.layer.msg === 'function') window.layer.msg(message);
       });
     })();
   </script>
 @elseif($paypalClientId === '')
-  <div class="alert alert-warning mt-4 mb-0">PayPal is not configured. Please contact the store administrator.</div>
+  <div class="alert alert-warning mt-4 mb-0">{{ __('Paypal::checkout.not_configured') }}</div>
 @else
   <script src="{{ $paypalSdkUrl }}" data-namespace="longosPayPal"></script>
   <script>
     (function () {
       const paypalSdk = window.longosPayPal;
+      const messages = @json($paypalMessages);
       const status = document.getElementById('paypal-payment-status');
       const setStatus = function (message) { if (status) status.textContent = message || ''; };
-      if (!paypalSdk) { setStatus('PayPal checkout could not be loaded.'); layer.msg('PayPal checkout could not be loaded.'); return; }
+      if (!paypalSdk) {
+        setStatus(messages.load_failed);
+        if (window.layer && typeof window.layer.msg === 'function') window.layer.msg(messages.load_failed);
+        return;
+      }
       const orderNumber = {!! json_encode($paypalOrderNumber, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) !!};
       const requestJson = function (url, payload) {
         return fetch(url, {
@@ -79,8 +102,7 @@
           body: JSON.stringify(payload)
         }).then(function (response) {
           return response.json().catch(function () { return {}; }).then(function (data) {
-            const providerDetail = data && data.error && data.error.details && data.error.details[0] ? data.error.details[0].description : '';
-            if (!response.ok || (data && data.error)) throw new Error(data.message || providerDetail || 'PayPal payment failed.');
+            if (!response.ok || (data && data.error)) throw new Error(data.message || messages.failed);
             return data;
           });
         });
@@ -88,42 +110,42 @@
 
       const buttons = paypalSdk.Buttons({
         createOrder: function () {
-          setStatus('Creating a secure PayPal payment…');
+          setStatus(messages.creating);
           return requestJson(@json($paypalCreateUrl), {orderNumber: orderNumber}).then(function (orderData) {
             if (orderData.status === 'COMPLETED') {
-              setStatus('Payment completed. Redirecting…');
+              setStatus(messages.completed);
               window.location.assign(@json(shop_route('checkout.success', ['order_number' => $paypalOrderNumber])));
               return new Promise(function () {});
             }
-            if (!orderData.id) throw new Error('PayPal did not return an order id.');
-            setStatus('Continue in the PayPal window to approve the payment.');
+            if (!orderData.id) throw new Error(messages.missing_order_id);
+            setStatus(messages.approve);
             return orderData.id;
           });
         },
         onApprove: function (data) {
-          setStatus('Confirming your payment… Please do not close this page.');
+          setStatus(messages.confirming);
           return requestJson(@json($paypalCaptureUrl), {orderNumber: orderNumber, paypalOrderId: data.orderID}).then(function (orderData) {
-            if (orderData.status !== 'COMPLETED') throw new Error(orderData.message || 'PayPal payment is not completed.');
-            setStatus('Payment completed. Redirecting…');
-            window.location.assign("{{ shop_route('checkout.success', ['order_number' => $paypalOrderNumber]) }}");
+            if (orderData.status !== 'COMPLETED') throw new Error(orderData.message || messages.not_completed);
+            setStatus(messages.completed);
+            window.location.assign(@json(shop_route('checkout.success', ['order_number' => $paypalOrderNumber])));
           });
         },
         onCancel: function () {
-          setStatus('PayPal payment was cancelled. You can try again.');
+          setStatus(messages.cancelled);
         },
         onError: function (error) {
-          console.error('PayPal checkout error', error);
-          setStatus((error && error.message) || 'PayPal checkout could not be started.');
-          layer.msg((error && error.message) || 'PayPal checkout could not be started.');
+          const message = (error && error.message) || messages.start_failed;
+          setStatus(message);
+          if (window.layer && typeof window.layer.msg === 'function') window.layer.msg(message);
         }
       });
 
       if (buttons.isEligible()) {
         buttons.render('#paypal-button-container').catch(function (error) {
-          setStatus((error && error.message) || 'PayPal checkout could not be displayed.');
+          setStatus((error && error.message) || messages.display_failed);
         });
       } else {
-        setStatus('PayPal is not available for this browser, account, or currency.');
+        setStatus(messages.unavailable);
       }
     })();
   </script>
