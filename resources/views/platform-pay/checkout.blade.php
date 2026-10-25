@@ -1,4 +1,9 @@
 <!doctype html>
+@php
+  $paymentDecimals = in_array($session->currency, ['HUF', 'JPY', 'TWD'], true) ? 0 : 2;
+  $paymentAmount = \App\Services\PlatformPayment\PlatformPaymentAmount::format((string) $session->amount, $paymentDecimals);
+  $paymentAmountLabel = $session->currency . ' ' . $paymentAmount;
+@endphp
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
 <head>
   <meta charset="utf-8">
@@ -29,7 +34,7 @@
       <p class="eyebrow">{{ __('platform_pay.eyebrow') }}</p>
       <h1 id="payment-title">{{ __('platform_pay.title') }}</h1>
       <p class="store">{{ __('platform_pay.collected_by', ['platform' => platform_brand_name(), 'store' => $session->site->name]) }}</p>
-      <div class="amount" aria-label="{{ __('platform_pay.amount_label') }}">{{ $session->currency }} {{ number_format((float) $session->amount, in_array($session->currency, ['HUF','JPY','TWD'], true) ? 0 : 2) }}</div>
+      <div class="amount" aria-label="{{ __('platform_pay.amount_label') }}">{{ $paymentAmountLabel }}</div>
     </header>
     <div class="body">
       <div class="notice" role="note">{{ __('platform_pay.notice', ['store' => $session->site->name]) }}</div>
@@ -46,7 +51,7 @@
             <form id="stripe-form">
               <label for="stripe-card" style="display:block;margin-bottom:8px;font-weight:650">{{ __('platform_pay.card_details') }}</label>
               <div id="stripe-card" class="stripe-card"></div>
-              <button id="stripe-submit" type="submit" style="margin-top:14px">{{ __('platform_pay.pay', ['amount' => $session->currency . ' ' . number_format((float) $session->amount, in_array($session->currency, ['HUF','JPY','TWD'], true) ? 0 : 2)]) }}</button>
+              <button id="stripe-submit" type="submit" style="margin-top:14px">{{ __('platform_pay.pay', ['amount' => $paymentAmountLabel]) }}</button>
             </form>
           </section>
         @endif

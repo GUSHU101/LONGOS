@@ -24,7 +24,7 @@ class PlatformPaymentSession extends Model
     protected $table = 'saas_platform_payment_sessions';
 
     protected $fillable = [
-        'uuid', 'token_hash', 'site_id', 'order_id', 'order_number', 'amount', 'currency', 'locale',
+        'uuid', 'token_hash', 'active_key', 'site_id', 'order_id', 'order_number', 'amount', 'currency', 'locale',
         'status', 'provider', 'provider_order_id', 'provider_transaction_id',
         'provider_payload', 'expires_at', 'completed_at',
     ];

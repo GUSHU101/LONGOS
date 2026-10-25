@@ -7,6 +7,11 @@
 @php
   $checkoutPaymentUrlTemplate = shop_route('orders.pay', ['number' => '__ORDER_NUMBER__']);
   $checkoutTotalFormat = data_get($totals, (count($totals) - 1) . '.amount_format', '');
+  $checkoutPaymentBrandLabels = [
+    'paypal' => 'PayPal', 'visa' => 'Visa', 'mastercard' => 'Mastercard', 'amex' => 'American Express',
+    'discover' => 'Discover', 'jcb' => 'JCB', 'diners' => 'Diners Club', 'unionpay' => 'UnionPay',
+    'cartes_bancaires' => 'Cartes Bancaires',
+  ];
 @endphp
 
 @push('header')
@@ -130,12 +135,22 @@
     .payment-box > .checkout-empty-state { border: 0; border-radius: 0; }
     .payment-option { border-bottom: 1px solid #e5e5e5; }
     .payment-option:last-of-type { border-bottom: 0; }
-    .payment-header { align-items: center; background: #fff; border: 0; color: #171717; display: flex; justify-content: space-between; min-height: 57px; padding: 13px 16px; text-align: left; width: 100%; }
+    .payment-header { align-items: center; background: #fff; border: 0; color: #171717; display: flex; gap: 12px; justify-content: space-between; min-height: 57px; padding: 13px 16px; text-align: left; width: 100%; }
     .payment-header:hover, .payment-option.selected .payment-header { background: #fafafa; }
-    .payment-method { align-items: center; display: flex; font-size: 13px; font-weight: 600; gap: 9px; }
+    .payment-method { align-items: center; display: flex; flex: 1 1 auto; font-size: 13px; font-weight: 600; gap: 9px; min-width: 0; }
     .payment-radio { border: 1px solid #bbb; border-radius: 50%; height: 17px; width: 17px; }
     .payment-option.selected .payment-radio { border: 5px solid #111; }
     .payment-provider-icon { max-height: 25px; max-width: 72px; object-fit: contain; }
+    .payment-brand-list { align-items: center; display: flex; flex: 0 1 auto; flex-wrap: wrap; gap: 5px; justify-content: flex-end; max-width: 58%; }
+    .payment-brand { align-items: center; background: #fff; border: 1px solid #d7d7d7; border-radius: 4px; color: #333; display: inline-flex; font-size: 10px; font-weight: 750; min-height: 26px; padding: 3px 7px; white-space: nowrap; }
+    .payment-brand--paypal { color: #003087; }
+    .payment-brand--visa { color: #1434cb; font-style: italic; }
+    .payment-brand--amex { background: #2e77bc; border-color: #2e77bc; color: #fff; }
+    .payment-brand--mastercard { color: #c00016; }
+    @media (max-width: 520px) {
+      .payment-header.has-payment-brands { align-items: flex-start; flex-direction: column; }
+      .payment-brand-list { justify-content: flex-start; margin-left: 26px; max-width: calc(100% - 26px); }
+    }
     .payment-fields { border-top: 1px solid #e5e5e5; padding: 18px; }
     .payment-description { color: #666; font-size: 12px; line-height: 1.6; margin: 0; }
     .payment-note { align-items: center; background: #fafafa; border: 1px solid #ededed; border-radius: 5px; color: #555; display: flex; font-size: 12px; gap: 9px; margin-top: 12px; padding: 11px 12px; }
@@ -351,12 +366,20 @@
         <div class="payment-box" id="payment-methods-wrap" role="radiogroup" aria-label="{{ __('shop/checkout.payment_method') }}">
           @forelse ($payment_methods as $payment)
             <div class="payment-option {{ $payment['code'] == $current['payment_method_code'] ? 'selected' : '' }}">
-              <button type="button" class="payment-header radio-line-item {{ $payment['code'] == $current['payment_method_code'] ? 'active' : '' }}"
+              <button type="button" class="payment-header radio-line-item {{ !empty($payment['brand_marks']) ? 'has-payment-brands' : '' }} {{ $payment['code'] == $current['payment_method_code'] ? 'active' : '' }}"
                       data-key="payment_method_code" data-value="{{ $payment['code'] }}" role="radio"
                       tabindex="{{ $payment['code'] == $current['payment_method_code'] ? '0' : '-1' }}"
                       aria-checked="{{ $payment['code'] == $current['payment_method_code'] ? 'true' : 'false' }}">
                 <span class="payment-method"><span class="payment-radio" aria-hidden="true"></span>{{ $payment['name'] ?? $payment['code'] }}</span>
-                @if (!empty($payment['icon']))
+                @if (!empty($payment['brand_marks']))
+                  <span class="payment-brand-list" role="list" aria-label="{{ __('shop/checkout.accepted_payment_methods') }}">
+                    @foreach (array_slice((array) $payment['brand_marks'], 0, 5) as $brand)
+                      @if (isset($checkoutPaymentBrandLabels[$brand]))
+                        <span class="payment-brand payment-brand--{{ $brand }}" role="listitem">{{ $checkoutPaymentBrandLabels[$brand] }}</span>
+                      @endif
+                    @endforeach
+                  </span>
+                @elseif (!empty($payment['icon']))
                   <img src="{{ $payment['icon'] }}" class="payment-provider-icon" alt="">
                 @endif
               </button>
@@ -478,6 +501,8 @@
       'orderProcessing' => __('shop/checkout.order_processing'),
       'checkoutUpdated' => __('shop/checkout.checkout_updated'),
     ]) !!};
+    const checkoutPaymentBrandLabels = {!! \Illuminate\Support\Js::from($checkoutPaymentBrandLabels) !!};
+    const checkoutPaymentBrandsLabel = {!! \Illuminate\Support\Js::from(__('shop/checkout.accepted_payment_methods')) !!};
     let isSubmittingOrder = false;
     const announceCheckout = (message) => $('#checkout-feedback').text(String(message || ''));
     const clearCheckoutError = () => {
@@ -515,6 +540,17 @@
       } catch (error) {
         return '';
       }
+    };
+    const renderCheckoutPaymentBrands = (brands) => {
+      if (!Array.isArray(brands)) return '';
+      const normalized = Array.from(new Set(brands.map((brand) => String(brand || '').toLowerCase())
+        .filter((brand) => Object.prototype.hasOwnProperty.call(checkoutPaymentBrandLabels, brand)))).slice(0, 5);
+      if (!normalized.length) return '';
+      const items = normalized.map((brand) => {
+        const safeCode = brand.replace(/[^a-z0-9_-]/g, '');
+        return `<span class="payment-brand payment-brand--${safeCode}" role="listitem">${escapeCheckoutText(checkoutPaymentBrandLabels[brand])}</span>`;
+      }).join('');
+      return `<span class="payment-brand-list" role="list" aria-label="${escapeCheckoutText(checkoutPaymentBrandsLabel)}">${items}</span>`;
     };
 
     $(document).ready(function () {
@@ -796,10 +832,11 @@
       data.forEach((item, index) => {
         const selected = String(payment_method_code) === String(item.code);
         const icon = safeCheckoutImageUrl(item.icon);
+        const brands = renderCheckoutPaymentBrands(item.brand_marks);
         html += `<div class="payment-option ${selected ? 'selected' : ''}">
-          <button type="button" class="payment-header radio-line-item ${selected ? 'active' : ''}" data-key="payment_method_code" data-value="${escapeCheckoutText(item.code)}" role="radio" tabindex="${selected || (!payment_method_code && index === 0) ? '0' : '-1'}" aria-checked="${selected ? 'true' : 'false'}">
+          <button type="button" class="payment-header radio-line-item ${brands ? 'has-payment-brands' : ''} ${selected ? 'active' : ''}" data-key="payment_method_code" data-value="${escapeCheckoutText(item.code)}" role="radio" tabindex="${selected || (!payment_method_code && index === 0) ? '0' : '-1'}" aria-checked="${selected ? 'true' : 'false'}">
             <span class="payment-method"><span class="payment-radio" aria-hidden="true"></span>${escapeCheckoutText(item.name || item.code)}</span>
-            ${icon ? `<img src="${icon}" class="payment-provider-icon" alt="">` : ''}
+            ${brands || (icon ? `<img src="${icon}" class="payment-provider-icon" alt="">` : '')}
           </button>
           ${selected ? `<div class="payment-fields">${item.description ? `<p class="payment-description">${escapeCheckoutText(stripCheckoutMarkup(item.description))}</p>` : ''}<div class="payment-note"><span class="payment-lock" aria-hidden="true">🔒</span><span>${escapeCheckoutText(checkoutMessages.providerSecurity)}</span></div></div>` : ''}
         </div>`;

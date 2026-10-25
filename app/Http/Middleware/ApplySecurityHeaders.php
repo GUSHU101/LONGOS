@@ -64,6 +64,8 @@ class ApplySecurityHeaders
         $adminPath = trim(admin_name(), '/');
 
         return $request->is(
+            '_longos/pay',
+            '_longos/pay/*',
             $adminPath,
             $adminPath . '/*',
             'account',

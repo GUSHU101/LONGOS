@@ -20,6 +20,7 @@ class HttpSecurityHeadersContractTest extends TestCase
         $source = $this->read('app/Http/Middleware/ApplySecurityHeaders.php');
 
         self::assertStringContainsString('ApplySecurityHeaders::class', $kernel);
+        self::assertStringContainsString("'_longos/pay/*'", $source);
         foreach ([
             'X-Content-Type-Options',
             'X-Frame-Options',

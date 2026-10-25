@@ -116,7 +116,7 @@ class PlatformPaypalGateway
                               || ! hash_equals($session->uuid, (string) ($unit['custom_id'] ?? ''))
                               || ! hash_equals($session->uuid, (string) ($unit['invoice_id'] ?? ''))
                               || strtoupper((string) ($capture['status'] ?? '')) !== 'COMPLETED'
-                              || ! hash_equals($this->formatAmount($session), number_format((float) data_get($capture, 'amount.value', -1), $this->decimals($session->currency), '.', ''))
+                              || ! hash_equals($this->formatAmount($session), PlatformPaymentAmount::format((string) data_get($capture, 'amount.value', ''), $this->decimals($session->currency)))
                               || ! hash_equals($session->currency, strtoupper((string) data_get($capture, 'amount.currency_code', '')))) {
             throw new RuntimeException('PayPal 支付金额、币种或会话绑定校验失败。');
         }
@@ -181,7 +181,7 @@ class PlatformPaypalGateway
 
     private function formatAmount(PlatformPaymentSession $session): string
     {
-        return number_format((float) $session->amount, $this->decimals($session->currency), '.', '');
+        return PlatformPaymentAmount::format((string) $session->amount, $this->decimals($session->currency));
     }
 
     private function decimals(string $currency): int

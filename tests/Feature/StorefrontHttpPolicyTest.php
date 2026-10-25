@@ -60,6 +60,21 @@ class StorefrontHttpPolicyTest extends TestCase
         self::assertSame('no-store', $response->headers->get('Cloudflare-CDN-Cache-Control'));
     }
 
+    public function test_hosted_payment_capability_pages_can_never_be_cached(): void
+    {
+        $token    = str_repeat('a', 64);
+        $request  = Request::create("https://main.example.test/_longos/pay/{$token}", 'GET');
+        $response = (new ApplySecurityHeaders)->handle(
+            $request,
+            static fn (): Response => new Response('hosted payment'),
+        );
+
+        self::assertSame('noindex, nofollow, noarchive', $response->headers->get('X-Robots-Tag'));
+        self::assertSame('no-store', $response->headers->get('CDN-Cache-Control'));
+        self::assertSame('no-store', $response->headers->get('Cloudflare-CDN-Cache-Control'));
+        self::assertStringContainsString('private', (string) $response->headers->get('Cache-Control'));
+    }
+
     public function test_geo_localized_html_cannot_be_cached_by_a_browser_or_cdn(): void
     {
         $request = Request::create('https://shop.example.test/products/example', 'GET');

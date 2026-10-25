@@ -113,6 +113,11 @@ class PlatformStripeGateway
     {
         $decimals = CurrencyCatalog::decimalPlaces($session->currency);
 
-        return (int) round((float) $session->amount * (10 ** $decimals));
+        $minor = PlatformPaymentAmount::minorUnits((string) $session->amount, $decimals);
+        if ($minor > 99_999_999) {
+            throw new RuntimeException('Stripe 支付金额超出单笔上限。');
+        }
+
+        return $minor;
     }
 }

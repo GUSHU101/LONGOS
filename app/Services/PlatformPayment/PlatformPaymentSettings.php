@@ -11,6 +11,11 @@ use RuntimeException;
 
 class PlatformPaymentSettings
 {
+    /** @var list<string> */
+    private const STRIPE_PAYMENT_MARKS = [
+        'visa', 'mastercard', 'amex', 'discover', 'jcb', 'diners', 'unionpay', 'cartes_bancaires',
+    ];
+
     public function __construct(private readonly TenantManager $tenants) {}
 
     public function controlSite(): Site
@@ -98,7 +103,12 @@ class PlatformPaymentSettings
     /** @return list<string> */
     public function availableProviders(bool $requirePlatformEnabled = true): array
     {
-        $settings = $this->snapshot();
+        return $this->availableProvidersForSnapshot($this->snapshot(), $requirePlatformEnabled);
+    }
+
+    /** @param array<string, mixed> $settings @return list<string> */
+    public function availableProvidersForSnapshot(array $settings, bool $requirePlatformEnabled = true): array
+    {
         if ($requirePlatformEnabled && ! $settings['enabled']) {
             return [];
         }
@@ -111,6 +121,29 @@ class PlatformPaymentSettings
         ));
     }
 
+    /**
+     * Convert the platform's real provider availability into storefront
+     * payment marks. These marks are shared by checkout and footer rendering
+     * so a child site never advertises a method the hosted page cannot use.
+     *
+     * @param iterable<mixed> $providers
+     * @return list<string>
+     */
+    public static function paymentMarksForProviders(iterable $providers): array
+    {
+        $marks = [];
+        foreach ($providers as $provider) {
+            $provider = strtolower(trim(is_scalar($provider) ? (string) $provider : ''));
+            if ($provider === 'paypal') {
+                $marks[] = 'paypal';
+            } elseif ($provider === 'stripe') {
+                $marks = array_merge($marks, self::STRIPE_PAYMENT_MARKS);
+            }
+        }
+
+        return array_values(array_unique($marks));
+    }
+
     /** @return list<string> */
     public function issues(bool $requirePlatformEnabled = true): array
     {
@@ -121,6 +154,38 @@ class PlatformPaymentSettings
         }
 
         return $this->issuesForSnapshot($settings, $requirePlatformEnabled);
+    }
+
+    /**
+     * Runtime readiness is intentionally channel-tolerant. A temporarily
+     * invalid Stripe setup must not hide a healthy shared PayPal channel (or
+     * vice versa), while the stricter issues() check remains available when
+     * an administrator saves the configuration.
+     *
+     * @return list<string>
+     */
+    public function runtimeIssues(bool $requirePlatformEnabled = true): array
+    {
+        try {
+            $settings = $this->snapshot();
+        } catch (\Throwable $e) {
+            return [$e->getMessage()];
+        }
+
+        return $this->runtimeIssuesForSnapshot($settings, $requirePlatformEnabled);
+    }
+
+    /** @param array<string, mixed> $settings @return list<string> */
+    public function runtimeIssuesForSnapshot(array $settings, bool $requirePlatformEnabled = true): array
+    {
+        if ($requirePlatformEnabled && ! $settings['enabled']) {
+            return ['请先在 LONGOS 主站启用平台代收。'];
+        }
+        if ($this->availableProvidersForSnapshot($settings, false) === []) {
+            return ['主站没有可供子站使用的 PayPal 或 Stripe 收款渠道。'];
+        }
+
+        return [];
     }
 
     /** @param array<string, mixed> $fields @return list<string> */

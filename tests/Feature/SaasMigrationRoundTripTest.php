@@ -55,6 +55,8 @@ class SaasMigrationRoundTripTest extends TestCase
         self::assertTrue(Schema::hasTable('saas_idempotency_records'));
         self::assertTrue(Schema::hasTable('saas_platform_payment_sessions'));
         self::assertTrue(Schema::hasColumn('saas_platform_payment_sessions', 'token_hash'));
+        self::assertTrue(Schema::hasColumn('saas_platform_payment_sessions', 'active_key'));
+        self::assertTrue(Schema::hasIndex('saas_platform_payment_sessions', 'spp_active_uq'));
         self::assertTrue(Schema::hasColumn('saas_platform_payment_sessions', 'locale'));
         self::assertTrue(Schema::hasColumn('saas_sites', 'provisioning_token'));
         self::assertTrue(Schema::hasTable('cache'));
@@ -97,6 +99,7 @@ class SaasMigrationRoundTripTest extends TestCase
         self::assertFalse(Schema::hasTable('saas_mail_sender_domains'));
         self::assertFalse(Schema::hasTable('saas_idempotency_records'));
         self::assertFalse(Schema::hasTable('saas_platform_payment_sessions'));
+        self::assertFalse(Schema::hasColumn('saas_platform_payment_sessions', 'active_key'));
         self::assertFalse(Schema::hasColumn('saas_sites', 'provisioning_token'));
         self::assertFalse(Schema::hasTable('cache'));
         self::assertFalse(Schema::hasTable('cache_locks'));
@@ -152,6 +155,8 @@ class SaasMigrationRoundTripTest extends TestCase
         self::assertTrue(Schema::hasTable('saas_mail_sender_domains'));
         self::assertTrue(Schema::hasTable('saas_idempotency_records'));
         self::assertTrue(Schema::hasTable('saas_platform_payment_sessions'));
+        self::assertTrue(Schema::hasColumn('saas_platform_payment_sessions', 'active_key'));
+        self::assertTrue(Schema::hasIndex('saas_platform_payment_sessions', 'spp_active_uq'));
         self::assertTrue(Schema::hasColumn('saas_sites', 'provisioning_token'));
         self::assertTrue(Schema::hasTable('cache'));
         self::assertTrue(Schema::hasTable('cache_locks'));

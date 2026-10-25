@@ -2,6 +2,7 @@
 
 namespace Tests\Unit;
 
+use App\Services\PlatformPayment\PlatformPaymentSettings;
 use PHPUnit\Framework\TestCase;
 
 class PlatformPaymentSecurityContractTest extends TestCase
@@ -26,7 +27,11 @@ class PlatformPaymentSecurityContractTest extends TestCase
         self::assertStringContainsString("char('token_hash', 64)->unique('spp_token_uq')", $migration);
         self::assertStringNotContainsString("->string('token'", $migration);
         self::assertStringContainsString("hash('sha256', \$token)", $service);
-        self::assertStringContainsString('random_bytes(32)', $service);
+        self::assertStringContainsString("hash_hmac('sha256', 'longos-platform-payment|'", $service);
+        self::assertStringContainsString("'active_key'   => \$activeKey", $service);
+        self::assertStringContainsString('catch (UniqueConstraintViolationException $exception)', $service);
+        self::assertStringContainsString("->where('active_key', \$activeKey)", $service);
+        self::assertStringContainsString("unique('spp_active_uq')", (string) file_get_contents(dirname(__DIR__, 2) . '/database/migrations/2026_10_25_010000_add_active_key_to_saas_platform_payment_sessions_table.php'));
     }
 
     public function test_child_store_never_receives_platform_credentials(): void
@@ -37,5 +42,77 @@ class PlatformPaymentSecurityContractTest extends TestCase
         self::assertStringNotContainsString('client_id', $checkout);
         self::assertStringNotContainsString('secret_key', $checkout);
         self::assertStringContainsString('checkout_url', $checkout);
+    }
+
+    public function test_hosted_provider_marks_are_shared_by_checkout_and_footer_presentations(): void
+    {
+        self::assertSame(['paypal'], PlatformPaymentSettings::paymentMarksForProviders(['paypal']));
+        self::assertSame(
+            ['paypal', 'visa', 'mastercard', 'amex', 'discover', 'jcb', 'diners', 'unionpay', 'cartes_bancaires'],
+            PlatformPaymentSettings::paymentMarksForProviders(['paypal', 'stripe', 'paypal'])
+        );
+
+        $root     = dirname(__DIR__, 2);
+        $checkout = (string) file_get_contents($root . '/beike/Shop/Services/CheckoutService.php');
+        $footer   = (string) file_get_contents($root . '/beike/Repositories/FooterRepo.php');
+        $view     = (string) file_get_contents($root . '/themes/default/checkout.blade.php');
+
+        self::assertStringContainsString("\$method['brand_marks']", $checkout);
+        self::assertStringContainsString('paymentMarksForProviders($providers)', $footer);
+        self::assertStringContainsString('renderCheckoutPaymentBrands(item.brand_marks)', $view);
+        self::assertStringContainsString("__('shop/checkout.accepted_payment_methods')", $view);
+    }
+
+    public function test_disabled_channels_cannot_claim_new_sessions_and_completed_returns_are_idempotent(): void
+    {
+        $root       = dirname(__DIR__, 2);
+        $sessions   = (string) file_get_contents($root . '/app/Services/PlatformPayment/PlatformPaymentSessionService.php');
+        $controller = (string) file_get_contents($root . '/app/Http/Controllers/PlatformPaymentController.php');
+
+        self::assertStringContainsString('$this->settings->availableProviders()', $sessions);
+        self::assertStringContainsString('$this->settings->runtimeIssues()', $sessions);
+        self::assertStringContainsString('$lock->block(10)', $sessions);
+        self::assertStringContainsString('catch (LockTimeoutException)', $sessions);
+        self::assertStringContainsString('private function isCompletedBy(', $controller);
+        self::assertStringContainsString("json_success('Payment already completed.'", $controller);
+        self::assertStringContainsString('if (! $session instanceof PlatformPaymentSession)', $controller);
+    }
+
+    public function test_runtime_readiness_allows_one_healthy_shared_channel_to_stay_available(): void
+    {
+        $settings  = (string) file_get_contents(dirname(__DIR__, 2) . '/app/Services/PlatformPayment/PlatformPaymentSettings.php');
+        $readiness = (string) file_get_contents(dirname(__DIR__, 2) . '/app/Services/PaymentPluginReadiness.php');
+        $view      = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/platform-pay/checkout.blade.php');
+
+        self::assertStringContainsString('public function runtimeIssues(', $settings);
+        self::assertStringContainsString('availableProvidersForSnapshot($settings, false)', $settings);
+        self::assertStringContainsString('->runtimeIssues(! $controlSite)', $readiness);
+        self::assertStringContainsString('PlatformPaymentAmount::format(', $view);
+        self::assertStringNotContainsString('number_format((float) $session->amount', $view);
+    }
+
+    public function test_runtime_channel_fallback_is_evaluated_from_real_provider_credentials(): void
+    {
+        $service  = (new \ReflectionClass(PlatformPaymentSettings::class))->newInstanceWithoutConstructor();
+        $snapshot = [
+            'enabled'      => true,
+            'share_paypal' => true,
+            'share_stripe' => true,
+            'paypal'       => [
+                'api_mode' => 'rest', 'client_id' => 'paypal-client', 'secret' => 'paypal-secret', 'merchant_id' => '',
+            ],
+            'stripe' => [
+                'test_mode' => true, 'publishable_key' => '', 'secret_key' => '', 'webhook_secret' => '',
+            ],
+        ];
+
+        self::assertSame(['paypal'], $service->availableProvidersForSnapshot($snapshot));
+        self::assertSame([], $service->runtimeIssuesForSnapshot($snapshot));
+
+        $snapshot['paypal']['secret'] = '';
+        self::assertNotSame([], $service->runtimeIssuesForSnapshot($snapshot));
+
+        $snapshot['enabled'] = false;
+        self::assertNotSame([], $service->runtimeIssuesForSnapshot($snapshot));
     }
 }

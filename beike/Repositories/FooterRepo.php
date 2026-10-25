@@ -12,6 +12,8 @@
 
 namespace Beike\Repositories;
 
+use App\Services\PlatformPayment\PlatformPaymentSessionService;
+use App\Services\PlatformPayment\PlatformPaymentSettings;
 use Beike\Services\BuilderStateService;
 use Beike\Services\HtmlPurifierConfig;
 
@@ -383,6 +385,15 @@ class FooterRepo
                 // not wallet buttons. Never advertise Apple Pay or Google Pay
                 // until those checkout methods are actually available.
                 $available = array_merge($available, ['visa', 'mastercard', 'amex', 'discover', 'jcb', 'diners', 'unionpay', 'cartes_bancaires']);
+            } elseif ($code === PlatformPaymentSessionService::PAYMENT_CODE) {
+                try {
+                    $providers = app(PlatformPaymentSettings::class)->availableProviders();
+                    $available = array_merge($available, PlatformPaymentSettings::paymentMarksForProviders($providers));
+                } catch (\Throwable $exception) {
+                    logger()->notice('Unable to resolve hosted payment marks for the footer.', [
+                        'exception' => $exception::class,
+                    ]);
+                }
             } else {
                 $available[] = str_replace('-', '_', $code);
             }

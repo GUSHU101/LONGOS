@@ -14,6 +14,8 @@ namespace Beike\Shop\Services;
 
 use App\Saas\Support\SensitiveValueRedactor;
 use App\Services\PaymentPluginReadiness;
+use App\Services\PlatformPayment\PlatformPaymentSessionService;
+use App\Services\PlatformPayment\PlatformPaymentSettings;
 use Beike\Exceptions\CartException;
 use Beike\Libraries\Weight;
 use Beike\Models\Address;
@@ -613,6 +615,25 @@ class CheckoutService
                     ]);
 
                     continue;
+                }
+
+                if ((string) $method['code'] === PlatformPaymentSessionService::PAYMENT_CODE) {
+                    $providers = app(PlatformPaymentSettings::class)->availableProviders();
+                    if ($providers === []) {
+                        continue;
+                    }
+
+                    $hasPaypal = in_array('paypal', $providers, true);
+                    $hasStripe = in_array('stripe', $providers, true);
+                    $nameKey   = $hasPaypal && $hasStripe
+                        ? 'shop/checkout.platform_paypal_card'
+                        : ($hasPaypal ? 'shop/checkout.platform_paypal' : 'shop/checkout.platform_card');
+
+                    $method['name']           = trans($nameKey);
+                    $method['description']    = trans('shop/checkout.platform_pay_help');
+                    $method['icon']           = '';
+                    $method['provider_codes'] = $providers;
+                    $method['brand_marks']    = PlatformPaymentSettings::paymentMarksForProviders($providers);
                 }
 
                 $methods[] = $method;

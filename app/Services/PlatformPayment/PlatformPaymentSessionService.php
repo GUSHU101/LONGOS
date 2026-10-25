@@ -9,6 +9,8 @@ use Beike\Models\Order;
 use Beike\Models\OrderPayment;
 use Beike\Repositories\OrderPaymentRepo;
 use Beike\Services\StateMachineService;
+use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -30,7 +32,7 @@ class PlatformPaymentSessionService
         if ((bool) data_get($site->meta, 'control_site', false)) {
             throw new RuntimeException('主站不能通过平台代收向自身发起支付。');
         }
-        if ($this->settings->issues() !== []) {
+        if ($this->settings->runtimeIssues() !== []) {
             throw new RuntimeException('平台代收当前不可用，请联系平台管理员。');
         }
         $this->assertPayableOrder($order);
@@ -41,25 +43,93 @@ class PlatformPaymentSessionService
             throw new RuntimeException('订单支付金额无效。');
         }
 
-        $token   = bin2hex(random_bytes(32));
-        $session = PlatformPaymentSession::query()->create([
-            'uuid'         => (string) Str::uuid(),
-            'token_hash'   => hash('sha256', $token),
-            'site_id'      => $site->id,
-            'order_id'     => $order->id,
-            'order_number' => (string) $order->number,
-            'amount'       => number_format($amount, 8, '.', ''),
-            'currency'     => $currency,
-            'locale'       => preg_match('/^[A-Za-z_]{2,16}$/', (string) $order->locale) ? (string) $order->locale : 'en',
-            'status'       => PlatformPaymentSession::STATUS_PENDING,
-            'expires_at'   => now()->addHours(2),
-        ]);
+        $activeKey = hash('sha256', $site->id . ':' . $order->id);
+        $lock      = Cache::lock('platform-payment:create:' . $activeKey, 30);
 
-        return [
-            'session'      => $session,
-            'token'        => $token,
-            'checkout_url' => $this->settings->mainUrl("_longos/pay/{$token}"),
-        ];
+        try {
+            $lock->block(10);
+        } catch (LockTimeoutException) {
+            throw new RuntimeException('订单支付会话正在创建，请稍后重试。');
+        }
+
+        try {
+            $created = DB::connection('saas')->transaction(function () use ($site, $order, $amount, $currency, $activeKey): array {
+                $candidates = PlatformPaymentSession::query()
+                    ->where('site_id', $site->id)
+                    ->where('order_id', $order->id)
+                    ->whereIn('status', [PlatformPaymentSession::STATUS_PENDING, PlatformPaymentSession::STATUS_PROCESSING])
+                    ->lockForUpdate()
+                    ->latest('id')
+                    ->get();
+
+                foreach ($candidates as $candidate) {
+                    if (! $candidate->isOpen()) {
+                        $candidate->forceFill([
+                            'status'     => PlatformPaymentSession::STATUS_EXPIRED,
+                            'active_key' => null,
+                        ])->save();
+
+                        continue;
+                    }
+
+                    $token = $this->tokenForUuid((string) $candidate->uuid);
+                    if (hash_equals((string) $candidate->token_hash, hash('sha256', $token))) {
+                        return ['session' => $candidate->fresh(['site.domains']), 'token' => $token];
+                    }
+
+                    // Sessions issued before deterministic capability tokens
+                    // cannot be reconstructed. An untouched session is safe
+                    // to retire; a provider-bound session must finish or
+                    // expire before another charge can be attempted.
+                    if ($candidate->provider || $candidate->provider_order_id) {
+                        throw new RuntimeException('该订单已有支付流程进行中，请返回原支付页或稍后重试。');
+                    }
+                    $candidate->forceFill([
+                        'status'     => PlatformPaymentSession::STATUS_CANCELLED,
+                        'active_key' => null,
+                    ])->save();
+                }
+
+                $uuid    = (string) Str::uuid();
+                $token   = $this->tokenForUuid($uuid);
+                $session = PlatformPaymentSession::query()->create([
+                    'uuid'         => $uuid,
+                    'token_hash'   => hash('sha256', $token),
+                    'active_key'   => $activeKey,
+                    'site_id'      => $site->id,
+                    'order_id'     => $order->id,
+                    'order_number' => (string) $order->number,
+                    'amount'       => number_format($amount, 8, '.', ''),
+                    'currency'     => $currency,
+                    'locale'       => preg_match('/^[A-Za-z_]{2,16}$/', (string) $order->locale) ? (string) $order->locale : 'en',
+                    'status'       => PlatformPaymentSession::STATUS_PENDING,
+                    'expires_at'   => now()->addHours(2),
+                ]);
+
+                return ['session' => $session, 'token' => $token];
+            }, 3);
+        } catch (UniqueConstraintViolationException $exception) {
+            // The database constraint remains the final double-charge guard
+            // when two app nodes do not share the same cache lock backend.
+            $session = PlatformPaymentSession::query()
+                ->with('site.domains')
+                ->where('active_key', $activeKey)
+                ->first();
+            if (! $session || ! $session->isOpen()) {
+                throw $exception;
+            }
+
+            $token = $this->tokenForUuid((string) $session->uuid);
+            if (! hash_equals((string) $session->token_hash, hash('sha256', $token))) {
+                throw $exception;
+            }
+
+            $created = ['session' => $session, 'token' => $token];
+        } finally {
+            $lock->release();
+        }
+
+        return $this->createdPayload($created['session'], $created['token']);
     }
 
     public function resolve(string $token, bool $allowCompleted = true): PlatformPaymentSession
@@ -76,7 +146,7 @@ class PlatformPaymentSessionService
             throw new RuntimeException('支付链接不存在或已失效。');
         }
         if ($session->expires_at?->isPast() && $session->status !== PlatformPaymentSession::STATUS_COMPLETED) {
-            $session->forceFill(['status' => PlatformPaymentSession::STATUS_EXPIRED])->save();
+            $session->forceFill(['status' => PlatformPaymentSession::STATUS_EXPIRED, 'active_key' => null])->save();
 
             throw new RuntimeException('支付链接已过期，请返回店铺重新发起支付。');
         }
@@ -92,7 +162,13 @@ class PlatformPaymentSessionService
 
     public function bindProvider(PlatformPaymentSession $session, string $provider, string $providerOrderId): PlatformPaymentSession
     {
-        if (! in_array($provider, $this->settings->configuredProviders(), true)) {
+        // A channel may be disabled while a customer is returning from the
+        // provider. Allow an already-claimed session to finish with valid
+        // credentials, but never let a disabled channel claim a new session.
+        $providers = hash_equals((string) $session->provider, $provider)
+            ? $this->settings->configuredProviders()
+            : $this->settings->availableProviders();
+        if (! in_array($provider, $providers, true)) {
             throw new RuntimeException('所选支付方式当前不可用。');
         }
 
@@ -129,7 +205,7 @@ class PlatformPaymentSessionService
 
     public function claimProvider(PlatformPaymentSession $session, string $provider): PlatformPaymentSession
     {
-        if (! in_array($provider, $this->settings->configuredProviders(), true)) {
+        if (! in_array($provider, $this->settings->availableProviders(), true)) {
             throw new RuntimeException('所选支付方式当前不可用。');
         }
 
@@ -163,7 +239,16 @@ class PlatformPaymentSessionService
     public function complete(PlatformPaymentSession $session, string $provider, string $providerOrderId, string $transactionId, array $providerPayload): PlatformPaymentSession
     {
         $lock = Cache::lock('platform-payment:complete:' . $session->uuid, 120);
-        if (! $lock->get()) {
+
+        try {
+            $lock->block(10);
+        } catch (LockTimeoutException) {
+            $session->refresh();
+            if ($session->status === PlatformPaymentSession::STATUS_COMPLETED
+                && hash_equals((string) $session->provider_transaction_id, $transactionId)) {
+                return $session->loadMissing('site.domains');
+            }
+
             throw new RuntimeException('支付结果正在处理中，请稍后刷新。');
         }
 
@@ -214,6 +299,7 @@ class PlatformPaymentSessionService
 
             $session->forceFill([
                 'status'                  => PlatformPaymentSession::STATUS_COMPLETED,
+                'active_key'              => null,
                 'provider_transaction_id' => $transactionId,
                 'provider_payload'        => $providerPayload,
                 'completed_at'            => now(),
@@ -228,7 +314,7 @@ class PlatformPaymentSessionService
     public function cancel(PlatformPaymentSession $session): void
     {
         if ($session->status === PlatformPaymentSession::STATUS_PENDING) {
-            $session->forceFill(['status' => PlatformPaymentSession::STATUS_CANCELLED])->save();
+            $session->forceFill(['status' => PlatformPaymentSession::STATUS_CANCELLED, 'active_key' => null])->save();
         }
     }
 
@@ -252,6 +338,26 @@ class PlatformPaymentSessionService
         if ((string) $order->status !== StateMachineService::UNPAID) {
             throw new RuntimeException('订单已不再等待付款。');
         }
+    }
+
+    /** @return array{session: PlatformPaymentSession, token: string, checkout_url: string} */
+    private function createdPayload(PlatformPaymentSession $session, string $token): array
+    {
+        return [
+            'session'      => $session,
+            'token'        => $token,
+            'checkout_url' => $this->settings->mainUrl("_longos/pay/{$token}"),
+        ];
+    }
+
+    private function tokenForUuid(string $uuid): string
+    {
+        $key = (string) config('app.key');
+        if ($key === '') {
+            throw new RuntimeException('应用密钥尚未配置，无法创建安全支付链接。');
+        }
+
+        return hash_hmac('sha256', 'longos-platform-payment|' . $uuid, $key);
     }
 
     private function assertOrderSnapshot(Order $order, PlatformPaymentSession $session): void

@@ -23,7 +23,7 @@ final class PaymentPluginReadiness
     {
         $controlSite = (bool) data_get(current_site()?->meta, 'control_site', false);
 
-        return app(PlatformPaymentSettings::class)->issues(! $controlSite);
+        return app(PlatformPaymentSettings::class)->runtimeIssues(! $controlSite);
     }
 
     public static function isReady(string $code): bool

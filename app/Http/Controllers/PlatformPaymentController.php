@@ -26,27 +26,40 @@ class PlatformPaymentController extends Controller
     {
         try {
             $session = $this->sessions->resolve($token);
-            App::setLocale($session->locale ?: 'en');
-            if ($session->status === PlatformPaymentSession::STATUS_COMPLETED) {
-                return redirect()->away($this->sessions->tenantSuccessUrl($session));
-            }
-            $snapshot  = $this->settings->snapshot();
-            $providers = $this->settings->availableProviders();
-            abort_if($providers === [], 503, '平台收款暂不可用。');
-
-            return view('platform-pay.checkout', [
-                'session'              => $session,
-                'token'                => $token,
-                'providers'            => $providers,
-                'paypalClientId'       => in_array('paypal', $providers, true) ? $snapshot['paypal']['client_id'] : '',
-                'paypalMerchantId'     => in_array('paypal', $providers, true) ? $snapshot['paypal']['merchant_id'] : '',
-                'stripePublishableKey' => in_array('stripe', $providers, true) ? $snapshot['stripe']['publishable_key'] : '',
-                'cancelUrl'            => $this->settings->mainUrl("_longos/pay/{$token}/cancel"),
-            ]);
         } catch (Throwable $e) {
             Log::notice('Platform payment page rejected.', ['exception' => $e::class]);
             abort(410, '支付链接不存在、已结束或已过期。');
         }
+
+        App::setLocale($session->locale ?: 'en');
+        if ($session->status === PlatformPaymentSession::STATUS_COMPLETED) {
+            return redirect()->away($this->sessions->tenantSuccessUrl($session));
+        }
+
+        try {
+            $snapshot  = $this->settings->snapshot();
+            $providers = $this->settings->availableProvidersForSnapshot($snapshot);
+            if ($session->provider) {
+                $configured = $this->settings->configuredProviders($snapshot);
+                $providers  = in_array($session->provider, $configured, true) ? [$session->provider] : [];
+            }
+            abort_if($providers === [], 503, '平台收款暂不可用。');
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            throw $e;
+        } catch (Throwable $e) {
+            Log::error('Platform payment providers are unavailable.', ['exception' => $e::class]);
+            abort(503, '平台收款暂不可用。');
+        }
+
+        return view('platform-pay.checkout', [
+            'session'              => $session,
+            'token'                => $token,
+            'providers'            => $providers,
+            'paypalClientId'       => in_array('paypal', $providers, true) ? $snapshot['paypal']['client_id'] : '',
+            'paypalMerchantId'     => in_array('paypal', $providers, true) ? $snapshot['paypal']['merchant_id'] : '',
+            'stripePublishableKey' => in_array('stripe', $providers, true) ? $snapshot['stripe']['publishable_key'] : '',
+            'cancelUrl'            => $snapshot['control_url'] . "/_longos/pay/{$token}/cancel",
+        ]);
     }
 
     public function paypalCreate(string $token): JsonResponse
@@ -70,6 +83,9 @@ class PlatformPaymentController extends Controller
             $data    = $request->validate(['paypal_order_id' => ['required', 'string', 'max:64', 'regex:/^[A-Z0-9]{10,32}$/']]);
             $session = $this->sessions->resolve($token);
             App::setLocale($session->locale ?: 'en');
+            if ($this->isCompletedBy($session, 'paypal', $data['paypal_order_id'])) {
+                return json_success('Payment already completed.', ['redirect_url' => $this->sessions->tenantSuccessUrl($session)]);
+            }
             $this->sessions->assertProviderBinding($session, 'paypal', $data['paypal_order_id']);
             $result  = app(PlatformPaypalGateway::class)->capture($session, $data['paypal_order_id']);
             $session = $this->sessions->complete($session, 'paypal', $data['paypal_order_id'], $result['transaction_id'], $result['payload']);
@@ -101,6 +117,9 @@ class PlatformPaymentController extends Controller
             $data    = $request->validate(['payment_intent_id' => ['required', 'string', 'max:160', 'regex:/^pi_[A-Za-z0-9_]{8,128}$/']]);
             $session = $this->sessions->resolve($token);
             App::setLocale($session->locale ?: 'en');
+            if ($this->isCompletedBy($session, 'stripe', $data['payment_intent_id'])) {
+                return json_success('Payment already completed.', ['redirect_url' => $this->sessions->tenantSuccessUrl($session)]);
+            }
             $this->sessions->assertProviderBinding($session, 'stripe', $data['payment_intent_id']);
             $result  = app(PlatformStripeGateway::class)->confirm($session, $data['payment_intent_id']);
             $session = $this->sessions->complete($session, 'stripe', $data['payment_intent_id'], $result['transaction_id'], $result['payload']);
@@ -113,25 +132,33 @@ class PlatformPaymentController extends Controller
 
     public function providerReturn(Request $request, string $token, string $provider): RedirectResponse
     {
+        $session = null;
+
         try {
             $session = $this->sessions->resolve($token);
             if ($provider === 'paypal') {
                 $providerOrderId = trim((string) $request->query('token', ''));
-                $this->sessions->assertProviderBinding($session, 'paypal', $providerOrderId);
-                $result          = app(PlatformPaypalGateway::class)->capture($session, $providerOrderId);
             } elseif ($provider === 'stripe') {
                 $providerOrderId = trim((string) $request->query('payment_intent', ''));
-                $this->sessions->assertProviderBinding($session, 'stripe', $providerOrderId);
-                $result          = app(PlatformStripeGateway::class)->confirm($session, $providerOrderId);
             } else {
                 abort(404);
             }
+            if ($this->isCompletedBy($session, $provider, $providerOrderId)) {
+                return redirect()->away($this->sessions->tenantSuccessUrl($session));
+            }
+
+            $this->sessions->assertProviderBinding($session, $provider, $providerOrderId);
+            $result = $provider === 'paypal'
+                ? app(PlatformPaypalGateway::class)->capture($session, $providerOrderId)
+                : app(PlatformStripeGateway::class)->confirm($session, $providerOrderId);
             $session = $this->sessions->complete($session, $provider, $providerOrderId, $result['transaction_id'], $result['payload']);
 
             return redirect()->away($this->sessions->tenantSuccessUrl($session));
         } catch (Throwable $e) {
             Log::warning('Platform payment provider return failed.', ['provider' => $provider, 'exception' => $e::class]);
-            $session = $this->sessions->resolve($token);
+            if (! $session instanceof PlatformPaymentSession) {
+                abort(410, '支付链接不存在、已结束或已过期。');
+            }
 
             return redirect()->away($this->sessions->tenantCheckoutUrl($session) . '?payment_error=1');
         }
@@ -139,7 +166,15 @@ class PlatformPaymentController extends Controller
 
     public function cancel(string $token): RedirectResponse
     {
-        $session = $this->sessions->resolve($token);
+        try {
+            $session = $this->sessions->resolve($token);
+        } catch (Throwable $e) {
+            Log::notice('Platform payment cancellation rejected.', ['exception' => $e::class]);
+            abort(410, '支付链接不存在、已结束或已过期。');
+        }
+        if ($session->status === PlatformPaymentSession::STATUS_COMPLETED) {
+            return redirect()->away($this->sessions->tenantSuccessUrl($session));
+        }
         $this->sessions->cancel($session);
 
         return redirect()->away($this->sessions->tenantCheckoutUrl($session) . '?payment_cancelled=1');
@@ -150,5 +185,13 @@ class PlatformPaymentController extends Controller
         Log::warning($message, ['exception' => $e::class]);
 
         return json_fail($message, [], 422);
+    }
+
+    private function isCompletedBy(PlatformPaymentSession $session, string $provider, string $providerOrderId): bool
+    {
+        return $session->status === PlatformPaymentSession::STATUS_COMPLETED
+            && $providerOrderId !== ''
+            && hash_equals((string) $session->provider, $provider)
+            && hash_equals((string) $session->provider_order_id, $providerOrderId);
     }
 }
