@@ -6,6 +6,7 @@ return [
     'continue'     => '前往安全支付',
     'connecting'   => '正在创建安全支付会话…',
     'failed'       => '暂时无法连接主站支付，请稍后重试。',
+    'timeout'      => '主站支付响应超时，请检查网络后重试。',
     'admin'        => [
         'one_click'              => '一键启用',
         'platform_collection'    => '平台代收',

@@ -13,9 +13,12 @@ return [
     'card_details'       => '银行卡信息',
     'pay'                => '支付 :amount',
     'cancel'             => '取消并返回店铺',
+    'return_to_store'    => '返回订单',
+    'unavailable_help'   => '当前没有可用的付款渠道。请返回订单稍后重试；本次尚未扣款。',
     'expires'            => '会话将在 :time 过期。订单信息与账户密钥不会发送给其他子站。',
     'status'             => [
         'unavailable'       => '支付服务暂时不可用。',
+        'timeout'           => '支付请求超时，请检查网络并确认结果后再重试。',
         'locked'            => '当前会话已选择其他支付方式，请返回店铺重新发起支付。',
         'missing_redirect'  => '支付完成，但返回地址无效。',
         'connect_paypal'    => '正在连接 PayPal…',

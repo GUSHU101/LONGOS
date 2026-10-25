@@ -58,10 +58,25 @@ class PlatformStripeGateway
     /** @return array{transaction_id: string, payload: array<string, mixed>} */
     public function confirm(PlatformPaymentSession $session, string $paymentIntentId): array
     {
+        $completed = $this->recoverCompleted($session, $paymentIntentId);
+        if ($completed === null) {
+            throw new RuntimeException('Stripe 付款尚未完成。');
+        }
+
+        return $completed;
+    }
+
+    /** @return array{transaction_id: string, payload: array<string, mixed>}|null */
+    public function recoverCompleted(PlatformPaymentSession $session, string $paymentIntentId): ?array
+    {
         if (preg_match('/^pi_[A-Za-z0-9_]{8,128}$/', $paymentIntentId) !== 1) {
             throw new RuntimeException('Stripe PaymentIntent 编号无效。');
         }
         $data = $this->client->paymentIntents->retrieve($paymentIntentId, [])->toArray();
+        $this->validate($session, $data, false);
+        if ((string) ($data['status'] ?? '') !== 'succeeded') {
+            return null;
+        }
         $this->validate($session, $data, true);
 
         return ['transaction_id' => $paymentIntentId, 'payload' => $this->safePayload($data)];

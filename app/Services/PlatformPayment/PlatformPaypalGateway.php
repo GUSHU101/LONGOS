@@ -103,7 +103,38 @@ class PlatformPaypalGateway
             'Prefer'            => 'return=representation',
         ]);
         $result = $this->client->capturePaymentOrder($paypalOrderId);
-        if (! is_array($result) || strtoupper((string) ($result['status'] ?? '')) !== 'COMPLETED') {
+        if (! is_array($result)) {
+            throw new RuntimeException('PayPal 付款尚未完成。');
+        }
+
+        return $this->completedResult($session, $paypalOrderId, $result);
+    }
+
+    /** @return array{transaction_id: string, payload: array<string, mixed>}|null */
+    public function recoverCompleted(PlatformPaymentSession $session, string $paypalOrderId): ?array
+    {
+        if (preg_match('/^[A-Z0-9]{10,32}$/', $paypalOrderId) !== 1) {
+            throw new RuntimeException('PayPal 订单编号无效。');
+        }
+
+        $result = $this->client->showOrderDetails($paypalOrderId);
+        if (! is_array($result)) {
+            throw new RuntimeException('PayPal 未返回有效订单状态。');
+        }
+        if (! hash_equals($paypalOrderId, (string) ($result['id'] ?? ''))) {
+            throw new RuntimeException('PayPal 返回的订单与支付会话不匹配。');
+        }
+        if (strtoupper((string) ($result['status'] ?? '')) !== 'COMPLETED') {
+            return null;
+        }
+
+        return $this->completedResult($session, $paypalOrderId, $result);
+    }
+
+    /** @param array<string, mixed> $result @return array{transaction_id: string, payload: array<string, mixed>} */
+    private function completedResult(PlatformPaymentSession $session, string $paypalOrderId, array $result): array
+    {
+        if (strtoupper((string) ($result['status'] ?? '')) !== 'COMPLETED') {
             throw new RuntimeException('PayPal 付款尚未完成。');
         }
         if (! hash_equals($paypalOrderId, (string) ($result['id'] ?? ''))) {

@@ -13,6 +13,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Log;
 use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 
 class PlatformPaymentController extends Controller
@@ -22,7 +23,7 @@ class PlatformPaymentController extends Controller
         private readonly PlatformPaymentSettings $settings,
     ) {}
 
-    public function show(string $token): View|RedirectResponse
+    public function show(string $token): View|Response
     {
         try {
             $session = $this->sessions->resolve($token);
@@ -36,6 +37,8 @@ class PlatformPaymentController extends Controller
             return redirect()->away($this->sessions->tenantSuccessUrl($session));
         }
 
+        $snapshot = null;
+
         try {
             $snapshot  = $this->settings->snapshot();
             $providers = $this->settings->availableProvidersForSnapshot($snapshot);
@@ -43,36 +46,47 @@ class PlatformPaymentController extends Controller
                 $configured = $this->settings->configuredProviders($snapshot);
                 $providers  = in_array($session->provider, $configured, true) ? [$session->provider] : [];
             }
-            abort_if($providers === [], 503, '平台收款暂不可用。');
-        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
-            throw $e;
         } catch (Throwable $e) {
             Log::error('Platform payment providers are unavailable.', ['exception' => $e::class]);
-            abort(503, '平台收款暂不可用。');
+            $providers = [];
         }
 
-        return view('platform-pay.checkout', [
+        $viewData = [
             'session'              => $session,
             'token'                => $token,
             'providers'            => $providers,
-            'paypalClientId'       => in_array('paypal', $providers, true) ? $snapshot['paypal']['client_id'] : '',
-            'paypalMerchantId'     => in_array('paypal', $providers, true) ? $snapshot['paypal']['merchant_id'] : '',
-            'stripePublishableKey' => in_array('stripe', $providers, true) ? $snapshot['stripe']['publishable_key'] : '',
-            'cancelUrl'            => $snapshot['control_url'] . "/_longos/pay/{$token}/cancel",
-        ]);
+            'paypalClientId'       => in_array('paypal', $providers, true) ? (string) data_get($snapshot, 'paypal.client_id', '') : '',
+            'paypalMerchantId'     => in_array('paypal', $providers, true) ? (string) data_get($snapshot, 'paypal.merchant_id', '') : '',
+            'stripePublishableKey' => in_array('stripe', $providers, true) ? (string) data_get($snapshot, 'stripe.publishable_key', '') : '',
+            'cancelUrl'            => $providers === []
+                ? $this->sessions->tenantRecoveryUrl($session, 'unavailable')
+                : (string) $snapshot['control_url'] . "/_longos/pay/{$token}/cancel",
+        ];
+
+        return $providers === []
+            ? response()->view('platform-pay.checkout', $viewData, 503)
+            : view('platform-pay.checkout', $viewData);
     }
 
     public function paypalCreate(string $token): JsonResponse
     {
+        $session         = null;
+        $providerCreated = false;
+
         try {
             $session = $this->sessions->resolve($token);
             App::setLocale($session->locale ?: 'en');
-            $session = $this->sessions->claimProvider($session, 'paypal');
-            $result  = app(PlatformPaypalGateway::class)->create($session, $token);
+            $session         = $this->sessions->claimProvider($session, 'paypal');
+            $result          = app(PlatformPaypalGateway::class)->create($session, $token);
+            $providerCreated = true;
             $this->sessions->bindProvider($session, 'paypal', $result['id']);
 
             return json_success('PayPal order created.', ['id' => $result['id']]);
         } catch (Throwable $e) {
+            if ($session instanceof PlatformPaymentSession && ! $providerCreated) {
+                $this->releaseClaim($session, 'paypal');
+            }
+
             return $this->error($e, __('platform_pay.status.paypal_failed'));
         }
     }
@@ -98,15 +112,23 @@ class PlatformPaymentController extends Controller
 
     public function stripeIntent(string $token): JsonResponse
     {
+        $session         = null;
+        $providerCreated = false;
+
         try {
             $session = $this->sessions->resolve($token);
             App::setLocale($session->locale ?: 'en');
-            $session = $this->sessions->claimProvider($session, 'stripe');
-            $result  = app(PlatformStripeGateway::class)->create($session);
+            $session         = $this->sessions->claimProvider($session, 'stripe');
+            $result          = app(PlatformStripeGateway::class)->create($session);
+            $providerCreated = true;
             $this->sessions->bindProvider($session, 'stripe', $result['id']);
 
             return json_success('Stripe PaymentIntent created.', $result);
         } catch (Throwable $e) {
+            if ($session instanceof PlatformPaymentSession && ! $providerCreated) {
+                $this->releaseClaim($session, 'stripe');
+            }
+
             return $this->error($e, __('platform_pay.status.stripe_failed'));
         }
     }
@@ -160,7 +182,7 @@ class PlatformPaymentController extends Controller
                 abort(410, '支付链接不存在、已结束或已过期。');
             }
 
-            return redirect()->away($this->sessions->tenantCheckoutUrl($session) . '?payment_error=1');
+            return redirect()->away($this->sessions->tenantRecoveryUrl($session, 'error'));
         }
     }
 
@@ -177,7 +199,7 @@ class PlatformPaymentController extends Controller
         }
         $this->sessions->cancel($session);
 
-        return redirect()->away($this->sessions->tenantCheckoutUrl($session) . '?payment_cancelled=1');
+        return redirect()->away($this->sessions->tenantRecoveryUrl($session, 'cancelled'));
     }
 
     private function error(Throwable $e, string $message): JsonResponse
@@ -185,6 +207,18 @@ class PlatformPaymentController extends Controller
         Log::warning($message, ['exception' => $e::class]);
 
         return json_fail($message, [], 422);
+    }
+
+    private function releaseClaim(PlatformPaymentSession $session, string $provider): void
+    {
+        try {
+            $this->sessions->releaseUnboundProviderClaim($session, $provider);
+        } catch (Throwable $exception) {
+            Log::warning('Platform payment provider claim could not be released.', [
+                'provider'  => $provider,
+                'exception' => $exception::class,
+            ]);
+        }
     }
 
     private function isCompletedBy(PlatformPaymentSession $session, string $provider, string $providerOrderId): bool

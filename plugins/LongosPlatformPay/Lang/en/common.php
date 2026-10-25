@@ -6,6 +6,7 @@ return [
     'continue'     => 'Continue to secure payment',
     'connecting'   => 'Creating a secure payment session…',
     'failed'       => 'The secure payment service is temporarily unavailable. Please try again.',
+    'timeout'      => 'The secure payment service took too long to respond. Please check your connection and try again.',
     'admin'        => [
         'one_click'             => 'One-click enablement',
         'platform_collection'   => 'Platform collection',

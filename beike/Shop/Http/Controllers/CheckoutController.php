@@ -187,7 +187,17 @@ class CheckoutController extends Controller
             abort(404);
         }
 
-        $data     = hook_filter('account.order.show.data', ['order' => $order, 'html_items' => []]);
+        $notice = match ((string) request('payment_status')) {
+            'cancelled'   => trans('shop/checkout.platform_pay_cancelled'),
+            'error'       => trans('shop/checkout.platform_pay_error'),
+            'unavailable' => trans('shop/checkout.platform_pay_unavailable'),
+            default       => '',
+        };
+        $data = hook_filter('account.order.show.data', [
+            'order'                  => $order,
+            'html_items'             => [],
+            'platformPaymentNotice'  => $notice,
+        ]);
 
         return view('checkout/success', $data);
     }

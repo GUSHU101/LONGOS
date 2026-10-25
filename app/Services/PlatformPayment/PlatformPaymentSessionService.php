@@ -103,7 +103,7 @@ class PlatformPaymentSessionService
                     'currency'     => $currency,
                     'locale'       => preg_match('/^[A-Za-z_]{2,16}$/', (string) $order->locale) ? (string) $order->locale : 'en',
                     'status'       => PlatformPaymentSession::STATUS_PENDING,
-                    'expires_at'   => now()->addHours(2),
+                    'expires_at'   => now()->addHours(3),
                 ]);
 
                 return ['session' => $session, 'token' => $token];
@@ -226,6 +226,24 @@ class PlatformPaymentSessionService
         }, 3);
     }
 
+    public function releaseUnboundProviderClaim(PlatformPaymentSession $session, string $provider): void
+    {
+        DB::connection('saas')->transaction(function () use ($session, $provider): void {
+            $locked = PlatformPaymentSession::query()->lockForUpdate()->find($session->id);
+            if (! $locked
+                || $locked->status !== PlatformPaymentSession::STATUS_PROCESSING
+                || ! hash_equals((string) $locked->provider, $provider)
+                || $locked->provider_order_id !== null) {
+                return;
+            }
+
+            $locked->forceFill([
+                'provider' => null,
+                'status'   => PlatformPaymentSession::STATUS_PENDING,
+            ])->save();
+        }, 3);
+    }
+
     public function assertProviderBinding(PlatformPaymentSession $session, string $provider, string $providerOrderId): void
     {
         $session->refresh();
@@ -325,9 +343,14 @@ class PlatformPaymentSessionService
         ]));
     }
 
-    public function tenantCheckoutUrl(PlatformPaymentSession $session): string
+    public function tenantRecoveryUrl(PlatformPaymentSession $session, string $status): string
     {
-        return $this->tenants->run($session->site, fn (): string => shop_route('checkout.index'));
+        $status = in_array($status, ['cancelled', 'error', 'unavailable'], true) ? $status : 'error';
+
+        return $this->tenants->run($session->site, fn (): string => shop_route('checkout.success', [
+            'order_number'    => $session->order_number,
+            'payment_status'  => $status,
+        ]));
     }
 
     private function assertPayableOrder(Order $order): void

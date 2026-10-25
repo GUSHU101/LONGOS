@@ -14,17 +14,24 @@
   const button = document.getElementById('longos-platform-pay-button')
   const status = document.getElementById('longos-platform-pay-status')
   if (!button || button.dataset.bound === '1') return
+  const resetButton = () => {
+    button.disabled = false
+    button.removeAttribute('aria-busy')
+  }
   button.dataset.bound = '1'
+  window.addEventListener('pageshow', resetButton)
   button.addEventListener('click', async () => {
     if (button.disabled) return
     button.disabled = true
     button.setAttribute('aria-busy', 'true')
     status.className = 'mt-2 small text-secondary'
     status.textContent = @json(trans('LongosPlatformPay::common.connecting'))
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), 20000)
     try {
       const csrf = document.querySelector('meta[name="csrf-token"]')?.content || ''
       const response = await fetch(@json(shop_route('longos_platform_pay.session')), {
-        method: 'POST', credentials: 'same-origin',
+        method: 'POST', credentials: 'same-origin', signal: controller.signal,
         headers: {'Accept':'application/json','Content-Type':'application/json','X-CSRF-TOKEN':csrf},
         body: JSON.stringify({order_number: @json($order->number ?? '')}),
       })
@@ -35,10 +42,13 @@
       window.location.assign(payload.data.checkout_url)
     } catch (error) {
       status.className = 'mt-2 small text-danger'
-      status.textContent = error?.message || @json(trans('LongosPlatformPay::common.failed'))
-      button.disabled = false
-      button.removeAttribute('aria-busy')
+      status.textContent = error?.name === 'AbortError'
+        ? @json(trans('LongosPlatformPay::common.timeout'))
+        : (error?.message || @json(trans('LongosPlatformPay::common.failed')))
+      resetButton()
       button.focus()
+    } finally {
+      window.clearTimeout(timeout)
     }
   })
 })()

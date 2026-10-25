@@ -26,6 +26,13 @@
       </div>
     @endif
 
+    @if (!empty($platformPaymentNotice) && $paymentRequired)
+      <div class="purchase-alert" role="alert" tabindex="-1">
+        <i class="bi bi-exclamation-circle" aria-hidden="true"></i>
+        <div><strong>{{ __('shop/checkout.payment_needs_attention') }}</strong><p>{{ $platformPaymentNotice }}</p></div>
+      </div>
+    @endif
+
     <section class="purchase-card order-result-card">
       <header class="purchase-card__header purchase-card__header--centered">
         <span class="purchase-status-icon {{ $paymentRequired ? 'purchase-status-icon--pending' : 'purchase-status-icon--success' }}" aria-hidden="true">

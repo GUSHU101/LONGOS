@@ -17,7 +17,7 @@
     *{box-sizing:border-box}body{margin:0;background:#f5f7fb;color:var(--ink);font:16px/1.5 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
     .shell{width:min(100% - 32px,720px);margin:40px auto}.brand{display:flex;align-items:center;gap:10px;margin-bottom:20px;font-weight:800;letter-spacing:.04em}.brand-mark{display:grid;width:34px;height:34px;border-radius:10px;background:var(--blue);color:#fff;place-items:center}
     .card{overflow:hidden;border:1px solid #e4e7ec;border-radius:20px;background:#fff;box-shadow:0 18px 46px rgba(16,24,40,.08)}.head{padding:28px;border-bottom:1px solid #eaecf0}.eyebrow{margin:0 0 6px;color:var(--blue);font-size:.78rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase}.head h1{margin:0;font-size:clamp(1.5rem,5vw,2rem);line-height:1.2}.store{margin:8px 0 0;color:var(--muted)}.amount{margin-top:22px;font-size:2rem;font-weight:800;font-variant-numeric:tabular-nums}.body{padding:28px}.notice{padding:14px 16px;border:1px solid #b2ccff;border-radius:12px;background:#eff4ff;color:#1849a9;font-size:.9rem}
-    .methods{display:grid;gap:14px;margin-top:22px}.method{border:1px solid var(--line);border-radius:14px;padding:18px}.method h2{margin:0 0 6px;font-size:1.05rem}.method p{margin:0 0 14px;color:var(--muted);font-size:.9rem}.stripe-card{min-height:48px;padding:14px;border:1px solid var(--line);border-radius:10px;background:#fff}.stripe-card:focus-within{border-color:var(--blue);box-shadow:0 0 0 4px var(--focus)}button,.button{display:inline-flex;min-height:48px;align-items:center;justify-content:center;border:0;border-radius:10px;padding:11px 18px;background:var(--blue);color:#fff;font:inherit;font-weight:750;cursor:pointer;text-decoration:none}button:hover{background:#004eeb}button:focus-visible,.button:focus-visible{outline:3px solid var(--focus);outline-offset:2px}button:disabled{cursor:wait;opacity:.65}.cancel{margin-top:18px;background:transparent;color:#344054}.cancel:hover{background:var(--soft)}.status{min-height:24px;margin-top:14px;color:var(--muted)}.status.error{color:var(--danger)}.footer{padding:18px 28px;border-top:1px solid #eaecf0;color:var(--muted);font-size:.8rem}.hidden{display:none!important}
+    .methods{display:grid;gap:14px;margin-top:22px}.method{border:1px solid var(--line);border-radius:14px;padding:18px}.method h2{margin:0 0 6px;font-size:1.05rem}.method p{margin:0 0 14px;color:var(--muted);font-size:.9rem}.stripe-card{min-height:48px;padding:14px;border:1px solid var(--line);border-radius:10px;background:#fff}.stripe-card:focus-within{border-color:var(--blue);box-shadow:0 0 0 4px var(--focus)}button,.button{display:inline-flex;min-height:48px;align-items:center;justify-content:center;border:0;border-radius:10px;padding:11px 18px;background:var(--blue);color:#fff;font:inherit;font-weight:750;cursor:pointer;text-decoration:none}button:hover{background:#004eeb}button:focus-visible,.button:focus-visible{outline:3px solid var(--focus);outline-offset:2px}button:disabled{cursor:wait;opacity:.65}.cancel{margin-top:18px;background:transparent;color:#344054}.cancel:hover{background:var(--soft)}.status{min-height:24px;margin-top:14px;color:var(--muted)}.status.error,.notice.error{color:var(--danger)}.notice.error{border-color:#fecdca;background:#fef3f2}.footer{padding:18px 28px;border-top:1px solid #eaecf0;color:var(--muted);font-size:.8rem}.hidden{display:none!important}
     @media(max-width:520px){.shell{width:100%;margin:0}.card{min-height:100vh;border:0;border-radius:0;box-shadow:none}.head,.body{padding:22px}.footer{padding:18px 22px}}
     @media(prefers-reduced-motion:no-preference){button{transition:background-color .15s ease,opacity .15s ease}}
   </style>
@@ -37,7 +37,12 @@
       <div class="amount" aria-label="{{ __('platform_pay.amount_label') }}">{{ $paymentAmountLabel }}</div>
     </header>
     <div class="body">
-      <div class="notice" role="note">{{ __('platform_pay.notice', ['store' => $session->site->name]) }}</div>
+      @if($providers === [])
+        <div class="notice error" role="alert"><strong>{{ __('platform_pay.status.unavailable') }}</strong><br>{{ __('platform_pay.unavailable_help') }}</div>
+      @else
+        <div class="notice" role="note">{{ __('platform_pay.notice', ['store' => $session->site->name]) }}</div>
+      @endif
+      @if($providers !== [])
       <div class="methods" aria-label="{{ __('platform_pay.methods_label') }}">
         @if(in_array('paypal', $providers, true))
           <section class="method" id="paypal-method" aria-labelledby="paypal-heading">
@@ -57,7 +62,8 @@
         @endif
       </div>
       <div id="payment-status" class="status" role="status" aria-live="polite" tabindex="-1"></div>
-      <a class="button cancel" href="{{ $cancelUrl }}">{{ __('platform_pay.cancel') }}</a>
+      @endif
+      <a class="button {{ $providers === [] ? '' : 'cancel' }}" href="{{ $cancelUrl }}">{{ $providers === [] ? __('platform_pay.return_to_store') : __('platform_pay.cancel') }}</a>
     </div>
     <footer class="footer">{{ __('platform_pay.expires', ['time' => $session->expires_at->format('Y-m-d H:i T')]) }}</footer>
   </section>
@@ -71,10 +77,19 @@ window.addEventListener('DOMContentLoaded', () => {
   let providerLocked = false
   const setStatus = (message, error = false) => { status.textContent = message; status.classList.toggle('error', error) }
   const request = async (path, body = {}) => {
-    const response = await fetch(`/_longos/pay/${token}/${path}`, {method:'POST',credentials:'same-origin',headers,body:JSON.stringify(body)})
-    const payload = await response.json().catch(() => null)
-    if (!response.ok || payload?.status !== 'success') throw new Error(payload?.message || @json(__('platform_pay.status.unavailable')))
-    return payload.data || {}
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), 35000)
+    try {
+      const response = await fetch(`/_longos/pay/${token}/${path}`, {method:'POST',credentials:'same-origin',headers,body:JSON.stringify(body),signal:controller.signal})
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || payload?.status !== 'success') throw new Error(payload?.message || @json(__('platform_pay.status.unavailable')))
+      return payload.data || {}
+    } catch (error) {
+      if (error?.name === 'AbortError') throw new Error(@json(__('platform_pay.status.timeout')))
+      throw error
+    } finally {
+      window.clearTimeout(timeout)
+    }
   }
   const lockProvider = (provider) => {
     if (providerLocked && providerLocked !== provider) throw new Error(@json(__('platform_pay.status.locked')))

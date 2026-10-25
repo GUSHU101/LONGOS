@@ -13,9 +13,12 @@ return [
     'card_details'       => 'Card details',
     'pay'                => 'Pay :amount',
     'cancel'             => 'Cancel and return to store',
+    'return_to_store'    => 'Return to order',
+    'unavailable_help'   => 'No enabled payment channel is available right now. Return to your order and try again later; your order has not been charged.',
     'expires'            => 'This session expires at :time. Order details and account credentials are never shared with another child site.',
     'status'             => [
         'unavailable'       => 'The payment service is temporarily unavailable.',
+        'timeout'           => 'The payment request timed out. Check your connection and try again before starting another payment.',
         'locked'            => 'Another payment method is already selected for this session. Return to the store to start again.',
         'missing_redirect'  => 'Payment completed, but the return address is invalid.',
         'connect_paypal'    => 'Connecting to PayPal…',
