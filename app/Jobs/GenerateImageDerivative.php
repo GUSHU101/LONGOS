@@ -36,6 +36,6 @@ class GenerateImageDerivative implements ShouldBeUnique, ShouldQueue
 
     public function handle(): void
     {
-        (new ImageService($this->image))->resize($this->width, $this->height);
+        (new ImageService($this->image))->resize($this->width, $this->height, true);
     }
 }

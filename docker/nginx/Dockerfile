@@ -12,6 +12,7 @@ FROM php:8.2.34-fpm-bookworm AS runtime-base
 ARG PHP_BUILD_JOBS=2
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    $PHPIZE_DEPS \
     nginx \
     curl \
     ca-certificates \
@@ -20,6 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libjpeg-dev \
     libfreetype6-dev \
     libicu-dev \
+    libmagickwand-dev \
     libwebp-dev \
     libonig-dev \
     libpq-dev \
@@ -38,7 +40,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         intl \
         zip \
         opcache \
-    && php -r '$required = ["pdo_mysql", "pdo_pgsql", "curl", "mbstring", "exif", "pcntl", "posix", "bcmath", "gd", "intl", "dom", "simplexml", "xml", "xmlreader", "xmlwriter", "zip", "Zend OPcache"]; $missing = array_values(array_filter($required, static fn (string $extension): bool => !extension_loaded($extension))); if ($missing !== []) { fwrite(STDERR, "Missing required PHP extensions: " . implode(", ", $missing) . PHP_EOL); exit(1); }' \
+    && pecl install imagick-3.7.0 \
+    && docker-php-ext-enable imagick \
+    && php -r '$required = ["pdo_mysql", "pdo_pgsql", "curl", "mbstring", "exif", "pcntl", "posix", "bcmath", "gd", "imagick", "intl", "dom", "simplexml", "xml", "xmlreader", "xmlwriter", "zip", "Zend OPcache"]; $missing = array_values(array_filter($required, static fn (string $extension): bool => !extension_loaded($extension))); if ($missing !== []) { fwrite(STDERR, "Missing required PHP extensions: " . implode(", ", $missing) . PHP_EOL); exit(1); }' \
     && rm -rf /var/lib/apt/lists/* \
     && rm -f /etc/nginx/sites-enabled/default /etc/nginx/sites-available/default \
     && mkdir -p /run/nginx /var/log/nginx /var/log/php

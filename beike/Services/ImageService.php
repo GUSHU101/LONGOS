@@ -15,6 +15,7 @@ namespace Beike\Services;
 use App\Jobs\GenerateImageDerivative;
 use Illuminate\Support\Str;
 use Intervention\Image\Facades\Image;
+use RuntimeException;
 use Throwable;
 
 class ImageService
@@ -75,10 +76,11 @@ class ImageService
      * @param int $height
      * @return string
      */
-    public function resize(int $width = 100, int $height = 100): string
+    public function resize(int $width = 100, int $height = 100, bool $throwOnFailure = false): string
     {
         $lock          = null;
         $temporaryPath = null;
+        $decodedPath   = null;
 
         try {
             $newImage = $this->derivativePath($width, $height);
@@ -99,7 +101,18 @@ class ImageService
                 if (! is_file($newImagePath)) {
                     $extension     = strtolower(pathinfo($this->imagePath, PATHINFO_EXTENSION));
                     $temporaryPath = $newImagePath . '.tmp-' . getmypid() . '-' . uniqid('', true) . '.' . $extension;
-                    $img           = Image::make($this->imagePath);
+                    try {
+                        $img = Image::make($this->imagePath);
+                    } catch (Throwable $decodeException) {
+                        // GD cannot decode animated WebP files and a few
+                        // extended WebP profiles even though browsers can.
+                        // Keep the uploaded original for the lightbox, but
+                        // use Imagick to extract a clean first frame for the
+                        // responsive storefront derivative.
+                        $decodedPath = $newImagePath . '.source-' . getmypid() . '-' . uniqid('', true) . '.png';
+                        $this->decodeFirstFrameWithImagick($decodedPath, $decodeException);
+                        $img = Image::make($decodedPath);
+                    }
 
                     $img->resize($width, $height, function ($constraint) {
                         $constraint->aspectRatio();
@@ -127,19 +140,55 @@ class ImageService
             $newImage = $data['newImage'];
 
             return asset($newImage);
-        } catch (Throwable) {
+        } catch (Throwable $exception) {
             // Responsive derivatives are an optimization, never a reason to
             // fail the product page. Unsupported codecs, corrupt uploads,
             // memory pressure, or unwritable cache paths use the source URL.
+            // Queue jobs opt into exceptions so operational failures are
+            // retried and remain visible instead of looking successful.
+            if ($throwOnFailure) {
+                throw $exception;
+            }
+
             return $this->originUrl();
         } finally {
             if (is_string($temporaryPath) && is_file($temporaryPath)) {
                 @unlink($temporaryPath);
             }
+            if (is_string($decodedPath) && is_file($decodedPath)) {
+                @unlink($decodedPath);
+            }
             if (is_resource($lock)) {
                 flock($lock, LOCK_UN);
                 fclose($lock);
             }
+        }
+    }
+
+    /**
+     * Decode the first complete frame of media formats unsupported by GD.
+     */
+    private function decodeFirstFrameWithImagick(string $targetPath, Throwable $previous): void
+    {
+        if (! class_exists(\Imagick::class)) {
+            throw new RuntimeException('The fallback image decoder is unavailable.', previous: $previous);
+        }
+
+        $source = new \Imagick($this->imagePath);
+        $frames = $source->coalesceImages();
+        $frames->setIteratorIndex(0);
+        $frame = $frames->getImage();
+
+        try {
+            $frame->setImagePage(0, 0, 0, 0);
+            $frame->setImageFormat('png');
+            if (! $frame->writeImage($targetPath)) {
+                throw new RuntimeException('The fallback image decoder could not write its first frame.', previous: $previous);
+            }
+        } finally {
+            $frame->clear();
+            $frames->clear();
+            $source->clear();
         }
     }
 

@@ -52,6 +52,7 @@ class StorefrontMediaPresentationTest extends TestCase
         $helpers      = (string) file_get_contents($root . '/beike/Helpers.php');
         $imageService = (string) file_get_contents($root . '/beike/Services/ImageService.php');
         $job          = (string) file_get_contents($root . '/app/Jobs/GenerateImageDerivative.php');
+        $dockerfile   = (string) file_get_contents($root . '/docker/nginx/Dockerfile');
         $detail       = (string) file_get_contents($root . '/beike/Shop/Http/Resources/ProductDetail.php');
         $sku          = (string) file_get_contents($root . '/beike/Shop/Http/Resources/SkuDetail.php');
 
@@ -61,12 +62,18 @@ class StorefrontMediaPresentationTest extends TestCase
         self::assertStringContainsString("self::DERIVATIVE_VERSION . '-v' . \$sourceVersion", $imageService);
         self::assertStringContainsString('flock($lock, LOCK_EX)', $imageService);
         self::assertStringContainsString("['jpg', 'jpeg', 'webp'], true) ? 82 : null", $imageService);
+        self::assertStringContainsString('decodeFirstFrameWithImagick', $imageService);
+        self::assertStringContainsString('$source->coalesceImages()', $imageService);
+        self::assertStringContainsString('pecl install imagick-3.7.0', $dockerfile);
+        self::assertStringContainsString('"imagick"', $dockerfile);
         self::assertStringContainsString('catch (Throwable)', $imageService);
         self::assertStringNotContainsString("ini_set('memory_limit', '-1')", $imageService);
         self::assertStringContainsString('function image_cached_resize(', $helpers);
         self::assertStringContainsString('public function cachedResize(', $imageService);
         self::assertStringContainsString("config('queue.default', 'sync') !== 'sync'", $imageService);
         self::assertStringContainsString('implements ShouldBeUnique, ShouldQueue', $job);
+        self::assertStringContainsString('resize($this->width, $this->height, true)', $job);
+        self::assertStringContainsString('bool $throwOnFailure = false', $imageService);
         self::assertStringContainsString("'preview' => image_cached_resize(\$image, 800", $detail);
         self::assertStringContainsString("'popup'   => \$origin", $detail);
         self::assertStringNotContainsString('image_resize(', $detail);
