@@ -344,11 +344,26 @@ class SaasPluginRouteIsolationTest extends TestCase
         self::assertSame('平台代收', $columns->get('tenant_guide')['section']);
         self::assertStringNotContainsString('LongosPlatformPay::', $columns->get('tenant_guide')['description']);
         self::assertTrue(view()->exists('LongosPlatformPay::checkout.payment'));
+        $paymentHtml = view('LongosPlatformPay::checkout.payment', [
+            'order' => (object) ['number' => 'EMBEDDED-PAY-1001'],
+        ])->render();
+        self::assertStringContainsString('id="longos-paypal-buttons"', $paymentHtml);
+        self::assertStringContainsString('id="longos-stripe-card"', $paymentHtml);
+        self::assertStringContainsString('https://www.paypal.com/sdk/js?', $paymentHtml);
+        self::assertStringContainsString('https://js.stripe.com/v3/', $paymentHtml);
 
-        $route = Route::getRoutes()->getByName('shop.longos_platform_pay.session');
-        self::assertNotNull($route);
-        self::assertContains('shop', $route->gatherMiddleware());
-        self::assertContains('plugin.enabled:longos_platform_pay', $route->gatherMiddleware());
+        foreach ([
+            'shop.longos_platform_pay.session',
+            'shop.longos_platform_pay.paypal.create',
+            'shop.longos_platform_pay.paypal.capture',
+            'shop.longos_platform_pay.stripe.intent',
+            'shop.longos_platform_pay.stripe.complete',
+        ] as $routeName) {
+            $route = Route::getRoutes()->getByName($routeName);
+            self::assertNotNull($route, $routeName);
+            self::assertContains('shop', $route->gatherMiddleware());
+            self::assertContains('plugin.enabled:longos_platform_pay', $route->gatherMiddleware());
+        }
 
         // Long-lived workers rebuild the manager for every tenant. Requiring
         // the same columns file again must still return the array, not `true`.

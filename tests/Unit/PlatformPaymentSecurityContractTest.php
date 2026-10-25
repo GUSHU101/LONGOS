@@ -34,14 +34,42 @@ class PlatformPaymentSecurityContractTest extends TestCase
         self::assertStringContainsString("unique('spp_active_uq')", (string) file_get_contents(dirname(__DIR__, 2) . '/database/migrations/2026_10_25_010000_add_active_key_to_saas_platform_payment_sessions_table.php'));
     }
 
-    public function test_child_store_never_receives_platform_credentials(): void
+    public function test_child_store_receives_only_provider_public_keys(): void
     {
-        $checkout = file_get_contents(dirname(__DIR__, 2) . '/plugins/LongosPlatformPay/Views/checkout/payment.blade.php');
+        $root       = dirname(__DIR__, 2);
+        $checkout   = file_get_contents($root . '/plugins/LongosPlatformPay/Views/checkout/payment.blade.php');
+        $controller = file_get_contents($root . '/plugins/LongosPlatformPay/Controllers/CheckoutController.php');
 
-        self::assertStringNotContainsString('publishable_key', $checkout);
-        self::assertStringNotContainsString('client_id', $checkout);
+        self::assertStringContainsString('data.stripe.publishable_key', $checkout);
+        self::assertStringContainsString('data.paypal.client_id', $checkout);
         self::assertStringNotContainsString('secret_key', $checkout);
+        self::assertStringNotContainsString('paypal_secret', $checkout);
+        self::assertStringNotContainsString('webhook_secret', $checkout);
+        self::assertStringNotContainsString("data_get(\$snapshot, 'paypal.secret'", $controller);
+        self::assertStringNotContainsString("data_get(\$snapshot, 'stripe.secret_key'", $controller);
+        self::assertStringNotContainsString("data_get(\$snapshot, 'stripe.webhook_secret'", $controller);
         self::assertStringContainsString('checkout_url', $checkout);
+    }
+
+    public function test_child_payment_page_embeds_both_provider_sdks_and_keeps_returns_on_the_main_site(): void
+    {
+        $root       = dirname(__DIR__, 2);
+        $routes     = file_get_contents($root . '/plugins/LongosPlatformPay/Routes/shop.php');
+        $checkout   = file_get_contents($root . '/plugins/LongosPlatformPay/Views/checkout/payment.blade.php');
+        $controller = file_get_contents($root . '/plugins/LongosPlatformPay/Controllers/CheckoutController.php');
+        $headers    = file_get_contents($root . '/app/Http/Middleware/ApplySecurityHeaders.php');
+
+        self::assertStringContainsString('/paypal/create', $routes);
+        self::assertStringContainsString('/paypal/capture', $routes);
+        self::assertStringContainsString('/stripe/intent', $routes);
+        self::assertStringContainsString('/stripe/complete', $routes);
+        self::assertStringContainsString('https://www.paypal.com/sdk/js?', $checkout);
+        self::assertStringContainsString('https://js.stripe.com/v3/', $checkout);
+        self::assertStringContainsString('stripe.confirmCardPayment(', $checkout);
+        self::assertStringContainsString('return_url:data.return_url', $checkout);
+        self::assertStringContainsString('_longos/pay/{$token}/return/stripe', $controller);
+        self::assertStringContainsString('assertChildSession(', $controller);
+        self::assertStringContainsString("'longos-platform-pay/*'", $headers);
     }
 
     public function test_hosted_provider_marks_are_shared_by_checkout_and_footer_presentations(): void

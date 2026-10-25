@@ -83,7 +83,9 @@ class PlatformPaymentRecoveryContractTest extends TestCase
 
         self::assertStringContainsString('new AbortController()', $child);
         self::assertStringContainsString('controller.abort()', $child);
-        self::assertStringContainsString("window.addEventListener('pageshow', resetButton)", $child);
+        self::assertStringContainsString('Promise.allSettled(mounts)', $child);
+        self::assertStringContainsString("retry.addEventListener('click', () => window.location.reload())", $child);
+        self::assertStringContainsString('showFallback(data)', $child);
         self::assertStringContainsString('new AbortController()', $hosted);
         self::assertStringContainsString("__('platform_pay.status.timeout')", $hosted);
         self::assertStringContainsString('const unlockUnboundProvider = provider =>', $hosted);

@@ -79,6 +79,8 @@ class ApplySecurityHeaders
             'installer',
             'installer/*',
             'login',
+            'longos-platform-pay',
+            'longos-platform-pay/*',
             'logout',
             'orders',
             'orders/*',

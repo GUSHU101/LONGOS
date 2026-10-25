@@ -580,7 +580,13 @@ class CheckoutService
                     default  => [],
                 };
                 if ((string) $method['code'] === 'longos_platform_pay') {
-                    $requiredRoutes = ['shop.longos_platform_pay.session'];
+                    $requiredRoutes = [
+                        'shop.longos_platform_pay.session',
+                        'shop.longos_platform_pay.paypal.create',
+                        'shop.longos_platform_pay.paypal.capture',
+                        'shop.longos_platform_pay.stripe.intent',
+                        'shop.longos_platform_pay.stripe.complete',
+                    ];
                 }
                 $missingRoutes = array_values(array_filter(
                     $requiredRoutes,
