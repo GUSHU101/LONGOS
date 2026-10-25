@@ -1,8 +1,8 @@
 @php
   use Plugin\Paypal\Services\PaypalSettings;
 
-  $setting = $plugin->getSetting() ?: [];
-  $apiMode = old('api_mode', $setting['api_mode'] ?? 'rest') === 'nvp' ? 'nvp' : 'rest';
+  $setting = PaypalSettings::canonicalizeLegacySettings($plugin->getSetting() ?: []);
+  $apiMode = PaypalSettings::normalizeApiMode((string) old('api_mode', $setting['api_mode'] ?? 'rest'));
   $sandboxMode = (string) old('sandbox_mode', $setting['sandbox_mode'] ?? 1) === '1';
   $status = (string) old('status', $setting['status'] ?? 0) === '1';
   $activeEnvironment = $sandboxMode ? 'sandbox' : 'live';

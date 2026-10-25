@@ -507,10 +507,12 @@ class PaypalService extends PaymentService
     public function getApiMode(): string
     {
         $paypalSetting = $this->getPaypalSetting();
-        $mode          = strtolower(trim((string) $this->getSettingValue($paypalSetting, ['api_mode', 'api_standard', 'paypal_api_mode'], self::API_MODE_REST)));
-        $mode          = str_replace([' ', '-'], ['_', '_'], $mode);
 
-        return in_array($mode, ['nvp', 'soap', 'nvp_soap', 'nvp/soap'], true) ? self::API_MODE_NVP : self::API_MODE_REST;
+        return PaypalSettings::normalizeApiMode((string) $this->getSettingValue(
+            $paypalSetting,
+            ['api_mode', 'api_standard', 'paypal_api_mode'],
+            self::API_MODE_REST
+        ));
     }
 
     private function getNvpClient(): PaypalNvpClient

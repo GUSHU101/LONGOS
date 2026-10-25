@@ -49,10 +49,11 @@ final class PaymentPluginReadiness
     {
         $settings    = PaypalSettings::all();
         $environment = ! empty($settings['sandbox_mode']) ? 'sandbox' : 'live';
-        $apiMode     = strtolower(trim(self::firstValue($settings, ['api_mode', 'api_standard', 'paypal_api_mode'], 'rest')));
-        $apiMode     = in_array(str_replace([' ', '-'], '_', $apiMode), ['nvp', 'soap', 'nvp_soap', 'nvp/soap'], true)
-            ? 'nvp'
-            : 'rest';
+        $apiMode     = PaypalSettings::normalizeApiMode(self::firstValue(
+            $settings,
+            ['api_mode', 'api_standard', 'paypal_api_mode'],
+            'rest'
+        ));
         $issues      = [];
 
         if ($apiMode === 'nvp') {

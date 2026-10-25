@@ -2,6 +2,7 @@
 
 namespace Tests\Unit;
 
+use Beike\Plugin\Plugin;
 use GuzzleHttp\Client;
 use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
@@ -137,6 +138,51 @@ class PaypalIntegrationHardeningTest extends TestCase
         }
     }
 
+    public function test_legacy_settings_are_canonicalized_without_crossing_environments(): void
+    {
+        $legacy = [
+            'api_standard'  => 'soap',
+            'sandbox_mode'  => '1',
+            'client_id'     => 'legacy-client',
+            'secret'        => 'legacy-rest-secret',
+            'api_username'  => 'legacy-user',
+            'api_password'  => 'legacy-password',
+            'api_signature' => 'legacy-signature',
+        ];
+
+        $settings = PaypalSettings::canonicalizeLegacySettings($legacy);
+
+        self::assertSame('nvp', $settings['api_mode']);
+        self::assertSame('legacy-client', $settings['sandbox_client_id']);
+        self::assertSame('legacy-rest-secret', $settings['sandbox_secret']);
+        self::assertSame('legacy-user', $settings['sandbox_api_username']);
+        self::assertSame('legacy-password', $settings['sandbox_api_password']);
+        self::assertSame('legacy-signature', $settings['sandbox_api_signature']);
+        self::assertArrayNotHasKey('live_client_id', $settings);
+        self::assertArrayNotHasKey('live_secret', $settings);
+        self::assertArrayNotHasKey('live_api_username', $settings);
+    }
+
+    public function test_blank_secret_submission_preserves_legacy_aliases_before_validation(): void
+    {
+        $fields = PaypalSettings::preserveBlankSecrets([
+            'sandbox_secret'        => '',
+            'sandbox_api_password'  => '',
+            'sandbox_api_signature' => '',
+            'live_secret'           => '',
+        ], [
+            'sandbox_mode'  => '1',
+            'secret'        => 'legacy-rest-secret',
+            'api_password'  => 'legacy-password',
+            'api_signature' => 'legacy-signature',
+        ]);
+
+        self::assertSame('legacy-rest-secret', $fields['sandbox_secret']);
+        self::assertSame('legacy-password', $fields['sandbox_api_password']);
+        self::assertSame('legacy-signature', $fields['sandbox_api_signature']);
+        self::assertSame('', $fields['live_secret']);
+    }
+
     public function test_provider_results_are_reduced_to_reconciliation_fields(): void
     {
         $rest = PaypalService::safeProviderResult([
@@ -205,6 +251,13 @@ class PaypalIntegrationHardeningTest extends TestCase
         self::assertStringNotContainsString("status.textContent = 'Connecting to PayPal", $checkout);
         self::assertFileExists($root . '/plugins/Paypal/Lang/en/checkout.php');
         self::assertFileExists($root . '/plugins/Paypal/Lang/zh_cn/checkout.php');
+        self::assertFileExists($root . '/plugins/Paypal/Views/admin/config.blade.php');
+        self::assertStringContainsString("@include('Paypal::admin.config_form')", (string) file_get_contents(
+            $root . '/plugins/Paypal/Views/admin/config.blade.php'
+        ));
+
+        $plugin = (new Plugin($root . '/plugins/Paypal', ['code' => 'paypal']))->setDirname('Paypal');
+        self::assertSame('Paypal::admin.config', $plugin->getColumnView());
     }
 
     public function test_ipn_race_preserves_the_bound_checkout_token(): void

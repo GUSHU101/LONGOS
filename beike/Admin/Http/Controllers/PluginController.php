@@ -357,6 +357,13 @@ class PluginController extends Controller
     {
         $fields = $request->all();
         $plugin = app('plugin')->getPluginOrFail($code);
+        if ($plugin->code === 'paypal') {
+            $stored = $plugin->getSetting();
+            $fields = \Plugin\Paypal\Services\PaypalSettings::preserveBlankSecrets(
+                $fields,
+                is_array($stored) ? $stored : []
+            );
+        }
         $fields = $this->preserveBlankPluginSecrets($plugin, $fields);
         $fields = $this->preserveBlankPixelTrackingTokens($plugin, $fields);
         if (method_exists($plugin, 'validate')) {

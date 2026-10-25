@@ -24,7 +24,93 @@ final class PaypalSettings
     {
         $settings = plugin_setting('paypal', []);
 
-        return self::decryptForRuntime(is_array($settings) ? $settings : []);
+        return self::decryptForRuntime(self::canonicalizeLegacySettings(
+            is_array($settings) ? $settings : []
+        ));
+    }
+
+    /**
+     * Present every supported historical field name through the current
+     * settings contract. Older installations used generic NVP credentials
+     * and api_standard=soap; without this bridge the admin form could switch
+     * a working account to REST and then fail validation on its next save.
+     */
+    public static function canonicalizeLegacySettings(array $settings): array
+    {
+        $environment = filter_var($settings['sandbox_mode'] ?? true, FILTER_VALIDATE_BOOLEAN)
+            ? 'sandbox'
+            : 'live';
+
+        $settings['api_mode'] = self::normalizeApiMode(self::firstValue(
+            $settings,
+            ['api_mode', 'api_standard', 'paypal_api_mode'],
+            'rest'
+        ));
+
+        foreach (['sandbox', 'live'] as $prefix) {
+            self::fillAlias($settings, "{$prefix}_client_id", [
+                "{$prefix}_client_id",
+                "{$prefix}_clientId",
+            ]);
+            self::fillAlias($settings, "{$prefix}_secret", [
+                "{$prefix}_secret",
+                "{$prefix}_client_secret",
+            ]);
+            self::fillAlias($settings, "{$prefix}_merchant_id", [
+                "{$prefix}_merchant_id",
+                "merchant_{$prefix}_id",
+            ]);
+
+            foreach (['username', 'password', 'signature'] as $field) {
+                self::fillAlias($settings, "{$prefix}_api_{$field}", [
+                    "{$prefix}_api_{$field}",
+                    "nvp_{$prefix}_{$field}",
+                    "{$prefix}_nvp_{$field}",
+                    "api_{$prefix}_{$field}",
+                    "{$prefix}_{$field}",
+                ]);
+            }
+        }
+
+        // Generic credentials historically represented only the selected
+        // environment. Never copy them into both environments.
+        self::fillAlias($settings, "{$environment}_client_id", ['client_id', 'clientId']);
+        self::fillAlias($settings, "{$environment}_secret", ['client_secret', 'secret']);
+        self::fillAlias($settings, "{$environment}_merchant_id", ['merchant_id']);
+        foreach (['username', 'password', 'signature'] as $field) {
+            self::fillAlias($settings, "{$environment}_api_{$field}", [
+                "nvp_{$field}",
+                "api_{$field}",
+                $field,
+            ]);
+        }
+
+        return $settings;
+    }
+
+    /**
+     * Password inputs are intentionally empty in the browser. Restore the
+     * effective saved value before validation, including values that still
+     * live under a legacy alias.
+     */
+    public static function preserveBlankSecrets(array $submitted, array $stored): array
+    {
+        $stored = self::canonicalizeLegacySettings($stored);
+
+        foreach (['sandbox', 'live'] as $environment) {
+            foreach (["{$environment}_secret", "{$environment}_api_password", "{$environment}_api_signature"] as $name) {
+                if (! array_key_exists($name, $submitted) || trim((string) $submitted[$name]) !== '') {
+                    continue;
+                }
+
+                $existing = $stored[$name] ?? '';
+                if (is_scalar($existing) && trim((string) $existing) !== '') {
+                    $submitted[$name] = (string) $existing;
+                }
+            }
+        }
+
+        return $submitted;
     }
 
     public static function normalizeForStorage(array $settings): array
@@ -83,6 +169,47 @@ final class PaypalSettings
         }
 
         return false;
+    }
+
+    public static function normalizeApiMode(string $mode): string
+    {
+        $mode = str_replace([' ', '-'], '_', strtolower(trim($mode)));
+
+        return in_array($mode, ['nvp', 'soap', 'nvp_soap', 'nvp/soap'], true) ? 'nvp' : 'rest';
+    }
+
+    /** @param list<string> $aliases */
+    private static function fillAlias(array &$settings, string $canonical, array $aliases): void
+    {
+        if (self::rawValue($settings, [$canonical]) !== null) {
+            return;
+        }
+
+        $value = self::rawValue($settings, $aliases);
+        if ($value !== null) {
+            $settings[$canonical] = $value;
+        }
+    }
+
+    /** @param list<string> $keys */
+    private static function firstValue(array $settings, array $keys, string $default = ''): string
+    {
+        $value = self::rawValue($settings, $keys);
+
+        return $value === null ? $default : trim((string) $value);
+    }
+
+    /** @param list<string> $keys */
+    private static function rawValue(array $settings, array $keys): mixed
+    {
+        foreach ($keys as $key) {
+            $value = $settings[$key] ?? null;
+            if (is_scalar($value) && trim((string) $value) !== '') {
+                return $value;
+            }
+        }
+
+        return null;
     }
 
     private static function decryptSecret(string $value): string

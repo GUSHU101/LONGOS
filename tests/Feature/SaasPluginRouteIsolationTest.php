@@ -18,6 +18,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\ViewErrorBag;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use Plugin\Paypal\Services\PaypalSettings;
@@ -264,6 +265,40 @@ class SaasPluginRouteIsolationTest extends TestCase
         ]]);
 
         self::assertContains('paypal', PluginRepo::getPaymentMethods()->pluck('code')->all());
+    }
+
+    public function test_paypal_settings_panel_renders_for_a_disabled_plugin(): void
+    {
+        DB::table('plugins')->insert([
+            'type'       => 'payment',
+            'code'       => 'paypal',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        config(['bk.plugin.paypal' => [
+            'status'         => '0',
+            'api_standard'   => 'soap',
+            'sandbox_mode'   => '1',
+            'api_username'   => 'legacy-user',
+            'api_password'   => 'legacy-password',
+            'api_signature'  => 'legacy-signature',
+        ]]);
+        PluginRepo::resetRuntimeCache();
+        app('plugin')->forgetRuntimeCache();
+
+        $plugin = app('plugin')->getPluginOrFail('paypal');
+        self::assertFalse($plugin->getEnabled());
+        self::assertSame('Paypal::admin.config', $plugin->getColumnView());
+
+        app('view')->addNamespace('Paypal', base_path('plugins/Paypal/Views'));
+        app('translator')->addNamespace('Paypal', base_path('plugins/Paypal/Lang'));
+        app('view')->share('errors', new ViewErrorBag);
+        $html = view('Paypal::admin.config_form', ['plugin' => $plugin])->render();
+
+        self::assertStringContainsString('class="paypal-config"', $html);
+        self::assertStringContainsString('id="paypal-api-nvp" value="nvp" checked', $html);
+        self::assertStringContainsString('value="legacy-user"', $html);
+        self::assertStringContainsString('data-paypal-saved="1"', $html);
     }
 
     public function test_paypal_upgrade_encrypts_existing_plaintext_credentials(): void
