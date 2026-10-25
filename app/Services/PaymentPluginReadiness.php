@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Services\PlatformPayment\PlatformPaymentSettings;
 use Plugin\Paypal\Services\PaypalSettings;
 
 final class PaymentPluginReadiness
@@ -10,10 +11,19 @@ final class PaymentPluginReadiness
     public static function issues(string $code): array
     {
         return match (strtolower(trim($code))) {
-            'stripe' => self::stripeIssues(),
-            'paypal' => self::paypalIssues(),
-            default  => [],
+            'stripe'              => self::stripeIssues(),
+            'paypal'              => self::paypalIssues(),
+            'longos_platform_pay' => self::platformPaymentIssues(),
+            default               => [],
         };
+    }
+
+    /** @return list<string> */
+    private static function platformPaymentIssues(): array
+    {
+        $controlSite = (bool) data_get(current_site()?->meta, 'control_site', false);
+
+        return app(PlatformPaymentSettings::class)->issues(! $controlSite);
     }
 
     public static function isReady(string $code): bool

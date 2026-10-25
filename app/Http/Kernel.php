@@ -116,5 +116,6 @@ class Kernel extends HttpKernel
         'saas.tenant-admin'   => \App\Http\Middleware\EnsureSaasTenantAdministrator::class,
         'plugin.enabled'      => \App\Http\Middleware\EnsurePluginEnabled::class,
         'plugin.runtime'      => \App\Http\Middleware\RunEnabledPluginMiddleware::class,
+        'platform.payment'    => \App\Http\Middleware\EnsurePlatformPaymentHost::class,
     ];
 }

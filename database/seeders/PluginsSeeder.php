@@ -81,6 +81,10 @@ class PluginsSeeder extends Seeder
                 'type' => 'feature',
                 'code' => 'shopify_product_transfer',
             ],
+            [
+                'type' => 'payment',
+                'code' => 'longos_platform_pay',
+            ],
         ];
     }
 }

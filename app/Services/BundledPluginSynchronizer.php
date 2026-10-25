@@ -41,6 +41,11 @@ class BundledPluginSynchronizer
             'settings' => ['status' => '0'],
             'tables'   => [],
         ],
+        'longos_platform_pay' => [
+            'type'     => 'payment',
+            'settings' => ['status' => '0', 'share_paypal' => '1', 'share_stripe' => '1', 'stripe_webhook_secret' => ''],
+            'tables'   => [],
+        ],
         self::PRODUCT_REVIEWS => [
             'type'     => 'feature',
             'settings' => ['status' => '1', 'display_limit' => '6'],

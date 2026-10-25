@@ -1,0 +1,31 @@
+<?php
+
+return [
+    'title'              => '完成付款',
+    'eyebrow'            => '安全结账',
+    'collected_by'       => '由 :platform 代表 :store 安全收款',
+    'amount_label'       => '支付金额',
+    'notice'             => '支付账号与回调由主站托管。付款成功后会自动返回 :store，子站不会接触 PayPal 或 Stripe 密钥。',
+    'methods_label'      => '支付方式',
+    'paypal_help'        => '使用 PayPal 账号或 PayPal 支持的付款方式。',
+    'card'               => '银行卡',
+    'card_help'          => '由 Stripe 加密处理银行卡信息，LONGOS 不保存卡号。',
+    'card_details'       => '银行卡信息',
+    'pay'                => '支付 :amount',
+    'cancel'             => '取消并返回店铺',
+    'expires'            => '会话将在 :time 过期。订单信息与账户密钥不会发送给其他子站。',
+    'status'             => [
+        'unavailable'       => '支付服务暂时不可用。',
+        'locked'            => '当前会话已选择其他支付方式，请返回店铺重新发起支付。',
+        'missing_redirect'  => '支付完成，但返回地址无效。',
+        'connect_paypal'    => '正在连接 PayPal…',
+        'verify_paypal'     => '正在验证 PayPal 付款…',
+        'cancelled'         => '付款已取消。',
+        'paypal_failed'     => 'PayPal 付款未能完成。',
+        'paypal_load'       => 'PayPal 按钮加载失败。',
+        'create_stripe'     => '正在创建 Stripe 安全付款…',
+        'stripe_incomplete' => 'Stripe 付款尚未完成。',
+        'verify'            => '正在验证付款结果…',
+        'stripe_failed'     => 'Stripe 付款未能完成。',
+    ],
+];

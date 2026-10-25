@@ -366,10 +366,23 @@ class PluginController extends Controller
         }
         $fields = $this->preserveBlankPluginSecrets($plugin, $fields);
         $fields = $this->preserveBlankPixelTrackingTokens($plugin, $fields);
+        if ($plugin->code === 'longos_platform_pay') {
+            $fields = \Plugin\Paypal\Services\PaypalSettings::decryptForRuntime($fields);
+        }
         if (method_exists($plugin, 'validate')) {
             $validator = $plugin->validate($fields);
             if ($validator->fails()) {
                 return back()->withErrors($validator)->withInput();
+            }
+        }
+
+        if ($plugin->code === 'longos_platform_pay' && filter_var($fields['status'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+            $isControl = (bool) data_get(current_site()?->meta, 'control_site', false);
+            $issues    = $isControl
+                ? app(\App\Services\PlatformPayment\PlatformPaymentSettings::class)->issuesWithOverrides($fields, false)
+                : app(\App\Services\PlatformPayment\PlatformPaymentSettings::class)->issues();
+            if ($issues !== []) {
+                return back()->withErrors(['status' => implode(' ', $issues)])->withInput();
             }
         }
 
@@ -379,6 +392,9 @@ class PluginController extends Controller
             $fields['snapchat_pixels'] = \Plugin\PixelTracking\Services\PixelProfiles::normalizeForStorage($fields['snapchat_pixels'] ?? '[]', 'snapchat');
         }
         if ($plugin->code === 'paypal') {
+            $fields = \Plugin\Paypal\Services\PaypalSettings::normalizeForStorage($fields);
+        }
+        if ($plugin->code === 'longos_platform_pay') {
             $fields = \Plugin\Paypal\Services\PaypalSettings::normalizeForStorage($fields);
         }
 

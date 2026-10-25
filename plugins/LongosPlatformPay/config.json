@@ -1,0 +1,18 @@
+{
+    "code": "longos_platform_pay",
+    "name": {
+        "zh_cn": "LONGOS 平台代收",
+        "en": "LONGOS Platform Pay"
+    },
+    "description": {
+        "zh_cn": "由主站安全托管 PayPal 与 Stripe 账号，子站无需保存平台收款密钥。",
+        "en": "Collect through PayPal and Stripe accounts securely hosted by the LONGOS control site."
+    },
+    "type": "payment",
+    "version": "v1.0.0",
+    "icon": "/image/logo.svg",
+    "author": {
+        "name": "LONGOS",
+        "email": "admin@example.com"
+    }
+}

@@ -189,6 +189,22 @@ class RouteServiceProvider extends ServiceProvider
                 Limit::perMinute(10)->by("saas-domain-probe:{$source}:{$domainId}"),
             ];
         });
+
+        RateLimiter::for('platform-payment', function (Request $request) {
+            $token      = (string) $request->route('token', 'invalid');
+            $sessionKey = $token !== 'invalid'
+                ? hash('sha256', $token)
+                : hash('sha256', strtolower($request->getHost()) . '|' . ($request->hasSession() ? $request->session()->getId() : $request->ip()));
+
+            return [
+                Limit::perMinute(30)->by('platform-payment:session:' . $sessionKey),
+                Limit::perMinute(120)->by('platform-payment:ip:' . $request->ip()),
+            ];
+        });
+
+        RateLimiter::for('platform-payment-webhook', function (Request $request) {
+            return Limit::perMinute(300)->by('platform-payment-webhook:' . $request->ip());
+        });
     }
 
     /** @return array{string, string, string} */

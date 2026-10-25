@@ -1,0 +1,31 @@
+<?php
+
+return [
+    'title'              => 'Complete payment',
+    'eyebrow'            => 'Secure checkout',
+    'collected_by'       => 'Securely collected by :platform on behalf of :store',
+    'amount_label'       => 'Payment amount',
+    'notice'             => 'Payment credentials and callbacks are hosted by the main site. You will return to :store after verification, and the child site never receives PayPal or Stripe secrets.',
+    'methods_label'      => 'Payment methods',
+    'paypal_help'        => 'Pay with your PayPal account or another method supported by PayPal.',
+    'card'               => 'Card',
+    'card_help'          => 'Stripe encrypts your card details. LONGOS does not store your card number.',
+    'card_details'       => 'Card details',
+    'pay'                => 'Pay :amount',
+    'cancel'             => 'Cancel and return to store',
+    'expires'            => 'This session expires at :time. Order details and account credentials are never shared with another child site.',
+    'status'             => [
+        'unavailable'       => 'The payment service is temporarily unavailable.',
+        'locked'            => 'Another payment method is already selected for this session. Return to the store to start again.',
+        'missing_redirect'  => 'Payment completed, but the return address is invalid.',
+        'connect_paypal'    => 'Connecting to PayPal…',
+        'verify_paypal'     => 'Verifying the PayPal payment…',
+        'cancelled'         => 'Payment was cancelled.',
+        'paypal_failed'     => 'PayPal payment could not be completed.',
+        'paypal_load'       => 'PayPal could not be loaded.',
+        'create_stripe'     => 'Creating a secure Stripe payment…',
+        'stripe_incomplete' => 'Stripe payment is not complete.',
+        'verify'            => 'Verifying the payment…',
+        'stripe_failed'     => 'Stripe payment could not be completed.',
+    ],
+];

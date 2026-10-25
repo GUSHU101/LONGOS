@@ -577,6 +577,9 @@ class CheckoutService
                     'stripe' => ['shop.stripe.intent', 'shop.stripe_capture'],
                     default  => [],
                 };
+                if ((string) $method['code'] === 'longos_platform_pay') {
+                    $requiredRoutes = ['shop.longos_platform_pay.session'];
+                }
                 $missingRoutes = array_values(array_filter(
                     $requiredRoutes,
                     static fn (string $route): bool => ! app('router')->has($route),

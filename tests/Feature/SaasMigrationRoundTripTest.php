@@ -53,6 +53,9 @@ class SaasMigrationRoundTripTest extends TestCase
         self::assertTrue(Schema::hasColumn('saas_domains', 'publication_error'));
         self::assertTrue(Schema::hasTable('saas_mail_sender_domains'));
         self::assertTrue(Schema::hasTable('saas_idempotency_records'));
+        self::assertTrue(Schema::hasTable('saas_platform_payment_sessions'));
+        self::assertTrue(Schema::hasColumn('saas_platform_payment_sessions', 'token_hash'));
+        self::assertTrue(Schema::hasColumn('saas_platform_payment_sessions', 'locale'));
         self::assertTrue(Schema::hasColumn('saas_sites', 'provisioning_token'));
         self::assertTrue(Schema::hasTable('cache'));
         self::assertTrue(Schema::hasTable('cache_locks'));
@@ -93,6 +96,7 @@ class SaasMigrationRoundTripTest extends TestCase
         self::assertFalse(Schema::hasColumn('saas_domains', 'publication_error'));
         self::assertFalse(Schema::hasTable('saas_mail_sender_domains'));
         self::assertFalse(Schema::hasTable('saas_idempotency_records'));
+        self::assertFalse(Schema::hasTable('saas_platform_payment_sessions'));
         self::assertFalse(Schema::hasColumn('saas_sites', 'provisioning_token'));
         self::assertFalse(Schema::hasTable('cache'));
         self::assertFalse(Schema::hasTable('cache_locks'));
@@ -147,6 +151,7 @@ class SaasMigrationRoundTripTest extends TestCase
         self::assertTrue(Schema::hasColumn('saas_domains', 'publication_error'));
         self::assertTrue(Schema::hasTable('saas_mail_sender_domains'));
         self::assertTrue(Schema::hasTable('saas_idempotency_records'));
+        self::assertTrue(Schema::hasTable('saas_platform_payment_sessions'));
         self::assertTrue(Schema::hasColumn('saas_sites', 'provisioning_token'));
         self::assertTrue(Schema::hasTable('cache'));
         self::assertTrue(Schema::hasTable('cache_locks'));
@@ -193,6 +198,12 @@ class SaasMigrationRoundTripTest extends TestCase
 
         DatabaseReadiness::assertSeeded('saas');
         self::assertGreaterThan(0, DB::connection('saas')->table('products')->count());
+        self::assertTrue(DB::connection('saas')->table('plugins')->where('code', 'longos_platform_pay')->exists());
+        self::assertSame('0', (string) DB::connection('saas')->table('settings')
+            ->where('type', 'plugin')
+            ->where('space', 'longos_platform_pay')
+            ->where('name', 'status')
+            ->value('value'));
 
         $sku = ProductSku::query()->firstOrFail();
         $sku->update(['quantity' => 5]);

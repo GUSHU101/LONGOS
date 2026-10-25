@@ -35,7 +35,7 @@ class HealthController extends Controller
 
             if ((bool) config('saas.enabled')) {
                 $controlSchema = Schema::connection('saas');
-                foreach (['saas_sites', 'saas_domains'] as $table) {
+                foreach (['saas_sites', 'saas_domains', 'saas_platform_payment_sessions'] as $table) {
                     if (! $controlSchema->hasTable($table)) {
                         throw new \RuntimeException("Missing control table: {$table}");
                     }

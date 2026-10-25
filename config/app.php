@@ -290,6 +290,7 @@ return [
         // endpoint, especially while provisioning an isolated tenant.
         'longos_christmas',
         'longos_live_chat',
+        'longos_platform_pay',
         'longos_product_reviews',
         'pixel_tracking',
         'shopify_product_transfer',

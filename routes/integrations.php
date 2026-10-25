@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\CloudMailRelayController;
+use App\Http\Controllers\PlatformPaymentWebhookController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('_longos/mail-relay')
@@ -12,3 +13,7 @@ Route::prefix('_longos/mail-relay')
             ->name('longos.mail-relay.dns-manifest');
         Route::post('v1/send', [CloudMailRelayController::class, 'send'])->name('longos.mail-relay.send');
     });
+
+Route::post('_longos/pay/webhooks/stripe', [PlatformPaymentWebhookController::class, 'stripe'])
+    ->middleware(['platform.payment', 'throttle:platform-payment-webhook'])
+    ->name('platform-pay.webhook.stripe');

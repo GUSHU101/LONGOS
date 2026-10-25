@@ -535,7 +535,7 @@ class SaasPreflight extends Command
             $schema        = Schema::connection('saas');
             $tables        = [
                 'saas_sites', 'saas_domains', 'saas_mail_sender_domains', 'saas_site_events',
-                'saas_idempotency_records', 'settings', 'sessions', 'admin_users',
+                'saas_idempotency_records', 'saas_platform_payment_sessions', 'settings', 'sessions', 'admin_users',
             ];
             $queue         = (string) config('queue.default');
             if ((string) config("queue.connections.{$queue}.driver") === 'database'

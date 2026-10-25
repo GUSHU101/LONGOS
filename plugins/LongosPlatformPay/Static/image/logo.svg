@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="LONGOS">
+  <rect width="96" height="96" rx="24" fill="#155eef"/>
+  <path d="M28 24v48h40V60H42V24H28Z" fill="#fff"/>
+  <path d="M50 36h18v12H50z" fill="#9cc1ff"/>
+</svg>
