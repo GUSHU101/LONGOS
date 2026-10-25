@@ -83,5 +83,20 @@ class StorefrontMediaPresentationTest extends TestCase
         self::assertStringContainsString('max-age=31536000, immutable', $nginx);
         self::assertStringContainsString('location ~* ^/plugin/', $nginx);
         self::assertStringContainsString('max-age=2592000', $nginx);
+        self::assertStringContainsString('location ^~ /vendor/', $nginx);
+    }
+
+    public function test_product_media_does_not_block_or_download_hidden_desktop_gallery_assets(): void
+    {
+        $root    = dirname(__DIR__, 2);
+        $master  = (string) file_get_contents($root . '/themes/default/layout/master.blade.php');
+        $product = (string) file_get_contents($root . '/themes/default/product/product.blade.php');
+
+        self::assertStringContainsString("jquery/jquery-3.6.0.min.js') }}\" @if(\$deferProductScripts) defer", $master);
+        self::assertStringNotContainsString("@addStyle(asset('vendor/swiper/swiper-bundle.min.css'))", $product);
+        self::assertStringContainsString('media="(min-width: 992px)"', $product);
+        self::assertStringContainsString("const desktopGalleryMedia = window.matchMedia('(min-width: 992px)');", $product);
+        self::assertStringContainsString('if (!desktopGalleryMedia.matches || !gallery', $product);
+        self::assertStringContainsString('const candidates = preloadAdjacent ?', $product);
     }
 }

@@ -25,7 +25,6 @@
 @endsection
 
 @addScript(asset('vendor/vue/2.7/vue' . (!config('app.debug') ? '.min' : '') . '.js'), ['defer' => true])
-@addStyle(asset('vendor/swiper/swiper-bundle.min.css'))
 @addScript(asset('vendor/swiper/swiper-bundle.min.js'), ['defer' => true])
 
 @push('header')
@@ -134,16 +133,20 @@
                 data-gallery-index="{{ $loop->index }}"
                 data-gallery-image="{{ $item['popup'] ?? $item['large'] ?? $item['preview'] }}"
                 aria-label="{{ $galleryButtonLabel }}">
-                <img
-                  src="{{ $item['large'] ?? $item['preview'] }}"
-                  srcset="{{ $item['small'] ?? $item['preview'] }} 480w, {{ $item['preview'] }} 800w, {{ $item['large'] ?? $item['popup'] }} 1200w"
-                  sizes="{{ $loop->first ? '(min-width: 992px) min(58vw, 820px), 100vw' : '(min-width: 992px) min(29vw, 410px), 100vw' }}"
-                  width="{{ system_setting('base.product_image_origin_width', 800) }}"
-                  height="{{ system_setting('base.product_image_origin_height', 800) }}"
-                  fetchpriority="{{ $loop->first ? 'high' : 'auto' }}"
-                  loading="{{ $loop->first ? 'eager' : 'lazy' }}"
-                  decoding="async"
-                  alt="{{ $product['name'] }}">
+                <picture>
+                  <source
+                    media="(min-width: 992px)"
+                    srcset="{{ $item['small'] ?? $item['preview'] }} 480w, {{ $item['preview'] }} 800w, {{ $item['large'] ?? $item['popup'] }} 1200w"
+                    sizes="{{ $loop->first ? 'min(58vw, 820px)' : 'min(29vw, 410px)' }}">
+                  <img
+                    src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="
+                    width="{{ system_setting('base.product_image_origin_width', 800) }}"
+                    height="{{ system_setting('base.product_image_origin_height', 800) }}"
+                    fetchpriority="{{ $loop->first ? 'high' : 'auto' }}"
+                    loading="{{ $loop->first ? 'eager' : 'lazy' }}"
+                    decoding="async"
+                    alt="{{ $product['name'] }}">
+                </picture>
                 <span class="pdp-gallery-item__zoom" aria-hidden="true"><i class="bi bi-arrows-angle-expand"></i></span>
                 @if ($loop->last && $desktopGalleryTotal > $desktopGalleryLimit)
                   <span class="pdp-gallery-item__count">{{ __('shop/products.view_all_images', ['count' => $desktopGalleryTotal]) }}</span>
@@ -455,6 +458,7 @@
     let swiperMobile = null;
     let productGalleryDialogIndex = 0;
     let activeProductGalleryImages = [];
+    const desktopGalleryMedia = window.matchMedia('(min-width: 992px)');
     const isIframe = bk.getQueryString('iframe', false);
     const productImageOriginWidth = @json(system_setting('base.product_image_origin_width', 800));
     const productImageOriginHeight = @json(system_setting('base.product_image_origin_height', 800));
@@ -506,7 +510,7 @@
     ].filter(Boolean).join(', ');
     const renderDesktopProductGallery = (images = []) => {
       const gallery = document.querySelector('[data-product-gallery]');
-      if (!gallery || !Array.isArray(images) || !images.length) return;
+      if (!desktopGalleryMedia.matches || !gallery || !Array.isArray(images) || !images.length) return;
 
       const fragment = document.createDocumentFragment();
       const productName = document.querySelector('.product-name')?.textContent?.trim() || '';
@@ -551,11 +555,12 @@
       gallery.replaceChildren(fragment);
     };
 
-    const hydrateMobileProductGalleryAround = (activeIndex = 0) => {
+    const hydrateMobileProductGalleryAround = (activeIndex = 0, preloadAdjacent = false) => {
       const slides = Array.from(document.querySelectorAll('#swiper-mobile .swiper-slide'));
       if (!slides.length) return;
 
-      [activeIndex, activeIndex + 1, activeIndex - 1].forEach((candidate) => {
+      const candidates = preloadAdjacent ? [activeIndex, activeIndex + 1, activeIndex - 1] : [activeIndex];
+      candidates.forEach((candidate) => {
         if (candidate < 0 || candidate >= slides.length) return;
         const image = slides[candidate]?.querySelector('img[data-product-gallery-src]');
         if (!image) return;
@@ -1034,7 +1039,7 @@
         },
 
         initSwiper() {
-          if (document.querySelector('#swiper-mobile') && typeof Swiper === 'function') {
+          if (!desktopGalleryMedia.matches && document.querySelector('#swiper-mobile') && typeof Swiper === 'function') {
             swiperMobile = new Swiper("#swiper-mobile", {
               slidesPerView: 1,
               pagination: {
@@ -1050,7 +1055,7 @@
                   hydrateMobileProductGalleryAround(swiper.activeIndex || 0);
                 },
                 slideChange(swiper) {
-                  hydrateMobileProductGalleryAround(swiper.activeIndex || 0);
+                  hydrateMobileProductGalleryAround(swiper.activeIndex || 0, true);
                 }
               }
             });
@@ -1065,6 +1070,14 @@
 
     const selectedVariantsIndex = app.selectedVariantsIndex;
     const variables = app.source.variables;
+
+    desktopGalleryMedia.addEventListener('change', function (event) {
+      if (event.matches) {
+        renderDesktopProductGallery(activeProductGalleryImages);
+      } else if (!swiperMobile) {
+        app.initSwiper();
+      }
+    });
 
     const selectedVariants = variables.map((variable, index) => {
       return variable.values[selectedVariantsIndex[index]]

@@ -139,6 +139,12 @@ body.page-product .pdp-gallery-item {
 
 body.page-product .pdp-gallery-item--featured { grid-column: 1 / -1; }
 
+body.page-product .pdp-gallery-item picture {
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+
 body.page-product .pdp-gallery-item img {
   display: block;
   height: 100%;
@@ -903,13 +909,43 @@ body.page-product .related-product-card :is(a, button):focus-visible {
     background: var(--pdp-soft);
     border: 0;
     display: block;
+    list-style: none;
+    margin-left: auto;
+    margin-right: auto;
+    overflow: hidden;
+    overflow: clip;
+    padding: 0;
+    position: relative;
+    touch-action: pan-y;
     width: 100%;
+    z-index: 1;
+  }
+
+  // Product pages only need Swiper's layout and pagination primitives. Keeping
+  // them with the product stylesheet avoids a separate render-blocking vendor
+  // stylesheet on the mobile LCP path.
+  body.page-product .pdp-mobile-gallery .swiper-wrapper {
+    box-sizing: content-box;
+    display: flex;
+    height: 100%;
+    position: relative;
+    transform: translate3d(0, 0, 0);
+    transition-property: transform;
+    transition-timing-function: var(--swiper-wrapper-transition-timing-function, initial);
+    width: 100%;
+    z-index: 1;
   }
 
   body.page-product .pdp-mobile-gallery .swiper-slide {
     aspect-ratio: 1 / 1;
     background: var(--pdp-soft);
+    display: block;
+    flex-shrink: 0;
+    height: 100%;
     padding: 0;
+    position: relative;
+    transition-property: transform;
+    width: 100%;
   }
 
   body.page-product .pdp-mobile-gallery .swiper-slide img {
@@ -925,6 +961,39 @@ body.page-product .related-product-card :is(a, button):focus-visible {
     --swiper-pagination-bullet-inactive-color: var(--pdp-muted);
     --swiper-pagination-bullet-size: 6px;
     bottom: .8rem;
+    left: 0;
+    position: absolute;
+    text-align: center;
+    transform: translate3d(0, 0, 0);
+    transition: opacity .3s;
+    width: 100%;
+    z-index: 10;
+  }
+
+  body.page-product .pdp-mobile-gallery .swiper-pagination-bullet {
+    background: var(--swiper-pagination-bullet-inactive-color, #000);
+    border: 0;
+    border-radius: 50%;
+    display: inline-block;
+    height: var(--swiper-pagination-bullet-size, 8px);
+    margin: 0 4px;
+    opacity: var(--swiper-pagination-bullet-inactive-opacity, .2);
+    padding: 0;
+    width: var(--swiper-pagination-bullet-size, 8px);
+  }
+
+  body.page-product .pdp-mobile-gallery .swiper-pagination-bullet-active {
+    background: var(--swiper-pagination-color, #007aff);
+    opacity: 1;
+  }
+
+  body.page-product .pdp-mobile-gallery .swiper-notification {
+    left: 0;
+    opacity: 0;
+    pointer-events: none;
+    position: absolute;
+    top: 0;
+    z-index: -1000;
   }
 
   body.page-product .product-info { padding: 1.5rem 1rem 0 !important; }
