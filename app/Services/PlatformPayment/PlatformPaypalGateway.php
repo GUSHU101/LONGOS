@@ -66,7 +66,7 @@ class PlatformPaypalGateway
         }
 
         $this->client->setRequestHeaders([
-            'PayPal-Request-Id' => 'longos-platform-create-' . $session->uuid,
+            'PayPal-Request-Id' => $this->requestId('create', $session),
             'Prefer'            => 'return=representation',
         ]);
         $result = $this->client->createOrder([
@@ -98,7 +98,7 @@ class PlatformPaypalGateway
             throw new RuntimeException('PayPal 订单编号无效。');
         }
         $this->client->setRequestHeaders([
-            'PayPal-Request-Id' => 'longos-platform-capture-' . $session->uuid,
+            'PayPal-Request-Id' => $this->requestId('capture', $session),
             'Prefer'            => 'return=representation',
         ]);
         $result = $this->client->capturePaymentOrder($paypalOrderId);
@@ -123,7 +123,16 @@ class PlatformPaypalGateway
         if (! hash_equals($paypalOrderId, (string) ($result['id'] ?? ''))) {
             throw new RuntimeException('PayPal 返回的订单与支付会话不匹配。');
         }
-        if (strtoupper((string) ($result['status'] ?? '')) !== 'COMPLETED') {
+        $this->assertOrderBinding($session, $paypalOrderId, $result);
+
+        $status = strtoupper((string) ($result['status'] ?? ''));
+        if ($status === 'APPROVED') {
+            // Approval is the customer's authorization to capture. Recover a
+            // browser interruption between PayPal approval and our onApprove
+            // callback with the same deterministic capture idempotency key.
+            return $this->capture($session, $paypalOrderId);
+        }
+        if ($status !== 'COMPLETED') {
             return null;
         }
 
@@ -136,15 +145,11 @@ class PlatformPaypalGateway
         if (strtoupper((string) ($result['status'] ?? '')) !== 'COMPLETED') {
             throw new RuntimeException('PayPal 付款尚未完成。');
         }
-        if (! hash_equals($paypalOrderId, (string) ($result['id'] ?? ''))) {
-            throw new RuntimeException('PayPal 返回的订单与支付会话不匹配。');
-        }
+        $this->assertOrderBinding($session, $paypalOrderId, $result);
 
         $unit    = $result['purchase_units'][0] ?? null;
         $capture = is_array($unit) ? data_get($unit, 'payments.captures.0') : null;
         if (! is_array($unit) || ! is_array($capture)
-                              || ! hash_equals($session->uuid, (string) ($unit['custom_id'] ?? ''))
-                              || ! hash_equals($session->uuid, (string) ($unit['invoice_id'] ?? ''))
                               || strtoupper((string) ($capture['status'] ?? '')) !== 'COMPLETED'
                               || ! hash_equals($this->formatAmount($session), PlatformPaymentAmount::format((string) data_get($capture, 'amount.value', ''), $this->decimals($session->currency)))
                               || ! hash_equals($session->currency, strtoupper((string) data_get($capture, 'amount.currency_code', '')))) {
@@ -164,6 +169,26 @@ class PlatformPaypalGateway
         }
 
         return ['transaction_id' => $transactionId, 'payload' => $safe];
+    }
+
+    /** @param array<string, mixed> $result */
+    private function assertOrderBinding(PlatformPaymentSession $session, string $paypalOrderId, array $result): void
+    {
+        $unit = $result['purchase_units'][0] ?? null;
+        if (! hash_equals($paypalOrderId, (string) ($result['id'] ?? ''))
+            || ! is_array($unit)
+            || ! hash_equals($session->uuid, (string) ($unit['custom_id'] ?? ''))
+            || ! hash_equals($session->uuid, (string) ($unit['invoice_id'] ?? ''))
+            || ! hash_equals($this->formatAmount($session), PlatformPaymentAmount::format((string) data_get($unit, 'amount.value', ''), $this->decimals($session->currency)))
+            || ! hash_equals($session->currency, strtoupper((string) data_get($unit, 'amount.currency_code', '')))) {
+            throw new RuntimeException('PayPal 订单金额、币种或会话绑定校验失败。');
+        }
+        if ($this->settings['merchant_id'] !== '') {
+            $merchant = strtoupper((string) data_get($unit, 'payee.merchant_id', ''));
+            if ($merchant === '' || ! hash_equals($this->settings['merchant_id'], $merchant)) {
+                throw new RuntimeException('PayPal 收款账户校验失败。');
+            }
+        }
     }
 
     public function clientId(): string
@@ -200,18 +225,27 @@ class PlatformPaypalGateway
         if (! is_array($token) || empty($token['access_token']) || empty($token['token_type'])) {
             throw new RuntimeException('PayPal 身份验证失败。');
         }
-        $expiresIn = max(60, (int) ($token['expires_in'] ?? 300));
+        $expiresIn = max(1, (int) ($token['expires_in'] ?? 300));
         $cacheable = array_intersect_key($token, array_flip(['access_token', 'token_type', 'app_id']));
 
-        try {
-            Cache::put($cacheKey, Crypt::encryptString(json_encode($cacheable, JSON_THROW_ON_ERROR)), now()->addSeconds(max(60, $expiresIn - 120)));
-        } catch (\Throwable) {
+        if ($expiresIn > 120) {
+            try {
+                Cache::put($cacheKey, Crypt::encryptString(json_encode($cacheable, JSON_THROW_ON_ERROR)), now()->addSeconds($expiresIn - 120));
+            } catch (\Throwable) {
+            }
         }
     }
 
     private function formatAmount(PlatformPaymentSession $session): string
     {
         return PlatformPaymentAmount::format((string) $session->amount, $this->decimals($session->currency));
+    }
+
+    private function requestId(string $operation, PlatformPaymentSession $session): string
+    {
+        // Keep the provider idempotency value compact while retaining a
+        // deterministic, operation-specific key for safe network retries.
+        return 'lp-' . substr(hash('sha256', $operation . '|' . $session->uuid), 0, 32);
     }
 
     private function decimals(string $currency): int

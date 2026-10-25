@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Saas\DomainConfigWriter;
 use App\Saas\Models\Domain;
+use App\Saas\Models\PlatformPaymentSession;
 use App\Saas\Models\Site;
 use App\Saas\SiteAuditLogger;
 use App\Saas\SiteDeletionService;
@@ -153,6 +154,69 @@ class SaasSiteDeletionTest extends TestCase
 
         self::assertTrue($site->refresh()->status === Site::STATUS_PROVISIONING);
         self::assertNotNull($site->provisioning_token);
+    }
+
+    public function test_a_recoverable_provider_payment_blocks_tenant_deletion(): void
+    {
+        $prefix = 'lt_payment_123_';
+        $site   = $this->site('payment-open', $prefix);
+        Schema::connection('saas')->create($prefix . 'orders', static fn ($table) => $table->id());
+        PlatformPaymentSession::query()->create([
+            'uuid'              => '99999999-9999-4999-8999-999999999999',
+            'token_hash'        => str_repeat('3', 64),
+            'active_key'        => str_repeat('4', 64),
+            'site_id'           => $site->id,
+            'order_id'          => 1001,
+            'order_number'      => 'PAYMENT-1001',
+            'amount'            => '49.99000000',
+            'currency'          => 'USD',
+            'locale'            => 'en',
+            'status'            => PlatformPaymentSession::STATUS_PROCESSING,
+            'provider'          => 'stripe',
+            'provider_order_id' => 'pi_delete_guard_12345678',
+            'expires_at'        => now()->addHour(),
+        ]);
+        $service = new SiteDeletionService($this->writer(), $this->createMock(SiteAuditLogger::class), new Filesystem);
+
+        try {
+            $service->delete($site, true);
+            self::fail('Expected the recoverable payment to block tenant deletion.');
+        } catch (RuntimeException $exception) {
+            self::assertStringContainsString('待对账', $exception->getMessage());
+        }
+
+        self::assertSame(Site::STATUS_ACTIVE, $site->refresh()->status);
+        self::assertTrue(Schema::connection('saas')->hasTable($prefix . 'orders'));
+    }
+
+    public function test_an_unbound_provider_claim_blocks_tenant_deletion(): void
+    {
+        $prefix = 'lt_claim_123_';
+        $site   = $this->site('payment-claim', $prefix);
+        PlatformPaymentSession::query()->create([
+            'uuid'         => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            'token_hash'   => str_repeat('5', 64),
+            'active_key'   => str_repeat('6', 64),
+            'site_id'      => $site->id,
+            'order_id'     => 1002,
+            'order_number' => 'PAYMENT-1002',
+            'amount'       => '29.99000000',
+            'currency'     => 'USD',
+            'locale'       => 'en',
+            'status'       => PlatformPaymentSession::STATUS_PROCESSING,
+            'provider'     => 'paypal',
+            'expires_at'   => now()->addHour(),
+        ]);
+        $service = new SiteDeletionService($this->writer(), $this->createMock(SiteAuditLogger::class), new Filesystem);
+
+        try {
+            $service->delete($site, true);
+            self::fail('Expected the provider claim to block tenant deletion.');
+        } catch (RuntimeException $exception) {
+            self::assertStringContainsString('进行中', $exception->getMessage());
+        }
+
+        self::assertSame(Site::STATUS_ACTIVE, $site->refresh()->status);
     }
 
     public function test_overlapping_shared_database_prefixes_are_never_deleted(): void

@@ -56,13 +56,25 @@ class PlatformPaymentSessionService
                 $candidates = PlatformPaymentSession::query()
                     ->where('site_id', $site->id)
                     ->where('order_id', $order->id)
-                    ->whereIn('status', [PlatformPaymentSession::STATUS_PENDING, PlatformPaymentSession::STATUS_PROCESSING])
+                    ->whereIn('status', [
+                        PlatformPaymentSession::STATUS_PENDING,
+                        PlatformPaymentSession::STATUS_PROCESSING,
+                        PlatformPaymentSession::STATUS_EXPIRED,
+                    ])
                     ->lockForUpdate()
                     ->latest('id')
                     ->get();
 
                 foreach ($candidates as $candidate) {
                     if (! $candidate->isOpen()) {
+                        if ($candidate->isFinanciallyRecoverable()) {
+                            if ($candidate->status !== PlatformPaymentSession::STATUS_EXPIRED) {
+                                $candidate->forceFill(['status' => PlatformPaymentSession::STATUS_EXPIRED])->save();
+                            }
+
+                            throw new RuntimeException('该订单仍有一笔支付等待供应商对账，为避免重复扣款，暂时不能重新发起。');
+                        }
+
                         $candidate->forceFill([
                             'status'     => PlatformPaymentSession::STATUS_EXPIRED,
                             'active_key' => null,
@@ -131,7 +143,7 @@ class PlatformPaymentSessionService
         return $this->createdPayload($created['session'], $created['token']);
     }
 
-    public function resolve(string $token, bool $allowCompleted = true): PlatformPaymentSession
+    public function resolve(string $token, bool $allowCompleted = true, bool $allowRecoverableExpired = false): PlatformPaymentSession
     {
         if (preg_match('/^[a-f0-9]{64}$/', $token) !== 1) {
             throw new RuntimeException('支付链接无效。');
@@ -145,9 +157,16 @@ class PlatformPaymentSessionService
             throw new RuntimeException('支付链接不存在或已失效。');
         }
         if ($session->expires_at?->isPast() && $session->status !== PlatformPaymentSession::STATUS_COMPLETED) {
-            $session->forceFill(['status' => PlatformPaymentSession::STATUS_EXPIRED, 'active_key' => null])->save();
+            $financiallyRecoverable = $session->isFinanciallyRecoverable();
+            $recoverable            = $allowRecoverableExpired && $financiallyRecoverable;
+            $session->forceFill([
+                'status'     => PlatformPaymentSession::STATUS_EXPIRED,
+                'active_key' => $financiallyRecoverable ? $session->active_key : null,
+            ])->save();
 
-            throw new RuntimeException('支付链接已过期，请返回店铺重新发起支付。');
+            if (! $recoverable) {
+                throw new RuntimeException('支付链接已过期，请返回店铺重新发起支付。');
+            }
         }
         if (! $allowCompleted && $session->status === PlatformPaymentSession::STATUS_COMPLETED) {
             throw new RuntimeException('此订单已经支付完成。');
@@ -157,6 +176,11 @@ class PlatformPaymentSessionService
         }
 
         return $session;
+    }
+
+    public function resolveProviderResult(string $token): PlatformPaymentSession
+    {
+        return $this->resolve($token, true, true);
     }
 
     public function bindProvider(PlatformPaymentSession $session, string $provider, string $providerOrderId): PlatformPaymentSession
@@ -204,25 +228,53 @@ class PlatformPaymentSessionService
 
     public function claimProvider(PlatformPaymentSession $session, string $provider): PlatformPaymentSession
     {
-        if (! in_array($provider, $this->settings->availableProviders(), true)) {
-            throw new RuntimeException('所选支付方式当前不可用。');
+        $configurationLock = Cache::lock(
+            PlatformPaymentSettings::CONFIGURATION_LOCK,
+            PlatformPaymentSettings::CONFIGURATION_LOCK_SECONDS,
+        );
+
+        try {
+            $configurationLock->block(10);
+        } catch (LockTimeoutException) {
+            throw new RuntimeException('支付配置正在更新，请稍后重试。');
         }
 
-        return DB::connection('saas')->transaction(function () use ($session, $provider): PlatformPaymentSession {
-            $locked = PlatformPaymentSession::query()->lockForUpdate()->findOrFail($session->id);
-            if (! $locked->isOpen()) {
-                throw new RuntimeException('支付会话已结束。');
+        try {
+            // Read provider settings only after the lock is acquired. The
+            // credentials service reads the control database directly, so a
+            // request that began before an administrator save cannot create a
+            // transaction with stale worker-local configuration.
+            if (! in_array($provider, $this->settings->availableProviders(), true)) {
+                throw new RuntimeException('所选支付方式当前不可用。');
             }
-            if ($locked->provider && ! hash_equals((string) $locked->provider, $provider)) {
-                throw new RuntimeException('支付方式在当前会话中已经确定。');
-            }
-            $locked->forceFill([
-                'provider' => $provider,
-                'status'   => PlatformPaymentSession::STATUS_PROCESSING,
-            ])->save();
 
-            return $locked->fresh(['site.domains']);
-        }, 3);
+            return DB::connection('saas')->transaction(function () use ($session, $provider): PlatformPaymentSession {
+                // Site first, session second: deletion uses the same database
+                // lock order, preventing a tenant from disappearing between
+                // the last readiness check and the remote provider API call.
+                $site = Site::query()->whereKey($session->site_id)->lockForUpdate()->first();
+                if (! $site || $site->status !== Site::STATUS_ACTIVE
+                            || (bool) data_get($site->meta, 'control_site', false)) {
+                    throw new RuntimeException('子站当前不可发起支付。');
+                }
+
+                $locked = PlatformPaymentSession::query()->lockForUpdate()->findOrFail($session->id);
+                if (! $locked->isOpen()) {
+                    throw new RuntimeException('支付会话已结束。');
+                }
+                if ($locked->provider && ! hash_equals((string) $locked->provider, $provider)) {
+                    throw new RuntimeException('支付方式在当前会话中已经确定。');
+                }
+                $locked->forceFill([
+                    'provider' => $provider,
+                    'status'   => PlatformPaymentSession::STATUS_PROCESSING,
+                ])->save();
+
+                return $locked->fresh(['site.domains']);
+            }, 3);
+        } finally {
+            $configurationLock->release();
+        }
     }
 
     public function releaseUnboundProviderClaim(PlatformPaymentSession $session, string $provider): void

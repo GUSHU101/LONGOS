@@ -3,14 +3,20 @@
 namespace App\Services\PlatformPayment;
 
 use App\Saas\Models\Domain;
+use App\Saas\Models\PlatformPaymentSession;
 use App\Saas\Models\Site;
 use App\Saas\Support\DomainName;
 use App\Saas\TenantManager;
+use Illuminate\Support\Facades\Schema;
 use Plugin\LongosPlatformPay\Services\PlatformPaymentCredentials;
 use RuntimeException;
 
 class PlatformPaymentSettings
 {
+    public const CONFIGURATION_LOCK = 'platform-payment:configuration';
+
+    public const CONFIGURATION_LOCK_SECONDS = 120;
+
     /** @var list<string> */
     private const STRIPE_PAYMENT_MARKS = [
         'visa', 'mastercard', 'amex', 'discover', 'jcb', 'diners', 'unionpay', 'cartes_bancaires',
@@ -194,12 +200,76 @@ class PlatformPaymentSettings
     public function issuesWithOverrides(array $fields, bool $requirePlatformEnabled = true): array
     {
         try {
-            $settings = $this->snapshot();
+            $settings = $this->snapshotWithOverrides($fields);
         } catch (\Throwable $e) {
             return [$e->getMessage()];
         }
 
-        $fields = PlatformPaymentCredentials::decryptForRuntime($fields);
+        return $this->issuesForSnapshot($settings, $requirePlatformEnabled);
+    }
+
+    /** @param array<string, mixed> $fields @return list<string> */
+    public function credentialChangeIssues(array $fields): array
+    {
+        try {
+            $current  = $this->snapshot();
+            $proposed = $this->snapshotWithOverrides($fields, $current);
+        } catch (\Throwable $e) {
+            return [$e->getMessage()];
+        }
+
+        return $this->credentialChangeIssuesForSnapshots($current, $proposed);
+    }
+
+    /**
+     * Do not strand an already-created provider transaction by rotating its
+     * account credentials before callbacks and reconciliation have finished.
+     * A missing/broken current credential set is intentionally exempt so an
+     * operator can repair it instead of being locked out by the guard itself.
+     *
+     * @param array<string, mixed> $current
+     * @param array<string, mixed> $proposed
+     * @return list<string>
+     */
+    public function credentialChangeIssuesForSnapshots(array $current, array $proposed): array
+    {
+        try {
+            if (! Schema::connection('saas')->hasTable('saas_platform_payment_sessions')) {
+                return [];
+            }
+        } catch (\Throwable) {
+            return ['无法核对进行中的平台支付，会话存储暂不可用。'];
+        }
+
+        $configured = $this->configuredProviders($current);
+        $issues     = [];
+        foreach (['paypal', 'stripe'] as $provider) {
+            if (! in_array($provider, $configured, true)
+                || ! $this->providerConfigurationChanged($provider, $current, $proposed)) {
+                continue;
+            }
+
+            try {
+                $inFlight = PlatformPaymentSession::query()
+                    ->credentialSensitive($provider)
+                    ->exists();
+            } catch (\Throwable) {
+                return ['无法核对进行中的平台支付，已拒绝更换收款账号配置。'];
+            }
+            if ($inFlight) {
+                $name     = $provider === 'paypal' ? 'PayPal' : 'Stripe';
+                $issues[] = "{$name} 尚有进行中或待对账的交易。请先等待支付完成并对账，再更换账号密钥或运行环境。";
+            }
+        }
+
+        return $issues;
+    }
+
+    /** @param array<string, mixed> $fields @param array<string, mixed>|null $base @return array<string, mixed> */
+    private function snapshotWithOverrides(array $fields, ?array $base = null): array
+    {
+        $settings = $base ?? $this->snapshot();
+        $fields   = PlatformPaymentCredentials::decryptForRuntime($fields);
         foreach (['status' => 'enabled', 'share_paypal' => 'share_paypal', 'share_stripe' => 'share_stripe'] as $field => $key) {
             if (array_key_exists($field, $fields)) {
                 $settings[$key] = filter_var($fields[$field], FILTER_VALIDATE_BOOLEAN);
@@ -225,7 +295,23 @@ class PlatformPaymentSettings
             }
         }
 
-        return $this->issuesForSnapshot($settings, $requirePlatformEnabled);
+        return $settings;
+    }
+
+    /** @param array<string, mixed> $current @param array<string, mixed> $proposed */
+    private function providerConfigurationChanged(string $provider, array $current, array $proposed): bool
+    {
+        $keys = $provider === 'paypal'
+            ? ['mode', 'client_id', 'secret', 'merchant_id']
+            : ['test_mode', 'publishable_key', 'secret_key', 'webhook_secret'];
+
+        foreach ($keys as $key) {
+            if (($current[$provider][$key] ?? null) !== ($proposed[$provider][$key] ?? null)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @param array<string, mixed> $settings @return list<string> */

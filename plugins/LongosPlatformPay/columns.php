@@ -16,7 +16,14 @@ if (! $isControl) {
     ]];
 }
 
-$stripeWebhook  = e(app(\App\Services\PlatformPayment\PlatformPaymentSettings::class)->mainUrl('_longos/pay/webhooks/stripe'));
+$stripeWebhook = e(trans('LongosPlatformPay::common.admin.webhook_unavailable'));
+
+try {
+    $stripeWebhook = e(app(\App\Services\PlatformPayment\PlatformPaymentSettings::class)->mainUrl('_longos/pay/webhooks/stripe'));
+} catch (\Throwable) {
+    // Keep the settings panel available while the control domain is being
+    // provisioned so an operator can still inspect and repair the plugin.
+}
 $isEnabled      = static fn (): bool => filter_var(request()->input('status', false), FILTER_VALIDATE_BOOLEAN);
 $paypalEnabled  = static fn (): bool => $isEnabled()
     && filter_var(request()->input('share_paypal', false), FILTER_VALIDATE_BOOLEAN);

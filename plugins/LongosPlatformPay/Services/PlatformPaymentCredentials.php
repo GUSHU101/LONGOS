@@ -2,6 +2,7 @@
 
 namespace Plugin\LongosPlatformPay\Services;
 
+use Beike\Models\Setting;
 use Illuminate\Support\Facades\Crypt;
 
 final class PlatformPaymentCredentials
@@ -17,9 +18,38 @@ final class PlatformPaymentCredentials
     /** @return array<string, mixed> */
     public static function all(): array
     {
-        $settings = plugin_setting('longos_platform_pay', []);
+        $settings = Setting::query()
+            ->where('type', 'plugin')
+            ->where('space', 'longos_platform_pay')
+            ->get(['name', 'value', 'json'])
+            ->mapWithKeys(static function (Setting $setting): array {
+                $value = $setting->json ? json_decode((string) $setting->value, true) : $setting->value;
 
-        return self::decryptForRuntime(is_array($settings) ? $settings : []);
+                return [(string) $setting->name => $value];
+            })
+            ->all();
+
+        return self::decryptForRuntime($settings);
+    }
+
+    /** @param array<string, mixed> $settings @return array<string, mixed> */
+    public static function preserveBlankSecrets(array $settings): array
+    {
+        $current = self::all();
+        foreach (self::SECRET_FIELDS as $name) {
+            if (! array_key_exists($name, $settings)
+                || ! is_scalar($settings[$name])
+                || trim((string) $settings[$name]) !== '') {
+                continue;
+            }
+
+            $existing = trim((string) ($current[$name] ?? ''));
+            if ($existing !== '') {
+                $settings[$name] = $existing;
+            }
+        }
+
+        return $settings;
     }
 
     /** @param array<string, mixed> $settings @return array<string, mixed> */

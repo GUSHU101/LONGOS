@@ -6,6 +6,8 @@ use App\Saas\Models\Site;
 use App\Services\PlatformPayment\PlatformPaymentCurrency;
 use App\Services\PlatformPayment\PlatformPaymentPayload;
 use App\Services\PlatformPayment\PlatformPaymentSettings;
+use App\Services\PlatformPayment\PlatformPaypalGateway;
+use Beike\Admin\Http\Controllers\PluginController;
 use Illuminate\Config\Repository;
 use Illuminate\Container\Container;
 use Illuminate\Encryption\Encrypter;
@@ -14,8 +16,10 @@ use Illuminate\Support\Facades\Facade;
 use Illuminate\Translation\ArrayLoader;
 use Illuminate\Translation\Translator;
 use Illuminate\Validation\Factory;
+use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use PHPUnit\Framework\TestCase;
 use Plugin\LongosPlatformPay\Services\PlatformPaymentCredentials;
+use Srmklive\PayPal\Services\PayPal;
 
 class PlatformPaymentIndependenceTest extends TestCase
 {
@@ -35,6 +39,11 @@ class PlatformPaymentIndependenceTest extends TestCase
         self::assertStringNotContainsString("plugin_setting('paypal", $code);
         self::assertStringNotContainsString("plugin_setting('stripe", $code);
         self::assertStringContainsString('PlatformPaymentCredentials::all()', $code);
+        $credentials = (string) file_get_contents(
+            $root . '/plugins/LongosPlatformPay/Services/PlatformPaymentCredentials.php'
+        );
+        self::assertStringContainsString('Setting::query()', $credentials);
+        self::assertStringNotContainsString('plugin_setting(', $credentials);
         self::assertStringContainsString("'name'        => 'paypal_client_id'", $code);
         self::assertStringContainsString("'name'        => 'stripe_secret_key'", $code);
         self::assertStringContainsString(':value="\'\'"', (string) file_get_contents(
@@ -114,6 +123,25 @@ class PlatformPaymentIndependenceTest extends TestCase
         self::assertTrue($stripe->isEmpty(), $stripe->first());
     }
 
+    public function test_child_site_cannot_persist_forged_platform_credentials(): void
+    {
+        $controller = (new \ReflectionClass(PluginController::class))->newInstanceWithoutConstructor();
+        $method     = new \ReflectionMethod($controller, 'platformPaymentFields');
+        $payload    = [
+            'status'            => '1',
+            'paypal_secret'     => 'must-not-be-stored',
+            'stripe_secret_key' => 'must-not-be-stored',
+            'unexpected'        => 'must-not-be-stored',
+        ];
+
+        self::assertSame(['status' => '1'], $method->invoke($controller, $payload, false));
+        self::assertSame([
+            'status'            => '1',
+            'paypal_secret'     => 'must-not-be-stored',
+            'stripe_secret_key' => 'must-not-be-stored',
+        ], $method->invoke($controller, $payload, true));
+    }
+
     public function test_platform_currency_and_paypal_payload_are_owned_and_minimal(): void
     {
         $order = (object) ['currency_code' => 'EUR', 'currency_value' => 0.91, 'total' => 19.99];
@@ -138,6 +166,61 @@ class PlatformPaymentIndependenceTest extends TestCase
         self::assertSame('CAPTURE123', data_get($safe, 'purchase_units.0.payments.captures.0.id'));
         self::assertArrayNotHasKey('payer', $safe);
         self::assertStringNotContainsString('private@example.test', json_encode($safe, JSON_THROW_ON_ERROR));
+    }
+
+    public function test_paypal_retry_ids_are_compact_stable_and_operation_specific(): void
+    {
+        $gateway = (new \ReflectionClass(PlatformPaypalGateway::class))->newInstanceWithoutConstructor();
+        $method  = new \ReflectionMethod($gateway, 'requestId');
+        $session = (new \App\Saas\Models\PlatformPaymentSession)->forceFill([
+            'uuid' => 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        ]);
+
+        $create  = $method->invoke($gateway, 'create', $session);
+        $capture = $method->invoke($gateway, 'capture', $session);
+
+        self::assertMatchesRegularExpression('/^lp-[a-f0-9]{32}$/', $create);
+        self::assertSame($create, $method->invoke($gateway, 'create', $session));
+        self::assertNotSame($create, $capture);
+    }
+
+    #[IgnoreDeprecations]
+    public function test_paypal_reconciliation_captures_an_approved_interrupted_order(): void
+    {
+        $orderId = 'ORDER1234567890';
+        $session = (new \App\Saas\Models\PlatformPaymentSession)->forceFill([
+            'uuid'     => '12121212-1212-4212-8212-121212121212',
+            'amount'   => '19.99000000',
+            'currency' => 'USD',
+        ]);
+        $unit = [
+            'reference_id' => $session->uuid,
+            'custom_id'    => $session->uuid,
+            'invoice_id'   => $session->uuid,
+            'amount'       => ['currency_code' => 'USD', 'value' => '19.99'],
+        ];
+        $client = $this->createMock(PayPal::class);
+        $client->expects(self::once())->method('showOrderDetails')->with($orderId)->willReturn([
+            'id' => $orderId, 'status' => 'APPROVED', 'purchase_units' => [$unit],
+        ]);
+        $client->expects(self::once())->method('capturePaymentOrder')->with($orderId)->willReturn([
+            'id' => $orderId, 'status' => 'COMPLETED', 'purchase_units' => [[
+                ...$unit,
+                'payments' => ['captures' => [[
+                    'id'     => 'CAPTURE12345678', 'status' => 'COMPLETED',
+                    'amount' => ['currency_code' => 'USD', 'value' => '19.99'],
+                ]]],
+            ]],
+        ]);
+
+        $gateway = (new \ReflectionClass(PlatformPaypalGateway::class))->newInstanceWithoutConstructor();
+        foreach (['client' => $client, 'settings' => ['merchant_id' => '']] as $property => $value) {
+            (new \ReflectionProperty($gateway, $property))->setValue($gateway, $value);
+        }
+
+        $result = $gateway->recoverCompleted($session, $orderId);
+        self::assertSame('CAPTURE12345678', $result['transaction_id'] ?? null);
+        self::assertSame('COMPLETED', data_get($result, 'payload.status'));
     }
 
     /** @param array<string, mixed> $payload */

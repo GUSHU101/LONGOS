@@ -2,6 +2,7 @@
 
 namespace App\Saas;
 
+use App\Saas\Models\PlatformPaymentSession;
 use App\Saas\Models\Site;
 use App\Saas\Support\SensitiveValueRedactor;
 use Illuminate\Filesystem\Filesystem;
@@ -37,6 +38,9 @@ class SiteDeletionService
         $site = Site::query()->with('domains')->findOrFail($site->getKey());
         if ((bool) data_get($site->meta, 'control_site', false)) {
             throw new RuntimeException('控制站承载 SaaS 管理面，不允许删除。');
+        }
+        if (PlatformPaymentSession::query()->deletionSensitive()->where('site_id', $site->id)->exists()) {
+            throw new RuntimeException('该子站仍有进行中或待对账的平台支付，为避免已收款无法回写订单，已拒绝删除。');
         }
 
         $previousStatus = $site->status;
@@ -140,6 +144,15 @@ class SiteDeletionService
             $locked = Site::query()->whereKey($site->getKey())->lockForUpdate()->firstOrFail();
             if ((bool) data_get($locked->meta, 'control_site', false)) {
                 throw new RuntimeException('控制站不允许删除。');
+            }
+            // Repeat under the locked site row. Provider claiming locks the
+            // same site row before its payment session, so either the claim
+            // becomes visible here or the claimant observes `deleting`.
+            if (PlatformPaymentSession::query()
+                ->deletionSensitive()
+                ->where('site_id', $locked->id)
+                ->exists()) {
+                throw new RuntimeException('该子站仍有进行中或待对账的平台支付，为避免已收款无法回写订单，已拒绝删除。');
             }
 
             $staleBefore = now()->subMinutes(max(5, (int) config('saas.provisioning.lease_timeout_minutes', 120)));

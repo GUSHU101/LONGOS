@@ -13,18 +13,22 @@
 namespace Beike\Admin\Http\Controllers;
 
 use App\Services\PaymentPluginReadiness;
+use App\Services\PlatformPayment\PlatformPaymentSettings;
 use Beike\Admin\Http\Resources\PluginResource;
 use Beike\Admin\Services\MarketingService;
 use Beike\Plugin\Plugin;
 use Beike\Repositories\PluginRepo;
 use Beike\Repositories\SettingRepo;
 use Exception;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use League\CommonMark\GithubFlavoredMarkdownConverter;
+use Plugin\LongosPlatformPay\Services\PlatformPaymentCredentials;
 
 class PluginController extends Controller
 {
@@ -357,6 +361,9 @@ class PluginController extends Controller
     {
         $fields = $request->all();
         $plugin = app('plugin')->getPluginOrFail($code);
+        if ($plugin->code === 'longos_platform_pay') {
+            return $this->updatePlatformPayment($plugin, $fields, $code);
+        }
         if ($plugin->code === 'paypal') {
             $stored = $plugin->getSetting();
             $fields = \Plugin\Paypal\Services\PaypalSettings::preserveBlankSecrets(
@@ -373,16 +380,6 @@ class PluginController extends Controller
             }
         }
 
-        if ($plugin->code === 'longos_platform_pay' && filter_var($fields['status'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
-            $isControl = (bool) data_get(current_site()?->meta, 'control_site', false);
-            $issues    = $isControl
-                ? app(\App\Services\PlatformPayment\PlatformPaymentSettings::class)->issuesWithOverrides($fields, false)
-                : app(\App\Services\PlatformPayment\PlatformPaymentSettings::class)->issues();
-            if ($issues !== []) {
-                return back()->withErrors(['status' => implode(' ', $issues)])->withInput();
-            }
-        }
-
         if ($plugin->code === 'pixel_tracking') {
             $fields['meta_pixels']     = \Plugin\PixelTracking\Services\PixelProfiles::normalizeForStorage($fields['meta_pixels'] ?? '[]', 'meta');
             $fields['tiktok_pixels']   = \Plugin\PixelTracking\Services\PixelProfiles::normalizeForStorage($fields['tiktok_pixels'] ?? '[]', 'tiktok');
@@ -391,10 +388,6 @@ class PluginController extends Controller
         if ($plugin->code === 'paypal') {
             $fields = \Plugin\Paypal\Services\PaypalSettings::normalizeForStorage($fields);
         }
-        if ($plugin->code === 'longos_platform_pay') {
-            $fields = \Plugin\LongosPlatformPay\Services\PlatformPaymentCredentials::normalizeForStorage($fields);
-        }
-
         // Saving an enabled plugin from the web UI also applies migrations
         // introduced by a newer package. This keeps panel deployments usable
         // without requiring a tenant merchant to run Artisan manually.
@@ -410,6 +403,76 @@ class PluginController extends Controller
         hook_action('admin.plugin.update.after', $data);
 
         return redirect($this->getRedirect())->with('success', trans('common.updated_success'));
+    }
+
+    /**
+     * Serialize central credential changes with provider claims. This makes a
+     * save atomic from the point of view of checkout workers, including
+     * long-lived PHP processes whose application config predates the save.
+     */
+    private function updatePlatformPayment(Plugin $plugin, array $fields, string $code)
+    {
+        $isControl = (bool) data_get(current_site()?->meta, 'control_site', false);
+        $fields    = $this->platformPaymentFields($fields, $isControl);
+        $lock      = Cache::lock(
+            PlatformPaymentSettings::CONFIGURATION_LOCK,
+            PlatformPaymentSettings::CONFIGURATION_LOCK_SECONDS,
+        );
+
+        try {
+            $lock->block(10);
+        } catch (LockTimeoutException) {
+            return back()
+                ->withErrors(['status' => '支付配置正在使用或更新，请稍后重试。'])
+                ->withInput($this->safePlatformPaymentInput($fields));
+        }
+
+        try {
+            // Password inputs intentionally render blank. Read their latest
+            // database values only after acquiring the shared lock.
+            $fields = PlatformPaymentCredentials::preserveBlankSecrets($fields);
+            if (method_exists($plugin, 'validate')) {
+                $validator = $plugin->validate($fields);
+                if ($validator->fails()) {
+                    return back()
+                        ->withErrors($validator)
+                        ->withInput($this->safePlatformPaymentInput($fields));
+                }
+            }
+
+            $settings = app(PlatformPaymentSettings::class);
+            if ($isControl) {
+                $changeIssues = $settings->credentialChangeIssues($fields);
+                if ($changeIssues !== []) {
+                    return back()
+                        ->withErrors(['status' => implode(' ', $changeIssues)])
+                        ->withInput($this->safePlatformPaymentInput($fields));
+                }
+            }
+
+            if (filter_var($fields['status'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+                $issues = $isControl
+                    ? $settings->issuesWithOverrides($fields, false)
+                    : $settings->issues();
+                if ($issues !== []) {
+                    return back()
+                        ->withErrors(['status' => implode(' ', $issues)])
+                        ->withInput($this->safePlatformPaymentInput($fields));
+                }
+
+                PluginRepo::migrateDatabase($plugin);
+            }
+
+            $fields = PlatformPaymentCredentials::normalizeForStorage($fields);
+            $data   = ['plugin_code' => $code, 'fields' => $fields];
+            hook_action('admin.plugin.update.before', $data);
+            SettingRepo::update('plugin', $code, $fields);
+            hook_action('admin.plugin.update.after', $data);
+
+            return redirect($this->getRedirect())->with('success', trans('common.updated_success'));
+        } finally {
+            $lock->release();
+        }
     }
 
     /**
@@ -437,6 +500,35 @@ class PluginController extends Controller
         }
 
         return $fields;
+    }
+
+    /**
+     * The child-site panel deliberately exposes only the on/off switch. Drop
+     * forged hidden credential fields instead of persisting misleading local
+     * copies that the central payment service will never read.
+     */
+    private function platformPaymentFields(array $fields, bool $controlSite): array
+    {
+        $allowed = ['status'];
+        if ($controlSite) {
+            $allowed = array_merge($allowed, [
+                'share_paypal', 'share_stripe',
+                'paypal_mode', 'paypal_client_id', 'paypal_secret', 'paypal_merchant_id',
+                'stripe_test_mode', 'stripe_publishable_key', 'stripe_secret_key', 'stripe_webhook_secret',
+            ]);
+        }
+
+        return array_intersect_key($fields, array_flip($allowed));
+    }
+
+    /** @return array<string, mixed> */
+    private function safePlatformPaymentInput(array $fields): array
+    {
+        return array_diff_key($fields, array_flip([
+            'paypal_secret',
+            'stripe_secret_key',
+            'stripe_webhook_secret',
+        ]));
     }
 
     /**
@@ -494,6 +586,10 @@ class PluginController extends Controller
         try {
             $plugin = app('plugin')->getPluginOrFail($code);
             $status = $request->get('status');
+            if ($plugin->code === 'longos_platform_pay') {
+                return $this->updatePlatformPaymentStatus($plugin, $status, $code);
+            }
+
             if ((bool) $status) {
                 if ($plugin->getType() === 'payment') {
                     $issues = PaymentPluginReadiness::issues((string) $plugin->code);
@@ -511,6 +607,36 @@ class PluginController extends Controller
             return json_success($status ? trans('admin/common.text_enabled') : trans('admin/common.text_closed'));
         } catch (\Exception $e) {
             return json_fail($e->getMessage());
+        }
+    }
+
+    private function updatePlatformPaymentStatus(Plugin $plugin, mixed $status, string $code): JsonResponse
+    {
+        $lock = Cache::lock(
+            PlatformPaymentSettings::CONFIGURATION_LOCK,
+            PlatformPaymentSettings::CONFIGURATION_LOCK_SECONDS,
+        );
+
+        try {
+            $lock->block(10);
+        } catch (LockTimeoutException) {
+            return json_fail('支付配置正在使用或更新，请稍后重试。');
+        }
+
+        try {
+            if ((bool) $status) {
+                $issues = PaymentPluginReadiness::issues((string) $plugin->code);
+                if ($issues !== []) {
+                    return json_fail('启用失败：请先在插件设置中完成并保存支付凭据。');
+                }
+
+                PluginRepo::migrateDatabase($plugin);
+            }
+            SettingRepo::update('plugin', $code, ['status' => $status]);
+
+            return json_success($status ? trans('admin/common.text_enabled') : trans('admin/common.text_closed'));
+        } finally {
+            $lock->release();
         }
     }
 

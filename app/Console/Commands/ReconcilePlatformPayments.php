@@ -31,13 +31,12 @@ class ReconcilePlatformPayments extends Command
         $failed               = 0;
         $gateways             = [];
         $unresolvedSessionIds = [];
+        $cancelledSessionIds  = [];
 
         $candidates = PlatformPaymentSession::query()
             ->with('site.domains')
-            ->whereIn('status', [PlatformPaymentSession::STATUS_PROCESSING, PlatformPaymentSession::STATUS_EXPIRED])
+            ->financiallyUnsettled()
             ->whereIn('provider', ['paypal', 'stripe'])
-            ->whereNotNull('provider_order_id')
-            ->where('created_at', '>=', now()->subDays(4))
             ->where('updated_at', '<=', now()->subMinute())
             ->oldest('id')
             ->limit($limit)
@@ -51,6 +50,14 @@ class ReconcilePlatformPayments extends Command
                     : app(PlatformStripeGateway::class);
                 $result = $gateway->recoverCompleted($session, (string) $session->provider_order_id);
                 if ($result === null) {
+                    if ($provider === 'stripe'
+                        && $session->expires_at?->isPast()
+                        && $gateway->cancelUnresolved($session, (string) $session->provider_order_id)) {
+                        $cancelledSessionIds[] = $session->id;
+
+                        continue;
+                    }
+
                     $unresolvedSessionIds[] = $session->id;
 
                     continue;
@@ -82,13 +89,34 @@ class ReconcilePlatformPayments extends Command
                 'active_key' => null,
                 'updated_at' => now(),
             ]);
+
+        $releasedStale = PlatformPaymentSession::query()
+            ->whereIn('status', [PlatformPaymentSession::STATUS_PROCESSING, PlatformPaymentSession::STATUS_EXPIRED])
+            ->where('provider', 'paypal')
+            ->whereNotNull('provider_order_id')
+            ->whereNotNull('active_key')
+            ->where('expires_at', '<=', now())
+            ->where('created_at', '<', now()->subDays(PlatformPaymentSession::RECOVERY_WINDOW_DAYS))
+            ->update([
+                'status'     => PlatformPaymentSession::STATUS_EXPIRED,
+                'active_key' => null,
+                'updated_at' => now(),
+            ]);
+        $cancelled = $cancelledSessionIds === [] ? 0 : PlatformPaymentSession::query()
+            ->whereKey($cancelledSessionIds)
+            ->whereIn('status', [PlatformPaymentSession::STATUS_PROCESSING, PlatformPaymentSession::STATUS_EXPIRED])
+            ->where('provider', 'stripe')
+            ->update([
+                'status'     => PlatformPaymentSession::STATUS_CANCELLED,
+                'active_key' => null,
+                'updated_at' => now(),
+            ]);
         $expiredProcessing = $unresolvedSessionIds === [] ? 0 : PlatformPaymentSession::query()
             ->whereKey($unresolvedSessionIds)
             ->where('status', PlatformPaymentSession::STATUS_PROCESSING)
             ->where('expires_at', '<=', now())
             ->update([
                 'status'     => PlatformPaymentSession::STATUS_EXPIRED,
-                'active_key' => null,
                 'updated_at' => now(),
             ]);
 
@@ -103,8 +131,8 @@ class ReconcilePlatformPayments extends Command
             ->delete();
 
         $expired = $expiredPending + $expiredProcessing;
-        $this->components->info("Recovered {$recovered}, failed {$failed}, expired {$expired}, and pruned {$pruned} hosted payment session(s).");
+        $this->components->info("Recovered {$recovered}, cancelled {$cancelled}, failed {$failed}, expired {$expired}, released {$releasedStale} stale lock(s), and pruned {$pruned} hosted payment session(s).");
 
-        return self::SUCCESS;
+        return $failed === 0 ? self::SUCCESS : self::FAILURE;
     }
 }

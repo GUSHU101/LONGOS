@@ -82,6 +82,35 @@ class PlatformStripeGateway
         return ['transaction_id' => $paymentIntentId, 'payload' => $this->safePayload($data)];
     }
 
+    public function cancelUnresolved(PlatformPaymentSession $session, string $paymentIntentId): bool
+    {
+        if (preg_match('/^pi_[A-Za-z0-9_]{8,128}$/', $paymentIntentId) !== 1) {
+            throw new RuntimeException('Stripe PaymentIntent 编号无效。');
+        }
+
+        $data = $this->client->paymentIntents->retrieve($paymentIntentId, [])->toArray();
+        $this->validate($session, $data, false);
+        $status = (string) ($data['status'] ?? '');
+        if ($status === 'canceled') {
+            return true;
+        }
+        if ($status === 'succeeded') {
+            return false;
+        }
+        if (! in_array($status, ['requires_payment_method', 'requires_confirmation', 'requires_action', 'processing', 'requires_capture'], true)) {
+            throw new RuntimeException('Stripe PaymentIntent 状态无法安全取消。');
+        }
+
+        $cancelled = $this->client->paymentIntents->cancel(
+            $paymentIntentId,
+            [],
+            ['idempotency_key' => 'longos-platform-cancel-' . $session->uuid],
+        )->toArray();
+        $this->validate($session, $cancelled, false);
+
+        return (string) ($cancelled['status'] ?? '') === 'canceled';
+    }
+
     /** @param array<string, mixed> $data */
     public function validate(PlatformPaymentSession $session, array $data, bool $requireSucceeded): void
     {

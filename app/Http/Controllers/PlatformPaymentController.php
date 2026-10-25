@@ -95,7 +95,7 @@ class PlatformPaymentController extends Controller
     {
         try {
             $data    = $request->validate(['paypal_order_id' => ['required', 'string', 'max:64', 'regex:/^[A-Z0-9]{10,32}$/']]);
-            $session = $this->sessions->resolve($token);
+            $session = $this->sessions->resolveProviderResult($token);
             App::setLocale($session->locale ?: 'en');
             if ($this->isCompletedBy($session, 'paypal', $data['paypal_order_id'])) {
                 return json_success('Payment already completed.', ['redirect_url' => $this->sessions->tenantSuccessUrl($session)]);
@@ -137,7 +137,7 @@ class PlatformPaymentController extends Controller
     {
         try {
             $data    = $request->validate(['payment_intent_id' => ['required', 'string', 'max:160', 'regex:/^pi_[A-Za-z0-9_]{8,128}$/']]);
-            $session = $this->sessions->resolve($token);
+            $session = $this->sessions->resolveProviderResult($token);
             App::setLocale($session->locale ?: 'en');
             if ($this->isCompletedBy($session, 'stripe', $data['payment_intent_id'])) {
                 return json_success('Payment already completed.', ['redirect_url' => $this->sessions->tenantSuccessUrl($session)]);
@@ -157,7 +157,7 @@ class PlatformPaymentController extends Controller
         $session = null;
 
         try {
-            $session = $this->sessions->resolve($token);
+            $session = $this->sessions->resolveProviderResult($token);
             if ($provider === 'paypal') {
                 $providerOrderId = trim((string) $request->query('token', ''));
             } elseif ($provider === 'stripe') {

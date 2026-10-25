@@ -72,7 +72,7 @@ class Kernel extends ConsoleKernel
             $schedule->command('saas:platform-pay:reconcile')
                 ->everyFiveMinutes()
                 ->onOneServer()
-                ->withoutOverlapping(10);
+                ->withoutOverlapping(60);
             $schedule->command('saas:run longos:live-chat:prune --continue-on-error')
                 ->hourlyAt(15)
                 ->onOneServer()

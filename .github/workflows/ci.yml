@@ -37,6 +37,7 @@ jobs:
           plugins=(
             FlatShipping
             LongosLiveChat
+            LongosPlatformPay
             LongosProductReviews
             Paypal
             PixelTracking
@@ -300,6 +301,7 @@ jobs:
           wait_for_app
           docker compose exec -T app test -f storage/installed
           docker compose exec -T app test -f plugins/Paypal/Bootstrap.php
+          docker compose exec -T app test -f plugins/LongosPlatformPay/Bootstrap.php
           docker compose exec -T app test -f plugins/ShopifyProductTransfer/Bootstrap.php
           docker compose exec -T app test ! -e plugins/BeikeShopTestSandbox
 

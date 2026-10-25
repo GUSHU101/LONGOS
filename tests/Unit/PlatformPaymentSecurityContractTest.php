@@ -115,4 +115,32 @@ class PlatformPaymentSecurityContractTest extends TestCase
         $snapshot['enabled'] = false;
         self::assertNotSame([], $service->runtimeIssuesForSnapshot($snapshot));
     }
+
+    public function test_release_pipeline_requires_the_independent_platform_plugin(): void
+    {
+        $root     = dirname(__DIR__, 2);
+        $workflow = (string) file_get_contents($root . '/.github/workflows/ci.yml');
+        $deletion = (string) file_get_contents($root . '/app/Saas/SiteDeletionService.php');
+
+        self::assertStringContainsString('LongosPlatformPay', $workflow);
+        self::assertStringContainsString('plugins/LongosPlatformPay/Bootstrap.php', $workflow);
+        self::assertStringContainsString('->deletionSensitive()', $deletion);
+        self::assertStringContainsString('credentialChangeIssues($fields)', (string) file_get_contents(
+            $root . '/beike/Admin/Http/Controllers/PluginController.php'
+        ));
+        self::assertStringContainsString('private function platformPaymentFields(', (string) file_get_contents(
+            $root . '/beike/Admin/Http/Controllers/PluginController.php'
+        ));
+        $controller = (string) file_get_contents($root . '/beike/Admin/Http/Controllers/PluginController.php');
+        $sessions   = (string) file_get_contents($root . '/app/Services/PlatformPayment/PlatformPaymentSessionService.php');
+        $paypal     = (string) file_get_contents($root . '/app/Services/PlatformPayment/PlatformPaypalGateway.php');
+        self::assertStringContainsString('PlatformPaymentSettings::CONFIGURATION_LOCK', $controller);
+        self::assertStringContainsString('PlatformPaymentSettings::CONFIGURATION_LOCK', $sessions);
+        self::assertStringContainsString('PlatformPaymentCredentials::preserveBlankSecrets($fields)', $controller);
+        self::assertStringContainsString('safePlatformPaymentInput(', $controller);
+        self::assertStringContainsString('Site::query()->whereKey($session->site_id)->lockForUpdate()', $sessions);
+        self::assertStringContainsString('->deletionSensitive()', $deletion);
+        self::assertStringContainsString("requestId('create', \$session)", $paypal);
+        self::assertStringContainsString("requestId('capture', \$session)", $paypal);
+    }
 }

@@ -9,7 +9,7 @@
         "en": "Independently host main-site PayPal and Stripe accounts without relying on the original payment plugins."
     },
     "type": "payment",
-    "version": "v1.1.0",
+    "version": "v1.1.1",
     "icon": "/image/logo.svg",
     "author": {
         "name": "LONGOS",
