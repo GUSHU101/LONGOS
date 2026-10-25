@@ -95,7 +95,7 @@ class PluginController extends Controller
 
             if ($plugin->code === 'pixel_tracking' && $plugin->getEnabled()
                                                    && $this->trackingChannelsEmpty()) {
-                $issues[] = '像素追踪已启用，但尚未配置 Meta 或 TikTok 像素通道。';
+                $issues[] = '像素追踪已启用，但尚未配置 Meta、TikTok 或 Snapchat 像素通道。';
             }
 
             if ($plugin->getEnabled() && in_array($plugin->code, ['paypal', 'stripe', 'pixel_tracking'], true)) {
@@ -367,8 +367,9 @@ class PluginController extends Controller
         }
 
         if ($plugin->code === 'pixel_tracking') {
-            $fields['meta_pixels']   = \Plugin\PixelTracking\Services\PixelProfiles::normalizeForStorage($fields['meta_pixels'] ?? '[]', 'meta');
-            $fields['tiktok_pixels'] = \Plugin\PixelTracking\Services\PixelProfiles::normalizeForStorage($fields['tiktok_pixels'] ?? '[]', 'tiktok');
+            $fields['meta_pixels']     = \Plugin\PixelTracking\Services\PixelProfiles::normalizeForStorage($fields['meta_pixels'] ?? '[]', 'meta');
+            $fields['tiktok_pixels']   = \Plugin\PixelTracking\Services\PixelProfiles::normalizeForStorage($fields['tiktok_pixels'] ?? '[]', 'tiktok');
+            $fields['snapchat_pixels'] = \Plugin\PixelTracking\Services\PixelProfiles::normalizeForStorage($fields['snapchat_pixels'] ?? '[]', 'snapchat');
         }
 
         // Saving an enabled plugin from the web UI also applies migrations
@@ -426,7 +427,7 @@ class PluginController extends Controller
             return $fields;
         }
 
-        foreach (['meta_pixels' => 'pixel_id', 'tiktok_pixels' => 'pixel_code'] as $field => $identifier) {
+        foreach (['meta_pixels' => 'pixel_id', 'tiktok_pixels' => 'pixel_code', 'snapchat_pixels' => 'pixel_id'] as $field => $identifier) {
             if (! array_key_exists($field, $fields)) {
                 continue;
             }
@@ -598,7 +599,7 @@ class PluginController extends Controller
 
     private function trackingChannelsEmpty(): bool
     {
-        foreach (['meta_pixels', 'tiktok_pixels'] as $key) {
+        foreach (['meta_pixels', 'tiktok_pixels', 'snapchat_pixels'] as $key) {
             $value = json_decode((string) plugin_setting("pixel_tracking.{$key}", '[]'), true);
             if (is_array($value) && $value !== []) {
                 return false;
@@ -616,16 +617,18 @@ class PluginController extends Controller
         }
 
         $issues = [];
-        foreach (['meta_pixels' => 'meta', 'tiktok_pixels' => 'tiktok'] as $field => $channel) {
+        foreach (['meta_pixels' => 'meta', 'tiktok_pixels' => 'tiktok', 'snapchat_pixels' => 'snapchat'] as $field => $channel) {
             $value = plugin_setting("pixel_tracking.{$field}", '[]');
             if ($message = \Plugin\PixelTracking\Services\PixelProfiles::validationError($value, $channel)) {
-                $issues[] = ($channel === 'meta' ? 'Meta' : 'TikTok') . ' 像素配置无效：' . $message;
+                $label    = ['meta' => 'Meta', 'tiktok' => 'TikTok', 'snapchat' => 'Snapchat'][$channel];
+                $issues[] = $label . ' 像素配置无效：' . $message;
             }
         }
         if (! in_array(plugin_setting('pixel_tracking.server_tracking', true), [false, 0, '0'], true)) {
             foreach (array_merge(
                 \Plugin\PixelTracking\Services\PixelProfiles::meta(),
                 \Plugin\PixelTracking\Services\PixelProfiles::tiktok(),
+                \Plugin\PixelTracking\Services\PixelProfiles::snapchat(),
             ) as $profile) {
                 if (trim((string) ($profile['access_token'] ?? '')) === '') {
                     $identifier = $profile['pixel_id'] ?? $profile['pixel_code'] ?? 'unknown';

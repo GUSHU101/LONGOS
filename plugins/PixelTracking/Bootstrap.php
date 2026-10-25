@@ -15,7 +15,7 @@ class Bootstrap
             $data['editor_app_embeds'][] = [
                 'code'            => 'pixel_tracking',
                 'name'            => '像素与转化追踪',
-                'description'     => '启用浏览器侧的 Meta、TikTok 与归因追踪代码。',
+                'description'     => '启用浏览器侧的 Meta、TikTok、Snapchat 与归因追踪代码。',
                 'default_enabled' => true,
             ];
 

@@ -40,6 +40,16 @@ class ServerTrackingService
         'CompleteRegistration' => 'CompleteRegistration',
     ];
 
+    private const SNAPCHAT_EVENT_MAP = [
+        'PageView'             => 'PAGE_VIEW',
+        'ViewContent'          => 'VIEW_CONTENT',
+        'AddToCart'            => 'ADD_CART',
+        'InitiateCheckout'     => 'START_CHECKOUT',
+        'Purchase'             => 'PURCHASE',
+        'Search'               => 'SEARCH',
+        'CompleteRegistration' => 'SIGN_UP',
+    ];
+
     public function hasConsent(Request $request): bool
     {
         if (! plugin_setting('pixel_tracking.require_consent', false)) {
@@ -93,7 +103,8 @@ class ServerTrackingService
         $fbp         = (string) $request->cookie('_fbp', '');
         $fbc         = (string) $request->cookie('_fbc', '');
         $ttp         = (string) $request->cookie('_ttp', '');
-        $identifiers = array_filter(compact('fbp', 'fbc', 'ttp'));
+        $scid        = (string) $request->cookie('_scid', '');
+        $identifiers = array_filter(compact('fbp', 'fbc', 'ttp', 'scid'));
         if ($identifiers !== []) {
             $this->putSessionValue('pixel_tracking.browser_identifiers', array_merge(
                 (array) $this->sessionValue('pixel_tracking.browser_identifiers', []),
@@ -114,6 +125,7 @@ class ServerTrackingService
                 (int) Arr::get($attribution, 'fbclid_time', 0),
             ),
             'ttp'         => $ttp,
+            'scid'        => $scid,
             'customer'    => $customer ? [
                 'id'        => (string) $customer->id,
                 'email'     => (string) $customer->email,
@@ -219,7 +231,8 @@ class ServerTrackingService
                 Arr::get($attribution, 'fbclid'),
                 (int) Arr::get($attribution, 'fbclid_time', 0),
             ),
-            'ttp'         => $identifiers['ttp'] ?? '',
+            'ttp'         => $identifiers['ttp']  ?? '',
+            'scid'        => $identifiers['scid'] ?? '',
             'customer'    => [],
             'email'       => (string) $order->email,
             'phone'       => (string) ($order->telephone ?: $order->shipping_telephone),
@@ -256,9 +269,10 @@ class ServerTrackingService
                 $identifiers = $this->normalizeBrowserIdentifiers(array_merge(
                     (array) $this->sessionValue('pixel_tracking.browser_identifiers', []),
                     array_filter([
-                        'fbp' => (string) $request->cookie('_fbp', ''),
-                        'fbc' => (string) $request->cookie('_fbc', ''),
-                        'ttp' => (string) $request->cookie('_ttp', ''),
+                        'fbp'  => (string) $request->cookie('_fbp', ''),
+                        'fbc'  => (string) $request->cookie('_fbc', ''),
+                        'ttp'  => (string) $request->cookie('_ttp', ''),
+                        'scid' => (string) $request->cookie('_scid', ''),
                     ]),
                 ));
             }
@@ -312,8 +326,9 @@ class ServerTrackingService
     {
         $metaSuccessful   = $this->sendMeta($eventName, $eventId, $properties, $context, $eventTime);
         $tiktokSuccessful = $this->sendTikTok($eventName, $eventId, $properties, $context, $eventTime);
+        $snapSuccessful   = $this->sendSnapchat($eventName, $eventId, $properties, $context, $eventTime);
 
-        return $metaSuccessful && $tiktokSuccessful;
+        return $metaSuccessful && $tiktokSuccessful && $snapSuccessful;
     }
 
     /**
@@ -462,6 +477,65 @@ class ServerTrackingService
         return $allSuccessful;
     }
 
+    private function sendSnapchat(string $eventName, string $eventId, array $properties, array $context, int $eventTime): bool
+    {
+        $mappedEvent = self::SNAPCHAT_EVENT_MAP[$eventName] ?? null;
+        if (! $mappedEvent) {
+            return true;
+        }
+
+        $allSuccessful = true;
+
+        foreach (PixelProfiles::snapchat() as $profile) {
+            $token = (string) ($profile['access_token'] ?? '');
+            if ($token === '') {
+                continue;
+            }
+
+            $profileId = (string) $profile['pixel_id'];
+            $delivery  = $this->beginDelivery('snapchat', $profileId, $mappedEvent, $eventId);
+            if ($delivery === false) {
+                continue;
+            }
+
+            // Snapchat CAPI v3 uses the same event_id that the browser Pixel
+            // receives as client_dedup_id. PURCHASE also carries order_id so
+            // Snap can apply its longer transaction-level deduplication window.
+            $payload = [
+                'data' => [[
+                    'event_name'       => $mappedEvent,
+                    'event_time'       => $eventTime,
+                    'event_id'         => $eventId,
+                    'action_source'    => 'WEB',
+                    'event_source_url' => $context['url'] ?? '',
+                    'user_data'        => $this->snapchatUserData($context),
+                    'custom_data'      => $this->snapchatCustomData($properties),
+                ]],
+            ];
+
+            try {
+                $response = Http::connectTimeout(3)
+                    ->timeout(8)
+                    ->retry(2, 250, fn (\Throwable $exception): bool => $this->shouldRetryProviderRequest($exception), throw: false)
+                    ->withQueryParameters(['access_token' => $token])
+                    ->post('https://tr.snapchat.com/v3/' . rawurlencode($profileId) . '/events', $payload);
+                $providerStatus = strtoupper((string) $response->json('status'));
+                $success        = $response->successful() && in_array($providerStatus, ['VALID', 'SUCCESS'], true);
+                $message        = $success ? null : SensitiveValueRedactor::redact((string) ($response->json('reason') ?: 'Snapchat CAPI HTTP ' . $response->status()));
+                $this->recordResult('snapchat', $profileId, $eventName, $eventId, $success, $response->status(), $message);
+                $this->finishDelivery($delivery, $success);
+                $allSuccessful = $allSuccessful && $success;
+            } catch (\Throwable $exception) {
+                $this->recordResult('snapchat', $profileId, $eventName, $eventId, false, 0, SensitiveValueRedactor::redact($exception->getMessage()));
+                $allSuccessful = false;
+            } finally {
+                $this->releaseDelivery($delivery);
+            }
+        }
+
+        return $allSuccessful;
+    }
+
     private function metaUserData(array $context): array
     {
         $data = array_filter([
@@ -475,9 +549,9 @@ class ServerTrackingService
         }
 
         return array_filter($data + [
-            'em'          => $this->hashIdentifier($context['email'] ?? data_get($context, 'customer.email')),
-            'ph'          => $this->hashIdentifier($context['phone'] ?? data_get($context, 'customer.telephone')),
-            'external_id' => $this->hashIdentifier($context['external_id'] ?? data_get($context, 'customer.id')),
+            'em'          => $this->hashEmail($context['email'] ?? data_get($context, 'customer.email')),
+            'ph'          => $this->hashPhone($context['phone'] ?? data_get($context, 'customer.telephone')),
+            'external_id' => $this->hashExternalId($context['external_id'] ?? data_get($context, 'customer.id')),
         ]);
     }
 
@@ -506,9 +580,29 @@ class ServerTrackingService
         }
 
         return array_filter($data + [
-            'email'        => $this->hashIdentifier($context['email'] ?? data_get($context, 'customer.email')),
-            'phone_number' => $this->hashIdentifier($context['phone'] ?? data_get($context, 'customer.telephone')),
-            'external_id'  => $this->hashIdentifier($context['external_id'] ?? data_get($context, 'customer.id')),
+            'email'        => $this->hashEmail($context['email'] ?? data_get($context, 'customer.email')),
+            'phone_number' => $this->hashPhone($context['phone'] ?? data_get($context, 'customer.telephone')),
+            'external_id'  => $this->hashExternalId($context['external_id'] ?? data_get($context, 'customer.id')),
+        ]);
+    }
+
+    private function snapchatUserData(array $context): array
+    {
+        $data = array_filter([
+            'client_ip_address' => $context['ip']         ?? '',
+            'client_user_agent' => $context['user_agent'] ?? '',
+            'sc_click_id'       => Arr::get($context, 'attribution.sc_click_id'),
+            'sc_cookie1'        => $context['scid'] ?? '',
+        ]);
+
+        if (! plugin_setting('pixel_tracking.advanced_matching', false)) {
+            return $data;
+        }
+
+        return array_filter($data + [
+            'em'          => $this->hashEmail($context['email'] ?? data_get($context, 'customer.email')),
+            'ph'          => $this->hashPhone($context['phone'] ?? data_get($context, 'customer.telephone')),
+            'external_id' => $this->hashExternalId($context['external_id'] ?? data_get($context, 'customer.id')),
         ]);
     }
 
@@ -556,12 +650,39 @@ class ServerTrackingService
         ], fn ($value) => $value !== null && $value !== []);
     }
 
-    private function hashIdentifier(mixed $value): ?string
+    private function snapchatCustomData(array $properties): array
+    {
+        $items = array_values(array_filter($properties['contents'] ?? [], 'is_array'));
+
+        return array_filter([
+            'value'         => isset($properties['value']) ? (float) $properties['value'] : null,
+            'currency'      => $properties['currency']      ?? null,
+            'content_ids'   => $properties['content_ids']   ?? null,
+            'contents'      => $items,
+            'content_type'  => $properties['content_type']  ?? null,
+            'num_items'     => $items === [] ? null : (string) array_sum(array_map(static fn (array $item): int => (int) ($item['quantity'] ?? 1), $items)),
+            'search_string' => $properties['search_string'] ?? null,
+            'order_id'      => $properties['order_id']      ?? null,
+        ], fn ($value) => $value !== null && $value !== []);
+    }
+
+    private function hashEmail(mixed $value): ?string
     {
         $value = strtolower(trim((string) $value));
-        if (str_contains($value, '@') === false) {
-            $value = preg_replace('/\D+/', '', $value);
-        }
+
+        return $value === '' ? null : hash('sha256', $value);
+    }
+
+    private function hashPhone(mixed $value): ?string
+    {
+        $value = preg_replace('/\D+/', '', trim((string) $value));
+
+        return $value === '' ? null : hash('sha256', $value);
+    }
+
+    private function hashExternalId(mixed $value): ?string
+    {
+        $value = strtolower(trim((string) $value));
 
         return $value === '' ? null : hash('sha256', $value);
     }
@@ -688,6 +809,13 @@ class ServerTrackingService
                 $attribution[$key] = $parameters[$key];
             }
         }
+        foreach ($parameters as $key => $value) {
+            if (strtolower((string) $key) === 'sccid' && is_scalar($value)) {
+                $attribution['sc_click_id'] = $value;
+
+                break;
+            }
+        }
         if (isset($attribution['fbclid'])) {
             $attribution['fbclid_time'] = time();
         }
@@ -698,7 +826,7 @@ class ServerTrackingService
     private function normalizeAttribution(array $attribution): array
     {
         $normalized = [];
-        foreach (['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid', 'ttclid'] as $key) {
+        foreach (['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid', 'ttclid', 'sc_click_id'] as $key) {
             if (isset($attribution[$key]) && is_scalar($attribution[$key])) {
                 $normalized[$key] = mb_substr(trim((string) $attribution[$key]), 0, 500);
             }
@@ -713,7 +841,7 @@ class ServerTrackingService
     private function normalizeBrowserIdentifiers(array $identifiers): array
     {
         $normalized = [];
-        foreach (['fbp', 'fbc', 'ttp'] as $key) {
+        foreach (['fbp', 'fbc', 'ttp', 'scid'] as $key) {
             if (isset($identifiers[$key]) && is_scalar($identifiers[$key])) {
                 $value = mb_substr(trim((string) $identifiers[$key]), 0, 500);
                 if ($value !== '') {
@@ -741,9 +869,10 @@ class ServerTrackingService
             'telephone' => mb_substr(trim((string) ($customer['telephone'] ?? '')), 0, 64),
         ], static fn ($value) => $value !== '');
         $identifiers = $this->normalizeBrowserIdentifiers([
-            'fbp' => $context['fbp'] ?? '',
-            'fbc' => $context['fbc'] ?? '',
-            'ttp' => $context['ttp'] ?? '',
+            'fbp'  => $context['fbp']   ?? '',
+            'fbc'  => $context['fbc']   ?? '',
+            'ttp'  => $context['ttp']   ?? '',
+            'scid' => $context['scid']  ?? '',
         ]);
 
         return array_filter([
@@ -752,9 +881,10 @@ class ServerTrackingService
             'url'         => $url,
             'referrer'    => $referrer,
             'attribution' => $this->normalizeAttribution(is_array($context['attribution'] ?? null) ? $context['attribution'] : []),
-            'fbp'         => $identifiers['fbp'] ?? '',
-            'fbc'         => $identifiers['fbc'] ?? '',
-            'ttp'         => $identifiers['ttp'] ?? '',
+            'fbp'         => $identifiers['fbp']  ?? '',
+            'fbc'         => $identifiers['fbc']  ?? '',
+            'ttp'         => $identifiers['ttp']  ?? '',
+            'scid'        => $identifiers['scid'] ?? '',
             'customer'    => $customer,
             'email'       => mb_substr(trim((string) ($context['email'] ?? '')), 0, 320),
             'phone'       => mb_substr(trim((string) ($context['phone'] ?? '')), 0, 64),

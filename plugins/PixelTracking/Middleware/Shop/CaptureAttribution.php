@@ -44,6 +44,10 @@ class CaptureAttribution
                     $data[$key] = $value;
                 }
             }
+            $snapClickId = $request->query('ScCid', $request->query('sccid'));
+            if (is_string($snapClickId) && trim($snapClickId) !== '') {
+                $data['sc_click_id'] = mb_substr(trim($snapClickId), 0, 500);
+            }
             if ($data) {
                 if (isset($data['fbclid']) && $data['fbclid'] !== session('pixel_tracking.attribution.fbclid')) {
                     $data['fbclid_time'] = time();
@@ -52,9 +56,10 @@ class CaptureAttribution
             }
 
             $identifiers = array_filter([
-                'fbp' => (string) $request->cookie('_fbp', ''),
-                'fbc' => (string) $request->cookie('_fbc', ''),
-                'ttp' => (string) $request->cookie('_ttp', ''),
+                'fbp'  => (string) $request->cookie('_fbp', ''),
+                'fbc'  => (string) $request->cookie('_fbc', ''),
+                'ttp'  => (string) $request->cookie('_ttp', ''),
+                'scid' => (string) $request->cookie('_scid', ''),
             ]);
             if ($identifiers) {
                 session(['pixel_tracking.browser_identifiers' => array_merge(session('pixel_tracking.browser_identifiers', []), $identifiers)]);

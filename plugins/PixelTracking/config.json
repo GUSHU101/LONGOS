@@ -5,11 +5,11 @@
     "en": "Multi-channel Pixel & Server Tracking"
   },
   "description": {
-    "zh_cn": "Meta/Facebook 与 TikTok 像素、Conversions API/Events API、UTM 归因和服务端订单追踪。",
-    "en": "Meta/Facebook and TikTok pixels, Conversions API/Events API, UTM attribution, and server-side order tracking."
+    "zh_cn": "Meta/Facebook、TikTok 与 Snapchat 像素、Conversions API/Events API、UTM 归因和服务端订单追踪。",
+    "en": "Meta/Facebook, TikTok, and Snapchat pixels, conversion APIs, UTM attribution, and server-side order tracking."
   },
   "type": "feature",
-  "version": "v1.4.0",
+  "version": "v1.5.0",
   "icon": "/image/logo.png",
   "author": {
     "name": "LONGOS",

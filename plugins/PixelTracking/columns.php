@@ -4,7 +4,7 @@ return [
     [
         'name'        => 'browser_tracking',
         'label'       => '启用浏览器像素',
-        'description' => '加载 Meta Pixel 和 TikTok Pixel，记录店铺浏览与漏斗事件。',
+        'description' => '加载 Meta Pixel、TikTok Pixel 和 Snap Pixel，记录店铺浏览与漏斗事件。',
         'type'        => 'bool',
         'value'       => '1',
         'required'    => false,
@@ -12,7 +12,7 @@ return [
     [
         'name'        => 'server_tracking',
         'label'       => '启用服务端追踪',
-        'description' => '由本网站 Laravel 服务器直接调用 Meta Conversions API 与 TikTok Events API。',
+        'description' => '由本网站 Laravel 服务器直接调用 Meta Conversions API、TikTok Events API 与 Snapchat Conversions API v3。',
         'type'        => 'bool',
         'value'       => '1',
         'required'    => false,
@@ -59,6 +59,19 @@ return [
             }
         }],
         'required'    => false,
+    ],
+    [
+        'name'        => 'snapchat_pixels',
+        'label'       => 'Snapchat 像素配置（JSON）',
+        'description' => '数组格式：[ {"pixel_id":"xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx","access_token":"..."} ]。访问令牌用于 Conversions API v3，浏览器端只公开 pixel_id。',
+        'type'        => 'textarea',
+        'value'       => '[]',
+        'rules'       => ['nullable', 'json', function ($attribute, $value, $fail) {
+            if ($message = \Plugin\PixelTracking\Services\PixelProfiles::validationError($value, 'snapchat')) {
+                $fail($message);
+            }
+        }],
+        'required' => false,
     ],
     [
         'name'        => 'advanced_matching',

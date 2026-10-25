@@ -13,7 +13,7 @@ return new class extends Migration
             return;
         }
 
-        foreach (['meta_pixels' => 'meta', 'tiktok_pixels' => 'tiktok'] as $name => $channel) {
+        foreach (['meta_pixels' => 'meta', 'tiktok_pixels' => 'tiktok', 'snapchat_pixels' => 'snapchat'] as $name => $channel) {
             $setting = DB::table('settings')
                 ->where('type', 'plugin')
                 ->where('space', 'pixel_tracking')

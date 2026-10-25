@@ -31,6 +31,9 @@ class PixelTrackingHardeningTest extends TestCase
         self::assertNotNull(PixelProfiles::validationError('[{"pixel_id":"123456"},{"pixel_id":"123456"}]', 'meta'));
         self::assertNotNull(PixelProfiles::validationError('[{"pixel_code":"C123456","access_token":"x"},{"pixel_code":"C123456"}]', 'tiktok'));
         self::assertNotNull(PixelProfiles::validationError('[{"pixel_code":"bad code"}]', 'tiktok'));
+        self::assertNull(PixelProfiles::validationError('[{"pixel_id":"6abc82ca-4a3a-4391-98ba-0317a8471234"}]', 'snapchat'));
+        self::assertNotNull(PixelProfiles::validationError('[{"pixel_id":"not-a-snap-pixel"}]', 'snapchat'));
+        self::assertNotNull(PixelProfiles::validationError('[{"pixel_id":"6abc82ca-4a3a-4391-98ba-0317a8471234"},{"pixel_id":"6ABC82CA-4A3A-4391-98BA-0317A8471234"}]', 'snapchat'));
         self::assertNotNull(PixelProfiles::validationError('{"pixel_id":"123456789"}', 'meta'));
         self::assertNotNull(PixelProfiles::validationError('[{"pixel_id":"123456789","access_token":"enc:v1:broken"}]', 'meta'));
         $tooManyProfiles = array_map(
@@ -69,6 +72,15 @@ class PixelTrackingHardeningTest extends TestCase
         self::assertSame('token', PixelProfiles::meta()[0]['access_token']);
         self::assertNull(PixelProfiles::validationError($json, 'meta'));
 
+        $snapchatJson = PixelProfiles::normalizeForStorage([[
+            'pixel_id'     => '6abc82ca-4a3a-4391-98ba-0317a8471234',
+            'access_token' => 'snap-token',
+            'unknown'      => 'drop-me',
+        ]], 'snapchat');
+        Config::set('bk.plugin.pixel_tracking.snapchat_pixels', $snapchatJson);
+        self::assertSame('snap-token', PixelProfiles::snapchat()[0]['access_token']);
+        self::assertArrayNotHasKey('unknown', json_decode($snapchatJson, true)[0]);
+
         $configView = (string) file_get_contents(dirname(__DIR__, 2) . '/plugins/PixelTracking/Views/admin/config.blade.php');
         self::assertStringContainsString("\$profile['_saved_identifier']", $configView);
         self::assertStringNotContainsString('value="EA', $configView);
@@ -83,6 +95,11 @@ class PixelTrackingHardeningTest extends TestCase
         self::assertStringContainsString("window.fbq('trackSingle', pixelId", $tracker);
         self::assertStringNotContainsString("window.fbq('track', name", $tracker);
         self::assertStringContainsString('window.ttq.instance(pixelId)', $tracker);
+        self::assertStringContainsString("window.snaptr('track', pixelId, snapchatEvent", $tracker);
+        self::assertStringContainsString("window.snaptr('init', pixelId)", $tracker);
+        self::assertStringContainsString('https://sc-static.net/scevent.min.js', $tracker);
+        self::assertStringContainsString('client_dedup_id: eventId', $tracker);
+        self::assertStringContainsString('result.transaction_id = String(properties.order_id)', $tracker);
         self::assertStringContainsString('{event_id: eventId}', $tracker);
         self::assertStringContainsString('const sentEvents = new Set()', $tracker);
         self::assertStringContainsString('result.content_ids = result.content_ids.map(String)', $tracker);
@@ -114,6 +131,12 @@ class PixelTrackingHardeningTest extends TestCase
         self::assertStringContainsString("'event_source_id' => \$profile['pixel_code']", $service);
         self::assertStringContainsString("'data'            => [[", $service);
         self::assertStringContainsString('(int) $providerCode === 0', $service);
+        self::assertStringContainsString("'PageView'             => 'PAGE_VIEW'", $service);
+        self::assertStringContainsString("'Purchase'             => 'PURCHASE'", $service);
+        self::assertStringContainsString("'action_source'    => 'WEB'", $service);
+        self::assertStringContainsString('https://tr.snapchat.com/v3/', $service);
+        self::assertStringContainsString("'sc_click_id'", $service);
+        self::assertStringContainsString("'sc_cookie1'", $service);
         self::assertStringContainsString("'content_ids'", $service);
         self::assertStringContainsString("'search_string'", $service);
         self::assertStringContainsString('beginDelivery(', $service);
@@ -151,6 +174,7 @@ class PixelTrackingHardeningTest extends TestCase
 
         $tokenMigration = (string) file_get_contents($root . '/plugins/PixelTracking/Migrations/2026_10_12_000000_encrypt_pixel_tracking_tokens.php');
         self::assertStringContainsString("'meta_pixels' => 'meta'", $tokenMigration);
+        self::assertStringContainsString("'snapchat_pixels' => 'snapchat'", $tokenMigration);
         self::assertStringContainsString('PixelProfiles::normalizeForStorage', $tokenMigration);
     }
 }

@@ -45,12 +45,13 @@ final class TrackingHealth
         }
     }
 
-    public static function forProfiles(array $metaProfiles, array $tiktokProfiles): array
+    public static function forProfiles(array $metaProfiles, array $tiktokProfiles, array $snapchatProfiles = []): array
     {
         $result = [];
         foreach ([
-            'meta'   => [$metaProfiles, 'pixel_id'],
-            'tiktok' => [$tiktokProfiles, 'pixel_code'],
+            'meta'     => [$metaProfiles, 'pixel_id'],
+            'tiktok'   => [$tiktokProfiles, 'pixel_code'],
+            'snapchat' => [$snapchatProfiles, 'pixel_id'],
         ] as $channel => [$profiles, $identifier]) {
             foreach ($profiles as $profile) {
                 $profileId = (string) ($profile[$identifier] ?? '');

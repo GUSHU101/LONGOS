@@ -41,6 +41,10 @@ class PixelTrackingDeliveryTest extends TestCase
             'pixel_code'   => 'C123456789',
             'access_token' => 'tiktok-secret',
         ]]));
+        Config::set('bk.plugin.pixel_tracking.snapchat_pixels', json_encode([[
+            'pixel_id'     => '6abc82ca-4a3a-4391-98ba-0317a8471234',
+            'access_token' => 'snapchat-secret',
+        ]]));
     }
 
     protected function tearDown(): void
@@ -50,11 +54,12 @@ class PixelTrackingDeliveryTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_meta_and_tiktok_receive_current_deduplicated_payloads(): void
+    public function test_meta_tiktok_and_snapchat_receive_current_deduplicated_payloads(): void
     {
         Http::fake([
-            'graph.facebook.com/*'      => Http::response(['events_received' => 1], 200),
-            'business-api.tiktok.com/*' => Http::response(['code' => 0, 'message' => 'OK'], 200),
+            'graph.facebook.com/*'       => Http::response(['events_received' => 1], 200),
+            'business-api.tiktok.com/*'  => Http::response(['code' => 0, 'message' => 'OK'], 200),
+            'tr.snapchat.com/*'          => Http::response(['status' => 'VALID', 'reason' => 'Events have been processed successfully.'], 200),
         ]);
 
         $prepared = $this->preparedEvent();
@@ -77,19 +82,36 @@ class PixelTrackingDeliveryTest extends TestCase
                 && $request['data'][0]['properties']['content_ids']               === ['SKU-1']
                 && $request['data'][0]['properties']['contents'][0]['content_id'] === 'SKU-1';
         });
+        Http::assertSent(function (Request $request) use ($prepared): bool {
+            return str_contains($request->url(), 'tr.snapchat.com/v3/6abc82ca-4a3a-4391-98ba-0317a8471234/events')
+                && str_contains($request->url(), 'access_token=snapchat-secret')
+                && $request['data'][0]['event_name']                             === 'ADD_CART'
+                && $request['data'][0]['event_id']                               === 'evt_shared_1'
+                && $request['data'][0]['event_time']                             === $prepared['event_time']
+                && $request['data'][0]['action_source']                          === 'WEB'
+                && $request['data'][0]['user_data']['client_ip_address']         === '203.0.113.10'
+                && $request['data'][0]['user_data']['sc_click_id']               === 'snap-click-123'
+                && $request['data'][0]['user_data']['sc_cookie1']                === 'snap-cookie'
+                && $request['data'][0]['custom_data']['content_ids']             === ['SKU-1']
+                && $request['data'][0]['custom_data']['contents'][0]['id']       === 'SKU-1'
+                && $request['data'][0]['custom_data']['contents'][0]['quantity'] === 2;
+        });
 
-        $health = TrackingHealth::forProfiles(PixelProfiles::meta(), PixelProfiles::tiktok());
+        $health = TrackingHealth::forProfiles(PixelProfiles::meta(), PixelProfiles::tiktok(), PixelProfiles::snapchat());
         self::assertTrue($health['meta:123456789']['success']);
         self::assertTrue($health['tiktok:C123456789']['success']);
+        self::assertTrue($health['snapchat:6abc82ca-4a3a-4391-98ba-0317a8471234']['success']);
         self::assertSame(1, $health['meta:123456789']['success_count']);
         self::assertSame(1, $health['tiktok:C123456789']['success_count']);
+        self::assertSame(1, $health['snapchat:6abc82ca-4a3a-4391-98ba-0317a8471234']['success_count']);
     }
 
     public function test_successful_server_delivery_is_suppressed_for_the_same_event_id(): void
     {
         Http::fake([
-            'graph.facebook.com/*'      => Http::response(['events_received' => 1], 200),
-            'business-api.tiktok.com/*' => Http::response(['code' => 0, 'message' => 'OK'], 200),
+            'graph.facebook.com/*'       => Http::response(['events_received' => 1], 200),
+            'business-api.tiktok.com/*'  => Http::response(['code' => 0, 'message' => 'OK'], 200),
+            'tr.snapchat.com/*'          => Http::response(['status' => 'VALID'], 200),
         ]);
 
         $service  = new ServerTrackingService;
@@ -97,7 +119,37 @@ class PixelTrackingDeliveryTest extends TestCase
         $service->trackPreparedBrowserEvent($prepared);
         $service->trackPreparedBrowserEvent($prepared);
 
-        Http::assertSentCount(2);
+        Http::assertSentCount(3);
+    }
+
+    public function test_snapchat_purchase_uses_v3_order_deduplication_and_hashed_matching(): void
+    {
+        Config::set('bk.plugin.pixel_tracking.meta_pixels', '[]');
+        Config::set('bk.plugin.pixel_tracking.tiktok_pixels', '[]');
+        Config::set('bk.plugin.pixel_tracking.advanced_matching', true);
+        Http::fake([
+            'tr.snapchat.com/*' => Http::response(['status' => 'SUCCESS'], 200),
+        ]);
+        $prepared                           = $this->preparedEvent();
+        $prepared['event_name']             = 'Purchase';
+        $prepared['event_id']               = 'purchase_1001';
+        $prepared['properties']['order_id'] = 'ORDER-1001';
+        $prepared['context']['email']       = 'Buyer@Example.test';
+        $prepared['context']['phone']       = '+1 (555) 0100';
+        $prepared['context']['external_id'] = 'customer-42';
+
+        (new ServerTrackingService)->trackPreparedBrowserEvent($prepared);
+
+        Http::assertSent(function (Request $request): bool {
+            return $request['data'][0]['event_name']                    === 'PURCHASE'
+                && $request['data'][0]['event_id']                      === 'purchase_1001'
+                && $request['data'][0]['custom_data']['order_id']       === 'ORDER-1001'
+                && $request['data'][0]['custom_data']['value']          === 19.99
+                && $request['data'][0]['custom_data']['currency']       === 'USD'
+                && $request['data'][0]['user_data']['em']               === hash('sha256', 'buyer@example.test')
+                && $request['data'][0]['user_data']['ph']               === hash('sha256', '15550100')
+                && $request['data'][0]['user_data']['external_id']      === hash('sha256', 'customer-42');
+        });
     }
 
     public function test_queued_event_encrypts_request_and_customer_context_at_rest(): void
@@ -151,16 +203,18 @@ class PixelTrackingDeliveryTest extends TestCase
         self::assertNull($session->get('pixel_tracking.browser_identifiers'));
 
         $consentedRequest = HttpRequest::create(
-            'https://shop.example.test/products/1?utm_source=accepted-campaign&ttclid=accepted-click',
+            'https://shop.example.test/products/1?utm_source=accepted-campaign&ttclid=accepted-click&ScCid=snap-click',
             'GET',
-            cookies: ['tracking_consent' => '1', '_ttp' => 'ttp-cookie'],
+            cookies: ['tracking_consent' => '1', '_ttp' => 'ttp-cookie', '_scid' => 'snap-cookie'],
         );
         $middleware->handle($consentedRequest, static fn () => response('ok'));
 
         self::assertTrue((bool) $session->get('pixel_tracking.consent'));
         self::assertSame('accepted-campaign', $session->get('pixel_tracking.attribution.utm_source'));
         self::assertSame('accepted-click', $session->get('pixel_tracking.attribution.ttclid'));
+        self::assertSame('snap-click', $session->get('pixel_tracking.attribution.sc_click_id'));
         self::assertSame('ttp-cookie', $session->get('pixel_tracking.browser_identifiers.ttp'));
+        self::assertSame('snap-cookie', $session->get('pixel_tracking.browser_identifiers.scid'));
     }
 
     public function test_server_preparation_requires_consent_and_recovers_attribution_after_dynamic_opt_in(): void
@@ -173,7 +227,7 @@ class PixelTrackingDeliveryTest extends TestCase
         $event   = [
             'event_name' => 'PageView',
             'event_id'   => 'dynamic_consent_pageview',
-            'url'        => 'https://shop.example.test/products/1?utm_source=accepted&utm_campaign=launch&ttclid=click-1',
+            'url'        => 'https://shop.example.test/products/1?utm_source=accepted&utm_campaign=launch&ttclid=click-1&ScCid=snap-click-1',
             'properties' => [],
         ];
 
@@ -187,6 +241,7 @@ class PixelTrackingDeliveryTest extends TestCase
         self::assertSame('accepted', $prepared['context']['attribution']['utm_source']);
         self::assertSame('launch', $prepared['context']['attribution']['utm_campaign']);
         self::assertSame('click-1', $prepared['context']['attribution']['ttclid']);
+        self::assertSame('snap-click-1', $prepared['context']['attribution']['sc_click_id']);
     }
 
     public function test_upgrade_migration_encrypts_existing_tokens_once_per_tenant(): void
@@ -245,6 +300,22 @@ class PixelTrackingDeliveryTest extends TestCase
         self::assertSame('Invalid event payload', $health['tiktok:C123456789']['message']);
     }
 
+    public function test_http_200_with_snapchat_provider_error_is_recorded_as_failure(): void
+    {
+        Config::set('bk.plugin.pixel_tracking.meta_pixels', '[]');
+        Config::set('bk.plugin.pixel_tracking.tiktok_pixels', '[]');
+        Http::fake([
+            'tr.snapchat.com/*' => Http::response(['status' => 'INVALID', 'reason' => 'Invalid event payload'], 200),
+        ]);
+
+        (new ServerTrackingService)->trackPreparedBrowserEvent($this->preparedEvent());
+
+        $health = TrackingHealth::forProfiles([], [], PixelProfiles::snapchat());
+        self::assertFalse($health['snapchat:6abc82ca-4a3a-4391-98ba-0317a8471234']['success']);
+        self::assertSame(200, $health['snapchat:6abc82ca-4a3a-4391-98ba-0317a8471234']['http_status']);
+        self::assertSame('Invalid event payload', $health['snapchat:6abc82ca-4a3a-4391-98ba-0317a8471234']['message']);
+    }
+
     public function test_provider_http_error_keeps_real_status_for_admin_diagnostics(): void
     {
         Config::set('bk.plugin.pixel_tracking.tiktok_pixels', '[]');
@@ -281,13 +352,13 @@ class PixelTrackingDeliveryTest extends TestCase
 
         $session = app('session')->driver();
         $session->start();
-        $session->put('pixel_tracking.attribution', ['fbclid' => 'fb-click', 'ttclid' => 'tt-click', 'fbclid_time' => 1791430000]);
+        $session->put('pixel_tracking.attribution', ['fbclid' => 'fb-click', 'ttclid' => 'tt-click', 'sc_click_id' => 'snap-click', 'fbclid_time' => 1791430000]);
         $session->put('pixel_tracking.browser_identifiers', ['fbp' => 'fb.1.123.456']);
 
         $request = HttpRequest::create(
             'https://shop.example.test/checkout',
             'POST',
-            cookies: ['tracking_consent' => '1', '_ttp' => 'ttp-cookie'],
+            cookies: ['tracking_consent' => '1', '_ttp' => 'ttp-cookie', '_scid' => 'snap-cookie'],
         );
         $order = new Order([
             'number'         => 'ORDER-1001',
@@ -316,7 +387,9 @@ class PixelTrackingDeliveryTest extends TestCase
 
         self::assertNotNull($prepared);
         self::assertSame('tt-click', $prepared['context']['attribution']['ttclid']);
+        self::assertSame('snap-click', $prepared['context']['attribution']['sc_click_id']);
         self::assertSame('ttp-cookie', $prepared['context']['ttp']);
+        self::assertSame('snap-cookie', $prepared['context']['scid']);
         self::assertSame('CNY', $prepared['properties']['currency']);
         self::assertSame(36.0, $prepared['properties']['contents'][0]['item_price']);
         self::assertSame(72.0, $prepared['properties']['value']);
@@ -343,9 +416,10 @@ class PixelTrackingDeliveryTest extends TestCase
                 'user_agent'  => 'LONGOS test browser',
                 'url'         => 'https://shop.example.test/products/1',
                 'referrer'    => 'https://shop.example.test/',
-                'attribution' => ['ttclid' => 'click-123'],
+                'attribution' => ['ttclid' => 'click-123', 'sc_click_id' => 'snap-click-123'],
                 'fbp'         => 'fb.1.123.456',
                 'fbc'         => 'fb.1.123.click',
+                'scid'        => 'snap-cookie',
                 'customer'    => [],
             ],
         ];

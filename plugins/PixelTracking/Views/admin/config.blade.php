@@ -8,9 +8,11 @@
   };
   $metaProfiles = $decodeProfiles(old('meta_pixels', $settings['meta_pixels'] ?? '[]'));
   $tiktokProfiles = $decodeProfiles(old('tiktok_pixels', $settings['tiktok_pixels'] ?? '[]'));
+  $snapchatProfiles = $decodeProfiles(old('snapchat_pixels', $settings['snapchat_pixels'] ?? '[]'));
   $trackingHealth = \Plugin\PixelTracking\Services\TrackingHealth::forProfiles(
     \Plugin\PixelTracking\Services\PixelProfiles::meta(),
     \Plugin\PixelTracking\Services\PixelProfiles::tiktok(),
+    \Plugin\PixelTracking\Services\PixelProfiles::snapchat(),
   );
   $healthEntries = array_values(array_filter($trackingHealth, 'is_array'));
   $healthSummary = [
@@ -27,6 +29,7 @@
   };
   $metaProfiles = array_map(static fn ($profile) => $maskToken($profile, 'pixel_id'), $metaProfiles);
   $tiktokProfiles = array_map(static fn ($profile) => $maskToken($profile, 'pixel_code'), $tiktokProfiles);
+  $snapchatProfiles = array_map(static fn ($profile) => $maskToken($profile, 'pixel_id'), $snapchatProfiles);
 @endphp
 
 @section('title', $plugin->getLocaleName())
@@ -38,13 +41,13 @@
         <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-4">
           <div>
             <h4 class="mb-1">像素与服务端追踪</h4>
-            <p class="text-secondary mb-0">用表单管理 Meta 和 TikTok，不需要编写 JSON 或粘贴配置代码。</p>
+            <p class="text-secondary mb-0">用表单管理 Meta、TikTok 和 Snapchat，不需要编写 JSON 或粘贴配置代码。</p>
           </div>
           <span class="badge text-bg-primary px-3 py-2">LONGOS Tracking</span>
         </div>
 
         <div class="pixel-overview" role="status" aria-label="服务端追踪运行状态">
-          <div><span>已配置通道</span><strong>{{ count($metaProfiles) + count($tiktokProfiles) }}</strong></div>
+          <div><span>已配置通道</span><strong>{{ count($metaProfiles) + count($tiktokProfiles) + count($snapchatProfiles) }}</strong></div>
           <div><span>最近正常</span><strong class="text-success">{{ $healthSummary['healthy'] }}</strong></div>
           <div><span>最近异常</span><strong class="{{ $healthSummary['failing'] ? 'text-danger' : '' }}">{{ $healthSummary['failing'] }}</strong></div>
           <div><span>成功 / 失败投递</span><strong>{{ $healthSummary['successes'] }} / {{ $healthSummary['failures'] }}</strong></div>
@@ -55,6 +58,7 @@
           @method('put')
           <input type="hidden" name="meta_pixels" :value="serializedMetaProfiles">
           <input type="hidden" name="tiktok_pixels" :value="serializedTiktokProfiles">
+          <input type="hidden" name="snapchat_pixels" :value="serializedSnapchatProfiles">
           <input type="hidden" name="status" value="0">
           <input type="hidden" name="browser_tracking" value="0">
           <input type="hidden" name="server_tracking" value="0">
@@ -101,6 +105,19 @@
           </section>
 
           <section class="pixel-section">
+            <div class="pixel-section-head"><div><h5>Snapchat</h5><p>填写 Snap Pixel ID；如需服务端转化，再填写长期 Conversions API 访问令牌。浏览器与 CAPI v3 共用事件 ID 去重。</p></div><button type="button" class="btn btn-outline-primary btn-sm" @click="addSnapchat" :disabled="snapchatProfiles.length >= maxProfiles"><i class="bi bi-plus-lg me-1"></i>添加 Snapchat 像素</button></div>
+            <div v-if="!snapchatProfiles.length" class="pixel-empty">尚未添加 Snapchat 像素。此项不是必填。</div>
+            <div class="pixel-profile" v-for="(profile, index) in snapchatProfiles" :key="profile.uid">
+              <div class="d-flex align-items-center justify-content-between mb-3"><div><strong>Snapchat 像素 @{{ index + 1 }}</strong><span v-if="profileHealth('snapchat', profile.pixel_id)" class="pixel-health ms-2" :class="profileHealth('snapchat', profile.pixel_id).success ? 'is-success' : 'is-error'">@{{ profileHealth('snapchat', profile.pixel_id).success ? '最近发送成功' : '最近发送失败' }}</span></div><button type="button" class="btn btn-sm btn-link text-danger" @click="snapchatProfiles.splice(index, 1)">删除</button></div>
+              <div class="row g-3">
+                <div class="col-md-6"><label class="form-label">Snap Pixel ID</label><input v-model.trim="profile.pixel_id" class="form-control" maxlength="36" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"></div>
+                <div class="col-md-6"><label class="form-label">Conversions API 访问令牌 <span class="text-secondary">（可选）</span></label><input v-model="profile.access_token" type="password" autocomplete="new-password" class="form-control" :placeholder="profile.has_saved_token ? '已安全保存；留空保持不变' : '留空即可仅使用浏览器像素'"></div>
+              </div>
+              <div v-if="profileHealth('snapchat', profile.pixel_id)" class="pixel-health-detail mt-3">@{{ healthText(profileHealth('snapchat', profile.pixel_id)) }}</div>
+            </div>
+          </section>
+
+          <section class="pixel-section">
             <div class="pixel-section-head"><div><h5>隐私与诊断</h5><p>只在确实接入 Cookie 同意条时开启访客同意限制。</p></div></div>
             <div class="row g-3 align-items-center">
               <div class="col-md-6"><label class="pixel-switch"><input type="checkbox" name="require_consent" value="1" v-model="requireConsent"><span><strong>要求访客同意</strong><small>只在同意 Cookie 为真时发送事件。</small></span></label></div>
@@ -130,16 +147,18 @@
       el: '#pixel-settings',
       data: {
         status: @json((bool) old('status', $settings['status'] ?? false)), browserTracking: @json((bool) old('browser_tracking', $settings['browser_tracking'] ?? true)), serverTracking: @json((bool) old('server_tracking', $settings['server_tracking'] ?? true)), advancedMatching: @json((bool) old('advanced_matching', $settings['advanced_matching'] ?? false)), requireConsent: @json((bool) old('require_consent', $settings['require_consent'] ?? false)), debugLog: @json((bool) old('debug_log', $settings['debug_log'] ?? false)),
-        metaProfiles: @json($metaProfiles), tiktokProfiles: @json($tiktokProfiles), trackingHealth: @json($trackingHealth), maxProfiles: 10,
+        metaProfiles: @json($metaProfiles), tiktokProfiles: @json($tiktokProfiles), snapchatProfiles: @json($snapchatProfiles), trackingHealth: @json($trackingHealth), maxProfiles: 10,
       },
       computed: {
         serializedMetaProfiles() { return JSON.stringify(this.metaProfiles.filter((p) => p.pixel_id).map(({uid, has_saved_token, ...p}) => p)); },
         serializedTiktokProfiles() { return JSON.stringify(this.tiktokProfiles.filter((p) => p.pixel_code).map(({uid, has_saved_token, ...p}) => p)); },
+        serializedSnapchatProfiles() { return JSON.stringify(this.snapchatProfiles.filter((p) => p.pixel_id).map(({uid, has_saved_token, ...p}) => p)); },
       },
-      created() { this.metaProfiles = this.metaProfiles.map((p, i) => ({uid: `meta-${Date.now()}-${i}`, pixel_id: '', access_token: '', api_version: 'v26.0', test_event_code: '', has_saved_token: false, _saved_identifier: '', ...p})); this.tiktokProfiles = this.tiktokProfiles.map((p, i) => ({uid: `tiktok-${Date.now()}-${i}`, pixel_code: '', access_token: '', has_saved_token: false, _saved_identifier: '', ...p})); },
+      created() { this.metaProfiles = this.metaProfiles.map((p, i) => ({uid: `meta-${Date.now()}-${i}`, pixel_id: '', access_token: '', api_version: 'v26.0', test_event_code: '', has_saved_token: false, _saved_identifier: '', ...p})); this.tiktokProfiles = this.tiktokProfiles.map((p, i) => ({uid: `tiktok-${Date.now()}-${i}`, pixel_code: '', access_token: '', has_saved_token: false, _saved_identifier: '', ...p})); this.snapchatProfiles = this.snapchatProfiles.map((p, i) => ({uid: `snapchat-${Date.now()}-${i}`, pixel_id: '', access_token: '', has_saved_token: false, _saved_identifier: '', ...p})); },
       methods: {
         addMeta() { if (this.metaProfiles.length < this.maxProfiles) this.metaProfiles.push({uid: `meta-${Date.now()}`, pixel_id: '', access_token: '', api_version: 'v26.0', test_event_code: '', has_saved_token: false, _saved_identifier: ''}); },
         addTiktok() { if (this.tiktokProfiles.length < this.maxProfiles) this.tiktokProfiles.push({uid: `tiktok-${Date.now()}`, pixel_code: '', access_token: '', has_saved_token: false, _saved_identifier: ''}); },
+        addSnapchat() { if (this.snapchatProfiles.length < this.maxProfiles) this.snapchatProfiles.push({uid: `snapchat-${Date.now()}`, pixel_id: '', access_token: '', has_saved_token: false, _saved_identifier: ''}); },
         profileHealth(channel, id) { return id ? this.trackingHealth[`${channel}:${id}`] : null; },
         healthText(health) { const status = health.http_status ? `HTTP ${health.http_status}` : '网络失败'; const message = health.message ? ` · ${health.message}` : ''; const totals = ` · 成功 ${Number(health.success_count || 0)} / 失败 ${Number(health.failure_count || 0)}`; const streak = Number(health.consecutive_failures || 0) > 1 ? ` · 连续失败 ${health.consecutive_failures} 次` : ''; return `${health.recorded_at} · ${health.event} · ${status}${totals}${streak}${message}`; },
       },

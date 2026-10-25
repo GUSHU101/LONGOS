@@ -1,11 +1,12 @@
 @php
   $metaPixels = \Plugin\PixelTracking\Services\PixelProfiles::meta();
   $tikTokPixels = \Plugin\PixelTracking\Services\PixelProfiles::tiktok();
+  $snapchatPixels = \Plugin\PixelTracking\Services\PixelProfiles::snapchat();
   $consentCookie = (string) plugin_setting('pixel_tracking.consent_cookie', 'tracking_consent');
   if (preg_match('/^[A-Za-z0-9._-]{1,64}$/', $consentCookie) !== 1) {
     $consentCookie = 'tracking_consent';
   }
-  $hasServerProfiles = collect([...$metaPixels, ...$tikTokPixels])
+  $hasServerProfiles = collect([...$metaPixels, ...$tikTokPixels, ...$snapchatPixels])
     ->contains(static fn ($pixel) => !empty($pixel['access_token']));
   $publicConfig = [
     'endpoint' => shop_route('pixel_tracking.events.store'),
@@ -17,12 +18,13 @@
     'checkoutPath' => parse_url(shop_route('checkout.index'), PHP_URL_PATH),
     'metaPixels' => array_values(array_filter(array_map(fn ($pixel) => $pixel['pixel_id'] ?? null, $metaPixels))),
     'tikTokPixels' => array_values(array_filter(array_map(fn ($pixel) => $pixel['pixel_code'] ?? null, $tikTokPixels))),
+    'snapchatPixels' => array_values(array_filter(array_map(fn ($pixel) => $pixel['pixel_id'] ?? null, $snapchatPixels))),
   ];
 @endphp
 <script>
   window.BeikePixelTracking = @json($publicConfig);
   (function (window, document, config) {
-    if (!config || (!config.metaPixels.length && !config.tikTokPixels.length)) return;
+    if (!config || (!config.metaPixels.length && !config.tikTokPixels.length && !config.snapchatPixels.length)) return;
 
     const cookieValue = (name) => new RegExp('(?:^|; )' + String(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '=([^;]*)').exec(document.cookie)?.[1] || '';
     const hasConsent = () => !config.consentRequired || /^(1|true|yes)$/i.test(cookieValue(config.consentCookie));
@@ -47,6 +49,24 @@
       return result;
     };
 
+    const snapchatEventNames = {
+      PageView: 'PAGE_VIEW', ViewContent: 'VIEW_CONTENT', AddToCart: 'ADD_CART',
+      InitiateCheckout: 'START_CHECKOUT', Purchase: 'PURCHASE', Search: 'SEARCH',
+      CompleteRegistration: 'SIGN_UP',
+    };
+    const snapchatProperties = (properties, eventId) => {
+      const result = {client_dedup_id: eventId};
+      if (properties.value != null) result.price = Number(properties.value);
+      if (properties.currency) result.currency = String(properties.currency).toUpperCase();
+      if (properties.order_id) result.transaction_id = String(properties.order_id);
+      if (properties.search_string) result.search_string = String(properties.search_string).slice(0, 191);
+      if (Array.isArray(properties.content_ids)) result.item_ids = properties.content_ids.map(String).filter(Boolean).slice(0, 50);
+      if (Array.isArray(properties.contents)) {
+        result.number_items = properties.contents.reduce((total, item) => total + Math.max(1, Number(item.quantity || 1)), 0);
+      }
+      return result;
+    };
+
     const emit = (name, properties = {}, eventId = createEventId()) => {
       if (!hasConsent()) return eventId;
       const eventKey = `${name}:${eventId}`;
@@ -64,6 +84,10 @@
         const instance = typeof window.ttq?.instance === 'function' ? window.ttq.instance(pixelId) : null;
         if (instance?.track) instance.track(name === 'Purchase' ? 'CompletePayment' : name, tiktokProperties(properties), {event_id: eventId});
       });
+      const snapchatEvent = snapchatEventNames[name];
+      if (snapchatEvent && window.snaptr) {
+        config.snapchatPixels.forEach((pixelId) => window.snaptr('track', pixelId, snapchatEvent, snapchatProperties(properties, eventId)));
+      }
 
       if (config.serverTracking && name !== 'Purchase' && name !== 'CompleteRegistration') {
         fetch(config.endpoint, {
@@ -104,6 +128,12 @@
       config.tikTokPixels.forEach((pixelId) => window.ttq.load(pixelId));
     };
 
+    const loadSnapchat = () => {
+      if (!config.snapchatPixels.length) return;
+      !function(e,t,n){if(e.snaptr)return;const a=e.snaptr=function(){a.handleRequest?a.handleRequest.apply(a,arguments):a.queue.push(arguments)};a.queue=[];const s=t.createElement('script');s.async=true;s.src=n;const first=t.getElementsByTagName('script')[0];first?.parentNode?first.parentNode.insertBefore(s,first):t.head.appendChild(s)}(window,document,'https://sc-static.net/scevent.min.js');
+      config.snapchatPixels.forEach((pixelId) => window.snaptr('init', pixelId));
+    };
+
     const bindCommerceEvents = () => {
       window.addEventListener('longos:cart-added', (event) => {
         const tracking = event.detail?.cart?.tracking || {};
@@ -128,6 +158,7 @@
       started = true;
       loadMeta();
       loadTikTok();
+      loadSnapchat();
       bindCommerceEvents();
       emit('PageView');
       if (window.location.pathname.replace(/\/$/, '') === String(config.checkoutPath || '').replace(/\/$/, '')) emit('InitiateCheckout');

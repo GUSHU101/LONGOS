@@ -12,12 +12,17 @@ class PixelProfiles
 
     public static function meta(): array
     {
-        return self::profiles('meta_pixels', 'pixel_id');
+        return self::profiles('meta_pixels', 'pixel_id', 'meta');
     }
 
     public static function tiktok(): array
     {
-        return self::profiles('tiktok_pixels', 'pixel_code');
+        return self::profiles('tiktok_pixels', 'pixel_code', 'tiktok');
+    }
+
+    public static function snapchat(): array
+    {
+        return self::profiles('snapchat_pixels', 'pixel_id', 'snapchat');
     }
 
     /**
@@ -38,7 +43,10 @@ class PixelProfiles
             return '每个渠道最多配置 ' . self::MAX_PROFILES_PER_CHANNEL . ' 个像素。';
         }
 
-        $identifier = $channel === 'meta' ? 'pixel_id' : 'pixel_code';
+        $identifier = self::identifierFor($channel);
+        if ($identifier === null) {
+            return '不支持的像素渠道。';
+        }
         $seen       = [];
 
         foreach ($items as $index => $item) {
@@ -51,10 +59,7 @@ class PixelProfiles
                 return '第 ' . ($index + 1) . ' 项缺少像素标识。';
             }
 
-            $valid = $channel                                === 'meta'
-                ? preg_match('/^\d{5,32}$/', $id)            === 1
-                : preg_match('/^[A-Za-z0-9_-]{5,80}$/', $id) === 1;
-            if (! $valid) {
+            if (! self::validIdentifier($channel, $id)) {
                 return '第 ' . ($index + 1) . ' 项的像素标识格式不正确。';
             }
 
@@ -95,7 +100,10 @@ class PixelProfiles
             return (string) $value;
         }
 
-        $identifier = $channel === 'meta' ? 'pixel_id' : 'pixel_code';
+        $identifier = self::identifierFor($channel);
+        if ($identifier === null) {
+            return (string) $value;
+        }
         $normalized = [];
 
         foreach (array_slice($items, 0, self::MAX_PROFILES_PER_CHANNEL) as $item) {
@@ -124,7 +132,7 @@ class PixelProfiles
         return (string) json_encode($normalized, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     }
 
-    private static function profiles(string $setting, string $identifier): array
+    private static function profiles(string $setting, string $identifier, string $channel): array
     {
         $value = plugin_setting("pixel_tracking.{$setting}", '[]');
         $items = is_array($value) ? $value : json_decode((string) $value, true);
@@ -136,7 +144,7 @@ class PixelProfiles
 
         $seen = [];
 
-        return array_values(array_filter(array_map(function ($item) use ($identifier, &$seen) {
+        return array_values(array_filter(array_map(function ($item) use ($identifier, $channel, &$seen) {
             if (! is_array($item)) {
                 return null;
             }
@@ -144,13 +152,9 @@ class PixelProfiles
             $item[$identifier]    = trim((string) ($item[$identifier] ?? ''));
             $item['access_token'] = self::decryptToken(trim((string) ($item['access_token'] ?? '')));
 
-            $channel = $identifier                                          === 'pixel_id' ? 'meta' : 'tiktok';
-            $valid   = $channel                                             === 'meta'
-                ? preg_match('/^\d{5,32}$/', $item[$identifier])            === 1
-                : preg_match('/^[A-Za-z0-9_-]{5,80}$/', $item[$identifier]) === 1;
             $dedupeKey = strtolower($item[$identifier]);
 
-            if (! $valid || isset($seen[$dedupeKey])) {
+            if (! self::validIdentifier($channel, $item[$identifier]) || isset($seen[$dedupeKey])) {
                 return null;
             }
             $seen[$dedupeKey] = true;
@@ -162,6 +166,28 @@ class PixelProfiles
 
             return $item;
         }, $items)));
+    }
+
+    private static function identifierFor(string $channel): ?string
+    {
+        return match ($channel) {
+            'meta', 'snapchat' => 'pixel_id',
+            'tiktok'           => 'pixel_code',
+            default            => null,
+        };
+    }
+
+    private static function validIdentifier(string $channel, string $identifier): bool
+    {
+        return match ($channel) {
+            'meta'     => preg_match('/^\d{5,32}$/', $identifier)            === 1,
+            'tiktok'   => preg_match('/^[A-Za-z0-9_-]{5,80}$/', $identifier) === 1,
+            // Snap Pixel IDs use the UUID layout. Some official examples use
+            // non-hex placeholder characters, so keep the segments strict
+            // while accepting the complete provider-documented shape.
+            'snapchat' => preg_match('/^[A-Za-z0-9]{8}(?:-[A-Za-z0-9]{4}){3}-[A-Za-z0-9]{12}$/', $identifier) === 1,
+            default    => false,
+        };
     }
 
     private static function encryptToken(string $token): string
