@@ -91,6 +91,22 @@ class PlatformPaymentController extends Controller
         }
     }
 
+    public function status(string $token): JsonResponse
+    {
+        try {
+            $session   = $this->sessions->resolveProviderResult($token);
+            $completed = $session->status === PlatformPaymentSession::STATUS_COMPLETED;
+
+            return json_success('Payment status verified.', [
+                'completed'    => $completed,
+                'state'        => (string) $session->status,
+                'redirect_url' => $completed ? $this->sessions->tenantSuccessUrl($session) : null,
+            ]);
+        } catch (Throwable $e) {
+            return $this->error($e, __('platform_pay.status.unavailable'));
+        }
+    }
+
     public function paypalCapture(Request $request, string $token): JsonResponse
     {
         try {

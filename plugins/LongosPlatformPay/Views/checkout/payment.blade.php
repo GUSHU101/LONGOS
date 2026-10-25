@@ -27,7 +27,7 @@
         <label for="longos-stripe-card" class="form-label fw-semibold">{{ trans('LongosPlatformPay::common.card_details') }}</label>
         <div id="longos-stripe-card" class="longos-stripe-card"></div>
         <div id="longos-stripe-error" class="longos-pay-error" role="alert" aria-live="polite"></div>
-        <button id="longos-stripe-submit" class="btn btn-primary btn-lg" type="submit">
+        <button id="longos-stripe-submit" class="btn btn-primary btn-lg" type="submit" disabled aria-busy="true">
           {{ trans('LongosPlatformPay::common.pay_now') }}
         </button>
       </form>
@@ -60,6 +60,14 @@
   const headers = {'Accept':'application/json','Content-Type':'application/json','X-CSRF-TOKEN':csrf}
   let providerLocked = false
 
+  const preconnect = origin => {
+    if (document.querySelector(`link[rel="preconnect"][href="${origin}"]`)) return
+    const link = document.createElement('link')
+    link.rel = 'preconnect'
+    link.href = origin
+    document.head.appendChild(link)
+  }
+
   window.addEventListener('pageshow', event => {
     // A restored payment form may represent an order completed while the
     // customer was authenticating with a provider. Never expose stale CTAs.
@@ -81,6 +89,7 @@
       return payload.data || {}
     } catch (error) {
       if (error?.name === 'AbortError') throw new Error(@json(trans('LongosPlatformPay::common.timeout')))
+      if (error instanceof TypeError) throw new Error(@json(trans('LongosPlatformPay::common.failed')))
       throw error
     } finally {
       window.clearTimeout(timeout)
@@ -148,43 +157,71 @@
     await loadScript('longos-paypal-sdk', `https://www.paypal.com/sdk/js?${query.toString()}`)
     if (!window.paypal?.Buttons) throw new Error(@json(trans('LongosPlatformPay::common.paypal_load')))
 
-    paypalMethod.hidden = false
-    await window.paypal.Buttons({
-      style:{layout:'vertical',shape:'rect',label:'paypal'},
-      createOrder: async () => {
-        lockProvider('paypal'); setStatus(@json(trans('LongosPlatformPay::common.connect_paypal')))
-        try { const result = await request(data.endpoints.paypal_create); return result.id }
-        catch (error) { unlockUnboundProvider('paypal'); throw error }
-      },
-      onApprove: async result => {
-        try {
-          setStatus(@json(trans('LongosPlatformPay::common.verify_paypal')))
-          finish(await request(data.endpoints.paypal_capture, {paypal_order_id:result.orderID}))
-        } catch (error) {
-          if (await recoverCompletion(data)) return
-          setStatus(error?.message || @json(trans('LongosPlatformPay::common.failed')), true); showFallback(data)
-        }
-      },
-      onCancel: () => { setStatus(@json(trans('LongosPlatformPay::common.cancelled')), true); showFallback(data) },
-      onError: error => { setStatus(error?.message || @json(trans('LongosPlatformPay::common.failed')), true); showFallback(data) },
-    }).render('#longos-paypal-buttons')
+    const unavailableMessage = @json(trans('LongosPlatformPay::common.paypal_unavailable'))
+    try {
+      const buttons = window.paypal.Buttons({
+        style:{layout:'vertical',shape:'rect',label:'paypal'},
+        createOrder: async () => {
+          lockProvider('paypal'); setStatus(@json(trans('LongosPlatformPay::common.connect_paypal')))
+          try { const result = await request(data.endpoints.paypal_create); return result.id }
+          catch (error) { unlockUnboundProvider('paypal'); throw error }
+        },
+        onApprove: async result => {
+          try {
+            setStatus(@json(trans('LongosPlatformPay::common.verify_paypal')))
+            finish(await request(data.endpoints.paypal_capture, {paypal_order_id:result.orderID}))
+          } catch (error) {
+            if (await recoverCompletion(data)) return
+            setStatus(error?.message || @json(trans('LongosPlatformPay::common.failed')), true); showFallback(data)
+          }
+        },
+        onCancel: () => { setStatus(@json(trans('LongosPlatformPay::common.cancelled')), true); showFallback(data) },
+        onError: () => { setStatus(@json(trans('LongosPlatformPay::common.failed')), true); showFallback(data) },
+      })
+      if (typeof buttons.isEligible === 'function' && !buttons.isEligible()) throw new Error(unavailableMessage)
+      paypalMethod.hidden = false
+      await buttons.render('#longos-paypal-buttons')
+    } catch (error) {
+      paypalMethod.hidden = true
+      if (error?.message === unavailableMessage) throw error
+      throw new Error(@json(trans('LongosPlatformPay::common.paypal_load')))
+    }
   }
 
   const mountStripe = async data => {
     await loadScript('longos-stripe-sdk', 'https://js.stripe.com/v3/')
     if (typeof window.Stripe !== 'function') throw new Error(@json(trans('LongosPlatformPay::common.stripe_load')))
 
-    stripeMethod.hidden = false
-    const stripe = window.Stripe(data.stripe.publishable_key)
-    const card = stripe.elements({locale:'auto'}).create('card', {hidePostalCode:false})
+    let stripe
+    let card
+    let readyTimeout
+    const button = document.getElementById('longos-stripe-submit')
     const fieldError = document.getElementById('longos-stripe-error')
-    card.mount('#longos-stripe-card')
-    card.on('change', event => { fieldError.textContent = event.error?.message || '' })
-    document.getElementById('longos-stripe-submit').textContent = @json(trans('LongosPlatformPay::common.pay_amount', ['amount' => '__AMOUNT__'])).replace('__AMOUNT__', `${data.amount.currency} ${data.amount.value}`)
+    button.disabled = true
+    button.setAttribute('aria-busy','true')
+    try {
+      stripe = window.Stripe(data.stripe.publishable_key)
+      card = stripe.elements({locale:'auto'}).create('card', {hidePostalCode:false})
+      const ready = new Promise((resolve, reject) => {
+        readyTimeout = window.setTimeout(() => reject(new Error(@json(trans('LongosPlatformPay::common.stripe_load')))), 15000)
+        card.on('ready', () => { window.clearTimeout(readyTimeout); resolve() })
+      })
+      card.on('change', event => { fieldError.textContent = event.error?.message || '' })
+      stripeMethod.hidden = false
+      card.mount('#longos-stripe-card')
+      await ready
+      button.disabled = false
+      button.removeAttribute('aria-busy')
+      button.textContent = @json(trans('LongosPlatformPay::common.pay_amount', ['amount' => '__AMOUNT__'])).replace('__AMOUNT__', `${data.amount.currency} ${data.amount.value}`)
+    } catch (error) {
+      window.clearTimeout(readyTimeout)
+      stripeMethod.hidden = true
+      try { card?.unmount() } catch (ignored) {}
+      throw new Error(@json(trans('LongosPlatformPay::common.stripe_load')))
+    }
 
     document.getElementById('longos-stripe-form').addEventListener('submit', async event => {
       event.preventDefault()
-      const button = document.getElementById('longos-stripe-submit')
       if (button.disabled) return
       let intentCreated = false
       try {
@@ -227,6 +264,8 @@
       const data = sessionData = await request(root.dataset.sessionUrl, {order_number:@json($order->number ?? '')})
       const providers = Array.isArray(data.providers) ? data.providers : []
       if (!providers.length) throw new Error(@json(trans('LongosPlatformPay::common.unavailable')))
+      if (providers.includes('paypal')) preconnect('https://www.paypal.com')
+      if (providers.includes('stripe')) preconnect('https://js.stripe.com')
       document.getElementById('longos-platform-pay-amount').textContent = @json(trans('LongosPlatformPay::common.amount', ['amount' => '__AMOUNT__'])).replace('__AMOUNT__', `${data.amount.currency} ${data.amount.value}`)
       methods.hidden = false
 

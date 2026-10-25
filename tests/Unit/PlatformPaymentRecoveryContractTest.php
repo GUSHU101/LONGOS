@@ -89,8 +89,13 @@ class PlatformPaymentRecoveryContractTest extends TestCase
         self::assertStringContainsString('const recoverCompletion = async data =>', $child);
         self::assertStringContainsString('data.endpoints.status', $child);
         self::assertStringContainsString('if (event.persisted) window.location.reload()', $child);
+        self::assertStringContainsString('error instanceof TypeError', $child);
         self::assertStringContainsString('new AbortController()', $hosted);
         self::assertStringContainsString("__('platform_pay.status.timeout')", $hosted);
+        self::assertStringContainsString('error instanceof TypeError', $hosted);
+        self::assertStringContainsString('const recoverCompletion = async () =>', $hosted);
+        self::assertStringContainsString("request('status', {}, 8000)", $hosted);
+        self::assertStringContainsString('if (intentCreated && await recoverCompletion()) return', $hosted);
         self::assertStringContainsString('const unlockUnboundProvider = provider =>', $hosted);
         self::assertStringContainsString("unlockUnboundProvider('paypal')", $hosted);
         self::assertStringContainsString("if (!intentCreated) unlockUnboundProvider('stripe')", $hosted);

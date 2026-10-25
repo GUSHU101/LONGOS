@@ -12,6 +12,8 @@
   <meta name="referrer" content="no-referrer">
   <meta name="robots" content="noindex,nofollow,noarchive">
   <title>{{ __('platform_pay.title') }} · {{ platform_brand_name() }}</title>
+  @if(in_array('stripe', $providers, true))<link rel="preconnect" href="https://js.stripe.com">@endif
+  @if(in_array('paypal', $providers, true))<link rel="preconnect" href="https://www.paypal.com">@endif
   <style>
     :root{color-scheme:light;--blue:#155eef;--ink:#101828;--muted:#667085;--line:#d0d5dd;--soft:#f2f4f7;--danger:#b42318;--focus:#84adff}
     *{box-sizing:border-box}body{margin:0;background:#f5f7fb;color:var(--ink);font:16px/1.5 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
@@ -56,7 +58,7 @@
             <form id="stripe-form">
               <label for="stripe-card" style="display:block;margin-bottom:8px;font-weight:650">{{ __('platform_pay.card_details') }}</label>
               <div id="stripe-card" class="stripe-card"></div>
-              <button id="stripe-submit" type="submit" style="margin-top:14px">{{ __('platform_pay.pay', ['amount' => $paymentAmountLabel]) }}</button>
+              <button id="stripe-submit" type="submit" style="margin-top:14px" disabled aria-busy="true">{{ __('platform_pay.pay', ['amount' => $paymentAmountLabel]) }}</button>
             </form>
           </section>
         @endif
@@ -71,21 +73,28 @@
 <script>
 window.addEventListener('DOMContentLoaded', () => {
   const token = @json($token)
+  const apiRoot = `/_longos/pay/${encodeURIComponent(token)}`
   const csrf = document.querySelector('meta[name="csrf-token"]')?.content || ''
   const status = document.getElementById('payment-status')
   const headers = {'Accept':'application/json','Content-Type':'application/json','X-CSRF-TOKEN':csrf}
   let providerLocked = false
   const setStatus = (message, error = false) => { status.textContent = message; status.classList.toggle('error', error) }
+  const methodUnavailable = (method, message) => {
+    method?.classList.add('hidden')
+    const hasAlternative = [...document.querySelectorAll('.method')].some(item => !item.classList.contains('hidden'))
+    if (!hasAlternative) { setStatus(message, true); status.focus?.() }
+  }
   const request = async (path, body = {}) => {
     const controller = new AbortController()
     const timeout = window.setTimeout(() => controller.abort(), 35000)
     try {
-      const response = await fetch(`/_longos/pay/${token}/${path}`, {method:'POST',credentials:'same-origin',headers,body:JSON.stringify(body),signal:controller.signal})
+      const response = await fetch(`${apiRoot}/${path}`, {method:'POST',credentials:'same-origin',headers,body:JSON.stringify(body),signal:controller.signal})
       const payload = await response.json().catch(() => null)
       if (!response.ok || payload?.status !== 'success') throw new Error(payload?.message || @json(__('platform_pay.status.unavailable')))
       return payload.data || {}
     } catch (error) {
       if (error?.name === 'AbortError') throw new Error(@json(__('platform_pay.status.timeout')))
+      if (error instanceof TypeError) throw new Error(@json(__('platform_pay.status.unavailable')))
       throw error
     } finally {
       window.clearTimeout(timeout)
@@ -102,25 +111,63 @@ window.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.method').forEach(method => method.classList.remove('hidden'))
   }
   const finish = data => { if (!data.redirect_url) throw new Error(@json(__('platform_pay.status.missing_redirect'))); window.location.assign(data.redirect_url) }
+  const wait = delay => new Promise(resolve => window.setTimeout(resolve, delay))
+  const recoverCompletion = async () => {
+    setStatus(@json(__('platform_pay.status.checking')))
+    for (const delay of [0, 1000, 2000]) {
+      if (delay) await wait(delay)
+      try {
+        const result = await request('status', {}, 8000)
+        if (result.completed && result.redirect_url) { finish(result); return true }
+      } catch (error) {
+        // Best-effort status probes must not replace the original provider error.
+      }
+    }
+    return false
+  }
 
   @if(in_array('paypal', $providers, true))
   let paypalLoadAttempts = 0
   const mountPaypal = () => {
     if (!window.paypal?.Buttons) {
-      if (++paypalLoadAttempts >= 100) { setStatus(@json(__('platform_pay.status.paypal_load')), true); return }
+      if (++paypalLoadAttempts >= 100) {
+        methodUnavailable(document.getElementById('paypal-method'), @json(__('platform_pay.status.paypal_load')))
+        return
+      }
       setTimeout(mountPaypal, 100); return
     }
-    window.paypal.Buttons({
-      style:{layout:'vertical',shape:'rect',label:'paypal'},
-      createOrder: async () => {
-        lockProvider('paypal'); setStatus(@json(__('platform_pay.status.connect_paypal')))
-        try { const data = await request('paypal/create'); return data.id }
-        catch (error) { unlockUnboundProvider('paypal'); throw error }
-      },
-      onApprove: async data => { setStatus(@json(__('platform_pay.status.verify_paypal'))); finish(await request('paypal/capture',{paypal_order_id:data.orderID})) },
-      onCancel: () => setStatus(@json(__('platform_pay.status.cancelled')), true),
-      onError: error => { setStatus(error?.message || @json(__('platform_pay.status.paypal_failed')), true); status.focus?.() },
-    }).render('#paypal-buttons').catch(error => setStatus(error?.message || @json(__('platform_pay.status.paypal_load')), true))
+    try {
+      const buttons = window.paypal.Buttons({
+        style:{layout:'vertical',shape:'rect',label:'paypal'},
+        createOrder: async () => {
+          lockProvider('paypal'); setStatus(@json(__('platform_pay.status.connect_paypal')))
+          try { const data = await request('paypal/create'); return data.id }
+          catch (error) { unlockUnboundProvider('paypal'); throw error }
+        },
+        onApprove: async data => {
+          try {
+            setStatus(@json(__('platform_pay.status.verify_paypal')))
+            finish(await request('paypal/capture',{paypal_order_id:data.orderID}))
+          } catch (error) {
+            if (await recoverCompletion()) return
+            setStatus(error?.message || @json(__('platform_pay.status.paypal_failed')), true)
+            status.focus?.()
+          }
+        },
+        onCancel: () => setStatus(@json(__('platform_pay.status.cancelled')), true),
+        onError: async () => {
+          if (await recoverCompletion()) return
+          setStatus(@json(__('platform_pay.status.paypal_failed')), true); status.focus?.()
+        },
+      })
+      if (typeof buttons.isEligible === 'function' && !buttons.isEligible()) {
+        methodUnavailable(document.getElementById('paypal-method'), @json(__('platform_pay.status.paypal_unavailable')))
+        return
+      }
+      buttons.render('#paypal-buttons').catch(() => methodUnavailable(document.getElementById('paypal-method'), @json(__('platform_pay.status.paypal_load'))))
+    } catch (error) {
+      methodUnavailable(document.getElementById('paypal-method'), @json(__('platform_pay.status.paypal_load')))
+    }
   }
   mountPaypal()
   @endif
@@ -129,16 +176,46 @@ window.addEventListener('DOMContentLoaded', () => {
   let stripeLoadAttempts = 0
   const mountStripe = () => {
     if (typeof window.Stripe !== 'function') {
-      if (++stripeLoadAttempts >= 100) { setStatus(@json(__('platform_pay.status.stripe_failed')), true); return }
+      if (++stripeLoadAttempts >= 100) {
+        methodUnavailable(document.getElementById('stripe-method'), @json(__('platform_pay.status.stripe_failed')))
+        return
+      }
       setTimeout(mountStripe, 100); return
     }
-    const stripe = window.Stripe(@json($stripePublishableKey))
-    const card = stripe.elements({locale:'auto'}).create('card',{hidePostalCode:false})
-    card.mount('#stripe-card')
-    card.on('change', event => { if (event.error) setStatus(event.error.message, true) })
+    let stripe
+    let card
+    let readyTimeout
+    let setupSettled = false
+    const button = document.getElementById('stripe-submit')
+    const failSetup = () => {
+      if (setupSettled) return
+      setupSettled = true
+      window.clearTimeout(readyTimeout)
+      button.disabled = true
+      button.removeAttribute('aria-busy')
+      try { card?.unmount() } catch (ignored) {}
+      methodUnavailable(document.getElementById('stripe-method'), @json(__('platform_pay.status.stripe_failed')))
+    }
+    try {
+      stripe = window.Stripe(@json($stripePublishableKey))
+      card = stripe.elements({locale:'auto'}).create('card',{hidePostalCode:false})
+      readyTimeout = window.setTimeout(failSetup, 15000)
+      card.on('ready', () => {
+        if (setupSettled) return
+        setupSettled = true
+        window.clearTimeout(readyTimeout)
+        button.disabled = false
+        button.removeAttribute('aria-busy')
+      })
+      card.on('loaderror', failSetup)
+      card.mount('#stripe-card')
+      card.on('change', event => { if (event.error) setStatus(event.error.message, true) })
+    } catch (error) {
+      failSetup()
+      return
+    }
     document.getElementById('stripe-form').addEventListener('submit', async event => {
       event.preventDefault()
-      const button = document.getElementById('stripe-submit')
       if (button.disabled) return
       let intentCreated = false
       try {
@@ -155,6 +232,7 @@ window.addEventListener('DOMContentLoaded', () => {
         finish(await request('stripe/complete',{payment_intent_id:confirmation.paymentIntent.id}))
       } catch (error) {
         if (!intentCreated) unlockUnboundProvider('stripe')
+        if (intentCreated && await recoverCompletion()) return
         setStatus(error?.message || @json(__('platform_pay.status.stripe_failed')), true); button.disabled = false; button.removeAttribute('aria-busy'); button.focus()
       }
     })

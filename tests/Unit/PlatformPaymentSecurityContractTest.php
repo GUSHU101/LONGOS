@@ -14,6 +14,7 @@ class PlatformPaymentSecurityContractTest extends TestCase
         $stripe    = file_get_contents(dirname(__DIR__, 2) . '/resources/views/platform-pay/checkout.blade.php');
 
         self::assertStringContainsString("->middleware(['platform.payment', 'throttle:platform-payment'])", $webRoutes);
+        self::assertStringContainsString("name('platform-pay.status')", $webRoutes);
         self::assertStringContainsString('_longos/pay/{$token}/return/paypal', $paypal);
         self::assertStringContainsString('_longos/pay/{$token}/cancel', $paypal);
         self::assertStringContainsString('/_longos/pay/${token}/return/stripe', $stripe);
@@ -66,6 +67,9 @@ class PlatformPaymentSecurityContractTest extends TestCase
         self::assertStringContainsString('/stripe/complete', $routes);
         self::assertStringContainsString('https://www.paypal.com/sdk/js?', $checkout);
         self::assertStringContainsString('https://js.stripe.com/v3/', $checkout);
+        self::assertStringContainsString('buttons.isEligible()', $checkout);
+        self::assertStringContainsString("card.on('ready'", $checkout);
+        self::assertStringContainsString('disabled aria-busy="true"', $checkout);
         self::assertStringContainsString('stripe.confirmCardPayment(', $checkout);
         self::assertStringContainsString('return_url:data.return_url', $checkout);
         self::assertStringContainsString('_longos/pay/{$token}/return/stripe', $controller);
@@ -73,6 +77,16 @@ class PlatformPaymentSecurityContractTest extends TestCase
         self::assertStringContainsString("route('shop.longos_platform_pay.status', ['token' => \$token], false)", $controller);
         self::assertStringContainsString("route('shop.longos_platform_pay.session', [], false)", $checkout);
         self::assertStringContainsString("'longos-platform-pay/*'", $headers);
+
+        $hosted = file_get_contents($root . '/resources/views/platform-pay/checkout.blade.php');
+        self::assertStringContainsString('buttons.isEligible()', $hosted);
+        self::assertStringContainsString("card.on('ready'", $hosted);
+        self::assertStringContainsString('disabled aria-busy="true"', $hosted);
+        self::assertStringContainsString('methodUnavailable(', $hosted);
+        self::assertStringContainsString("request('status', {}, 8000)", $hosted);
+        self::assertStringContainsString('const apiRoot = `/_longos/pay/${encodeURIComponent(token)}`', $hosted);
+        self::assertStringContainsString('fetch(`${apiRoot}/${path}`', $hosted);
+        self::assertStringNotContainsString('fetch(path,', $hosted);
     }
 
     public function test_hosted_provider_marks_are_shared_by_checkout_and_footer_presentations(): void

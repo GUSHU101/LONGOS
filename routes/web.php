@@ -7,6 +7,7 @@ Route::prefix('_longos/pay')
     ->middleware(['platform.payment', 'throttle:platform-payment'])
     ->group(function (): void {
         Route::get('{token}', [PlatformPaymentController::class, 'show'])->where('token', '[a-f0-9]{64}')->name('platform-pay.show');
+        Route::post('{token}/status', [PlatformPaymentController::class, 'status'])->where('token', '[a-f0-9]{64}')->name('platform-pay.status');
         Route::post('{token}/paypal/create', [PlatformPaymentController::class, 'paypalCreate'])->where('token', '[a-f0-9]{64}')->name('platform-pay.paypal.create');
         Route::post('{token}/paypal/capture', [PlatformPaymentController::class, 'paypalCapture'])->where('token', '[a-f0-9]{64}')->name('platform-pay.paypal.capture');
         Route::post('{token}/stripe/intent', [PlatformPaymentController::class, 'stripeIntent'])->where('token', '[a-f0-9]{64}')->name('platform-pay.stripe.intent');
