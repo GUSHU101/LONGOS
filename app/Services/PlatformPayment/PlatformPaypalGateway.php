@@ -6,7 +6,6 @@ use App\Saas\Models\PlatformPaymentSession;
 use GuzzleHttp\Client;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
-use Plugin\Paypal\Services\PaypalService;
 use RuntimeException;
 use Srmklive\PayPal\Services\PayPal;
 
@@ -158,7 +157,7 @@ class PlatformPaypalGateway
             }
         }
 
-        $safe          = PaypalService::safeProviderResult($result, false);
+        $safe          = PlatformPaymentPayload::paypal($result);
         $transactionId = trim((string) data_get($safe, 'purchase_units.0.payments.captures.0.id', ''));
         if (preg_match('/^[A-Za-z0-9-]{8,64}$/', $transactionId) !== 1) {
             throw new RuntimeException('PayPal 未返回有效交易编号。');

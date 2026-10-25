@@ -6,7 +6,7 @@ use App\Saas\Models\Domain;
 use App\Saas\Models\Site;
 use App\Saas\Support\DomainName;
 use App\Saas\TenantManager;
-use Plugin\Paypal\Services\PaypalSettings;
+use Plugin\LongosPlatformPay\Services\PlatformPaymentCredentials;
 use RuntimeException;
 
 class PlatformPaymentSettings
@@ -49,30 +49,29 @@ class PlatformPaymentSettings
         $control = $this->controlSite();
 
         return $this->inSite($control, function () use ($control): array {
-            $paypal          = PaypalSettings::all();
-            $mode            = ! empty($paypal['sandbox_mode']) ? 'sandbox' : 'live';
-            $platformSecrets = PaypalSettings::decryptForRuntime([
-                'stripe_webhook_secret' => plugin_setting('longos_platform_pay.stripe_webhook_secret', ''),
-            ]);
+            $platform = PlatformPaymentCredentials::all();
+            $mode     = in_array(($platform['paypal_mode'] ?? ''), ['sandbox', 'live'], true)
+                ? (string) $platform['paypal_mode']
+                : 'sandbox';
 
             return [
                 'control_site_id' => (int) $control->id,
                 'control_url'     => $this->controlUrl($control),
-                'enabled'         => filter_var(plugin_setting('longos_platform_pay.status', false), FILTER_VALIDATE_BOOLEAN),
-                'share_paypal'    => filter_var(plugin_setting('longos_platform_pay.share_paypal', true), FILTER_VALIDATE_BOOLEAN),
-                'share_stripe'    => filter_var(plugin_setting('longos_platform_pay.share_stripe', true), FILTER_VALIDATE_BOOLEAN),
+                'enabled'         => filter_var($platform['status'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                'share_paypal'    => filter_var($platform['share_paypal'] ?? true, FILTER_VALIDATE_BOOLEAN),
+                'share_stripe'    => filter_var($platform['share_stripe'] ?? true, FILTER_VALIDATE_BOOLEAN),
                 'paypal'          => [
-                    'api_mode'    => PaypalSettings::normalizeApiMode((string) ($paypal['api_mode'] ?? 'rest')),
+                    'api_mode'    => 'rest',
                     'mode'        => $mode,
-                    'client_id'   => trim((string) ($paypal["{$mode}_client_id"] ?? '')),
-                    'secret'      => trim((string) ($paypal["{$mode}_secret"] ?? '')),
-                    'merchant_id' => strtoupper(trim((string) ($paypal["{$mode}_merchant_id"] ?? $paypal['merchant_id'] ?? ''))),
+                    'client_id'   => trim((string) ($platform['paypal_client_id'] ?? '')),
+                    'secret'      => trim((string) ($platform['paypal_secret'] ?? '')),
+                    'merchant_id' => strtoupper(trim((string) ($platform['paypal_merchant_id'] ?? ''))),
                 ],
                 'stripe'          => [
-                    'test_mode'       => filter_var(plugin_setting('stripe.test_mode', true), FILTER_VALIDATE_BOOLEAN),
-                    'publishable_key' => trim((string) plugin_setting('stripe.publishable_key', '')),
-                    'secret_key'      => trim((string) plugin_setting('stripe.secret_key', '')),
-                    'webhook_secret'  => trim((string) $platformSecrets['stripe_webhook_secret']),
+                    'test_mode'       => filter_var($platform['stripe_test_mode'] ?? true, FILTER_VALIDATE_BOOLEAN),
+                    'publishable_key' => trim((string) ($platform['stripe_publishable_key'] ?? '')),
+                    'secret_key'      => trim((string) ($platform['stripe_secret_key'] ?? '')),
+                    'webhook_secret'  => trim((string) ($platform['stripe_webhook_secret'] ?? '')),
                 ],
             ];
         });
@@ -85,7 +84,10 @@ class PlatformPaymentSettings
         $providers     = [];
         $paypal        = $settings['paypal'];
         $merchantValid = $paypal['merchant_id'] === '' || preg_match('/^[2-9A-HJ-NP-Z]{13}$/', $paypal['merchant_id']) === 1;
-        if ($paypal['api_mode'] === 'rest' && $paypal['client_id'] !== '' && $paypal['secret'] !== '' && $merchantValid) {
+        if ($paypal['api_mode']                                              === 'rest'
+            && preg_match('/^[A-Za-z0-9_-]{10,512}$/', $paypal['client_id']) === 1
+            && strlen($paypal['secret']) >= 8
+            && $merchantValid) {
             $providers[] = 'paypal';
         }
 
@@ -197,13 +199,30 @@ class PlatformPaymentSettings
             return [$e->getMessage()];
         }
 
+        $fields = PlatformPaymentCredentials::decryptForRuntime($fields);
         foreach (['status' => 'enabled', 'share_paypal' => 'share_paypal', 'share_stripe' => 'share_stripe'] as $field => $key) {
             if (array_key_exists($field, $fields)) {
                 $settings[$key] = filter_var($fields[$field], FILTER_VALIDATE_BOOLEAN);
             }
         }
-        if (trim((string) ($fields['stripe_webhook_secret'] ?? '')) !== '') {
-            $settings['stripe']['webhook_secret'] = trim((string) $fields['stripe_webhook_secret']);
+        if (array_key_exists('paypal_mode', $fields)) {
+            $settings['paypal']['mode'] = in_array($fields['paypal_mode'], ['sandbox', 'live'], true)
+                ? (string) $fields['paypal_mode']
+                : 'sandbox';
+        }
+        foreach (['paypal_client_id' => 'client_id', 'paypal_secret' => 'secret', 'paypal_merchant_id' => 'merchant_id'] as $field => $key) {
+            if (array_key_exists($field, $fields)) {
+                $value                    = trim((string) $fields[$field]);
+                $settings['paypal'][$key] = $key === 'merchant_id' ? strtoupper($value) : $value;
+            }
+        }
+        if (array_key_exists('stripe_test_mode', $fields)) {
+            $settings['stripe']['test_mode'] = filter_var($fields['stripe_test_mode'], FILTER_VALIDATE_BOOLEAN);
+        }
+        foreach (['stripe_publishable_key' => 'publishable_key', 'stripe_secret_key' => 'secret_key', 'stripe_webhook_secret' => 'webhook_secret'] as $field => $key) {
+            if (array_key_exists($field, $fields)) {
+                $settings['stripe'][$key] = trim((string) $fields[$field]);
+            }
         }
 
         return $this->issuesForSnapshot($settings, $requirePlatformEnabled);
@@ -222,10 +241,10 @@ class PlatformPaymentSettings
         $configured = $this->configuredProviders($settings);
         $issues     = [];
         if ($settings['share_paypal'] && ! in_array('paypal', $configured, true)) {
-            $issues[] = '主站 PayPal 必须使用 REST API，并保存当前环境的 Client ID 与 Secret。';
+            $issues[] = '请在 LONGOS 平台代收插件中保存 PayPal Client ID 与 Secret。';
         }
         if ($settings['share_stripe'] && ! in_array('stripe', $configured, true)) {
-            $issues[] = '主站 Stripe 密钥或平台 Webhook 签名密钥尚未配置完整。';
+            $issues[] = '请在 LONGOS 平台代收插件中补全 Stripe 密钥与平台 Webhook 签名密钥。';
         }
 
         return $issues;

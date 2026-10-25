@@ -163,6 +163,9 @@ class SaasPreflight extends Command
             'plugins/Paypal/Views/checkout/payment.blade.php',
             'plugins/Stripe/Controllers/StripeController.php',
             'plugins/Stripe/Views/checkout/payment.blade.php',
+            'plugins/LongosPlatformPay/Controllers/CheckoutController.php',
+            'plugins/LongosPlatformPay/Services/PlatformPaymentCredentials.php',
+            'plugins/LongosPlatformPay/columns.php',
             'plugins/PixelTracking/Services/ServerTrackingService.php',
         ];
         $missingFiles = array_values(array_filter(
@@ -172,15 +175,16 @@ class SaasPreflight extends Command
         $this->requirement(
             '商城功能文件',
             $missingFiles === [],
-            '结账、地址、运费、PayPal、Stripe、像素追踪与看板文件齐全',
+            '结账、地址、运费、独立平台代收、PayPal、Stripe、像素追踪与看板文件齐全',
             '发布包不完整：' . implode(', ', $missingFiles),
         );
 
         $pluginContracts = [
-            'FlatShipping' => [\Plugin\FlatShipping\Bootstrap::class, 'getQuotes'],
-            'PayPal'       => [\Plugin\Paypal\Services\PaypalService::class, null],
-            'Stripe'       => [\Plugin\Stripe\Services\StripeService::class, null],
-            '像素追踪'     => [\Plugin\PixelTracking\Services\ServerTrackingService::class, null],
+            'FlatShipping'    => [\Plugin\FlatShipping\Bootstrap::class, 'getQuotes'],
+            'PayPal'          => [\Plugin\Paypal\Services\PaypalService::class, null],
+            'Stripe'          => [\Plugin\Stripe\Services\StripeService::class, null],
+            'LONGOS 平台代收' => [\Plugin\LongosPlatformPay\Services\PlatformPaymentCredentials::class, 'normalizeForStorage'],
+            '像素追踪'        => [\Plugin\PixelTracking\Services\ServerTrackingService::class, null],
         ];
         $invalidPlugins = [];
         foreach ($pluginContracts as $label => [$class, $method]) {
@@ -191,7 +195,7 @@ class SaasPreflight extends Command
         $this->requirement(
             '插件运行契约',
             $invalidPlugins === [],
-            '运费、PayPal、Stripe 与服务端追踪可由 Composer 正常加载',
+            '运费、独立平台代收、PayPal、Stripe 与服务端追踪可由 Composer 正常加载',
             '无法加载：' . implode(', ', $invalidPlugins),
         );
 

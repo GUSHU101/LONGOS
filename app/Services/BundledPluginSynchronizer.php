@@ -43,7 +43,19 @@ class BundledPluginSynchronizer
         ],
         'longos_platform_pay' => [
             'type'     => 'payment',
-            'settings' => ['status' => '0', 'share_paypal' => '1', 'share_stripe' => '1', 'stripe_webhook_secret' => ''],
+            'settings' => [
+                'status'                 => '0',
+                'share_paypal'           => '1',
+                'share_stripe'           => '1',
+                'paypal_mode'            => 'sandbox',
+                'paypal_client_id'       => '',
+                'paypal_secret'          => '',
+                'paypal_merchant_id'     => '',
+                'stripe_test_mode'       => '1',
+                'stripe_publishable_key' => '',
+                'stripe_secret_key'      => '',
+                'stripe_webhook_secret'  => '',
+            ],
             'tables'   => [],
         ],
         self::PRODUCT_REVIEWS => [

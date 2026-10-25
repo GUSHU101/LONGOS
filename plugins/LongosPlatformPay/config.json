@@ -5,11 +5,11 @@
         "en": "LONGOS Platform Pay"
     },
     "description": {
-        "zh_cn": "由主站安全托管 PayPal 与 Stripe 账号，子站无需保存平台收款密钥。",
-        "en": "Collect through PayPal and Stripe accounts securely hosted by the LONGOS control site."
+        "zh_cn": "独立托管主站 PayPal 与 Stripe 账号，不依赖原支付插件，子站无需保存密钥。",
+        "en": "Independently host main-site PayPal and Stripe accounts without relying on the original payment plugins."
     },
     "type": "payment",
-    "version": "v1.0.0",
+    "version": "v1.1.0",
     "icon": "/image/logo.svg",
     "author": {
         "name": "LONGOS",

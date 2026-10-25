@@ -14,7 +14,6 @@ use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
-use Plugin\Paypal\Services\PaypalCurrency;
 use RuntimeException;
 
 class PlatformPaymentSessionService
@@ -37,8 +36,8 @@ class PlatformPaymentSessionService
         }
         $this->assertPayableOrder($order);
 
-        $amount   = PaypalCurrency::paymentAmount($order);
-        $currency = PaypalCurrency::paymentCurrency($order);
+        $amount   = PlatformPaymentCurrency::paymentAmount($order);
+        $currency = PlatformPaymentCurrency::paymentCurrency($order);
         if (! is_finite($amount) || $amount <= 0) {
             throw new RuntimeException('订单支付金额无效。');
         }
@@ -388,9 +387,9 @@ class PlatformPaymentSessionService
         if ((string) $order->payment_method_code !== self::PAYMENT_CODE) {
             throw new RuntimeException('订单支付方式已变化，支付结果未入账。');
         }
-        $amount = number_format(PaypalCurrency::paymentAmount($order), 8, '.', '');
+        $amount = number_format(PlatformPaymentCurrency::paymentAmount($order), 8, '.', '');
         if (! hash_equals((string) $session->amount, $amount)
-            || ! hash_equals((string) $session->currency, PaypalCurrency::paymentCurrency($order))) {
+            || ! hash_equals((string) $session->currency, PlatformPaymentCurrency::paymentCurrency($order))) {
             throw new RuntimeException('订单金额或币种已变化，支付结果未入账。');
         }
     }

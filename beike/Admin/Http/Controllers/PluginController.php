@@ -366,9 +366,6 @@ class PluginController extends Controller
         }
         $fields = $this->preserveBlankPluginSecrets($plugin, $fields);
         $fields = $this->preserveBlankPixelTrackingTokens($plugin, $fields);
-        if ($plugin->code === 'longos_platform_pay') {
-            $fields = \Plugin\Paypal\Services\PaypalSettings::decryptForRuntime($fields);
-        }
         if (method_exists($plugin, 'validate')) {
             $validator = $plugin->validate($fields);
             if ($validator->fails()) {
@@ -395,7 +392,7 @@ class PluginController extends Controller
             $fields = \Plugin\Paypal\Services\PaypalSettings::normalizeForStorage($fields);
         }
         if ($plugin->code === 'longos_platform_pay') {
-            $fields = \Plugin\Paypal\Services\PaypalSettings::normalizeForStorage($fields);
+            $fields = \Plugin\LongosPlatformPay\Services\PlatformPaymentCredentials::normalizeForStorage($fields);
         }
 
         // Saving an enabled plugin from the web UI also applies migrations
