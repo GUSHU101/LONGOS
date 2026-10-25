@@ -34,7 +34,7 @@
         @endforelse
       </div>
       @if(!empty($content['code']))
-        <div class="campaign-offer__code"><div><span>{{ $content['code_label'] ?: __('shop/design.discount_code') }}</span><strong>{{ $content['code'] }}</strong></div><button type="button" data-copy-code="{{ $content['code'] }}" aria-label="{{ __('shop/design.copy_discount_code', ['code' => $content['code']]) }}"><i class="bi bi-copy" aria-hidden="true"></i><span data-copy-label aria-live="polite">{{ __('shop/design.copy') }}</span></button></div>
+        <div class="campaign-offer__code"><div><span>{{ $content['code_label'] ?: __('shop/design.discount_code') }}</span><strong>{{ $content['code'] }}</strong></div><button type="button" data-copy-code="{{ $content['code'] }}" aria-label="{{ __('shop/design.copy_discount_code', ['code' => $content['code']]) }}"><i class="bi bi-files" aria-hidden="true"></i><span data-copy-label aria-live="polite">{{ __('shop/design.copy') }}</span></button></div>
       @endif
       @if(!empty($content['terms']))<p class="campaign-offer__terms"><i class="bi bi-check2-circle" aria-hidden="true"></i>{{ $content['terms'] }}</p>@endif
     </div>

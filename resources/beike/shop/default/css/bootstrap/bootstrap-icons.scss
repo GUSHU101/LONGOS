@@ -8,8 +8,10 @@
  * @LastEditTime  2022-09-16 20:57:06
  */
 
-$bootstrap-icons-font: "bootstrap-icons" !default;
-$bootstrap-icons-font-src: url("/vendor/bootstrap/icon/bootstrap-icons.woff2?08efbba7c53d8c5413793eecb19b20bb") format("woff2"),
+$bootstrap-icons-font: "bootstrap-icons-storefront" !default;
+$bootstrap-icons-font-full: "bootstrap-icons" !default;
+$bootstrap-icons-font-src: url("/vendor/bootstrap/icon/bootstrap-icons-storefront.woff2") format("woff2") !default;
+$bootstrap-icons-font-full-src: url("/vendor/bootstrap/icon/bootstrap-icons.woff2?08efbba7c53d8c5413793eecb19b20bb") format("woff2"),
 url("/vendor/bootstrap/icon/bootstrap-icons.woff?08efbba7c53d8c5413793eecb19b20bb") format("woff") !default;
 
 @font-face {
@@ -18,11 +20,17 @@ url("/vendor/bootstrap/icon/bootstrap-icons.woff?08efbba7c53d8c5413793eecb19b20b
   src: $bootstrap-icons-font-src;
 }
 
+@font-face {
+  font-display: swap;
+  font-family: $bootstrap-icons-font-full;
+  src: $bootstrap-icons-font-full-src;
+}
+
 .bi::before,
 [class^="bi-"]::before,
 [class*=" bi-"]::before {
   display: inline-block;
-  font-family: $bootstrap-icons-font !important;
+  font-family: $bootstrap-icons-font, $bootstrap-icons-font-full !important;
   font-style: normal;
   font-weight: normal !important;
   font-variant: normal;

@@ -49,7 +49,7 @@
                                 data-copy-success="{{ __('shop/account/order.number_copied') }}"
                                 data-copy-error="{{ __('shop/account/order.copy_failed') }}"
                                 aria-label="{{ __('shop/account/order.copy_number', ['number' => $order->number]) }}">
-                                <i class="bi bi-copy" aria-hidden="true"></i>
+                                <i class="bi bi-files" aria-hidden="true"></i>
                               </button>
                             </div>
                             <time class="order-card__date" datetime="{{ $order->created_at?->toAtomString() }}">{{ $order->created_at }}</time>

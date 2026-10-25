@@ -93,6 +93,30 @@ class StorefrontMediaPresentationTest extends TestCase
         self::assertStringContainsString('location ^~ /vendor/', $nginx);
     }
 
+    public function test_storefront_fonts_prefer_compressed_woff2_assets(): void
+    {
+        $root       = dirname(__DIR__, 2);
+        $styles     = (string) file_get_contents($root . '/resources/beike/shop/default/css/global.scss');
+        $icons      = (string) file_get_contents($root . '/resources/beike/shop/default/css/bootstrap/bootstrap-icons.scss');
+        $iconSubset = $root . '/public/vendor/bootstrap/icon/bootstrap-icons-storefront.woff2';
+        $iconFull   = $root . '/public/vendor/bootstrap/icon/bootstrap-icons.woff2';
+
+        foreach (['Regular', 'Medium', 'SemiBold'] as $weight) {
+            $woff2 = $root . "/public/fonts/jost/Jost-{$weight}.woff2";
+
+            self::assertFileExists($woff2);
+            self::assertGreaterThan(1000, filesize($woff2));
+            self::assertStringContainsString("Jost-{$weight}.woff2') format('woff2')", $styles);
+            self::assertLessThan(filesize($root . "/public/fonts/jost/Jost-{$weight}.ttf"), filesize($woff2));
+        }
+
+        self::assertFileExists($iconSubset);
+        self::assertGreaterThan(1000, filesize($iconSubset));
+        self::assertLessThan(filesize($iconFull) / 4, filesize($iconSubset));
+        self::assertStringContainsString('bootstrap-icons-storefront.woff2', $icons);
+        self::assertStringContainsString('$bootstrap-icons-font, $bootstrap-icons-font-full', $icons);
+    }
+
     public function test_product_media_does_not_block_or_download_hidden_desktop_gallery_assets(): void
     {
         $root    = dirname(__DIR__, 2);

@@ -145,21 +145,24 @@ a { text-underline-offset: .16em; }
 main:focus { outline: none; }
 
 @font-face {font-family: 'Jost';
-  src: url('/fonts/jost/Jost-Regular.ttf') format("truetype");
+  src: url('/fonts/jost/Jost-Regular.woff2') format('woff2'),
+  url('/fonts/jost/Jost-Regular.ttf') format('truetype');
   font-style: normal;
   font-weight: 400;
   font-display: swap;
 }
 
 @font-face {font-family: 'Jost';
-  src: url('/fonts/jost/Jost-Medium.ttf') format("truetype");
+  src: url('/fonts/jost/Jost-Medium.woff2') format('woff2'),
+  url('/fonts/jost/Jost-Medium.ttf') format('truetype');
   font-style: normal;
   font-display: swap;
   font-weight: 500;
 }
 
 @font-face {font-family: 'Jost';
-  src: url('/fonts/jost/Jost-SemiBold.ttf') format("truetype");
+  src: url('/fonts/jost/Jost-SemiBold.woff2') format('woff2'),
+  url('/fonts/jost/Jost-SemiBold.ttf') format('truetype');
   font-style: normal;
   font-display: swap;
   font-weight: 600;
