@@ -16,9 +16,9 @@ final class PlatformPaymentCredentials
     ];
 
     /** @return array<string, mixed> */
-    public static function all(): array
+    public static function all(?string $connection = null): array
     {
-        $settings = Setting::query()
+        $settings = Setting::on($connection)
             ->where('type', 'plugin')
             ->where('space', 'longos_platform_pay')
             ->get(['name', 'value', 'json'])

@@ -203,8 +203,16 @@ class PluginServiceProvider extends ServiceProvider
      */
     private function loadTranslations($pluginCode)
     {
-        $pluginBasePath = $this->pluginBasePath;
-        $this->loadTranslationsFrom("{$pluginBasePath}/{$pluginCode}/Lang", $pluginCode);
+        $pluginBasePath  = $this->pluginBasePath;
+        $translationPath = "{$pluginBasePath}/{$pluginCode}/Lang";
+        if (is_dir($translationPath)) {
+            // Plugin columns may be loaded before this provider's boot phase.
+            // Register directly on the resolved translator so the same
+            // request can translate deferred label/section keys. Laravel's
+            // provider helper can defer registration until a later resolver
+            // callback, which left literal `Plugin::...` keys in admin.
+            $this->app['translator']->addNamespace($pluginCode, $translationPath);
+        }
     }
 
     /**

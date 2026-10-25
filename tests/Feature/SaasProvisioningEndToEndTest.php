@@ -24,6 +24,7 @@ use Beike\Admin\Services\DesignEditorCatalog;
 use Beike\Models\AdminUser;
 use Beike\Models\Product;
 use Beike\Models\ProductSku;
+use Beike\Repositories\PluginRepo;
 use Beike\Repositories\ProductRepo;
 use Beike\Repositories\SettingRepo;
 use Beike\Shop\Http\Controllers\CheckoutController;
@@ -255,6 +256,16 @@ class SaasProvisioningEndToEndTest extends TestCase
             self::assertFalse(Schema::hasTable('saas_sites'));
             self::assertGreaterThan(0, DB::table('products')->count());
             self::assertGreaterThan(0, DB::table('plugins')->count());
+            self::assertSame('1', DB::table('settings')
+                ->where('type', 'plugin')
+                ->where('space', 'longos_platform_pay')
+                ->where('name', 'status')
+                ->value('value'));
+            self::assertSame('1', DB::table('settings')
+                ->where('type', 'plugin')
+                ->where('space', 'longos_platform_pay')
+                ->where('name', 'tenant_activation_version')
+                ->value('value'));
 
             $administrator = DB::table('admin_users')->where('email', 'owner@merchant-one.test')->first();
             self::assertNotNull($administrator);
@@ -375,13 +386,38 @@ class SaasProvisioningEndToEndTest extends TestCase
         // Register the packaged plugin extension points once, exactly as an
         // Octane or queue worker does. Runtime guards must then follow each
         // tenant instead of retaining the control site's plugin state.
+        app('plugin')->forgetRuntimeCache();
         (new PluginServiceProvider(app()))->boot();
+        app('router')->getRoutes()->refreshNameLookups();
         self::assertTrue(installed());
         self::assertFalse(app('plugin')->getPlugins()->has('latest_products'));
         self::assertGreaterThan(
             0,
             app('eventy')->getFilter()->getListeners()->where('hook', 'admin.design.index.data')->count(),
         );
+        self::assertNotNull(app('router')->getRoutes()->getByName('shop.longos_platform_pay.session'));
+        self::assertTrue(view()->exists('LongosPlatformPay::checkout.payment'));
+        app()->setLocale('zh_cn');
+        self::assertSame(
+            '主站统一收款',
+            trans('LongosPlatformPay::common.admin.main_collection'),
+            json_encode(app('plugin')->getPackageIssues(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        );
+        app('plugin')->forgetRuntimeCache();
+        $platformColumns = collect(app('plugin')->getPluginOrFail('longos_platform_pay')->getColumns())->keyBy('name');
+        self::assertSame('主站统一收款', $platformColumns->get('control_guide')['label']);
+        self::assertSame('工作方式', $platformColumns->get('control_guide')['section']);
+        self::assertStringNotContainsString('LongosPlatformPay::', $platformColumns->get('control_guide')['description']);
+
+        SettingRepo::update('plugin', 'longos_platform_pay', [
+            'status'             => '1',
+            'share_paypal'       => '1',
+            'share_stripe'       => '0',
+            'paypal_mode'        => 'sandbox',
+            'paypal_client_id'   => 'test_client_id_123456',
+            'paypal_secret'      => 'test-secret-123456',
+            'paypal_merchant_id' => '',
+        ]);
         $firstRuntime = $tenants->run($tenant, function (): array {
             self::assertTrue(Auth::guard(AdminUser::AUTH_GUARD)->attempt([
                 'email'    => 'new-owner@merchant-one.test',
@@ -397,6 +433,7 @@ class SaasProvisioningEndToEndTest extends TestCase
             $nativeCodes = array_column(DesignEditorCatalog::core(), 'code');
             self::assertContains('latest_products', $nativeCodes);
             self::assertContains('bestseller', $nativeCodes);
+            self::assertContains('longos_platform_pay', PluginRepo::getPaymentMethods()->pluck('code')->all());
 
             return [
                 'cookie'        => config('session.cookie'),
@@ -522,10 +559,11 @@ class SaasProvisioningEndToEndTest extends TestCase
             CartService::add($sku, 1);
             $checkout = (new CheckoutController)->index();
             self::assertInstanceOf(Response::class, $checkout);
-            self::assertSame(200, $checkout->getStatusCode());
+            self::assertSame(200, $checkout->getStatusCode(), 'Unexpected checkout redirect: ' . (string) $checkout->headers->get('Location'));
             $checkoutHtml = $checkout->getContent();
             self::assertStringContainsString('id="submit-checkout"', $checkoutHtml);
             self::assertStringContainsString('checkout-address-app', $checkoutHtml);
+            self::assertStringContainsString('longos_platform_pay', $checkoutHtml);
 
             self::assertNotNull(app('router')->getRoutes()->getByName('shop.latest_products'));
 

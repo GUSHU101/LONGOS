@@ -38,14 +38,14 @@ class PlatformPaymentIndependenceTest extends TestCase
         self::assertStringNotContainsString('Plugin\\Stripe', $code);
         self::assertStringNotContainsString("plugin_setting('paypal", $code);
         self::assertStringNotContainsString("plugin_setting('stripe", $code);
-        self::assertStringContainsString('PlatformPaymentCredentials::all()', $code);
+        self::assertStringContainsString('PlatformPaymentCredentials::all($connection)', $code);
         $credentials = (string) file_get_contents(
             $root . '/plugins/LongosPlatformPay/Services/PlatformPaymentCredentials.php'
         );
-        self::assertStringContainsString('Setting::query()', $credentials);
+        self::assertStringContainsString('Setting::on($connection)', $credentials);
         self::assertStringNotContainsString('plugin_setting(', $credentials);
-        self::assertStringContainsString("'name'        => 'paypal_client_id'", $code);
-        self::assertStringContainsString("'name'        => 'stripe_secret_key'", $code);
+        self::assertStringContainsString("'name'            => 'paypal_client_id'", $code);
+        self::assertStringContainsString("'name'            => 'stripe_secret_key'", $code);
         self::assertStringContainsString(':value="\'\'"', (string) file_get_contents(
             $root . '/resources/beike/admin/views/pages/plugins/form.blade.php'
         ));

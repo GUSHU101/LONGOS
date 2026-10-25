@@ -301,6 +301,62 @@ class SaasPluginRouteIsolationTest extends TestCase
         self::assertStringContainsString('data-paypal-saved="1"', $html);
     }
 
+    public function test_platform_payment_resources_survive_real_plugin_loading_order(): void
+    {
+        DB::table('plugins')->insert([
+            'type'       => 'payment',
+            'code'       => 'longos_platform_pay',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('settings')->insert([
+            'type'       => 'plugin',
+            'space'      => 'longos_platform_pay',
+            'name'       => 'status',
+            'value'      => '1',
+            'json'       => false,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        config(['bk.plugin.longos_platform_pay.status' => '1']);
+        PluginRepo::resetRuntimeCache();
+        app('plugin')->forgetRuntimeCache();
+
+        // Manager loads columns before PluginServiceProvider registers the
+        // translation namespace. This is the exact order used by the admin
+        // panel and must never freeze raw namespace keys into the fields.
+        self::assertNotNull(app('plugin')->getPlugin('longos_platform_pay'));
+
+        $provider = new PluginServiceProvider(app());
+        $register = Closure::bind(function (): void {
+            $this->pluginBasePath = base_path('plugins');
+            $this->loadTranslations('LongosPlatformPay');
+            $this->loadViews('LongosPlatformPay');
+            $this->registerRoutes('LongosPlatformPay', 'longos_platform_pay');
+        }, $provider, PluginServiceProvider::class);
+        $register();
+        Route::getRoutes()->refreshNameLookups();
+        app()->setLocale('zh_cn');
+
+        $plugin  = app('plugin')->getPluginOrFail('longos_platform_pay');
+        $columns = collect($plugin->getColumns())->keyBy('name');
+        self::assertSame('一键启用', $columns->get('tenant_guide')['label']);
+        self::assertSame('平台代收', $columns->get('tenant_guide')['section']);
+        self::assertStringNotContainsString('LongosPlatformPay::', $columns->get('tenant_guide')['description']);
+        self::assertTrue(view()->exists('LongosPlatformPay::checkout.payment'));
+
+        $route = Route::getRoutes()->getByName('shop.longos_platform_pay.session');
+        self::assertNotNull($route);
+        self::assertContains('shop', $route->gatherMiddleware());
+        self::assertContains('plugin.enabled:longos_platform_pay', $route->gatherMiddleware());
+
+        // Long-lived workers rebuild the manager for every tenant. Requiring
+        // the same columns file again must still return the array, not `true`.
+        app('plugin')->forgetRuntimeCache();
+        $reloaded = app('plugin')->getPluginOrFail('longos_platform_pay');
+        self::assertIsArray($reloaded->getColumns());
+    }
+
     public function test_paypal_upgrade_encrypts_existing_plaintext_credentials(): void
     {
         DB::table('settings')->insert([

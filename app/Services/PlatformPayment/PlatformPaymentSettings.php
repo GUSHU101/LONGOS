@@ -7,6 +7,7 @@ use App\Saas\Models\PlatformPaymentSession;
 use App\Saas\Models\Site;
 use App\Saas\Support\DomainName;
 use App\Saas\TenantManager;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Plugin\LongosPlatformPay\Services\PlatformPaymentCredentials;
 use RuntimeException;
@@ -52,10 +53,11 @@ class PlatformPaymentSettings
     /** @return array<string, mixed> */
     public function snapshot(): array
     {
-        $control = $this->controlSite();
+        $control    = $this->controlSite();
+        $connection = $this->controlConnection($control);
 
-        return $this->inSite($control, function () use ($control): array {
-            $platform = PlatformPaymentCredentials::all();
+        try {
+            $platform = PlatformPaymentCredentials::all($connection);
             $mode     = in_array(($platform['paypal_mode'] ?? ''), ['sandbox', 'live'], true)
                 ? (string) $platform['paypal_mode']
                 : 'sandbox';
@@ -80,7 +82,10 @@ class PlatformPaymentSettings
                     'webhook_secret'  => trim((string) ($platform['stripe_webhook_secret'] ?? '')),
                 ],
             ];
-        });
+        } finally {
+            DB::disconnect($connection);
+            DB::purge($connection);
+        }
     }
 
     /** @return list<string> */
@@ -341,13 +346,27 @@ class PlatformPaymentSettings
         return $this->snapshot()['control_url'] . '/' . ltrim($path, '/');
     }
 
-    private function inSite(Site $site, callable $callback): mixed
+    /**
+     * Read central credentials without making the control site current.
+     * A full tenant switch resets the session/auth/filesystem drivers; doing
+     * that while a child checkout is being rendered can detach its cart
+     * session and redirect the customer back to an apparently empty cart.
+     */
+    private function controlConnection(Site $site): string
     {
-        if ((int) $this->tenants->current()?->id === (int) $site->id) {
-            return $callback();
+        $tenantConnection = (string) config('multitenancy.tenant_database_connection_name', 'tenant');
+        $configuration    = config("database.connections.{$tenantConnection}");
+        if (! is_array($configuration)) {
+            throw new RuntimeException('LONGOS 租户数据库连接尚未配置。');
         }
 
-        return $this->tenants->run($site, $callback);
+        $configuration['database'] = $site->getDatabaseName();
+        $configuration['prefix']   = $site->getDatabasePrefix();
+        $connection                = 'longos_platform_payment_control';
+        DB::purge($connection);
+        config(["database.connections.{$connection}" => $configuration]);
+
+        return $connection;
     }
 
     private function controlUrl(Site $site): string

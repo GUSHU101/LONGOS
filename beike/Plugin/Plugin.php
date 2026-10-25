@@ -153,7 +153,16 @@ class Plugin implements \ArrayAccess, Arrayable
         if (! file_exists($columnsPath)) {
             return $this;
         }
-        $this->columns = require_once $columnsPath;
+        // Column definitions are runtime data: some bundled plugins expose a
+        // different panel on the control site and on child stores. `require`
+        // is intentional here. `require_once` returns `true` after the first
+        // tenant in a long-lived worker and would corrupt every later
+        // plugin's column collection.
+        $columns = require $columnsPath;
+        if (! is_array($columns)) {
+            throw new \RuntimeException("Plugin columns must return an array: {$this->dirName}");
+        }
+        $this->columns = $columns;
 
         return $this;
     }
@@ -183,18 +192,18 @@ class Plugin implements \ArrayAccess, Arrayable
      */
     private function transLabel($item): mixed
     {
-        $labelKey = $item['label_key']    ?? '';
-        $label    = $item['label']        ?? '';
-        if (empty($label) && $labelKey) {
-            $languageKey   = "{$this->dirName}::{$labelKey}";
-            $item['label'] = trans($languageKey);
-        }
+        foreach (['label', 'description', 'section'] as $field) {
+            $languageKey = $item[$field . '_key'] ?? '';
+            $value       = $item[$field]          ?? '';
+            if (! empty($value) || ! is_string($languageKey) || $languageKey === '') {
+                continue;
+            }
 
-        $descriptionKey = $item['description_key']    ?? '';
-        $description    = $item['description']        ?? '';
-        if (empty($description) && $descriptionKey) {
-            $languageKey         = "{$this->dirName}::{$descriptionKey}";
-            $item['description'] = trans($languageKey);
+            $replace = $item[$field . '_params'] ?? [];
+            if (! is_array($replace)) {
+                $replace = [];
+            }
+            $item[$field] = trans("{$this->dirName}::{$languageKey}", $replace);
         }
 
         return $item;

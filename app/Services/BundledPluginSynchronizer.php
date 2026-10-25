@@ -13,6 +13,10 @@ class BundledPluginSynchronizer
 {
     private const PRODUCT_REVIEWS = 'longos_product_reviews';
 
+    private const PLATFORM_PAYMENT = 'longos_platform_pay';
+
+    private const PLATFORM_TENANT_ACTIVATION = 'tenant_activation_version';
+
     /**
      * Runtime packages maintained and shipped as part of LONGOS.
      *
@@ -41,7 +45,7 @@ class BundledPluginSynchronizer
             'settings' => ['status' => '0'],
             'tables'   => [],
         ],
-        'longos_platform_pay' => [
+        self::PLATFORM_PAYMENT => [
             'type'     => 'payment',
             'settings' => [
                 'status'                 => '0',
@@ -115,6 +119,8 @@ class BundledPluginSynchronizer
             }
         }
 
+        $this->enablePlatformPaymentForTenantOnce();
+
         // The plugin manager may already have inspected this tenant before a
         // bundled row was inserted. Invalidate both caches so this same
         // upgrade process sees and migrates the newly registered packages.
@@ -126,6 +132,46 @@ class BundledPluginSynchronizer
         }
 
         SettingRepo::clearCache();
+    }
+
+    /**
+     * A child store is a consumer of the control site's hosted payment
+     * service, not another credential owner. Enable that binding once for
+     * existing and newly provisioned tenants so switching the main-site
+     * channel on is enough to expose it at child checkout. The marker keeps a
+     * later explicit tenant opt-out intact across upgrades.
+     */
+    private function enablePlatformPaymentForTenantOnce(): void
+    {
+        $site = current_site();
+        if (! config('saas.enabled') || ! $site || (bool) data_get($site->meta, 'control_site', false)) {
+            return;
+        }
+
+        $marker = Setting::query()
+            ->where('type', 'plugin')
+            ->where('space', self::PLATFORM_PAYMENT)
+            ->where('name', self::PLATFORM_TENANT_ACTIVATION)
+            ->exists();
+        if ($marker) {
+            return;
+        }
+
+        Setting::query()->updateOrCreate(
+            [
+                'type'  => 'plugin',
+                'space' => self::PLATFORM_PAYMENT,
+                'name'  => 'status',
+            ],
+            ['value' => '1', 'json' => false],
+        );
+        Setting::query()->create([
+            'type'  => 'plugin',
+            'space' => self::PLATFORM_PAYMENT,
+            'name'  => self::PLATFORM_TENANT_ACTIVATION,
+            'value' => '1',
+            'json'  => false,
+        ]);
     }
 
     /**
