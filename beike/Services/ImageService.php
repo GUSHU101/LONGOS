@@ -101,6 +101,7 @@ class ImageService
                 if (! is_file($newImagePath)) {
                     $extension     = strtolower(pathinfo($this->imagePath, PATHINFO_EXTENSION));
                     $temporaryPath = $newImagePath . '.tmp-' . getmypid() . '-' . uniqid('', true) . '.' . $extension;
+
                     try {
                         $img = Image::make($this->imagePath);
                     } catch (Throwable $decodeException) {
