@@ -96,6 +96,11 @@ window.addEventListener('DOMContentLoaded', () => {
     providerLocked = provider
     document.querySelectorAll('.method').forEach(method => method.classList.toggle('hidden', method.id !== `${provider}-method`))
   }
+  const unlockUnboundProvider = provider => {
+    if (providerLocked !== provider) return
+    providerLocked = false
+    document.querySelectorAll('.method').forEach(method => method.classList.remove('hidden'))
+  }
   const finish = data => { if (!data.redirect_url) throw new Error(@json(__('platform_pay.status.missing_redirect'))); window.location.assign(data.redirect_url) }
 
   @if(in_array('paypal', $providers, true))
@@ -107,7 +112,11 @@ window.addEventListener('DOMContentLoaded', () => {
     }
     window.paypal.Buttons({
       style:{layout:'vertical',shape:'rect',label:'paypal'},
-      createOrder: async () => { lockProvider('paypal'); setStatus(@json(__('platform_pay.status.connect_paypal'))); const data = await request('paypal/create'); return data.id },
+      createOrder: async () => {
+        lockProvider('paypal'); setStatus(@json(__('platform_pay.status.connect_paypal')))
+        try { const data = await request('paypal/create'); return data.id }
+        catch (error) { unlockUnboundProvider('paypal'); throw error }
+      },
       onApprove: async data => { setStatus(@json(__('platform_pay.status.verify_paypal'))); finish(await request('paypal/capture',{paypal_order_id:data.orderID})) },
       onCancel: () => setStatus(@json(__('platform_pay.status.cancelled')), true),
       onError: error => { setStatus(error?.message || @json(__('platform_pay.status.paypal_failed')), true); status.focus?.() },
@@ -131,9 +140,11 @@ window.addEventListener('DOMContentLoaded', () => {
       event.preventDefault()
       const button = document.getElementById('stripe-submit')
       if (button.disabled) return
+      let intentCreated = false
       try {
         lockProvider('stripe'); button.disabled = true; button.setAttribute('aria-busy','true'); setStatus(@json(__('platform_pay.status.create_stripe')))
         const intent = await request('stripe/intent')
+        intentCreated = true
         const confirmation = await stripe.confirmCardPayment(intent.client_secret, {
           payment_method:{card},
           return_url:`${window.location.origin}/_longos/pay/${token}/return/stripe`,
@@ -143,6 +154,7 @@ window.addEventListener('DOMContentLoaded', () => {
         setStatus(@json(__('platform_pay.status.verify')))
         finish(await request('stripe/complete',{payment_intent_id:confirmation.paymentIntent.id}))
       } catch (error) {
+        if (!intentCreated) unlockUnboundProvider('stripe')
         setStatus(error?.message || @json(__('platform_pay.status.stripe_failed')), true); button.disabled = false; button.removeAttribute('aria-busy'); button.focus()
       }
     })

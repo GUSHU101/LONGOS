@@ -1,5 +1,6 @@
 <?php
 
+use App\Services\PlatformPayment\PlatformPaymentSettings;
 use Illuminate\Validation\Rule;
 use Plugin\LongosPlatformPay\Services\PlatformPaymentCredentials;
 
@@ -16,8 +17,14 @@ if (! $isControl) {
     ]];
 }
 
-$controlUrl     = rtrim((string) config('app.url', ''), '/');
-$stripeWebhook  = e(($controlUrl !== '' ? $controlUrl : '') . '/_longos/pay/webhooks/stripe');
+try {
+    $stripeWebhook = e(app(PlatformPaymentSettings::class)->mainUrl('_longos/pay/webhooks/stripe'));
+} catch (\Throwable) {
+    // Keep the settings screen reachable when the operator is repairing an
+    // invalid control-domain configuration. The save-time readiness check
+    // still refuses to enable a route that cannot be reached canonically.
+    $stripeWebhook = e(rtrim(request()->getSchemeAndHttpHost(), '/') . '/_longos/pay/webhooks/stripe');
+}
 $isEnabled      = static fn (): bool => filter_var(request()->input('status', false), FILTER_VALIDATE_BOOLEAN);
 $paypalEnabled  = static fn (): bool => $isEnabled()
     && filter_var(request()->input('share_paypal', false), FILTER_VALIDATE_BOOLEAN);

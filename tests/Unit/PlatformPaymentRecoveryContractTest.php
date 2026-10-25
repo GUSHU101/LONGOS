@@ -86,6 +86,9 @@ class PlatformPaymentRecoveryContractTest extends TestCase
         self::assertStringContainsString("window.addEventListener('pageshow', resetButton)", $child);
         self::assertStringContainsString('new AbortController()', $hosted);
         self::assertStringContainsString("__('platform_pay.status.timeout')", $hosted);
+        self::assertStringContainsString('const unlockUnboundProvider = provider =>', $hosted);
+        self::assertStringContainsString("unlockUnboundProvider('paypal')", $hosted);
+        self::assertStringContainsString("if (!intentCreated) unlockUnboundProvider('stripe')", $hosted);
     }
 
     public function test_failed_provider_creation_releases_only_an_unbound_claim(): void

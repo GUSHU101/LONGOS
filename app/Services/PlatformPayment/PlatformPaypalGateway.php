@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use RuntimeException;
 use Srmklive\PayPal\Services\PayPal;
+use Throwable;
 
 class PlatformPaypalGateway
 {
@@ -97,16 +98,33 @@ class PlatformPaypalGateway
         if (preg_match('/^[A-Z0-9]{10,32}$/', $paypalOrderId) !== 1) {
             throw new RuntimeException('PayPal 订单编号无效。');
         }
-        $this->client->setRequestHeaders([
-            'PayPal-Request-Id' => $this->requestId('capture', $session),
-            'Prefer'            => 'return=representation',
-        ]);
-        $result = $this->client->capturePaymentOrder($paypalOrderId);
-        if (! is_array($result)) {
-            throw new RuntimeException('PayPal 付款尚未完成。');
-        }
 
-        return $this->completedResult($session, $paypalOrderId, $result);
+        try {
+            $this->client->setRequestHeaders([
+                'PayPal-Request-Id' => $this->requestId('capture', $session),
+                'Prefer'            => 'return=representation',
+            ]);
+            $result = $this->client->capturePaymentOrder($paypalOrderId);
+            if (! is_array($result)) {
+                throw new RuntimeException('PayPal 付款尚未完成。');
+            }
+
+            return $this->completedResult($session, $paypalOrderId, $result);
+        } catch (Throwable $captureFailure) {
+            // The capture request may have reached PayPal even when its HTTP
+            // response was lost. Query the order before reporting failure so
+            // an already-completed charge is posted to the tenant immediately
+            // instead of waiting for scheduled reconciliation.
+            try {
+                $existing = $this->client->showOrderDetails($paypalOrderId);
+                if (is_array($existing) && strtoupper((string) ($existing['status'] ?? '')) === 'COMPLETED') {
+                    return $this->completedResult($session, $paypalOrderId, $existing);
+                }
+            } catch (Throwable) {
+            }
+
+            throw $captureFailure;
+        }
     }
 
     /** @return array{transaction_id: string, payload: array<string, mixed>}|null */

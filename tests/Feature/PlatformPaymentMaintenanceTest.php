@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Saas\Models\Domain;
 use App\Saas\Models\PlatformPaymentSession;
 use App\Saas\Models\Site;
 use App\Saas\TenantManager;
@@ -162,6 +163,90 @@ class PlatformPaymentMaintenanceTest extends TestCase
         self::assertSame(PlatformPaymentSession::STATUS_PROCESSING, $bound->fresh()->status);
         self::assertSame('stripe', $bound->fresh()->provider);
         self::assertSame('pi_bound_12345678', $bound->fresh()->provider_order_id);
+    }
+
+    public function test_maintenance_recovers_stale_unbound_claims_after_a_worker_interruption(): void
+    {
+        $site = Site::query()->create([
+            'uuid'          => '45454545-4545-4545-8545-454545454545',
+            'code'          => 'payment-stale-claim',
+            'name'          => 'Payment Stale Claim',
+            'database_name' => 'payment_stale_claim',
+            'status'        => Site::STATUS_ACTIVE,
+            'locale'        => 'en',
+            'timezone'      => 'UTC',
+            'meta'          => [],
+        ]);
+        $retryable = $this->session($site, [
+            'uuid'       => '46464646-4646-4646-8646-464646464646',
+            'token_hash' => str_repeat('a', 63) . '1',
+            'active_key' => str_repeat('b', 63) . '1',
+            'provider'   => 'paypal',
+            'status'     => PlatformPaymentSession::STATUS_PROCESSING,
+            'updated_at' => now()->subMinutes(6),
+        ]);
+        $expired = $this->session($site, [
+            'uuid'       => '47474747-4747-4747-8747-474747474747',
+            'token_hash' => str_repeat('a', 63) . '2',
+            'active_key' => str_repeat('b', 63) . '2',
+            'provider'   => 'stripe',
+            'status'     => PlatformPaymentSession::STATUS_PROCESSING,
+            'expires_at' => now()->subMinute(),
+            'updated_at' => now()->subMinutes(6),
+        ]);
+
+        self::assertSame(0, Artisan::call('saas:platform-pay:reconcile', ['--limit' => 10]), Artisan::output());
+
+        self::assertSame(PlatformPaymentSession::STATUS_PENDING, $retryable->fresh()->status);
+        self::assertNull($retryable->fresh()->provider);
+        self::assertNotNull($retryable->fresh()->active_key);
+        self::assertSame(PlatformPaymentSession::STATUS_EXPIRED, $expired->fresh()->status);
+        self::assertNull($expired->fresh()->provider);
+        self::assertNull($expired->fresh()->active_key);
+    }
+
+    public function test_platform_payment_urls_always_use_the_configured_primary_control_domain(): void
+    {
+        $site = Site::query()->create([
+            'uuid'          => '48484848-4848-4848-8848-484848484848',
+            'code'          => 'payment-control-domain',
+            'name'          => 'Payment Control Domain',
+            'database_name' => 'payment_control_domain',
+            'status'        => Site::STATUS_ACTIVE,
+            'locale'        => 'en',
+            'timezone'      => 'UTC',
+            'meta'          => ['control_site' => true],
+        ]);
+        Domain::query()->create([
+            'site_id'          => $site->id,
+            'host'             => 'old-pay.example.test',
+            'scheme'           => 'https',
+            'is_primary'       => false,
+            'routing_behavior' => Domain::ROUTING_REDIRECT,
+            'status'           => Domain::STATUS_ACTIVE,
+            'origin'           => Domain::ORIGIN_PLATFORM,
+        ]);
+        Domain::query()->create([
+            'site_id'          => $site->id,
+            'host'             => 'pay.example.test',
+            'scheme'           => 'https',
+            'is_primary'       => true,
+            'routing_behavior' => Domain::ROUTING_ALIAS,
+            'status'           => Domain::STATUS_ACTIVE,
+            'origin'           => Domain::ORIGIN_PLATFORM,
+        ]);
+        config(['saas.control_domains' => ['old-pay.example.test', 'pay.example.test']]);
+
+        $settings = app(PlatformPaymentSettings::class);
+        self::assertSame(
+            'https://pay.example.test/_longos/pay/webhooks/stripe',
+            $settings->mainUrl('_longos/pay/webhooks/stripe')
+        );
+
+        config(['saas.control_domains' => ['old-pay.example.test']]);
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('SAAS_CONTROL_DOMAINS');
+        $settings->mainUrl('_longos/pay/webhooks/stripe');
     }
 
     public function test_provider_account_rotation_is_blocked_during_the_reconciliation_window(): void

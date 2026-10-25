@@ -343,7 +343,11 @@ class PlatformPaymentSettings
 
     public function mainUrl(string $path = ''): string
     {
-        return $this->snapshot()['control_url'] . '/' . ltrim($path, '/');
+        // URL generation must not depend on provider credentials. Apart from
+        // avoiding an unnecessary control-database read for every redirect,
+        // this keeps the plugin settings page able to show the webhook URL
+        // before the first credential has been saved.
+        return $this->controlUrl($this->controlSite()) . '/' . ltrim($path, '/');
     }
 
     /**
@@ -373,9 +377,20 @@ class PlatformPaymentSettings
     {
         $configured = $this->configuredControlDomains();
 
-        $domain = $site->domains->first(static fn ($candidate): bool => $candidate->isRoutable()
-            && in_array($candidate->host, $configured, true));
-        $url    = $domain ? "{$domain->scheme}://{$domain->host}" : (string) $site->primary_url;
+        // Provider return and webhook URLs must be canonical. Selecting the
+        // first configured alias can send browser returns through a redirect
+        // and can make machine callbacks land on a host that the payment
+        // middleware rejects after a primary-domain change.
+        $domain = $site->domains->first(static fn ($candidate): bool => $candidate->is_primary
+            && $candidate->isRoutable());
+        if (! $domain) {
+            throw new RuntimeException('LONGOS 主站尚未配置可用的主域名。');
+        }
+        if ($configured !== [] && ! in_array($domain->host, $configured, true)) {
+            throw new RuntimeException('LONGOS 主站主域名必须包含在 SAAS_CONTROL_DOMAINS 中。');
+        }
+
+        $url = "{$domain->scheme}://{$domain->host}";
         if ($url !== '' && ! app()->environment(['local', 'testing']) && ! str_starts_with(strtolower($url), 'https://')) {
             throw new RuntimeException('LONGOS 主站支付域名必须使用 HTTPS。');
         }

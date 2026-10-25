@@ -223,6 +223,42 @@ class PlatformPaymentIndependenceTest extends TestCase
         self::assertSame('COMPLETED', data_get($result, 'payload.status'));
     }
 
+    #[IgnoreDeprecations]
+    public function test_paypal_capture_recovers_when_the_success_response_is_lost(): void
+    {
+        $orderId = 'ORDER9876543210';
+        $session = (new \App\Saas\Models\PlatformPaymentSession)->forceFill([
+            'uuid'     => '13131313-1313-4313-8313-131313131313',
+            'amount'   => '29.99000000',
+            'currency' => 'USD',
+        ]);
+        $unit = [
+            'reference_id' => $session->uuid,
+            'custom_id'    => $session->uuid,
+            'invoice_id'   => $session->uuid,
+            'amount'       => ['currency_code' => 'USD', 'value' => '29.99'],
+            'payments'     => ['captures' => [[
+                'id'     => 'CAPTURE98765432', 'status' => 'COMPLETED',
+                'amount' => ['currency_code' => 'USD', 'value' => '29.99'],
+            ]]],
+        ];
+        $client = $this->createMock(PayPal::class);
+        $client->expects(self::once())->method('capturePaymentOrder')->with($orderId)
+            ->willThrowException(new \RuntimeException('provider response lost'));
+        $client->expects(self::once())->method('showOrderDetails')->with($orderId)->willReturn([
+            'id' => $orderId, 'status' => 'COMPLETED', 'purchase_units' => [$unit],
+        ]);
+
+        $gateway = (new \ReflectionClass(PlatformPaypalGateway::class))->newInstanceWithoutConstructor();
+        foreach (['client' => $client, 'settings' => ['merchant_id' => '']] as $property => $value) {
+            (new \ReflectionProperty($gateway, $property))->setValue($gateway, $value);
+        }
+
+        $result = $gateway->capture($session, $orderId);
+        self::assertSame('CAPTURE98765432', $result['transaction_id']);
+        self::assertSame('COMPLETED', data_get($result, 'payload.status'));
+    }
+
     /** @param array<string, mixed> $payload */
     private function validateColumns(array $payload): \Illuminate\Support\MessageBag
     {

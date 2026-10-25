@@ -33,6 +33,34 @@ class ReconcilePlatformPayments extends Command
         $unresolvedSessionIds = [];
         $cancelledSessionIds  = [];
 
+        // A worker can stop after claiming a provider but before persisting
+        // the remote order id. Such a claim cannot have exposed a PayPal
+        // approval URL or Stripe client secret to the customer, so it is safe
+        // to release after the longest provider timeout. The deterministic
+        // provider idempotency keys make a same-channel retry recover the
+        // original remote object if it was created just before the crash.
+        $releasedClaims = PlatformPaymentSession::query()
+            ->where('status', PlatformPaymentSession::STATUS_PROCESSING)
+            ->whereIn('provider', ['paypal', 'stripe'])
+            ->whereNull('provider_order_id')
+            ->where('expires_at', '>', now())
+            ->where('updated_at', '<=', now()->subMinutes(5))
+            ->update([
+                'provider'   => null,
+                'status'     => PlatformPaymentSession::STATUS_PENDING,
+                'updated_at' => now(),
+            ]);
+        $expiredClaims = PlatformPaymentSession::query()
+            ->where('status', PlatformPaymentSession::STATUS_PROCESSING)
+            ->whereNull('provider_order_id')
+            ->where('expires_at', '<=', now())
+            ->update([
+                'provider'   => null,
+                'status'     => PlatformPaymentSession::STATUS_EXPIRED,
+                'active_key' => null,
+                'updated_at' => now(),
+            ]);
+
         $candidates = PlatformPaymentSession::query()
             ->with('site.domains')
             ->financiallyUnsettled()
@@ -130,8 +158,9 @@ class ReconcilePlatformPayments extends Command
             ->where('created_at', '<', now()->subDays($pruneDays))
             ->delete();
 
-        $expired = $expiredPending + $expiredProcessing;
-        $this->components->info("Recovered {$recovered}, cancelled {$cancelled}, failed {$failed}, expired {$expired}, released {$releasedStale} stale lock(s), and pruned {$pruned} hosted payment session(s).");
+        $expired  = $expiredPending + $expiredProcessing + $expiredClaims;
+        $released = $releasedStale  + $releasedClaims;
+        $this->components->info("Recovered {$recovered}, cancelled {$cancelled}, failed {$failed}, expired {$expired}, released {$released} stale lock(s), and pruned {$pruned} hosted payment session(s).");
 
         return $failed === 0 ? self::SUCCESS : self::FAILURE;
     }
