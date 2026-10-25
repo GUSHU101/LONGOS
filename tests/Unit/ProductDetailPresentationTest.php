@@ -87,6 +87,8 @@ class ProductDetailPresentationTest extends TestCase
         self::assertStringContainsString('normalizeProductGalleryImage', $product);
         self::assertStringContainsString('composeProductGalleryImages', $product);
         self::assertStringContainsString('this.selectedVariantImage = normalizeProductGalleryImage', $product);
+        self::assertStringContainsString('if (reload) this.syncProductImages(sku);', $product);
+        self::assertStringNotContainsString("this.syncProductImages(sku);\n          this.product = sku;", $product);
         self::assertStringContainsString('swiperMobile.slideTo(0, 0, false);', $product);
         self::assertStringContainsString('.pdp-gallery-item__count', $styles);
         self::assertStringContainsString('.pdp-media-dialog__nav', $styles);

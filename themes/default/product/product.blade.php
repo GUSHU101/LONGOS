@@ -912,11 +912,15 @@
           }
 
           if (!sku) {
-            this.syncProductImages();
+            if (reload) this.syncProductImages();
             return;
           }
 
-          this.syncProductImages(sku);
+          // The server-rendered base gallery is already responsive and is the
+          // mobile LCP candidate. Initialising the default SKU must not replace
+          // it with a variant source image before the first paint. Real variant
+          // changes still refresh the gallery through the default reload=true.
+          if (reload) this.syncProductImages(sku);
           this.product = sku;
           this.normalizeQuantity();
 
