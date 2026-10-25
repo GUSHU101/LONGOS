@@ -20,6 +20,8 @@ return [
     'verify_paypal'     => '正在验证 PayPal 付款结果…',
     'create_stripe'     => '正在准备银行卡付款…',
     'verifying'         => '正在验证付款结果…',
+    'checking'          => '正在确认付款是否已成功，请勿重复操作…',
+    'processing'        => '付款正由银行处理，请勿重复付款。您可以使用备用页查看最新状态。',
     'cancelled'         => '付款已取消，未产生扣款。',
     'locked'            => '当前支付会话已选择其他付款方式。',
     'missing_redirect'  => '付款已完成，但缺少返回地址，请刷新订单查看状态。',

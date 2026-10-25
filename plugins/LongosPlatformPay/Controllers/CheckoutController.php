@@ -70,10 +70,14 @@ class CheckoutController
                     'publishable_key' => (string) data_get($snapshot, 'stripe.publishable_key', ''),
                 ] : null,
                 'endpoints' => [
-                    'paypal_create'   => shop_route('longos_platform_pay.paypal.create', ['token' => $token]),
-                    'paypal_capture'  => shop_route('longos_platform_pay.paypal.capture', ['token' => $token]),
-                    'stripe_intent'   => shop_route('longos_platform_pay.stripe.intent', ['token' => $token]),
-                    'stripe_complete' => shop_route('longos_platform_pay.stripe.complete', ['token' => $token]),
+                    // Browser orchestration must stay on the exact host that
+                    // rendered checkout. Absolute URLs can become cross-origin
+                    // when a tenant is visited through a retained alias.
+                    'status'          => route('shop.longos_platform_pay.status', ['token' => $token], false),
+                    'paypal_create'   => route('shop.longos_platform_pay.paypal.create', ['token' => $token], false),
+                    'paypal_capture'  => route('shop.longos_platform_pay.paypal.capture', ['token' => $token], false),
+                    'stripe_intent'   => route('shop.longos_platform_pay.stripe.intent', ['token' => $token], false),
+                    'stripe_complete' => route('shop.longos_platform_pay.stripe.complete', ['token' => $token], false),
                 ],
             ]);
             $response->headers->set('Cache-Control', 'no-store, private');
@@ -94,6 +98,20 @@ class CheckoutController
         $this->assertChildSession($token, $sessions);
 
         return $payments->paypalCreate($token);
+    }
+
+    public function status(
+        string $token,
+        PlatformPaymentSessionService $sessions,
+    ): JsonResponse {
+        $session   = $this->assertChildSession($token, $sessions);
+        $completed = $session->status === PlatformPaymentSession::STATUS_COMPLETED;
+
+        return json_success('支付状态已核验。', [
+            'completed'    => $completed,
+            'state'        => (string) $session->status,
+            'redirect_url' => $completed ? $sessions->tenantSuccessUrl($session) : null,
+        ]);
     }
 
     public function paypalCapture(

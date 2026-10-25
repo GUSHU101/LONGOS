@@ -1,4 +1,4 @@
-<div class="longos-embedded-pay mt-3" id="longos-platform-pay" data-session-url="{{ shop_route('longos_platform_pay.session') }}">
+<div class="longos-embedded-pay mt-3" id="longos-platform-pay" data-session-url="{{ route('shop.longos_platform_pay.session', [], false) }}">
   <style>
     .longos-embedded-pay{--lp-blue:#155eef;--lp-line:#d0d5dd;--lp-muted:#667085;--lp-danger:#b42318}.longos-pay-intro{padding:14px 16px;border:1px solid #b2ccff;border-radius:12px;background:#eff4ff;color:#1849a9}.longos-pay-intro p{margin:.35rem 0 0}.longos-pay-methods{display:grid;gap:14px;margin-top:18px}.longos-pay-method{padding:18px;border:1px solid var(--lp-line);border-radius:14px;background:#fff}.longos-pay-method h2{margin:0 0 4px;font-size:1.1rem}.longos-pay-method p{margin:0 0 14px;color:var(--lp-muted)}.longos-stripe-card{min-height:48px;padding:14px;border:1px solid var(--lp-line);border-radius:10px;background:#fff}.longos-stripe-card:focus-within{border-color:var(--lp-blue);box-shadow:0 0 0 4px rgba(21,94,239,.18)}.longos-pay-error{min-height:1.5rem;margin-top:8px;color:var(--lp-danger)}.longos-pay-status{min-height:1.5rem;margin-top:14px;color:var(--lp-muted)}.longos-pay-status.text-danger{color:var(--lp-danger)!important}.longos-pay-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}@media(max-width:575.98px){.longos-pay-method{padding:15px}.longos-pay-actions .btn{width:100%}}
   </style>
@@ -60,14 +60,20 @@
   const headers = {'Accept':'application/json','Content-Type':'application/json','X-CSRF-TOKEN':csrf}
   let providerLocked = false
 
+  window.addEventListener('pageshow', event => {
+    // A restored payment form may represent an order completed while the
+    // customer was authenticating with a provider. Never expose stale CTAs.
+    if (event.persisted) window.location.reload()
+  })
+
   const setStatus = (message, error = false) => {
     status.textContent = message
     status.classList.toggle('text-danger', error)
     if (error) status.focus?.()
   }
-  const request = async (url, body = {}) => {
+  const request = async (url, body = {}, timeoutMs = 35000) => {
     const controller = new AbortController()
-    const timeout = window.setTimeout(() => controller.abort(), 35000)
+    const timeout = window.setTimeout(() => controller.abort(), timeoutMs)
     try {
       const response = await fetch(url, {method:'POST',credentials:'same-origin',headers,body:JSON.stringify(body),signal:controller.signal})
       const payload = await response.json().catch(() => null)
@@ -112,6 +118,24 @@
     fallback.href = data.checkout_url
     fallback.hidden = false
   }
+  const wait = delay => new Promise(resolve => window.setTimeout(resolve, delay))
+  const recoverCompletion = async data => {
+    setStatus(@json(trans('LongosPlatformPay::common.checking')))
+    for (const delay of [0, 1000, 2000]) {
+      if (delay) await wait(delay)
+      try {
+        const result = await request(data.endpoints.status, {}, 8000)
+        if (result.completed && result.redirect_url) {
+          finish(result)
+          return true
+        }
+      } catch (error) {
+        // The original provider result remains authoritative. A status probe
+        // is best-effort and must never replace its actionable error.
+      }
+    }
+    return false
+  }
 
   const mountPaypal = async data => {
     const query = new URLSearchParams({
@@ -137,6 +161,7 @@
           setStatus(@json(trans('LongosPlatformPay::common.verify_paypal')))
           finish(await request(data.endpoints.paypal_capture, {paypal_order_id:result.orderID}))
         } catch (error) {
+          if (await recoverCompletion(data)) return
           setStatus(error?.message || @json(trans('LongosPlatformPay::common.failed')), true); showFallback(data)
         }
       },
@@ -172,9 +197,18 @@
           return_url:data.return_url,
         })
         if (confirmation.error) throw new Error(confirmation.error.message)
+        if (confirmation.paymentIntent?.status === 'processing') {
+          if (await recoverCompletion(data)) return
+          throw new Error(@json(trans('LongosPlatformPay::common.processing')))
+        }
         if (confirmation.paymentIntent?.status !== 'succeeded') throw new Error(@json(trans('LongosPlatformPay::common.stripe_incomplete')))
         setStatus(@json(trans('LongosPlatformPay::common.verifying')))
-        finish(await request(data.endpoints.stripe_complete, {payment_intent_id:confirmation.paymentIntent.id}))
+        try {
+          finish(await request(data.endpoints.stripe_complete, {payment_intent_id:confirmation.paymentIntent.id}))
+        } catch (error) {
+          if (await recoverCompletion(data)) return
+          throw error
+        }
       } catch (error) {
         if (!intentCreated) unlockUnboundProvider('stripe')
         const message = error?.message || @json(trans('LongosPlatformPay::common.failed'))

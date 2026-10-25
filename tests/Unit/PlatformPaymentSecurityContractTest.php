@@ -60,6 +60,7 @@ class PlatformPaymentSecurityContractTest extends TestCase
         $headers    = file_get_contents($root . '/app/Http/Middleware/ApplySecurityHeaders.php');
 
         self::assertStringContainsString('/paypal/create', $routes);
+        self::assertStringContainsString('/status', $routes);
         self::assertStringContainsString('/paypal/capture', $routes);
         self::assertStringContainsString('/stripe/intent', $routes);
         self::assertStringContainsString('/stripe/complete', $routes);
@@ -69,6 +70,8 @@ class PlatformPaymentSecurityContractTest extends TestCase
         self::assertStringContainsString('return_url:data.return_url', $checkout);
         self::assertStringContainsString('_longos/pay/{$token}/return/stripe', $controller);
         self::assertStringContainsString('assertChildSession(', $controller);
+        self::assertStringContainsString("route('shop.longos_platform_pay.status', ['token' => \$token], false)", $controller);
+        self::assertStringContainsString("route('shop.longos_platform_pay.session', [], false)", $checkout);
         self::assertStringContainsString("'longos-platform-pay/*'", $headers);
     }
 

@@ -11,6 +11,7 @@ Route::prefix('/longos-platform-pay/{token}')
     ->where(['token' => '[a-f0-9]{64}'])
     ->middleware('throttle:platform-payment')
     ->group(function (): void {
+        Route::post('/status', [CheckoutController::class, 'status'])->name('longos_platform_pay.status');
         Route::post('/paypal/create', [CheckoutController::class, 'paypalCreate'])->name('longos_platform_pay.paypal.create');
         Route::post('/paypal/capture', [CheckoutController::class, 'paypalCapture'])->name('longos_platform_pay.paypal.capture');
         Route::post('/stripe/intent', [CheckoutController::class, 'stripeIntent'])->name('longos_platform_pay.stripe.intent');

@@ -347,6 +347,7 @@ class SaasPluginRouteIsolationTest extends TestCase
         $paymentHtml = view('LongosPlatformPay::checkout.payment', [
             'order' => (object) ['number' => 'EMBEDDED-PAY-1001'],
         ])->render();
+        self::assertStringContainsString('data-session-url="/longos-platform-pay/session"', $paymentHtml);
         self::assertStringContainsString('id="longos-paypal-buttons"', $paymentHtml);
         self::assertStringContainsString('id="longos-stripe-card"', $paymentHtml);
         self::assertStringContainsString('https://www.paypal.com/sdk/js?', $paymentHtml);
@@ -354,6 +355,7 @@ class SaasPluginRouteIsolationTest extends TestCase
 
         foreach ([
             'shop.longos_platform_pay.session',
+            'shop.longos_platform_pay.status',
             'shop.longos_platform_pay.paypal.create',
             'shop.longos_platform_pay.paypal.capture',
             'shop.longos_platform_pay.stripe.intent',

@@ -20,6 +20,8 @@ return [
     'verify_paypal'     => 'Verifying your PayPal payment…',
     'create_stripe'     => 'Preparing card payment…',
     'verifying'         => 'Verifying your payment…',
+    'checking'          => 'Checking whether the payment succeeded. Do not submit it again…',
+    'processing'        => 'Your bank is still processing this payment. Do not pay again. Use the backup page to check the latest status.',
     'cancelled'         => 'Payment was cancelled. You have not been charged.',
     'locked'            => 'This payment session is already using another payment method.',
     'missing_redirect'  => 'Payment succeeded, but the return address is missing. Refresh this order to check its status.',

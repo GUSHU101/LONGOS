@@ -582,6 +582,7 @@ class CheckoutService
                 if ((string) $method['code'] === 'longos_platform_pay') {
                     $requiredRoutes = [
                         'shop.longos_platform_pay.session',
+                        'shop.longos_platform_pay.status',
                         'shop.longos_platform_pay.paypal.create',
                         'shop.longos_platform_pay.paypal.capture',
                         'shop.longos_platform_pay.stripe.intent',
