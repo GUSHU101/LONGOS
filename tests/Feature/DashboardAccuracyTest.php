@@ -160,6 +160,47 @@ class DashboardAccuracyTest extends TestCase
         self::assertSame(1, collect($sources)->firstWhere('name', __('admin/dashboard.email'))['value']);
     }
 
+    public function test_guest_to_customer_transition_keeps_one_stable_visitor_identity(): void
+    {
+        DB::table('storefront_visits')->insert([
+            'bucket_at'           => '2026-10-08 08:00:00',
+            'visitor_key'         => str_repeat('a', 64),
+            'customer_id'         => null,
+            'country_code'        => 'DE',
+            'source_key'          => 'email',
+            'source_detail'       => 'newsletter',
+            'referer'             => null,
+            'landing_path'        => '/',
+            'page_views'          => 1,
+            'first_seen_at'       => '2026-10-08 08:00:00',
+            'last_seen_at'        => '2026-10-08 08:00:00',
+            'human_confirmed_at'  => '2026-10-08 08:00:00',
+            'confirmation_method' => 'pointer',
+            'created_at'          => '2026-10-08 08:00:00',
+            'updated_at'          => '2026-10-08 08:00:00',
+        ]);
+        DB::table('product_views')->insert([
+            'product_id'          => 1,
+            'customer_id'         => null,
+            'session_id'          => 'guest-before-login',
+            'visitor_key'         => str_repeat('a', 64),
+            'ip'                  => '10.0.0.40',
+            'referer'             => null,
+            'country_code'        => 'DE',
+            'human_confirmed_at'  => '2026-10-08 08:00:00',
+            'confirmation_method' => 'pointer',
+            'created_at'          => '2026-10-08 08:00:00',
+            'updated_at'          => '2026-10-08 08:00:00',
+        ]);
+
+        $service = new DashboardService;
+
+        self::assertSame(2, $service->getBasicStats('today')['visitors']['current']);
+        self::assertSame(2, $service->getFunnelData('today')[1]['value']);
+        self::assertSame(2, array_sum(array_column($service->getSourceAnalysis('today'), 'value')));
+        self::assertNotContains('DE', array_column($service->getVisitorCountryRanking('today'), 'code'));
+    }
+
     public function test_legacy_unconfirmed_requests_are_not_reported_as_visitors_or_countries(): void
     {
         DB::table('storefront_visits')->insert([

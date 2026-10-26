@@ -15,6 +15,8 @@ class StorefrontVisitService
 {
     public const PENDING_SESSION_KEY = 'longos.dashboard.pending_visit';
 
+    public const PAGE_TOKEN_ATTRIBUTE = 'longos.dashboard.page_token';
+
     private const ATTRIBUTION_SESSION_KEY = 'longos.dashboard.attribution';
 
     private const PENDING_TTL_SECONDS = 1800;
@@ -48,23 +50,45 @@ class StorefrontVisitService
             return;
         }
 
+        $pageToken = $this->pageToken($request->attributes->get(self::PAGE_TOKEN_ATTRIBUTE));
+        if ($pageToken === null) {
+            return;
+        }
+
         $attribution = $request->session()->get(self::ATTRIBUTION_SESSION_KEY);
         if (! is_array($attribution) || ! isset($attribution['key'])) {
             $attribution = (new TrafficSourceService)->resolve($request);
             $request->session()->put(self::ATTRIBUTION_SESSION_KEY, $attribution);
         }
 
-        $request->session()->put(self::PENDING_SESSION_KEY, [
+        $landingPath = $this->pagePath('/' . ltrim($request->path(), '/'));
+        $visitorKey  = self::visitorKeyForSession($request->session()->getId());
+        if ($landingPath === null || $visitorKey === null) {
+            return;
+        }
+
+        $pendingEntry = [
             'attribution'    => $attribution,
-            'landing_path'   => $this->text('/' . ltrim($request->path(), '/'), 1000),
+            'landing_path'   => $landingPath,
+            'page_token'     => $pageToken,
             'product_id'     => $this->productId($request),
             'staged_at'      => now()->getTimestamp(),
             'user_agent_key' => hash('sha256', (string) $request->userAgent()),
-        ]);
+            'visitor_key'    => $visitorKey,
+        ];
+
+        // Store page challenges independently from the mutable session record.
+        // A click Beacon and the next document navigation can otherwise save
+        // competing session snapshots and lose one of the pending pages.
+        Cache::put($this->pendingCacheKey($pageToken), $pendingEntry, now()->addSeconds(self::PENDING_TTL_SECONDS));
     }
 
-    public function confirm(Request $request, string $activity): bool
-    {
+    public function confirm(
+        Request $request,
+        string $activity,
+        ?string $pagePath = null,
+        ?string $pageToken = null,
+    ): bool {
         if (! in_array($activity, self::HUMAN_ACTIVITIES, true)
             || ! $request->hasSession()
             || ! $this->isPlausibleBrowser($request)
@@ -72,10 +96,16 @@ class StorefrontVisitService
             return false;
         }
 
-        $pending = $request->session()->pull(self::PENDING_SESSION_KEY);
-        if (! is_array($pending)) {
+        if ($pageToken !== null) {
+            return $this->confirmCachedVisit($request, $activity, $pagePath, $pageToken);
+        }
+
+        $pendingVisits = $this->pendingVisits($request);
+        $pendingIndex  = $this->pendingVisitIndex($pendingVisits, $pagePath);
+        if ($pendingIndex === null) {
             return false;
         }
+        $pending = $pendingVisits[$pendingIndex];
 
         $stagedAt = filter_var($pending['staged_at'] ?? null, FILTER_VALIDATE_INT);
         if ($stagedAt === false
@@ -90,9 +120,19 @@ class StorefrontVisitService
             return false;
         }
 
+        unset($pendingVisits[$pendingIndex]);
+        $remaining = array_values($pendingVisits);
+        if ($remaining === []) {
+            $request->session()->forget(self::PENDING_SESSION_KEY);
+        } else {
+            $request->session()->put(self::PENDING_SESSION_KEY, $remaining);
+        }
+
+        $pendingAttribution = $pending['attribution'] ?? $request->session()->get(self::ATTRIBUTION_SESSION_KEY, []);
+
         $this->record(
             $request,
-            is_array($pending['attribution'] ?? null) ? $pending['attribution'] : [],
+            is_array($pendingAttribution) ? $pendingAttribution : [],
             $this->text($pending['landing_path'] ?? null, 1000),
             $activity,
             $this->positiveInteger($pending['product_id'] ?? null),
@@ -161,6 +201,124 @@ class StorefrontVisitService
         return $this->tableAvailable();
     }
 
+    /** @return list<array<string, mixed>> */
+    private function pendingVisits(Request $request): array
+    {
+        $stored = $request->session()->get(self::PENDING_SESSION_KEY, []);
+        if (! is_array($stored)) {
+            return [];
+        }
+
+        // Accept the single-entry shape from the previous release while a
+        // rolling deployment still has requests served by both versions.
+        if (array_key_exists('staged_at', $stored)) {
+            $stored = [$stored];
+        }
+
+        $oldest = now()->getTimestamp() - self::PENDING_TTL_SECONDS;
+
+        return array_values(array_filter($stored, static function ($entry) use ($oldest): bool {
+            if (! is_array($entry)) {
+                return false;
+            }
+
+            $stagedAt = filter_var($entry['staged_at'] ?? null, FILTER_VALIDATE_INT);
+
+            return $stagedAt !== false && $stagedAt >= $oldest;
+        }));
+    }
+
+    /** @param list<array<string, mixed>> $pendingVisits */
+    private function pendingVisitIndex(array $pendingVisits, ?string $pagePath): ?int
+    {
+        if ($pendingVisits === []) {
+            return null;
+        }
+
+        $pathWasProvided = $pagePath !== null;
+        $pagePath        = $this->pagePath($pagePath);
+        if ($pathWasProvided && $pagePath === null) {
+            return null;
+        }
+
+        if ($pagePath !== null) {
+            foreach (array_reverse($pendingVisits, true) as $index => $entry) {
+                if (hash_equals((string) ($entry['landing_path'] ?? ''), $pagePath)) {
+                    return $index;
+                }
+            }
+
+            // A supplied path must never silently consume another tab's visit.
+            return null;
+        }
+
+        // Compatibility for an old frontend bundle during rolling deploys.
+        return array_key_last($pendingVisits);
+    }
+
+    private function confirmCachedVisit(
+        Request $request,
+        string $activity,
+        ?string $pagePath,
+        string $pageToken,
+    ): bool {
+        $pageToken = $this->pageToken($pageToken);
+        $pagePath  = $this->pagePath($pagePath);
+        if ($pageToken === null || $pagePath === null) {
+            return false;
+        }
+
+        $cacheKey = $this->pendingCacheKey($pageToken);
+
+        return (bool) Cache::lock($cacheKey . ':lock', 5)->block(2, function () use (
+            $request,
+            $activity,
+            $pagePath,
+            $pageToken,
+            $cacheKey,
+        ): bool {
+            $pending = Cache::get($cacheKey);
+            if (! is_array($pending)
+                || ! hash_equals((string) ($pending['page_token'] ?? ''), $pageToken)
+                || ! hash_equals((string) ($pending['landing_path'] ?? ''), $pagePath)) {
+                return false;
+            }
+
+            $stagedAt = filter_var($pending['staged_at'] ?? null, FILTER_VALIDATE_INT);
+            $now      = now()->getTimestamp();
+            if ($stagedAt === false || $stagedAt > $now + 60 || $stagedAt < $now - self::PENDING_TTL_SECONDS) {
+                Cache::forget($cacheKey);
+
+                return false;
+            }
+
+            $expectedAgent = $pending['user_agent_key'] ?? null;
+            $actualAgent   = hash('sha256', (string) $request->userAgent());
+            $expectedKey   = $pending['visitor_key'] ?? null;
+            $actualKey     = self::visitorKeyForSession($request->session()->getId());
+            if (! is_string($expectedAgent)
+                || ! hash_equals($expectedAgent, $actualAgent)
+                || ! is_string($expectedKey)
+                || ! is_string($actualKey)
+                || ! hash_equals($expectedKey, $actualKey)) {
+                return false;
+            }
+
+            // Consume before writing. A telemetry database failure may lose
+            // this one event, but a retry can never double-increment pageviews.
+            Cache::forget($cacheKey);
+            $this->record(
+                $request,
+                is_array($pending['attribution'] ?? null) ? $pending['attribution'] : [],
+                $this->text($pending['landing_path'] ?? null, 1000),
+                $activity,
+                $this->positiveInteger($pending['product_id'] ?? null),
+            );
+
+            return true;
+        });
+    }
+
     private function isPlausibleBrowser(Request $request): bool
     {
         $agent = trim((string) $request->userAgent());
@@ -183,7 +341,7 @@ class StorefrontVisitService
             (string) $connection->getTablePrefix(),
         ]);
 
-        if (! array_key_exists($scope, self::$tableAvailability)) {
+        if (! (self::$tableAvailability[$scope] ?? false)) {
             self::$tableAvailability[$scope] = Schema::hasTable('storefront_visits');
         }
 
@@ -338,6 +496,34 @@ class StorefrontVisitService
         return $value === false ? null : $value;
     }
 
+    private function pagePath(mixed $value): ?string
+    {
+        if (! is_string($value) || $value === '') {
+            return null;
+        }
+
+        $path = parse_url($value, PHP_URL_PATH);
+        if (! is_string($path) || $path === '' || ! str_starts_with($path, '/') || str_starts_with($path, '//')) {
+            return null;
+        }
+
+        return mb_substr(rawurldecode($path), 0, 1000);
+    }
+
+    private function pageToken(mixed $value): ?string
+    {
+        if (! is_string($value) || preg_match('/^[a-f0-9]{32}$/', $value) !== 1) {
+            return null;
+        }
+
+        return $value;
+    }
+
+    private function pendingCacheKey(string $pageToken): string
+    {
+        return 'storefront-analytics:pending:' . hash('sha256', $pageToken);
+    }
+
     private function confirmationColumnsAvailable(): bool
     {
         $connection = DB::connection();
@@ -347,7 +533,7 @@ class StorefrontVisitService
             (string) $connection->getTablePrefix(),
         ]);
 
-        if (! array_key_exists($scope, self::$confirmationColumnsAvailability)) {
+        if (! (self::$confirmationColumnsAvailability[$scope] ?? false)) {
             self::$confirmationColumnsAvailability[$scope] = Schema::hasColumn('storefront_visits', 'human_confirmed_at')
                 && Schema::hasColumn('storefront_visits', 'confirmation_method');
         }

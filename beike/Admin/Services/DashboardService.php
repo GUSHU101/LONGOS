@@ -20,7 +20,7 @@ class DashboardService
 {
     public const VALID_TIME_RANGES = ['today', 'yesterday', 'week', 'month'];
 
-    private const CACHE_SCHEMA_VERSION = 'v5-confirmed-product-views';
+    private const CACHE_SCHEMA_VERSION = 'v6-stable-visitor-identity';
 
     private MockDataGenerator $mockDataGenerator;
 
@@ -1774,13 +1774,15 @@ class DashboardService
 
     private function storefrontVisitIdentityExpression(?string $table = null): string
     {
-        $customerId = $table ? $this->qualifiedColumn($table, 'customer_id') : 'customer_id';
         $visitorKey = $table ? $this->qualifiedColumn($table, 'visitor_key') : 'visitor_key';
 
+        // A login enriches the same browser visit; it must not turn one guest
+        // into a second visitor. The one-way session key stays stable across
+        // that transition and intentionally represents a visitor, not an
+        // account shared by several devices.
         return match (DB::connection()->getDriverName()) {
-            'pgsql'  => "CASE WHEN {$customerId} IS NOT NULL AND {$customerId} > 0 THEN 'customer:' || {$customerId}::text ELSE 'visitor:' || {$visitorKey} END",
-            'sqlite' => "CASE WHEN {$customerId} IS NOT NULL AND {$customerId} > 0 THEN 'customer:' || CAST({$customerId} AS TEXT) ELSE 'visitor:' || {$visitorKey} END",
-            default  => "CASE WHEN {$customerId} IS NOT NULL AND {$customerId} > 0 THEN CONCAT('customer:', {$customerId}) ELSE CONCAT('visitor:', {$visitorKey}) END",
+            'pgsql', 'sqlite' => "'visitor:' || {$visitorKey}",
+            default            => "CONCAT('visitor:', {$visitorKey})",
         };
     }
 
@@ -1795,9 +1797,9 @@ class DashboardService
             : null;
 
         return match (DB::connection()->getDriverName()) {
-            'pgsql'  => "CASE WHEN {$customerId} IS NOT NULL AND {$customerId} > 0 THEN 'customer:' || {$customerId}::text ELSE COALESCE(" . ($visitorKey ? "'visitor:' || NULLIF({$visitorKey}, ''), " : '') . "'session:' || NULLIF({$sessionId}, ''), 'ip:' || NULLIF({$ip}, ''), 'view:' || {$id}::text) END",
-            'sqlite' => "CASE WHEN {$customerId} IS NOT NULL AND {$customerId} > 0 THEN 'customer:' || CAST({$customerId} AS TEXT) ELSE COALESCE(" . ($visitorKey ? "'visitor:' || NULLIF({$visitorKey}, ''), " : '') . "'session:' || NULLIF({$sessionId}, ''), 'ip:' || NULLIF({$ip}, ''), 'view:' || CAST({$id} AS TEXT)) END",
-            default  => "CASE WHEN {$customerId} IS NOT NULL AND {$customerId} > 0 THEN CONCAT('customer:', {$customerId}) ELSE COALESCE(" . ($visitorKey ? "CONCAT('visitor:', NULLIF({$visitorKey}, '')), " : '') . "CONCAT('session:', NULLIF({$sessionId}, '')), CONCAT('ip:', NULLIF({$ip}, '')), CONCAT('view:', {$id})) END",
+            'pgsql'  => 'COALESCE(' . ($visitorKey ? "'visitor:' || NULLIF({$visitorKey}, ''), " : '') . "CASE WHEN {$customerId} IS NOT NULL AND {$customerId} > 0 THEN 'customer:' || {$customerId}::text END, 'session:' || NULLIF({$sessionId}, ''), 'ip:' || NULLIF({$ip}, ''), 'view:' || {$id}::text)",
+            'sqlite' => 'COALESCE(' . ($visitorKey ? "'visitor:' || NULLIF({$visitorKey}, ''), " : '') . "CASE WHEN {$customerId} IS NOT NULL AND {$customerId} > 0 THEN 'customer:' || CAST({$customerId} AS TEXT) END, 'session:' || NULLIF({$sessionId}, ''), 'ip:' || NULLIF({$ip}, ''), 'view:' || CAST({$id} AS TEXT))",
+            default  => 'COALESCE(' . ($visitorKey ? "CONCAT('visitor:', NULLIF({$visitorKey}, '')), " : '') . "CASE WHEN {$customerId} IS NOT NULL AND {$customerId} > 0 THEN CONCAT('customer:', {$customerId}) END, CONCAT('session:', NULLIF({$sessionId}, '')), CONCAT('ip:', NULLIF({$ip}, '')), CONCAT('view:', {$id}))",
         };
     }
 

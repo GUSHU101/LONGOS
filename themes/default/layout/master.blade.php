@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="ie=edge">
     <meta name="csrf-token" content="{{ csrf_token() }}">
+    @if ($analyticsPageToken = request()->attributes->get(\Beike\Services\StorefrontVisitService::PAGE_TOKEN_ATTRIBUTE))
+      <meta name="longos-analytics-page-token" content="{{ $analyticsPageToken }}">
+    @endif
     <base href="{{ $shop_base_url }}">
 
     <!-- Title and Meta Description -->

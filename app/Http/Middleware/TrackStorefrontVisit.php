@@ -10,6 +10,18 @@ class TrackStorefrontVisit
 {
     public function handle(Request $request, Closure $next): mixed
     {
+        if ($request->isMethod('GET')) {
+            try {
+                $request->attributes->set(
+                    StorefrontVisitService::PAGE_TOKEN_ATTRIBUTE,
+                    bin2hex(random_bytes(16)),
+                );
+            } catch (\Throwable) {
+                // Entropy failure must not block the storefront. The service
+                // safely skips confirmation when no page token is available.
+            }
+        }
+
         $response = $next($request);
         $visits   = app(StorefrontVisitService::class);
 

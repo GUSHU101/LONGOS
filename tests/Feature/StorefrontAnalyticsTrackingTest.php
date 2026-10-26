@@ -198,8 +198,39 @@ class StorefrontAnalyticsTrackingTest extends TestCase
         self::assertSame(0, DB::table('product_views')->count());
     }
 
-    private function confirm(Request $pageRequest, string $country, string $activity): bool
+    public function test_concurrent_product_tabs_confirm_the_matching_pending_page(): void
     {
+        $middleware = new TrackStorefrontVisit;
+        $first      = $this->productRequest('https://shop.example.test/products/11', 'tab-session', 11);
+        app()->instance('request', $first);
+        $middleware->handle($first, static fn () => response('<html>First</html>', 200, ['Content-Type' => 'text/html']));
+
+        $second = $this->productRequest('https://shop.example.test/products/22', 'tab-session', 22);
+        $second->setLaravelSession($first->session());
+        app()->instance('request', $second);
+        $middleware->handle($second, static fn () => response('<html>Second</html>', 200, ['Content-Type' => 'text/html']));
+
+        self::assertNotSame(
+            $first->attributes->get(StorefrontVisitService::PAGE_TOKEN_ATTRIBUTE),
+            $second->attributes->get(StorefrontVisitService::PAGE_TOKEN_ATTRIBUTE),
+        );
+        self::assertFalse($this->confirm($first, 'US', 'pointer', '/products/99'));
+        self::assertTrue($this->confirm($first, 'US', 'pointer', '/products/11'));
+        self::assertFalse($this->confirm($first, 'US', 'pointer', '/products/11'));
+        self::assertTrue($this->confirm($second, 'CA', 'keyboard', '/products/22'));
+
+        self::assertSame(2, (int) DB::table('storefront_visits')->sole()->page_views);
+        self::assertSame([11, 22], DB::table('product_views')->orderBy('product_id')->pluck('product_id')->map(static fn ($id): int => (int) $id)->all());
+        self::assertFalse($first->session()->has(StorefrontVisitService::PENDING_SESSION_KEY));
+    }
+
+    private function confirm(
+        Request $pageRequest,
+        string $country,
+        string $activity,
+        ?string $pagePath = null,
+        ?string $pageToken = null,
+    ): bool {
         $request = Request::create(
             'https://shop.example.test/_longos/analytics/visit',
             'POST',
@@ -213,7 +244,10 @@ class StorefrontAnalyticsTrackingTest extends TestCase
         $request->headers->set('CF-IPCountry', $country);
         app()->instance('request', $request);
 
-        return app(StorefrontVisitService::class)->confirm($request, $activity);
+        $pagePath  ??= $pageRequest->getPathInfo();
+        $pageToken ??= $pageRequest->attributes->get(StorefrontVisitService::PAGE_TOKEN_ATTRIBUTE);
+
+        return app(StorefrontVisitService::class)->confirm($request, $activity, $pagePath, $pageToken);
     }
 
     private function request(string $uri, string $sessionId, string $userAgent = 'Mozilla/5.0'): Request
