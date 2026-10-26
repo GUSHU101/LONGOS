@@ -503,7 +503,14 @@
     ]) !!};
     const checkoutPaymentBrandLabels = {!! \Illuminate\Support\Js::from($checkoutPaymentBrandLabels) !!};
     const checkoutPaymentBrandsLabel = {!! \Illuminate\Support\Js::from(__('shop/checkout.accepted_payment_methods')) !!};
+    window.longosCheckoutPaymentHandlers = window.longosCheckoutPaymentHandlers || {};
     let isSubmittingOrder = false;
+    window.addEventListener('pageshow', (event) => {
+      // PayPal and 3DS can return with the checkout restored from the
+      // back-forward cache. Reload that frozen snapshot so the submit lock,
+      // checkout token, totals, and provider state are rebuilt together.
+      if (event.persisted) window.location.reload();
+    });
     const announceCheckout = (message) => $('#checkout-feedback').text(String(message || ''));
     const clearCheckoutError = () => {
       $('#checkout-error-summary').attr('hidden', true).find('.checkout-error-summary__message').text('');
@@ -617,10 +624,23 @@
         }
 
         const selectedShippingCode = $('#shipping-methods-wrap .delivery-option__selector.active').data('value');
+        const selectedPaymentCode = String($('#payment-methods-wrap .payment-header.active').data('value') || '');
+        const paymentHandler = window.longosCheckoutPaymentHandlers[selectedPaymentCode];
         if (checkoutAddressApp.shippingRequired && !validateSelectedShippingFields(selectedShippingCode)) {
           showCheckoutError(checkoutMessages.completeShippingDetails);
           layer.msg(checkoutMessages.completeShippingDetails);
           return;
+        }
+
+        if (paymentHandler && typeof paymentHandler.validate === 'function') {
+          try {
+            if (paymentHandler.validate() === false) return;
+          } catch (error) {
+            const message = checkoutErrorMessage(error, checkoutMessages.unablePlaceOrder);
+            showCheckoutError(message);
+            layer.msg(message);
+            return;
+          }
         }
 
         const data = {
@@ -638,9 +658,14 @@
         announceCheckout(checkoutMessages.orderProcessing);
         $submitButton.html('<span class="pay-button__label"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span><span>{{ __('shop/checkout.submit_order') }}</span></span>');
 
-        $http.post(window.longosStorefrontRoutes.checkoutConfirm, data, {hmsg: true, hload: true}).then((res) => {
+        $http.post(window.longosStorefrontRoutes.checkoutConfirm, data, {hmsg: true, hload: true}).then(async (res) => {
           if (!res || !res.number) {
             throw checkoutFailure(checkoutMessages.invalidOrderResponse);
+          }
+
+          if (paymentHandler && typeof paymentHandler.start === 'function') {
+            await paymentHandler.start({orderNumber: String(res.number)});
+            return;
           }
 
           const paymentTemplate = {!! json_encode($checkoutPaymentUrlTemplate, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) !!};
@@ -648,6 +673,9 @@
           paymentUrl.searchParams.set('type', 'create');
           window.location.assign(paymentUrl.toString());
         }).catch((error) => {
+          if (paymentHandler && typeof paymentHandler.onError === 'function') {
+            try { paymentHandler.onError(error); } catch (handlerError) {}
+          }
           isSubmittingOrder = false;
           $submitButton.html(originalLabel);
           $submitButtons.removeAttr('aria-busy');
@@ -846,9 +874,13 @@
       $('#payment-methods-wrap').replaceWith('<div class="payment-box" id="payment-methods-wrap" role="radiogroup" aria-label="{{ __('shop/checkout.payment_method') }}">' + html + '</div>');
       if (restoreFocus) $('#payment-methods-wrap .payment-header[tabindex="0"]').trigger('focus');
       checkoutHasPayment = data.length > 0;
+      window.dispatchEvent(new CustomEvent('longos:checkout-payment-changed', {detail: {code: String(payment_method_code || '')}}));
       window.syncCheckoutSubmitState();
     }
 
+    window.dispatchEvent(new CustomEvent('longos:checkout-payment-changed', {
+      detail: {code: String($('#payment-methods-wrap .payment-header.active').data('value') || '')},
+    }));
     window.syncCheckoutSubmitState();
   </script>
 @endpush

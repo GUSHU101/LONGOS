@@ -1,12 +1,23 @@
 # LONGOS Platform Pay
 
-Version 1.6.0 starts a PayPal-only checkout directly from the store's order
-submission action. The customer no longer sees or confirms an intermediate
-LONGOS payment page before PayPal opens. Stripe and mixed-channel sessions keep
-the embedded child-store form because they still require a browser-side card or
-provider choice. The recovery page remains available if provider initialization
-fails, and large order numbers are serialized as strings so JavaScript cannot
-round them before session creation.
+Version 1.7.0 starts every available platform channel from the original store
+checkout. PayPal redirects straight to its official approval page, while
+Stripe card details are collected by Stripe Elements before the order is
+submitted. Mixed-channel checkouts let the shopper choose in advance, so the
+hosted LONGOS page is now a recovery path instead of a mandatory extra step.
+
+Version 1.6.1 first removed the intermediate page for PayPal-only checkout.
+Version 1.7.0 extends that behavior to Stripe and mixed-channel sessions by
+moving the required card or provider choice to the original checkout. The
+recovery page remains available if provider initialization fails, and large
+order numbers are serialized as strings so JavaScript cannot round them before
+session creation.
+
+Provider return and recovery URLs now use short-lived relative signatures, so
+cross-domain callbacks do not depend on a guest session cookie and cannot be
+altered to open a different order. Payment initialization scripts also use
+explicit statement boundaries after server-rendered values to remain valid in
+optimized Blade output.
 
 主站统一托管 PayPal 与 Stripe 收款账号。仅开启 PayPal 时，顾客提交订单后会直接进入 PayPal；开启 Stripe 或同时开启多个渠道时，必要的银行卡输入或渠道选择仍直接渲染在子站支付页。子站只会收到供应商的公开 SDK 密钥和短时中央支付会话，不接触任何私钥。供应商返回地址与 Stripe Webhook 固定使用主站域名；完成付款前会再次核对租户、订单、金额、币种、环境和供应商交易绑定。
 

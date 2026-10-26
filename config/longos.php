@@ -106,6 +106,10 @@ return [
     /* Read-only order links sent by email expire and cannot mutate orders. */
     'order_access_link_days' => (int) env('LONGOS_ORDER_ACCESS_LINK_DAYS', 30),
 
+    /* Short-lived signed links bridge payment-provider callbacks from the
+     * retained platform domain back to the tenant's current primary domain. */
+    'payment_action_link_minutes' => (int) env('LONGOS_PAYMENT_ACTION_LINK_MINUTES', 180),
+
     /* Keep the conversion-focused checkout language stable across storefront
      * admin locales. Tenants can override this explicitly when needed. */
     'checkout_locale' => (string) env('LONGOS_CHECKOUT_LOCALE', 'en'),

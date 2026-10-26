@@ -224,6 +224,61 @@ function order_access_url(mixed $order): string
 }
 
 /**
+ * Generate a short-lived, host-independent storefront URL.
+ *
+ * Payment providers return through the tenant's retained platform domain,
+ * while the shopper normally keeps their session cookie on the current
+ * primary/custom domain. A relative signature survives that host boundary
+ * and still prevents an order number from becoming an access credential.
+ */
+function signed_shop_route(string $route, array $params = [], ?int $minutes = null): string
+{
+    $minutes ??= (int) config('longos.payment_action_link_minutes', 180);
+    $minutes = max(5, min(1440, $minutes));
+
+    $relative = URL::temporarySignedRoute(
+        'shop.' . $route,
+        now()->addMinutes($minutes),
+        $params,
+        absolute: false,
+    );
+
+    return rtrim(shop_route('home.index'), '/') . '/' . ltrim($relative, '/');
+}
+
+/** Generate a provider-return-safe order result URL. */
+function order_checkout_result_url(mixed $order, ?string $paymentStatus = null): string
+{
+    $number = is_object($order) ? ($order->number ?? null) : $order;
+    if (! is_scalar($number) || trim((string) $number) === '') {
+        throw new InvalidArgumentException('A valid order number is required.');
+    }
+
+    $params = ['order_number' => (string) $number];
+    if (in_array($paymentStatus, ['cancelled', 'error', 'unavailable'], true)) {
+        $params['payment_status'] = $paymentStatus;
+    }
+
+    return signed_shop_route('checkout.success', $params);
+}
+
+/** Generate a provider-return-safe retry-payment URL. */
+function order_payment_url(mixed $order, bool $manual = false): string
+{
+    $number = is_object($order) ? ($order->number ?? null) : $order;
+    if (! is_scalar($number) || trim((string) $number) === '') {
+        throw new InvalidArgumentException('A valid order number is required.');
+    }
+
+    $params = ['number' => (string) $number];
+    if ($manual) {
+        $params['manual'] = 1;
+    }
+
+    return signed_shop_route('orders.pay', $params);
+}
+
+/**
  * 获取后台管理前缀名称, 默认为 admin
  */
 function admin_name(): string

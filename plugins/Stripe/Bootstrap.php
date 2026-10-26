@@ -16,6 +16,8 @@ class Bootstrap
 {
     public function boot(): void
     {
-        // Stripe is configured through its browser checkout view only.
+        add_hook_blade('checkout.bottom', function ($callback, $output, $data) {
+            return $output . view('Stripe::checkout.inline')->render();
+        });
     }
 }

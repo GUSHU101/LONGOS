@@ -389,19 +389,17 @@ class PlatformPaymentSessionService
 
     public function tenantSuccessUrl(PlatformPaymentSession $session): string
     {
-        return $this->tenants->run($session->site, fn (): string => shop_route('checkout.success', [
-            'order_number' => $session->order_number,
-        ]));
+        return $this->tenants->run($session->site, fn (): string => order_checkout_result_url($session->order_number));
     }
 
     public function tenantRecoveryUrl(PlatformPaymentSession $session, string $status): string
     {
         $status = in_array($status, ['cancelled', 'error', 'unavailable'], true) ? $status : 'error';
 
-        return $this->tenants->run($session->site, fn (): string => shop_route('checkout.success', [
-            'order_number'    => $session->order_number,
-            'payment_status'  => $status,
-        ]));
+        return $this->tenants->run(
+            $session->site,
+            fn (): string => order_checkout_result_url($session->order_number, $status)
+        );
     }
 
     private function assertPayableOrder(Order $order): void

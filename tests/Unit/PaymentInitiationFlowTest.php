@@ -57,6 +57,16 @@ class PaymentInitiationFlowTest extends TestCase
         self::assertStringContainsString("add_hook_filter('service.payment.pay.start'", $platform);
         self::assertStringContainsString("availableProviders() !== ['paypal']", $platformStart);
         self::assertStringContainsString("redirect()->away(\$result['approval_url'])", $platformStart);
+
+        $paypalController = (string) file_get_contents($root . '/plugins/Paypal/Controllers/PaypalController.php');
+        self::assertStringContainsString('order_checkout_result_url(', $paypalController);
+        self::assertStringContainsString('isProviderBoundReturn(', $paypalController);
+        self::assertStringContainsString('order_payment_url(', $paypalController);
+
+        $orderController = (string) file_get_contents($root . '/beike/Shop/Http/Controllers/OrderController.php');
+        self::assertStringContainsString('$authorized = false;', $orderController);
+        self::assertStringContainsString('$order && $authorized', $orderController);
+        self::assertStringContainsString('rememberGuestOrderNumber(', $orderController);
     }
 
     public function test_large_order_numbers_never_cross_the_browser_as_javascript_numbers(): void
@@ -73,5 +83,25 @@ class PaymentInitiationFlowTest extends TestCase
         self::assertStringContainsString('$paypalOrderNumber = (string)', $paypal);
         self::assertStringNotContainsString('order_number:@json($order->number', $platform);
         self::assertStringNotContainsString('const orderNumber = @json($order->number', $stripe);
+    }
+
+    public function test_platform_pay_starts_each_provider_from_the_original_checkout(): void
+    {
+        $root       = dirname(__DIR__, 2);
+        $bootstrap  = (string) file_get_contents($root . '/plugins/LongosPlatformPay/Bootstrap.php');
+        $inline     = (string) file_get_contents($root . '/plugins/LongosPlatformPay/Views/checkout/inline.blade.php');
+        $controller = (string) file_get_contents($root . '/plugins/LongosPlatformPay/Controllers/CheckoutController.php');
+        $checkout   = (string) file_get_contents($root . '/themes/default/checkout.blade.php');
+
+        self::assertStringContainsString("add_hook_blade('checkout.bottom'", $bootstrap);
+        self::assertStringContainsString('window.longosCheckoutPaymentHandlers.longos_platform_pay', $inline);
+        self::assertStringContainsString('await request(config.sessionUrl, {order_number:orderNumber})', $inline);
+        self::assertStringContainsString('window.location.assign(created.approval_url)', $inline);
+        self::assertStringContainsString('stripe.confirmCardPayment(', $inline);
+        self::assertStringContainsString('data.endpoints.stripe_complete', $inline);
+        self::assertStringNotContainsString('card_number:', $inline);
+        self::assertStringNotContainsString('card_cvc:', $inline);
+        self::assertStringContainsString("'stripe' => in_array('stripe', \$providers, true)", $controller);
+        self::assertStringContainsString('if (event.persisted) window.location.reload()', $checkout);
     }
 }

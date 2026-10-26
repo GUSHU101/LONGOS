@@ -15,7 +15,7 @@ class PlatformPaymentRecoveryContractTest extends TestCase
         $success    = (string) file_get_contents($root . '/themes/default/checkout/success.blade.php');
 
         self::assertStringContainsString('public function tenantRecoveryUrl(', $sessions);
-        self::assertStringContainsString("shop_route('checkout.success'", $sessions);
+        self::assertStringContainsString('order_checkout_result_url(', $sessions);
         self::assertStringContainsString("tenantRecoveryUrl(\$session, 'error')", $controller);
         self::assertStringContainsString("tenantRecoveryUrl(\$session, 'cancelled')", $controller);
         self::assertStringNotContainsString("tenantCheckoutUrl(\$session) . '?payment_error=1'", $controller);

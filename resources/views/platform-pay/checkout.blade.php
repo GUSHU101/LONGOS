@@ -72,7 +72,7 @@
 </main>
 <script>
 window.addEventListener('DOMContentLoaded', () => {
-  const token = @json($token)
+  const token = @json($token);
   const apiRoot = `/_longos/pay/${encodeURIComponent(token)}`
   const csrf = document.querySelector('meta[name="csrf-token"]')?.content || ''
   const status = document.getElementById('payment-status')

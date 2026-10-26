@@ -168,7 +168,7 @@
     await loadScript('longos-paypal-sdk', `https://www.paypal.com/sdk/js?${query.toString()}`, {'data-namespace':'LongosPlatformPayPal'})
     if (!window.LongosPlatformPayPal?.Buttons) throw new Error(@json(trans('LongosPlatformPay::common.paypal_load')))
 
-    const unavailableMessage = @json(trans('LongosPlatformPay::common.paypal_unavailable'))
+    const unavailableMessage = @json(trans('LongosPlatformPay::common.paypal_unavailable'));
     try {
       const buttons = window.LongosPlatformPayPal.Buttons({
         style:{layout:'vertical',shape:'rect',label:'paypal'},

@@ -46,8 +46,9 @@ class StripeController extends Controller
                         StateMachineService::getInstance($order)->markPaid();
 
                         return json_success('Stripe payment already completed.', [
-                            'payment_intent_id' => $result['id'],
-                            'already_succeeded' => true,
+                            'payment_intent_id'  => $result['id'],
+                            'already_succeeded'  => true,
+                            'redirect_url'       => order_checkout_result_url($order),
                         ]);
                     }
                     if (($result['status'] ?? '') === 'canceled') {
@@ -93,7 +94,9 @@ class StripeController extends Controller
                 $paymentId = trim((string) ($data['payment_intent_id'] ?? ''));
 
                 if ($paymentId !== '' && $this->isCompletedReplay($order, $paymentId)) {
-                    return json_success(trans('Stripe::common.capture_success'));
+                    return json_success(trans('Stripe::common.capture_success'), [
+                        'redirect_url' => order_checkout_result_url($order),
+                    ]);
                 }
                 if ((string) $order->status !== StateMachineService::UNPAID) {
                     throw new \RuntimeException('This order is no longer awaiting payment.');
@@ -119,7 +122,9 @@ class StripeController extends Controller
                 ]);
                 StateMachineService::getInstance($order)->markPaid();
 
-                return json_success(trans('Stripe::common.capture_success'));
+                return json_success(trans('Stripe::common.capture_success'), [
+                    'redirect_url' => order_checkout_result_url($order),
+                ]);
             });
         } catch (\Throwable $exception) {
             return $this->paymentError($exception, 'Payment could not be completed.');

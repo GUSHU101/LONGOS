@@ -44,28 +44,33 @@ class OrderController extends Controller
      */
     public function pay(Request $request, $number)
     {
-        $order = null;
+        $order      = null;
+        $authorized = false;
 
         try {
             $customer = current_customer();
             $order    = OrderRepo::getOrderByNumber($number, $customer);
 
-            if (empty($order) || (empty($customer) && ! $this->isGuestOrderAuthorized($order, $number, $request))) {
+            if (empty($order) || (empty($customer) && ! $this->isGuestOrderAuthorized($order, $number, $request, true))) {
                 throw new CartException(trans('shop/order.invalid_order'));
+            }
+            $authorized = true;
+            if (! $customer) {
+                $this->rememberGuestOrderNumber((string) $order->number);
             }
 
             hook_action('account.order.pay.before', ['order' => $order]);
 
             return (new PaymentService($order))->pay();
         } catch (CartException $e) {
-            return $this->paymentFailureRedirect($order, $e->getMessage());
+            return $this->paymentFailureRedirect($order, $e->getMessage(), $authorized);
         } catch (Throwable $e) {
             Log::error('Payment page could not be rendered.', [
                 'exception' => $e::class,
                 'message'   => SensitiveValueRedactor::redact($e->getMessage()),
             ]);
 
-            return $this->paymentFailureRedirect($order, trans('shop/checkout.payment_method_unavailable'));
+            return $this->paymentFailureRedirect($order, trans('shop/checkout.payment_method_unavailable'), $authorized);
         }
     }
 
@@ -142,12 +147,19 @@ class OrderController extends Controller
             && ($request->hasValidRelativeSignature() || $request->hasValidSignature());
     }
 
-    private function paymentFailureRedirect(?Order $order, string $message)
+    private function paymentFailureRedirect(?Order $order, string $message, bool $authorized)
     {
-        $url = $order
-            ? shop_route('checkout.success', ['order_number' => $order->number])
+        $url = $order && $authorized
+            ? order_checkout_result_url($order)
             : shop_route('carts.index');
 
         return redirect($url)->withErrors(['error' => $message]);
+    }
+
+    private function rememberGuestOrderNumber(string $number): void
+    {
+        $numbers   = array_values(array_unique(array_map('strval', (array) session('guest_order_numbers', []))));
+        $numbers[] = $number;
+        session()->put('guest_order_numbers', array_slice(array_values(array_unique($numbers)), -20));
     }
 }

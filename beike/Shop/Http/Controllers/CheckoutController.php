@@ -175,16 +175,22 @@ class CheckoutController extends Controller
         }
     }
 
-    public function success()
+    public function success(Request $request)
     {
         $this->useCheckoutLocale();
 
         $order_number = request('order_number');
 
-        $customer = current_customer();
-        $order    = OrderRepo::getOrderByNumber($order_number, $customer);
-        if (empty($order) || (empty($customer) && ! in_array((string) $order_number, array_map('strval', session('guest_order_numbers', [])), true))) {
+        $customer        = current_customer();
+        $order           = OrderRepo::getOrderByNumber($order_number, $customer);
+        $guestAuthorized = in_array((string) $order_number, array_map('strval', session('guest_order_numbers', [])), true)
+            || $request->hasValidRelativeSignature()
+            || $request->hasValidSignature();
+        if (empty($order) || (empty($customer) && ! $guestAuthorized)) {
             abort(404);
+        }
+        if (empty($customer)) {
+            $this->rememberGuestOrderNumber((string) $order->number);
         }
 
         $notice = match ((string) request('payment_status')) {

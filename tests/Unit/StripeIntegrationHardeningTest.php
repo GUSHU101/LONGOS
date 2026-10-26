@@ -32,6 +32,26 @@ class StripeIntegrationHardeningTest extends TestCase
         self::assertStringNotContainsString('->setShipment()', $controller);
     }
 
+    public function test_checkout_collects_card_details_before_order_submission_without_exposing_them_to_longos(): void
+    {
+        $root       = dirname(__DIR__, 2);
+        $bootstrap  = (string) file_get_contents($root . '/plugins/Stripe/Bootstrap.php');
+        $inline     = (string) file_get_contents($root . '/plugins/Stripe/Views/checkout/inline.blade.php');
+        $checkout   = (string) file_get_contents($root . '/themes/default/checkout.blade.php');
+        $controller = (string) file_get_contents($root . '/plugins/Stripe/Controllers/StripeController.php');
+
+        self::assertStringContainsString("add_hook_blade('checkout.bottom'", $bootstrap);
+        self::assertStringContainsString('window.longosCheckoutPaymentHandlers.stripe', $inline);
+        self::assertStringContainsString("script.src = 'https://js.stripe.com/v3/'", $inline);
+        self::assertStringContainsString('stripe.confirmCardPayment(', $inline);
+        self::assertStringContainsString('payment_intent_id: confirmation.paymentIntent.id', $inline);
+        self::assertStringNotContainsString('card_number:', $inline);
+        self::assertStringNotContainsString('card_cvc:', $inline);
+        self::assertStringContainsString('await paymentHandler.start(', $checkout);
+        self::assertStringContainsString("window.dispatchEvent(new CustomEvent('longos:checkout-payment-changed'", $checkout);
+        self::assertStringContainsString("'redirect_url' => order_checkout_result_url(\$order)", $controller);
+    }
+
     public function test_enabled_settings_require_matching_key_environment_and_webhook_secret(): void
     {
         $valid = $this->validateSettings([

@@ -60,11 +60,10 @@
 (() => {
   let cardNumberElement = null
   let stripe = null
-  const orderNumber = @json((string) ($order->number ?? ''))
-  const publicKey = @json(plugin_setting('stripe.publishable_key', ''))
-  const intentUrl = @json(shop_route('stripe.intent'))
-  const captureUrl = @json(shop_route('stripe_capture'))
-  const successUrl = @json(shop_route('checkout.success'))
+  const orderNumber = @json((string) ($order->number ?? ''));
+  const publicKey = @json(plugin_setting('stripe.publishable_key', ''));
+  const intentUrl = @json(shop_route('stripe.intent'));
+  const captureUrl = @json(shop_route('stripe_capture'));
   const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
   const headers = {'X-CSRF-TOKEN': csrfToken, Accept: 'application/json'}
 
@@ -139,9 +138,9 @@
             throw new Error(captureResponse.data?.message || @json(__('Stripe::common.capture_fail')))
           }
 
-          const redirect = new URL(successUrl, window.location.origin)
-          redirect.searchParams.set('order_number', orderNumber)
-          window.location.assign(redirect.toString())
+          const redirectUrl = captureResponse.data?.data?.redirect_url
+          if (!redirectUrl) throw new Error(@json(__('Stripe::common.capture_fail')))
+          window.location.assign(redirectUrl)
         } catch (error) {
           window.layer?.msg?.(error.response?.data?.message || error.message || @json(__('Stripe::common.capture_fail')))
         } finally {

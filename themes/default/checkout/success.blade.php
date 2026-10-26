@@ -55,7 +55,7 @@
 
       <div class="purchase-primary-actions">
         @if ($paymentRequired)
-          <a class="purchase-action purchase-action--primary" href="{{ shop_route('orders.pay', ['number' => $order->number]) }}">
+          <a class="purchase-action purchase-action--primary" href="{{ order_payment_url($order) }}">
             <i class="bi bi-credit-card" aria-hidden="true"></i>{{ __('shop/checkout.retry_payment') }}
           </a>
         @endif

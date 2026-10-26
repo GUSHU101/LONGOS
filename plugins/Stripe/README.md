@@ -2,6 +2,8 @@
 
 本插件使用 Stripe PaymentIntent 与 Stripe.js 完成银行卡支付，支持需要 3D Secure / SCA 验证的卡片。LONGOS 服务端只接收 PaymentIntent ID，不接触或保存卡号、有效期和 CVC。
 
+结账页会在用户选择 Stripe 后懒加载 Stripe.js 安全输入框。用户填完收货与卡片信息后，点击一次即创建订单、完成 3DS 并付款；无需再进入中间确认页。订单详情中的“重试付款”仍保留独立付款页作为恢复通道。
+
 ## 配置步骤
 
 1. 在 Stripe Dashboard 的 Developers → API keys 获取同一环境的一组密钥。

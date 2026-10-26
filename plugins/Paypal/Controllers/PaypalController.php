@@ -222,12 +222,15 @@ class PaypalController
             return $this->redirectWithMessage($request, $this->getFailureRedirectUrl($orderNumber), 'error', trans('Paypal::checkout.failed'));
         }
 
+        $providerBound = false;
+
         try {
             $order = $this->resolvePaypalOrder($orderNumber, false);
 
-            return $this->withPaymentLock('return', (int) $order->id, function () use ($order, $token, $payerId, $data, $request, $orderNumber): RedirectResponse {
+            return $this->withPaymentLock('return', (int) $order->id, function () use ($order, $token, $payerId, $data, $request, $orderNumber, &$providerBound): RedirectResponse {
                 $order = $order->fresh();
                 $this->assertProviderOrderBinding((int) $order->id, $token);
+                $providerBound = true;
                 $storedResult  = $this->getStoredCompletedResult((int) $order->id, $token);
                 $paypalService = $this->initPaypal($order, true);
                 if (! $paypalService->isNvpApi()) {
@@ -254,13 +257,13 @@ class PaypalController
 
                 return $this->redirectWithMessage(
                     $request,
-                    $paid ? $this->getSuccessRedirectUrl($orderNumber) : $this->getFailureRedirectUrl($orderNumber),
+                    $paid ? $this->getSuccessRedirectUrl($orderNumber) : $this->getFailureRedirectUrl($orderNumber, true),
                     $paid ? 'success' : 'error',
                     $paid ? trans('Paypal::checkout.completed') : trans('Paypal::checkout.not_completed')
                 );
             });
         } catch (Throwable $e) {
-            return $this->redirectWithMessage($request, $this->getFailureRedirectUrl($orderNumber), 'error', trans('Paypal::checkout.failed'));
+            return $this->redirectWithMessage($request, $this->getFailureRedirectUrl($orderNumber, $providerBound), 'error', trans('Paypal::checkout.failed'));
         }
     }
 
@@ -272,6 +275,8 @@ class PaypalController
             return $this->redirectWithMessage($request, $this->getFailureRedirectUrl($orderNumber), 'error', trans('Paypal::checkout.failed'));
         }
 
+        $providerBound = false;
+
         try {
             // The canonical callback can use the tenant's retained platform
             // domain while checkout began on a custom domain, so a guest
@@ -280,9 +285,10 @@ class PaypalController
             // authenticate the provider result instead.
             $order = $this->resolvePaypalOrder($orderNumber, false);
 
-            return $this->withPaymentLock('rest-return', (int) $order->id, function () use ($order, $paypalOrderId, $request, $orderNumber): RedirectResponse {
+            return $this->withPaymentLock('rest-return', (int) $order->id, function () use ($order, $paypalOrderId, $request, $orderNumber, &$providerBound): RedirectResponse {
                 $order = $order->fresh();
                 $this->assertProviderOrderBinding((int) $order->id, $paypalOrderId);
+                $providerBound = true;
                 $storedResult  = $this->getStoredCompletedResult((int) $order->id, $paypalOrderId);
                 $paypalService = $this->initPaypal($order, true);
                 if ($paypalService->isNvpApi()) {
@@ -308,17 +314,19 @@ class PaypalController
                 'message'   => $this->redactProviderMessage($e->getMessage()),
             ]);
 
-            return $this->redirectWithMessage($request, $this->getFailureRedirectUrl($orderNumber), 'error', trans('Paypal::checkout.failed'));
+            return $this->redirectWithMessage($request, $this->getFailureRedirectUrl($orderNumber, $providerBound), 'error', trans('Paypal::checkout.failed'));
         }
     }
 
     public function restCancel(Request $request): RedirectResponse
     {
-        $orderNumber = $this->getOrderNumberFromData($request->all(), $request);
+        $orderNumber   = $this->getOrderNumberFromData($request->all(), $request);
+        $token         = trim((string) $request->query('token', ''));
+        $providerBound = $this->isProviderBoundReturn($orderNumber, $token);
 
         return $this->redirectWithMessage(
             $request,
-            $this->getFailureRedirectUrl($orderNumber),
+            $this->getFailureRedirectUrl($orderNumber, $providerBound),
             'error',
             trans('Paypal::checkout.cancelled')
         );
@@ -326,10 +334,11 @@ class PaypalController
 
     public function nvpCancel(Request $request): RedirectResponse
     {
-        $data        = $request->all();
-        $orderNumber = $this->getOrderNumberFromData($data, $request);
+        $data          = $request->all();
+        $orderNumber   = $this->getOrderNumberFromData($data, $request);
+        $providerBound = $this->isProviderBoundReturn($orderNumber, $this->getNvpToken($data, $request));
 
-        return $this->redirectWithMessage($request, $this->getFailureRedirectUrl($orderNumber), 'error', trans('Paypal::checkout.cancelled'));
+        return $this->redirectWithMessage($request, $this->getFailureRedirectUrl($orderNumber, $providerBound), 'error', trans('Paypal::checkout.cancelled'));
     }
 
     public function nvpNotify(Request $request)
@@ -643,16 +652,41 @@ class PaypalController
 
     private function getSuccessRedirectUrl(string $orderNumber): string
     {
-        return shop_route('checkout.success', ['order_number' => $orderNumber]);
+        return order_checkout_result_url($orderNumber);
     }
 
-    private function getFailureRedirectUrl(string $orderNumber): string
+    private function getFailureRedirectUrl(string $orderNumber, bool $providerBound = false): string
     {
         if ($orderNumber !== '') {
+            if ($providerBound) {
+                return order_payment_url($orderNumber, true);
+            }
+
             return shop_route('orders.pay', ['number' => $orderNumber, 'manual' => 1]);
         }
 
         return shop_route('checkout.index');
+    }
+
+    /**
+     * A public cancel endpoint must not mint a signed guest-payment link from
+     * an order number alone. PayPal's opaque provider token proves that this
+     * browser was returned from the payment session bound to the order.
+     */
+    private function isProviderBoundReturn(string $orderNumber, string $providerOrderId): bool
+    {
+        if ($orderNumber === '' || $providerOrderId === '') {
+            return false;
+        }
+
+        try {
+            $order = $this->resolvePaypalOrder($orderNumber, false);
+            $this->assertProviderOrderBinding((int) $order->id, $providerOrderId);
+
+            return true;
+        } catch (Throwable) {
+            return false;
+        }
     }
 
     private function redirectWithMessage(Request $request, string $url, string $key, string $message): RedirectResponse
