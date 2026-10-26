@@ -49,6 +49,8 @@ class ProductDetailPresentationTest extends TestCase
         self::assertStringContainsString("__('shop/products.secure_checkout')", $product);
         self::assertStringContainsString("__('shop/products.tracked_delivery')", $product);
         self::assertStringContainsString("__('shop/products.easy_support')", $product);
+        self::assertStringContainsString('FooterRepo::availablePaymentMarks()', $product);
+        self::assertStringNotContainsString('<li class="is-paypal" aria-label="PayPal">PayPal</li>', $product);
         self::assertStringContainsString('role="tablist"', $product);
         self::assertStringContainsString('scope="row"', $product);
 

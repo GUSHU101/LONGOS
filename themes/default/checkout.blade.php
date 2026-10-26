@@ -393,7 +393,7 @@
               @endif
             </div>
           @empty
-            <div class="checkout-empty-state">{{ __('shop/carts.invalid_payment_method') }}</div>
+            <div class="checkout-empty-state" role="status">{{ __('shop/checkout.no_payment_methods') }}</div>
           @endforelse
         </div>
         @if ($shipping_require)
@@ -497,7 +497,7 @@
       'shippingAddressNeeded' => __('shop/checkout.shipping_address_needed'),
       'completeShippingDetails' => __('shop/checkout.complete_shipping_details'),
       'providerSecurity' => __('shop/checkout.payment_provider_note'),
-      'invalidPayment' => __('shop/carts.invalid_payment_method'),
+      'invalidPayment' => __('shop/checkout.no_payment_methods'),
       'orderProcessing' => __('shop/checkout.order_processing'),
       'checkoutUpdated' => __('shop/checkout.checkout_updated'),
     ]) !!};

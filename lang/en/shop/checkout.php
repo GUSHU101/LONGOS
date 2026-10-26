@@ -121,6 +121,7 @@ return [
     'checkout_updated'           => 'Checkout updated.',
     'discount_title'             => 'Discount: :name',
     'payment_method_unavailable' => 'The selected payment method is temporarily unavailable. Please choose another method or contact support.',
+    'no_payment_methods'         => 'Payment is temporarily unavailable. Your cart is saved—please try again later or contact support.',
     'retry_payment'              => 'Retry payment',
     'payment_page_title'         => 'Complete your payment',
     'payment_page_intro'         => 'Your order is saved. Use the secure payment option below to finish your purchase.',

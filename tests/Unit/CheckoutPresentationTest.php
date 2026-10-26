@@ -65,6 +65,8 @@ class CheckoutPresentationTest extends TestCase
         self::assertStringContainsString('checkoutUpdatePending > 0', $checkout);
         self::assertStringContainsString('id="checkout-error-summary"', $checkout);
         self::assertStringContainsString('role="alert"', $checkout);
+        self::assertStringContainsString("__('shop/checkout.no_payment_methods')", $checkout);
+        self::assertStringNotContainsString("__('shop/carts.invalid_payment_method')", $checkout);
         self::assertStringContainsString('window.showCheckoutError = showCheckoutError', $checkout);
         self::assertStringContainsString("res.status === 'fail'", $address);
         self::assertStringContainsString('{hmsg: true, hload: true}', $checkout);
@@ -275,6 +277,8 @@ class CheckoutPresentationTest extends TestCase
         self::assertSame('Last name', $english['last_name']);
         self::assertSame('Live shipment tracking', $english['shipment_tracking']);
         self::assertSame('实时物流追踪', $chinese['shipment_tracking']);
+        self::assertStringContainsString('cart is saved', $english['no_payment_methods']);
+        self::assertStringContainsString('购物车已为您保留', $chinese['no_payment_methods']);
     }
 
     public function test_shipping_quotes_totals_and_live_tracking_use_one_hardened_contract(): void

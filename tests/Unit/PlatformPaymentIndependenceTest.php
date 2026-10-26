@@ -8,6 +8,7 @@ use App\Services\PlatformPayment\PlatformPaymentPayload;
 use App\Services\PlatformPayment\PlatformPaymentSettings;
 use App\Services\PlatformPayment\PlatformPaypalGateway;
 use Beike\Admin\Http\Controllers\PluginController;
+use Beike\Plugin\Plugin;
 use Illuminate\Config\Repository;
 use Illuminate\Container\Container;
 use Illuminate\Encryption\Encrypter;
@@ -23,6 +24,57 @@ use Srmklive\PayPal\Services\PayPal;
 
 class PlatformPaymentIndependenceTest extends TestCase
 {
+    public function test_platform_settings_surface_saved_runtime_readiness_and_validation_failures(): void
+    {
+        $root       = dirname(__DIR__, 2);
+        $controller = (string) file_get_contents($root . '/beike/Admin/Http/Controllers/PluginController.php');
+        $form       = (string) file_get_contents($root . '/resources/beike/admin/views/pages/plugins/form.blade.php');
+        $english    = require $root . '/plugins/LongosPlatformPay/Lang/en/common.php';
+        $chinese    = require $root . '/plugins/LongosPlatformPay/Lang/zh_cn/common.php';
+
+        self::assertStringContainsString('platformPaymentRuntimeStatus($plugin)', $controller);
+        self::assertStringContainsString('availableProvidersForSnapshot($snapshot)', $controller);
+        self::assertStringContainsString("'platformPaymentRuntimeStatus'", $controller);
+        self::assertStringContainsString('platformPaymentRuntimeStatus', $form);
+        self::assertStringContainsString('$errors->any()', $form);
+        self::assertStringContainsString('data-plugin-validation-summary', $form);
+        self::assertStringContainsString("['info', 'success', 'warning', 'danger']", $form);
+        self::assertStringContainsString("__('admin/plugin.enable_status')", $form);
+        self::assertStringNotContainsString("? '启用状态' : '基础设置'", $form);
+        self::assertArrayHasKey('runtime_ready', $english['admin']);
+        self::assertArrayHasKey('runtime_child_disabled', $english['admin']);
+        self::assertArrayHasKey('runtime_unavailable', $chinese['admin']);
+    }
+
+    public function test_platform_runtime_status_distinguishes_ready_and_locally_disabled_child_sites(): void
+    {
+        $previous  = Container::getInstance();
+        $container = new Container;
+        Container::setInstance($container);
+        $container->instance('config', new Repository([
+            'multitenancy' => ['current_tenant_container_key' => 'currentTenant'],
+        ]));
+        $container->instance('currentTenant', (new Site)->forceFill(['meta' => ['control_site' => false]]));
+        $container->instance('translator', new Translator(new ArrayLoader, 'en'));
+        $settings = $this->createMock(PlatformPaymentSettings::class);
+        $settings->method('snapshot')->willReturn(['enabled' => true]);
+        $settings->method('availableProvidersForSnapshot')->willReturn(['paypal']);
+        $container->instance(PlatformPaymentSettings::class, $settings);
+
+        try {
+            $controller = (new \ReflectionClass(PluginController::class))->newInstanceWithoutConstructor();
+            $method     = new \ReflectionMethod($controller, 'platformPaymentRuntimeStatus');
+            $plugin     = (new Plugin('', []))->setEnabled(true);
+
+            self::assertSame('success', $method->invoke($controller, $plugin)['tone']);
+
+            $plugin->setEnabled(false);
+            self::assertSame('danger', $method->invoke($controller, $plugin)['tone']);
+        } finally {
+            Container::setInstance($previous);
+        }
+    }
+
     public function test_platform_plugin_does_not_read_legacy_paypal_or_stripe_plugin_implementations(): void
     {
         $root = dirname(__DIR__, 2);

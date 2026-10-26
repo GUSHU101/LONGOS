@@ -10,6 +10,7 @@
  * @modified   2022-07-28 17:21:38
  */
 return [
+    'settings_not_saved'   => '设置未保存，请修正以下问题：',
     'error_required'       => '请填写 :name',
     'error_input_required' => '输入框不能为空',
     'error_form'           => '请检查表单是否填写正确',

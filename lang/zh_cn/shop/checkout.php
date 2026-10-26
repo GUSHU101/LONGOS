@@ -121,6 +121,7 @@ return [
     'checkout_updated'           => '结账信息已更新。',
     'discount_title'             => '优惠：:name',
     'payment_method_unavailable' => '所选支付方式暂时不可用，请选择其他支付方式或联系客户支持。',
+    'no_payment_methods'         => '付款功能暂时不可用，购物车已为您保留。请稍后重试或联系客户支持。',
     'retry_payment'              => '重新支付',
     'payment_page_title'         => '完成订单支付',
     'payment_page_intro'         => '订单已保存，请使用下方安全支付方式完成购买。',

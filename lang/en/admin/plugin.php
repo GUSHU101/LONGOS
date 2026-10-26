@@ -64,4 +64,11 @@ return [
     'plugin_not_found_or_inactive'   => 'Plugin ":code" does not exist in the marketplace or is inactive, please check the plugin record in the API first.',
     'plugin_readme'                  => 'Plugin Guide',
     'plugin_readme_empty'            => 'No guide available',
+    'enable_status'                  => 'Enable status',
+    'basic_settings'                 => 'Basic settings',
+    'disable_status_help'            => 'When disabled, the plugin will not run in the store. Its other settings are retained.',
+    'action_processing'              => 'Processing…',
+    'action_sending'                 => 'Sending the test request…',
+    'action_sent'                    => 'The test request was sent.',
+    'action_failed'                  => 'The test request failed. Check the settings and try again.',
 ];

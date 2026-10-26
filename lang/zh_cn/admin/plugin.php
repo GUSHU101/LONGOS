@@ -66,4 +66,11 @@ return [
     'plugin_not_found_or_inactive'   => '插件":code"在插件市场不存在或未激活，请先在 API 端检查插件记录。',
     'plugin_readme'                  => '插件说明',
     'plugin_readme_empty'            => '暂无说明',
+    'enable_status'                  => '启用状态',
+    'basic_settings'                 => '基础设置',
+    'disable_status_help'            => '关闭后插件不会在店铺中运行；其余配置会保留。',
+    'action_processing'              => '处理中…',
+    'action_sending'                 => '正在发送测试请求…',
+    'action_sent'                    => '测试请求已发送。',
+    'action_failed'                  => '测试请求失败，请检查配置后重试。',
 ];

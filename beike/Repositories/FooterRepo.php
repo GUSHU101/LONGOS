@@ -19,6 +19,8 @@ use Beike\Services\HtmlPurifierConfig;
 
 class FooterRepo
 {
+    private const PAYMENT_MARKS_REQUEST_KEY = '_longos_storefront_payment_marks';
+
     /**
      * The editor and storefront share one shape. Keeping the default in one
      * place lets older, partial footer settings be opened and saved safely.
@@ -359,6 +361,34 @@ class FooterRepo
             return [];
         }
 
+        return array_values(array_intersect($selected, self::availablePaymentMarks()));
+    }
+
+    /**
+     * Return only brands backed by a payment method that checkout can expose
+     * for the current tenant. Product and footer claims share this source of
+     * truth so an unavailable provider is never advertised to customers.
+     *
+     * @return list<string>
+     */
+    public static function availablePaymentMarks(): array
+    {
+        $requestAttributes = null;
+
+        try {
+            $requestAttributes = app()->bound('request') ? request()->attributes : null;
+        } catch (\Throwable) {
+            // Repository normalization is also exercised by isolated CLI
+            // tooling where Laravel has not installed a request container.
+        }
+        if ($requestAttributes?->has(self::PAYMENT_MARKS_REQUEST_KEY)) {
+            $cached = $requestAttributes->get(self::PAYMENT_MARKS_REQUEST_KEY);
+
+            return is_array($cached) ? $cached : [];
+        }
+
+        $pluginCodes = [];
+
         try {
             $pluginCodes = PluginRepo::getPaymentMethods()
                 ->pluck('code')
@@ -368,12 +398,11 @@ class FooterRepo
                 ->values()
                 ->all();
         } catch (\Throwable $exception) {
-            logger()->notice('Unable to discover enabled footer payment marks.', [
+            logger()->notice('Unable to discover enabled storefront payment marks.', [
                 'exception' => $exception::class,
                 'message'   => $exception->getMessage(),
             ]);
 
-            return [];
         }
 
         $available = [];
@@ -399,7 +428,10 @@ class FooterRepo
             }
         }
 
-        return array_values(array_intersect($selected, array_unique($available)));
+        $available = array_values(array_unique($available));
+        $requestAttributes?->set(self::PAYMENT_MARKS_REQUEST_KEY, $available);
+
+        return $available;
     }
 
     private static function localizedText(mixed $value): string

@@ -1,5 +1,10 @@
 # LONGOS Platform Pay
 
+Version 1.4.3 adds an explicit child-checkout readiness indicator to both the
+main-site and child-site settings panels. Configuration failures are displayed
+prominently, and storefront payment-brand claims now follow the payment methods
+that checkout can actually expose.
+
 主站统一托管 PayPal 与 Stripe 收款账号，PayPal 按钮和 Stripe 银行卡表单直接渲染在子站订单支付页。子站只会收到供应商的公开 SDK 密钥和短时中央支付会话，不接触任何私钥。供应商返回地址与 Stripe Webhook 固定使用主站域名；完成付款前会再次核对租户、订单、金额、币种、环境和供应商交易绑定。
 
 `LONGOS Platform Pay` 是独立支付插件：它拥有自己的 PayPal/Stripe 账号设置、加密凭据和 Webhook，不读取、不修改也不要求启用原有的 PayPal 或 Stripe 店铺插件。

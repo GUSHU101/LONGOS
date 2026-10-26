@@ -334,15 +334,30 @@
               <li><i class="bi bi-truck" aria-hidden="true"></i><span><strong>{{ __('shop/products.tracked_delivery') }}</strong><small>{{ __('shop/products.tracked_delivery_description') }}</small></span></li>
               <li><i class="bi bi-chat-dots" aria-hidden="true"></i><span><strong>{{ __('shop/products.easy_support') }}</strong><small>{{ __('shop/products.easy_support_description') }}</small></span></li>
             </ul>
-            <div class="product-payment-methods">
-              <span>{{ __('shop/products.accepted_payment_methods') }}</span>
-              <ul aria-label="{{ __('shop/products.accepted_payment_methods') }}">
-                <li class="is-visa" aria-label="Visa">VISA</li>
-                <li class="is-mastercard" aria-label="Mastercard"><i></i><i></i></li>
-                <li class="is-paypal" aria-label="PayPal">PayPal</li>
-                <li class="is-amex" aria-label="American Express">AMEX</li>
-              </ul>
-            </div>
+            @php
+              $productPaymentLabels = [
+                'visa' => ['label' => 'Visa', 'text' => 'VISA'],
+                'mastercard' => ['label' => 'Mastercard', 'text' => ''],
+                'paypal' => ['label' => 'PayPal', 'text' => 'PayPal'],
+                'amex' => ['label' => 'American Express', 'text' => 'AMEX'],
+              ];
+              $productPaymentMarks = array_values(array_intersect(
+                array_keys($productPaymentLabels),
+                \Beike\Repositories\FooterRepo::availablePaymentMarks(),
+              ));
+            @endphp
+            @if ($productPaymentMarks !== [])
+              <div class="product-payment-methods">
+                <span>{{ __('shop/products.accepted_payment_methods') }}</span>
+                <ul aria-label="{{ __('shop/products.accepted_payment_methods') }}">
+                  @foreach ($productPaymentMarks as $paymentMark)
+                    <li class="is-{{ $paymentMark }}" aria-label="{{ $productPaymentLabels[$paymentMark]['label'] }}">
+                      @if ($paymentMark === 'mastercard')<i></i><i></i>@else{{ $productPaymentLabels[$paymentMark]['text'] }}@endif
+                    </li>
+                  @endforeach
+                </ul>
+              </div>
+            @endif
           </aside>
           </div>
 

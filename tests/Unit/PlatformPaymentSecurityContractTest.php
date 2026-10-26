@@ -104,6 +104,9 @@ class PlatformPaymentSecurityContractTest extends TestCase
 
         self::assertStringContainsString("\$method['brand_marks']", $checkout);
         self::assertStringContainsString('paymentMarksForProviders($providers)', $footer);
+        self::assertStringContainsString('public static function availablePaymentMarks(): array', $footer);
+        self::assertStringContainsString('self::availablePaymentMarks()', $footer);
+        self::assertStringContainsString('PAYMENT_MARKS_REQUEST_KEY', $footer);
         self::assertStringContainsString('renderCheckoutPaymentBrands(item.brand_marks)', $view);
         self::assertStringContainsString("__('shop/checkout.accepted_payment_methods')", $view);
     }

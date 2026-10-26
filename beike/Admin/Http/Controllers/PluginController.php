@@ -309,9 +309,12 @@ class PluginController extends Controller
             $view       = $columnView ?: 'admin::pages.plugins.form';
 
             $data = [
-                'view'             => $view,
-                'plugin'           => $plugin,
-                'pluginReadmeHtml' => $this->getPluginReadmeHtml($plugin),
+                'view'                         => $view,
+                'plugin'                       => $plugin,
+                'pluginReadmeHtml'             => $this->getPluginReadmeHtml($plugin),
+                'platformPaymentRuntimeStatus' => $plugin->code === 'longos_platform_pay'
+                    ? $this->platformPaymentRuntimeStatus($plugin)
+                    : null,
             ];
             $data = hook_filter('admin.plugin.edit.data', $data);
 
@@ -326,6 +329,47 @@ class PluginController extends Controller
 
             return view('admin::pages.plugins.error', $data);
         }
+    }
+
+    /** @return array{tone: string, label: string, description: string} */
+    private function platformPaymentRuntimeStatus(Plugin $plugin): array
+    {
+        $tone           = 'danger';
+        $descriptionKey = 'common.admin.runtime_unavailable';
+        $parameters     = [];
+
+        try {
+            $settings  = app(PlatformPaymentSettings::class);
+            $snapshot  = $settings->snapshot();
+            $providers = $settings->availableProvidersForSnapshot($snapshot);
+            $isControl = (bool) data_get(current_site()?->meta, 'control_site', false);
+
+            if (! $isControl && ! $plugin->getEnabled()) {
+                $descriptionKey = 'common.admin.runtime_child_disabled';
+            } elseif (! filter_var($snapshot['enabled'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+                $descriptionKey = 'common.admin.runtime_disabled';
+            } elseif ($providers === []) {
+                $descriptionKey = 'common.admin.runtime_incomplete';
+            } else {
+                $tone           = 'success';
+                $descriptionKey = 'common.admin.runtime_ready';
+                $labels         = array_map(
+                    static fn (string $provider): string => $provider === 'paypal' ? 'PayPal' : 'Stripe',
+                    $providers,
+                );
+                $parameters = ['providers' => implode(' / ', $labels)];
+            }
+        } catch (\Throwable) {
+            // A diagnostics panel must not expose connection details or
+            // secrets, and it must stay reachable while configuration is
+            // being repaired.
+        }
+
+        return [
+            'tone'        => $tone,
+            'label'       => trans('LongosPlatformPay::common.admin.runtime_status'),
+            'description' => trans("LongosPlatformPay::{$descriptionKey}", $parameters),
+        ];
     }
 
     private function getPluginReadmeHtml(Plugin $plugin): ?string

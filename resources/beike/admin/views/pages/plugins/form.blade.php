@@ -15,6 +15,17 @@
         <x-admin-alert type="success" msg="{{ session('success') }}" class="mt-4"/>
       @endif
 
+      @if ($errors->any())
+        <div class="alert alert-danger mt-4" role="alert" tabindex="-1" data-plugin-validation-summary>
+          <div class="fw-semibold mb-1">{{ __('common.settings_not_saved') }}</div>
+          <ul class="mb-0 ps-3">
+            @foreach (array_unique($errors->all()) as $message)
+              <li>{{ $message }}</li>
+            @endforeach
+          </ul>
+        </div>
+      @endif
+
       <div class="mb-4">
         <h4 class="mb-2">{{ $plugin->getLocaleName() }}</h4>
         <p class="mb-0 text-secondary">{!! $plugin->getLocaleDescription() !!}</p>
@@ -48,18 +59,31 @@
           @csrf
           {{ method_field('put') }}
 
+          @if (!empty($platformPaymentRuntimeStatus))
+            @php
+              $runtimeTone = in_array(($platformPaymentRuntimeStatus['tone'] ?? 'danger'), ['success', 'warning', 'danger'], true)
+                ? $platformPaymentRuntimeStatus['tone']
+                : 'danger';
+            @endphp
+            <aside class="alert alert-{{ $runtimeTone }} mb-4" role="status" aria-live="polite">
+              <h5 class="alert-heading mb-2">{{ $platformPaymentRuntimeStatus['label'] }}</h5>
+              <div>{{ $platformPaymentRuntimeStatus['description'] }}</div>
+            </aside>
+          @endif
+
           @php
             $pluginColumns = collect($plugin->getColumns())
               ->reject(fn ($column) => !empty($column['hidden']))
               ->sortBy(fn ($column) => ($column['name'] ?? '') === 'status' ? 0 : 1)
               ->values();
             $currentSection = null;
+            $statusSection = __('admin/plugin.enable_status');
           @endphp
 
           <div class="plugin-settings-shell">
           @foreach ($pluginColumns as $column)
             @php
-              $section = $column['section'] ?? (($column['name'] ?? '') === 'status' ? '启用状态' : '基础设置');
+              $section = $column['section'] ?? (($column['name'] ?? '') === 'status' ? $statusSection : __('admin/plugin.basic_settings'));
             @endphp
             @if ($section !== $currentSection)
               @if ($currentSection !== null)
@@ -69,8 +93,8 @@
               <section class="plugin-settings-section">
                 <div class="plugin-settings-section-head">
                   <h5>{{ $section }}</h5>
-                  @if ($section === '启用状态')
-                    <p>关闭后插件不会在店铺中运行；其余配置会被保留。</p>
+                  @if ($section === $statusSection)
+                    <p>{{ __('admin/plugin.disable_status_help') }}</p>
                   @endif
                 </div>
                 <div class="plugin-settings-section-body">
@@ -79,7 +103,12 @@
               @endphp
             @endif
             @if (($column['type'] ?? '') === 'guide')
-              <aside class="alert alert-info mb-4" role="note" aria-label="{{ $column['label'] }}">
+              @php
+                $guideTone = in_array(($column['tone'] ?? 'info'), ['info', 'success', 'warning', 'danger'], true)
+                  ? $column['tone'] ?? 'info'
+                  : 'info';
+              @endphp
+              <aside class="alert alert-{{ $guideTone }} mb-4" role="note" aria-label="{{ $column['label'] }}">
                 <h6 class="alert-heading mb-2">{{ $column['label'] }}</h6>
                 <div class="lh-base">{!! $column['description'] ?? '' !!}</div>
               </aside>
@@ -314,7 +343,16 @@
     @media (max-width: 575.98px) { .plugin-settings-section-head { align-items: flex-start; flex-direction: column; } .plugin-settings-section-body { padding-inline: 16px; } }
   </style>
   <script>
+    const pluginFormMessages = {!! \Illuminate\Support\Js::from([
+      'processing' => __('admin/plugin.action_processing'),
+      'sending' => __('admin/plugin.action_sending'),
+      'sent' => __('admin/plugin.action_sent'),
+      'failed' => __('admin/plugin.action_failed'),
+    ]) !!};
+
     $(function () {
+      document.querySelector('[data-plugin-validation-summary]')?.focus();
+
       document.querySelectorAll('[data-plugin-action-url]').forEach(button => {
         button.addEventListener('click', async () => {
           const endpoint = button.dataset.pluginActionUrl;
@@ -323,8 +361,8 @@
           const originalLabel = button.dataset.pluginActionLabel || button.textContent;
           const csrf = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
           button.disabled = true;
-          button.textContent = '处理中…';
-          if (feedback) { feedback.classList.remove('text-danger', 'text-success'); feedback.textContent = '正在发送测试消息…'; }
+          button.textContent = pluginFormMessages.processing;
+          if (feedback) { feedback.classList.remove('text-danger', 'text-success'); feedback.textContent = pluginFormMessages.sending; }
           try {
             const response = await fetch(endpoint, {
               method: 'POST',
@@ -333,10 +371,10 @@
               body: '{}',
             });
             const payload = await response.json().catch(() => null);
-            if (!response.ok || !payload?.success) throw new Error(payload?.message || '测试消息发送失败。');
-            if (feedback) { feedback.classList.add('text-success'); feedback.textContent = payload.message || '测试消息已发送。'; }
+            if (!response.ok || !payload?.success) throw new Error(payload?.message || pluginFormMessages.failed);
+            if (feedback) { feedback.classList.add('text-success'); feedback.textContent = payload.message || pluginFormMessages.sent; }
           } catch (error) {
-            if (feedback) { feedback.classList.add('text-danger'); feedback.textContent = error?.message || '测试消息发送失败，请检查配置后重试。'; }
+            if (feedback) { feedback.classList.add('text-danger'); feedback.textContent = error?.message || pluginFormMessages.failed; }
           } finally {
             button.disabled = false;
             button.textContent = originalLabel;

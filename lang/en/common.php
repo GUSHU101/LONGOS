@@ -11,6 +11,7 @@
  */
 
 return [
+    'settings_not_saved'   => 'Settings were not saved. Please correct the following:',
     'action'               => 'Action',
     'add'                  => 'Add',
     'all'                  => 'All',
