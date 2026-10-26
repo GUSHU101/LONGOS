@@ -105,6 +105,7 @@ class CommerceDashboard {
     this.renderPerformanceChart();
     this.renderSources();
     this.renderFunnel();
+    this.renderPayments();
     this.renderProducts();
     this.renderCountries();
   }
@@ -125,6 +126,7 @@ class CommerceDashboard {
     this.setText('#dashboard-tracking-source', this.translations(meta.traffic_source || 'unavailable'));
     this.setText('#dashboard-country-coverage', `${this.formatDecimal(meta.country_coverage_percent)}%`);
     this.setText('#dashboard-tracked-visitors', this.formatNumber(meta.tracked_visitors));
+    this.setText('#dashboard-filtered-unverified', this.formatNumber(meta.filtered_unverified));
     this.setText('#dashboard-tracking-started', meta.tracking_started_at ? this.formatDate(meta.tracking_started_at) : '—');
   }
 
@@ -294,6 +296,46 @@ class CommerceDashboard {
       row.append(value);
       target.append(row);
     });
+  }
+
+  renderPayments() {
+    const payments = this.snapshot.payments || {};
+    const state = ['ready', 'disabled', 'unavailable'].includes(payments.state) ? payments.state : 'unavailable';
+    const stateTarget = this.root.querySelector('#dashboard-payment-state');
+    if (stateTarget) {
+      stateTarget.textContent = this.translations(`payment_${state}`);
+      stateTarget.className = `commerce-payment-status is-${state}`;
+    }
+
+    const scopeKey = payments.scope === 'all_sites' ? 'payment_scope_all_sites' : 'payment_scope_current_site';
+    this.setText('#dashboard-payment-scope', this.translations(scopeKey));
+
+    const providers = Array.isArray(payments.providers) ? payments.providers : [];
+    const providerNames = providers.map((provider) => this.translations(provider)).filter(Boolean);
+    this.setText(
+      '#dashboard-payment-providers',
+      providerNames.length
+        ? `${this.translations('payment_providers')}: ${providerNames.join(' / ')}`
+        : this.translations('payment_no_providers'),
+    );
+    this.setText('#dashboard-payment-started', this.formatNumber(payments.started));
+    this.setText('#dashboard-payment-completed', this.formatNumber(payments.completed));
+    this.setText('#dashboard-payment-rate', `${this.formatDecimal(payments.completion_rate)}%`);
+    this.setText('#dashboard-payment-processing', this.formatNumber(payments.processing));
+    this.setText('#dashboard-payment-abandoned', this.formatNumber(payments.abandoned));
+    this.setText('#dashboard-payment-attention', this.formatNumber(payments.needs_attention));
+
+    const breakdown = payments.by_provider && typeof payments.by_provider === 'object'
+      ? Object.entries(payments.by_provider)
+        .filter(([provider, count]) => ['paypal', 'stripe'].includes(provider) && Number(count) > 0)
+        .map(([provider, count]) => `${this.translations(provider)} ${this.formatNumber(count)}`)
+      : [];
+    this.setText(
+      '#dashboard-payment-breakdown',
+      breakdown.length
+        ? `${this.translations('payment_provider_breakdown')}: ${breakdown.join(' · ')}`
+        : this.translations('payment_provider_breakdown') + ': —',
+    );
   }
 
   renderProducts() {

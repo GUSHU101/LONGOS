@@ -2,6 +2,7 @@
 
 namespace Beike\Admin\Services;
 
+use App\Services\PlatformPayment\PlatformPaymentOperations;
 use Beike\Models\CartProduct;
 use Beike\Models\Country;
 use Beike\Models\DashboardEvent;
@@ -20,7 +21,7 @@ class DashboardService
 {
     public const VALID_TIME_RANGES = ['today', 'yesterday', 'week', 'month'];
 
-    private const CACHE_SCHEMA_VERSION = 'v6-stable-visitor-identity';
+    private const CACHE_SCHEMA_VERSION = 'v7-payment-operations';
 
     private MockDataGenerator $mockDataGenerator;
 
@@ -97,6 +98,7 @@ class DashboardService
                     'funnel'      => $this->getFunnelData($timeRange),
                     'products'    => $this->getProductRanking('hot', $timeRange),
                     'countries'   => $this->getVisitorCountryRanking($timeRange),
+                    'payments'    => app(PlatformPaymentOperations::class)->snapshot($this->getDateRange($timeRange)),
                     'meta'        => $this->getAnalyticsMeta($timeRange),
                 ];
             } finally {
@@ -2438,6 +2440,20 @@ class DashboardService
             : 0;
         $hasProductViews = $this->productViewsInRange($dateRange) > 0;
         $knownCountries  = 0;
+        $filteredEvents  = 0;
+
+        if ($this->storefrontVisitConfirmationAvailable()) {
+            $filteredEvents += (int) StorefrontVisit::query()
+                ->whereBetween('bucket_at', $dateRange)
+                ->whereNull('human_confirmed_at')
+                ->sum('page_views');
+        }
+        if ($this->productViewsAvailable() && ProductView::supportsHumanConfirmation()) {
+            $filteredEvents += ProductView::query()
+                ->whereBetween('created_at', $dateRange)
+                ->whereNull('human_confirmed_at')
+                ->count();
+        }
 
         if ($trackedVisitors > 0) {
             $countryRows    = $this->unifiedCountryRows($dateRange);
@@ -2488,6 +2504,7 @@ class DashboardService
                 default                                               => 'unavailable',
             },
             'tracked_visitors'         => $trackedVisitors,
+            'filtered_unverified'      => $filteredEvents,
             'country_coverage_percent' => $trackedVisitors > 0 ? round(($knownCountries / $trackedVisitors) * 100, 1) : 0.0,
         ];
     }

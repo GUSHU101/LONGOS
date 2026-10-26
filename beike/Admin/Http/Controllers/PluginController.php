@@ -13,6 +13,7 @@
 namespace Beike\Admin\Http\Controllers;
 
 use App\Services\PaymentPluginReadiness;
+use App\Services\PlatformPayment\PlatformPaymentHealthService;
 use App\Services\PlatformPayment\PlatformPaymentSettings;
 use Beike\Admin\Http\Resources\PluginResource;
 use Beike\Admin\Services\MarketingService;
@@ -370,6 +371,24 @@ class PluginController extends Controller
             'label'       => trans('LongosPlatformPay::common.admin.runtime_status'),
             'description' => trans("LongosPlatformPay::{$descriptionKey}", $parameters),
         ];
+    }
+
+    public function platformPaymentHealth(PlatformPaymentHealthService $health): JsonResponse
+    {
+        abort_unless((bool) data_get(current_site()?->meta, 'control_site', false), 404);
+
+        $result   = $health->check();
+        $messages = array_values(array_filter(array_map(
+            static fn (array $provider): string => trim((string) ($provider['message'] ?? '')),
+            $result['providers'],
+        )));
+        $message = $messages === []
+            ? trans('LongosPlatformPay::common.admin.health_unavailable')
+            : implode(' ', $messages);
+
+        return $result['healthy']
+            ? json_success($message, $result)
+            : json_fail($message, $result);
     }
 
     private function getPluginReadmeHtml(Plugin $plugin): ?string

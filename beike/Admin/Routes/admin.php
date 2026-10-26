@@ -82,6 +82,9 @@ Route::prefix($adminName)
                 Route::get('plugins/language', [Controllers\HomeController::class, 'index'])->name('plugins.language');
 
                 Route::middleware('can:plugins_index')->get('plugins/diagnostics', [Controllers\PluginController::class, 'diagnostics'])->name('plugins.diagnostics');
+                Route::middleware(['can:plugins_update', 'throttle:10,1'])
+                    ->post('plugins/longos-platform-pay/health', [Controllers\PluginController::class, 'platformPaymentHealth'])
+                    ->name('plugins.platform_payment_health');
                 Route::get('plugin-customization', [Controllers\PluginCustomizationController::class, 'index'])->name('plugin_customization.index');
 
                 // 个人中心

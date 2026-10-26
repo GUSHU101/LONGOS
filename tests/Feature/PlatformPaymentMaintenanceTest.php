@@ -6,6 +6,7 @@ use App\Saas\Models\Domain;
 use App\Saas\Models\PlatformPaymentSession;
 use App\Saas\Models\Site;
 use App\Saas\TenantManager;
+use App\Services\PlatformPayment\PlatformPaymentOperations;
 use App\Services\PlatformPayment\PlatformPaymentSessionService;
 use App\Services\PlatformPayment\PlatformPaymentSettings;
 use Beike\Repositories\SettingRepo;
@@ -122,6 +123,90 @@ class PlatformPaymentMaintenanceTest extends TestCase
         ]);
         self::assertTrue($oldStripe->isFinanciallyRecoverable());
         self::assertTrue(PlatformPaymentSession::query()->financiallyUnsettled()->whereKey($oldStripe->id)->exists());
+    }
+
+    public function test_control_dashboard_receives_an_aggregate_payment_operations_snapshot(): void
+    {
+        $control = Site::query()->create([
+            'uuid'          => '12121212-1212-4212-8212-121212121212',
+            'code'          => 'payment-control-dashboard',
+            'name'          => 'Payment Control Dashboard',
+            'database_name' => 'payment_control_dashboard',
+            'status'        => Site::STATUS_ACTIVE,
+            'locale'        => 'en',
+            'timezone'      => 'UTC',
+            'meta'          => ['control_site' => true],
+        ]);
+        $child = Site::query()->create([
+            'uuid'          => '13131313-1313-4313-8313-131313131313',
+            'code'          => 'payment-child-dashboard',
+            'name'          => 'Payment Child Dashboard',
+            'database_name' => 'payment_child_dashboard',
+            'status'        => Site::STATUS_ACTIVE,
+            'locale'        => 'en',
+            'timezone'      => 'UTC',
+            'meta'          => [],
+        ]);
+        $otherChild = Site::query()->create([
+            'uuid'          => '16161616-1616-4616-8616-161616161616',
+            'code'          => 'payment-other-child-dashboard',
+            'name'          => 'Other Payment Child Dashboard',
+            'database_name' => 'payment_other_child_dashboard',
+            'status'        => Site::STATUS_ACTIVE,
+            'locale'        => 'en',
+            'timezone'      => 'UTC',
+            'meta'          => [],
+        ]);
+
+        $this->session($child, [
+            'uuid'                    => '14141414-1414-4414-8414-141414141414',
+            'token_hash'              => str_repeat('1', 64),
+            'active_key'              => null,
+            'provider'                => 'paypal',
+            'provider_order_id'       => 'PAYPALORDER141414',
+            'provider_transaction_id' => 'CAPTURE141414',
+            'status'                  => PlatformPaymentSession::STATUS_COMPLETED,
+            'completed_at'            => now(),
+        ]);
+        $this->session($child, [
+            'uuid'              => '15151515-1515-4515-8515-151515151515',
+            'token_hash'        => str_repeat('2', 64),
+            'active_key'        => str_repeat('3', 64),
+            'provider'          => 'stripe',
+            'provider_order_id' => 'pi_processing_15151515',
+            'status'            => PlatformPaymentSession::STATUS_PROCESSING,
+        ]);
+        $this->session($otherChild, [
+            'uuid'       => '17171717-1717-4717-8717-171717171717',
+            'token_hash' => str_repeat('4', 64),
+            'active_key' => str_repeat('5', 64),
+            'status'     => PlatformPaymentSession::STATUS_PENDING,
+        ]);
+
+        $containerKey = (string) config('multitenancy.current_tenant_container_key', 'currentTenant');
+        app()->instance($containerKey, $control);
+        $settings = $this->createMock(PlatformPaymentSettings::class);
+        $settings->method('snapshot')->willReturn(['enabled' => true]);
+        $settings->method('availableProvidersForSnapshot')->willReturn(['paypal', 'stripe']);
+
+        $snapshot = (new PlatformPaymentOperations($settings))->snapshot([now()->subHour(), now()->addHour()]);
+
+        self::assertTrue($snapshot['available']);
+        self::assertSame('all_sites', $snapshot['scope']);
+        self::assertSame('ready', $snapshot['state']);
+        self::assertSame(3, $snapshot['started']);
+        self::assertSame(1, $snapshot['completed']);
+        self::assertSame(1, $snapshot['processing']);
+        self::assertSame(33.3, $snapshot['completion_rate']);
+        self::assertSame(['paypal' => 1], $snapshot['by_provider']);
+
+        app()->instance($containerKey, $child);
+        $childSnapshot = (new PlatformPaymentOperations($settings))->snapshot([now()->subHour(), now()->addHour()]);
+
+        self::assertSame('current_site', $childSnapshot['scope']);
+        self::assertSame(2, $childSnapshot['started']);
+        self::assertSame(1, $childSnapshot['completed']);
+        self::assertSame(50.0, $childSnapshot['completion_rate']);
     }
 
     public function test_only_an_unbound_provider_claim_can_be_released(): void

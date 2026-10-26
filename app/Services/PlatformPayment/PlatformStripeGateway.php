@@ -153,6 +153,22 @@ class PlatformStripeGateway
         return (string) $this->settings['webhook_secret'];
     }
 
+    /**
+     * Authenticate the configured secret key without creating a charge. In
+     * live mode, an account that Stripe has disabled for charges must not be
+     * presented to child stores as operational.
+     */
+    public function healthCheck(): void
+    {
+        $account = $this->client->accounts->retrieve()->toArray();
+        if (preg_match('/^acct_[A-Za-z0-9]{8,}$/', (string) ($account['id'] ?? '')) !== 1) {
+            throw new RuntimeException('Stripe 账户验证失败。');
+        }
+        if (! $this->settings['test_mode'] && ! (bool) ($account['charges_enabled'] ?? false)) {
+            throw new RuntimeException('Stripe 账户当前不能接收正式付款。');
+        }
+    }
+
     private function minorAmount(PlatformPaymentSession $session): int
     {
         $decimals = CurrencyCatalog::decimalPlaces($session->currency);

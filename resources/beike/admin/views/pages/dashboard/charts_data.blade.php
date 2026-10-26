@@ -114,6 +114,7 @@
         <div><dt>{{ __('admin/dashboard.tracking_source') }}</dt><dd id="dashboard-tracking-source">—</dd></div>
         <div><dt>{{ __('admin/dashboard.country_resolution') }}</dt><dd id="dashboard-country-coverage">—</dd></div>
         <div><dt>{{ __('admin/dashboard.tracked_visitors') }}</dt><dd id="dashboard-tracked-visitors">—</dd></div>
+        <div><dt>{{ __('admin/dashboard.filtered_unverified') }}</dt><dd id="dashboard-filtered-unverified">—</dd></div>
         <div><dt>{{ __('admin/dashboard.tracking_started') }}</dt><dd id="dashboard-tracking-started">—</dd></div>
       </dl>
       <p class="commerce-panel__note">{{ __('admin/dashboard.data_quality_note') }}</p>
@@ -133,6 +134,23 @@
         <div><h2>{{ __('admin/dashboard.conversion_funnel') }}</h2><p>{{ __('admin/dashboard.unique_identity_funnel') }}</p></div>
       </header>
       <div class="commerce-funnel" id="dashboard-funnel-list" aria-live="polite"></div>
+    </article>
+
+    <article class="commerce-panel commerce-panel--payments">
+      <header class="commerce-panel__header">
+        <div><h2>{{ __('admin/dashboard.platform_payment_operations') }}</h2><p id="dashboard-payment-scope">—</p></div>
+        <span class="commerce-payment-status" id="dashboard-payment-state">—</span>
+      </header>
+      <p class="commerce-payment-providers" id="dashboard-payment-providers">—</p>
+      <dl class="commerce-payment-metrics">
+        <div><dt>{{ __('admin/dashboard.payment_sessions_started') }}</dt><dd id="dashboard-payment-started">—</dd></div>
+        <div><dt>{{ __('admin/dashboard.payment_sessions_completed') }}</dt><dd id="dashboard-payment-completed">—</dd></div>
+        <div><dt>{{ __('admin/dashboard.payment_completion_rate') }}</dt><dd id="dashboard-payment-rate">—</dd></div>
+        <div><dt>{{ __('admin/dashboard.payment_processing') }}</dt><dd id="dashboard-payment-processing">—</dd></div>
+        <div><dt>{{ __('admin/dashboard.payment_abandoned') }}</dt><dd id="dashboard-payment-abandoned">—</dd></div>
+        <div><dt>{{ __('admin/dashboard.payment_needs_attention') }}</dt><dd id="dashboard-payment-attention">—</dd></div>
+      </dl>
+      <p class="commerce-panel__note" id="dashboard-payment-breakdown">—</p>
     </article>
   </div>
 
@@ -201,6 +219,16 @@
         'product_views' => __('admin/dashboard.source_legacy_views'),
         'combined' => __('admin/dashboard.source_combined_ledger'),
         'unavailable' => __('admin/dashboard.source_unavailable'),
+        'payment_ready' => __('admin/dashboard.payment_ready'),
+        'payment_disabled' => __('admin/dashboard.payment_disabled'),
+        'payment_unavailable' => __('admin/dashboard.payment_unavailable'),
+        'payment_scope_all_sites' => __('admin/dashboard.payment_scope_all_sites'),
+        'payment_scope_current_site' => __('admin/dashboard.payment_scope_current_site'),
+        'payment_providers' => __('admin/dashboard.payment_providers'),
+        'payment_no_providers' => __('admin/dashboard.payment_no_providers'),
+        'payment_provider_breakdown' => __('admin/dashboard.payment_provider_breakdown'),
+        'paypal' => 'PayPal',
+        'stripe' => 'Stripe',
         'export_failed' => __('admin/dashboard.export_report_failed_plain'),
         'today' => __('admin/dashboard.today'),
         'yesterday' => __('admin/dashboard.yesterday'),

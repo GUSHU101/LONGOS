@@ -4,9 +4,11 @@ namespace Tests\Unit;
 
 use App\Saas\Models\Site;
 use App\Services\PlatformPayment\PlatformPaymentCurrency;
+use App\Services\PlatformPayment\PlatformPaymentHealthService;
 use App\Services\PlatformPayment\PlatformPaymentPayload;
 use App\Services\PlatformPayment\PlatformPaymentSettings;
 use App\Services\PlatformPayment\PlatformPaypalGateway;
+use App\Services\PlatformPayment\PlatformStripeGateway;
 use Beike\Admin\Http\Controllers\PluginController;
 use Beike\Plugin\Plugin;
 use Illuminate\Config\Repository;
@@ -24,6 +26,40 @@ use Srmklive\PayPal\Services\PayPal;
 
 class PlatformPaymentIndependenceTest extends TestCase
 {
+    public function test_provider_health_check_verifies_every_shared_account_without_exposing_credentials(): void
+    {
+        $previous  = Container::getInstance();
+        $container = new Container;
+        Container::setInstance($container);
+        $container->instance('translator', new Translator(new ArrayLoader, 'en'));
+
+        $settings = $this->createMock(PlatformPaymentSettings::class);
+        $settings->method('snapshot')->willReturn([
+            'share_paypal' => true,
+            'share_stripe' => true,
+        ]);
+        $settings->method('configuredProviders')->willReturn(['paypal', 'stripe']);
+
+        $paypal = $this->createMock(PlatformPaypalGateway::class);
+        $paypal->expects(self::once())->method('healthCheck');
+        $stripe = $this->createMock(PlatformStripeGateway::class);
+        $stripe->expects(self::once())->method('healthCheck');
+        $container->instance(PlatformPaypalGateway::class, $paypal);
+        $container->instance(PlatformStripeGateway::class, $stripe);
+
+        try {
+            $result = (new PlatformPaymentHealthService($settings))->check();
+
+            self::assertTrue($result['healthy']);
+            self::assertSame('ready', $result['state']);
+            self::assertSame(['paypal', 'stripe'], array_keys($result['providers']));
+            self::assertSame(['ready', 'ready'], array_column($result['providers'], 'state'));
+            self::assertStringNotContainsString('secret', json_encode($result, JSON_THROW_ON_ERROR));
+        } finally {
+            Container::setInstance($previous);
+        }
+    }
+
     public function test_platform_settings_surface_saved_runtime_readiness_and_validation_failures(): void
     {
         $root       = dirname(__DIR__, 2);
@@ -38,12 +74,15 @@ class PlatformPaymentIndependenceTest extends TestCase
         self::assertStringContainsString('platformPaymentRuntimeStatus', $form);
         self::assertStringContainsString('$errors->any()', $form);
         self::assertStringContainsString('data-plugin-validation-summary', $form);
+        self::assertStringContainsString("payload?.status !== 'success'", $form);
         self::assertStringContainsString("['info', 'success', 'warning', 'danger']", $form);
         self::assertStringContainsString("__('admin/plugin.enable_status')", $form);
         self::assertStringNotContainsString("? '启用状态' : '基础设置'", $form);
         self::assertArrayHasKey('runtime_ready', $english['admin']);
         self::assertArrayHasKey('runtime_child_disabled', $english['admin']);
         self::assertArrayHasKey('runtime_unavailable', $chinese['admin']);
+        self::assertArrayHasKey('health_check_action', $english['admin']);
+        self::assertArrayHasKey('health_stripe_failed', $chinese['admin']);
     }
 
     public function test_platform_runtime_status_distinguishes_ready_and_locally_disabled_child_sites(): void

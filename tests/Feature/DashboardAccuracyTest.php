@@ -239,6 +239,7 @@ class DashboardAccuracyTest extends TestCase
         self::assertSame(2, $service->getBasicStats('today')['visitors']['current']);
         self::assertSame(2, $service->getFunnelData('today')[1]['value']);
         self::assertNotContains('DE', array_column($service->getVisitorCountryRanking('today'), 'code'));
+        self::assertSame(2, $service->getOverview('today')['meta']['filtered_unverified']);
     }
 
     public function test_empty_confirmed_visit_ledger_falls_back_to_product_view_metrics_for_the_period(): void

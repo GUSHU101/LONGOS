@@ -192,7 +192,7 @@ class Plugin implements \ArrayAccess, Arrayable
      */
     private function transLabel($item): mixed
     {
-        foreach (['label', 'description', 'section'] as $field) {
+        foreach (['label', 'description', 'section', 'action_label'] as $field) {
             $languageKey = $item[$field . '_key'] ?? '';
             $value       = $item[$field]          ?? '';
             if (! empty($value) || ! is_string($languageKey) || $languageKey === '') {

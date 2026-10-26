@@ -17,6 +17,9 @@ class DashboardPresentationTest extends TestCase
         self::assertStringNotContainsString('window.dashboardConfig = @json([', $view);
         self::assertStringContainsString('aria-busy="true"', $view);
         self::assertStringContainsString('data-dashboard-retry', $view);
+        self::assertStringContainsString('dashboard-payment-state', $view);
+        self::assertStringContainsString('dashboard-payment-abandoned', $view);
+        self::assertStringContainsString('dashboard-filtered-unverified', $view);
         self::assertStringNotContainsString('onclick=', $view);
     }
 
@@ -28,6 +31,7 @@ class DashboardPresentationTest extends TestCase
         self::assertStringContainsString('requestId !== this.requestId', $script);
         self::assertStringContainsString('textContent = value', $script);
         self::assertStringContainsString('document.visibilityState', $script);
+        self::assertStringContainsString('renderPayments()', $script);
         self::assertStringNotContainsString('innerHTML =', $script);
     }
 

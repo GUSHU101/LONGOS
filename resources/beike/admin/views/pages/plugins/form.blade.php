@@ -371,7 +371,9 @@
               body: '{}',
             });
             const payload = await response.json().catch(() => null);
-            if (!response.ok || !payload?.success) throw new Error(payload?.message || pluginFormMessages.failed);
+            if (!response.ok || (payload?.success !== true && payload?.status !== 'success')) {
+              throw new Error(payload?.message || pluginFormMessages.failed);
+            }
             if (feedback) { feedback.classList.add('text-success'); feedback.textContent = payload.message || pluginFormMessages.sent; }
           } catch (error) {
             if (feedback) { feedback.classList.add('text-danger'); feedback.textContent = error?.message || pluginFormMessages.failed; }

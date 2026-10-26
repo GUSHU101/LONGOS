@@ -219,6 +219,19 @@ class PlatformPaypalGateway
         return (string) $this->settings['merchant_id'];
     }
 
+    /**
+     * Construction authenticates with PayPal (or restores a still-valid,
+     * encrypted OAuth token). Requiring that token here gives the admin
+     * health check a stable contract without creating a customer order.
+     */
+    public function healthCheck(): void
+    {
+        $token = $this->client->getAccessToken();
+        if (! is_array($token) || empty($token['access_token']) || empty($token['token_type'])) {
+            throw new RuntimeException('PayPal 身份验证失败。');
+        }
+    }
+
     private function authenticate(): void
     {
         $mode      = (string) $this->settings['mode'];
