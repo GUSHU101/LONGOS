@@ -20,7 +20,7 @@ class DashboardService
 {
     public const VALID_TIME_RANGES = ['today', 'yesterday', 'week', 'month'];
 
-    private const CACHE_SCHEMA_VERSION = 'v4-unified-visitor-ledger';
+    private const CACHE_SCHEMA_VERSION = 'v5-confirmed-product-views';
 
     private MockDataGenerator $mockDataGenerator;
 
@@ -1287,7 +1287,7 @@ class DashboardService
         }
 
         $visitorKey = $this->productViewVisitorKeyExpression();
-        $visitors   = ProductView::query()
+        $visitors   = ProductView::humanConfirmed()
             ->whereBetween('created_at', $dateRange)
             ->selectRaw("{$visitorKey} AS visitor_key")
             ->groupByRaw($visitorKey);
@@ -1383,11 +1383,9 @@ class DashboardService
     private function storefrontVisitsInRange(array $dateRange): bool
     {
         // Schema availability only says that the new ledger can be queried;
-        // it does not mean this period contains usable traffic. During a
-        // rolling upgrade (or before a visitor confirms the staged browser
-        // request) product views may already exist while the confirmed visit
-        // ledger is empty. In that case the legacy data is the only honest
-        // source and must remain the period-level fallback.
+        // it does not mean this period contains verified traffic. Confirmed
+        // product views remain the rolling-upgrade fallback when the general
+        // visit ledger has not started collecting the selected period yet.
         return $this->memoizeRange('visit_ledger_available', $dateRange, fn (): bool => $this->storefrontVisitsAvailable()
             && $this->storefrontVisitQuery()->whereBetween('bucket_at', $dateRange)->exists());
     }
@@ -1427,7 +1425,7 @@ class DashboardService
 
         if ($this->productViewsAvailable()) {
             $identity  = $this->productViewVisitorKeyExpression();
-            $queries[] = ProductView::query()
+            $queries[] = ProductView::humanConfirmed()
                 ->whereBetween('created_at', $dateRange)
                 ->selectRaw("{$identity} AS visitor_identity")
                 ->groupByRaw($identity);
@@ -1461,7 +1459,7 @@ class DashboardService
 
     private function productViewsWithoutConfirmedVisit(array $dateRange): \Illuminate\Database\Eloquent\Builder
     {
-        $query  = ProductView::query()->whereBetween('created_at', $dateRange);
+        $query  = ProductView::humanConfirmed()->whereBetween('created_at', $dateRange);
         $visits = $this->confirmedStorefrontVisitorIdentities($dateRange);
 
         if ($visits !== null) {
@@ -1487,7 +1485,7 @@ class DashboardService
             return 0;
         }
 
-        return ProductView::query()->whereBetween('created_at', $dateRange)->count();
+        return ProductView::humanConfirmed()->whereBetween('created_at', $dateRange)->count();
     }
 
     private function noSourceData(): array
@@ -1580,7 +1578,7 @@ class DashboardService
 
         $firstViews = ($excludeConfirmedVisits
             ? $this->productViewsWithoutConfirmedVisit($dateRange)
-            : ProductView::query()->whereBetween('created_at', $dateRange))
+            : ProductView::humanConfirmed()->whereBetween('created_at', $dateRange))
             ->selectRaw('MIN(id) AS id')
             ->groupByRaw($this->productViewVisitorKeyExpression());
         $referer = $this->qualifiedColumn('source_view', 'referer');
@@ -1608,7 +1606,7 @@ class DashboardService
         $visitorKey = $this->productViewVisitorKeyExpression();
         $visitors   = ($excludeConfirmedVisits
             ? $this->productViewsWithoutConfirmedVisit($dateRange)
-            : ProductView::query()->whereBetween('created_at', $dateRange))
+            : ProductView::humanConfirmed()->whereBetween('created_at', $dateRange))
             ->selectRaw("{$visitorKey} AS visitor_key")
             ->groupByRaw($visitorKey);
 
@@ -1692,7 +1690,7 @@ class DashboardService
 
         $latestViews = ($excludeConfirmedVisits
             ? $this->productViewsWithoutConfirmedVisit($dateRange)
-            : ProductView::query()->whereBetween('created_at', $dateRange))
+            : ProductView::humanConfirmed()->whereBetween('created_at', $dateRange))
             ->selectRaw('MAX(id) AS id')
             ->groupByRaw($this->productViewVisitorKeyExpression());
         $countryCode = $this->qualifiedColumn('country_view', 'country_code');
@@ -2054,7 +2052,7 @@ class DashboardService
         if ($this->productViewsAvailable()) {
             $createdAt = $this->qualifiedColumn('product_views', 'created_at');
             $bucket    = $this->timeBucketExpression($createdAt, $granularity);
-            $rows      = ProductView::query()
+            $rows      = ProductView::humanConfirmed()
                 ->whereBetween('created_at', $dateRange)
                 ->selectRaw("{$bucket} AS bucket, COUNT(*) AS pv_count")
                 ->groupBy(DB::raw($bucket))
@@ -2098,7 +2096,7 @@ class DashboardService
             $createdAt = $this->qualifiedColumn('product_views', 'created_at');
             $bucket    = $this->timeBucketExpression($createdAt, $granularity);
             $identity  = $this->productViewVisitorKeyExpression();
-            $queries[] = ProductView::query()
+            $queries[] = ProductView::humanConfirmed()
                 ->whereBetween('created_at', $dateRange)
                 ->selectRaw("{$bucket} AS bucket, {$identity} AS visitor_identity")
                 ->groupByRaw("{$bucket}, {$identity}");
@@ -2436,6 +2434,7 @@ class DashboardService
         $visitVisitors   = $usesVisitLedger
             ? DB::query()->fromSub($this->confirmedStorefrontVisitorIdentities($dateRange), 'dashboard_visit_visitors')->count()
             : 0;
+        $hasProductViews = $this->productViewsInRange($dateRange) > 0;
         $knownCountries  = 0;
 
         if ($trackedVisitors > 0) {
@@ -2452,8 +2451,8 @@ class DashboardService
             $startedAt  = $this->storefrontVisitQuery()->min('first_seen_at');
         }
         if ($this->productViewsAvailable()) {
-            $lastProductView  = ProductView::query()->max('created_at');
-            $firstProductView = ProductView::query()->min('created_at');
+            $lastProductView  = ProductView::humanConfirmed()->max('created_at');
+            $firstProductView = ProductView::humanConfirmed()->min('created_at');
             if ($lastProductView && (! $lastSeenAt || Carbon::parse($lastProductView)->greaterThan(Carbon::parse($lastSeenAt)))) {
                 $lastSeenAt = $lastProductView;
             }
@@ -2483,7 +2482,7 @@ class DashboardService
             'traffic_source'           => match (true) {
                 $usesVisitLedger && $trackedVisitors > $visitVisitors => 'combined',
                 $usesVisitLedger                                      => 'storefront_visits',
-                $this->productViewsAvailable()                        => 'product_views',
+                $hasProductViews                                      => 'product_views',
                 default                                               => 'unavailable',
             },
             'tracked_visitors'         => $trackedVisitors,

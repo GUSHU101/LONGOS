@@ -9,6 +9,7 @@ use Beike\Services\TrafficSourceService;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Route;
 use Illuminate\Session\ArraySessionHandler;
 use Illuminate\Session\Store;
 use Illuminate\Support\Facades\Config;
@@ -58,6 +59,21 @@ class StorefrontAnalyticsTrackingTest extends TestCase
             $table->string('confirmation_method', 16)->nullable();
             $table->timestamps();
             $table->unique(['bucket_at', 'visitor_key']);
+        });
+
+        Schema::create('product_views', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('product_id')->nullable();
+            $table->unsignedBigInteger('customer_id')->nullable();
+            $table->string('ip')->nullable();
+            $table->string('session_id')->nullable();
+            $table->char('visitor_key', 64)->nullable();
+            $table->string('referer', 1000)->nullable();
+            $table->string('user_agent')->nullable();
+            $table->string('country_code', 2)->nullable();
+            $table->timestamp('human_confirmed_at')->nullable();
+            $table->string('confirmation_method', 16)->nullable();
+            $table->timestamps();
         });
     }
 
@@ -122,7 +138,7 @@ class StorefrontAnalyticsTrackingTest extends TestCase
         self::assertSame(0, DB::table('storefront_visits')->count());
         self::assertTrue($this->confirm($request, 'US', 'pointer'));
 
-        $second = $this->request('https://shop.example.test/products/1?utm_source=tiktok', 'session-one');
+        $second = $this->productRequest('https://shop.example.test/products/1?utm_source=tiktok', 'session-one', 1);
         $second->setLaravelSession($request->session());
         $second->attributes->set(CloudflareIpRangeService::REQUEST_ATTRIBUTE, true);
         $second->headers->set('CF-IPCountry', 'CA');
@@ -137,6 +153,12 @@ class StorefrontAnalyticsTrackingTest extends TestCase
         self::assertSame('/', $visit->landing_path);
         self::assertSame('scroll', $visit->confirmation_method);
         self::assertNotNull($visit->human_confirmed_at);
+
+        $productView = DB::table('product_views')->sole();
+        self::assertSame(1, (int) $productView->product_id);
+        self::assertSame($visit->visitor_key, $productView->visitor_key);
+        self::assertSame('scroll', $productView->confirmation_method);
+        self::assertNotNull($productView->human_confirmed_at);
     }
 
     public function test_bots_and_non_html_responses_are_not_counted(): void
@@ -160,7 +182,7 @@ class StorefrontAnalyticsTrackingTest extends TestCase
         self::assertFalse($scanner->session()->has(StorefrontVisitService::PENDING_SESSION_KEY));
     }
 
-    public function test_unconfirmed_page_load_and_replayed_confirmation_are_not_counted(): void
+    public function test_passive_engagement_unconfirmed_load_and_replayed_confirmation_are_not_counted(): void
     {
         $middleware = new TrackStorefrontVisit;
         $request    = $this->request('https://shop.example.test/', 'quiet-session');
@@ -169,9 +191,11 @@ class StorefrontAnalyticsTrackingTest extends TestCase
         $middleware->handle($request, static fn () => response('<html>Store</html>', 200, ['Content-Type' => 'text/html']));
 
         self::assertSame(0, DB::table('storefront_visits')->count());
-        self::assertTrue($this->confirm($request, 'DE', 'engaged'));
         self::assertFalse($this->confirm($request, 'DE', 'engaged'));
+        self::assertTrue($this->confirm($request, 'DE', 'pointer'));
+        self::assertFalse($this->confirm($request, 'DE', 'pointer'));
         self::assertSame(1, DB::table('storefront_visits')->count());
+        self::assertSame(0, DB::table('product_views')->count());
     }
 
     private function confirm(Request $pageRequest, string $country, string $activity): bool
@@ -199,6 +223,18 @@ class StorefrontAnalyticsTrackingTest extends TestCase
         $session->setId($sessionId);
         $session->start();
         $request->setLaravelSession($session);
+
+        return $request;
+    }
+
+    private function productRequest(string $uri, string $sessionId, int $productId): Request
+    {
+        $request = $this->request($uri, $sessionId);
+        $route   = new Route('GET', 'products/{product}', static fn () => null);
+        $route->name('shop.products.show');
+        $route->bind($request);
+        $route->setParameter('product', $productId);
+        $request->setRouteResolver(static fn (): Route => $route);
 
         return $request;
     }

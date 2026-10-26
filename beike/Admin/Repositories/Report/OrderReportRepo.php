@@ -216,7 +216,12 @@ class OrderReportRepo
         $grammar       = DB::connection()->getQueryGrammar();
         $productViewId = $grammar->wrapTable('product_views') . '.' . $grammar->wrap('id');
         $builder       = Product::query()->with(['description'])
-            ->leftJoin('product_views', 'product_views.product_id', 'products.id')
+            ->leftJoin('product_views', function ($join): void {
+                $join->on('product_views.product_id', '=', 'products.id');
+                if (ProductView::supportsHumanConfirmation()) {
+                    $join->whereNotNull('product_views.human_confirmed_at');
+                }
+            })
             ->groupBy('products.id')
             ->select(['products.id'])
             ->selectRaw("COUNT({$productViewId}) AS view_count")
@@ -232,7 +237,7 @@ class OrderReportRepo
      */
     public static function getViewsLatestMonth($productId = 0): array
     {
-        $builder = ProductView::query()->where('created_at', '>=', today()->subMonth())
+        $builder = ProductView::humanConfirmed()->where('created_at', '>=', today()->subMonth())
             ->where('created_at', '<', today()->addDay())
             ->select(DB::raw('DATE(created_at) as date, count(*) as pv_totals, COUNT(DISTINCT session_id) AS uv_totals'))
             ->groupBy('date');
@@ -267,7 +272,7 @@ class OrderReportRepo
      */
     public static function getViewsLatestWeek($productId = 0): array
     {
-        $builder = ProductView::query()->where('created_at', '>=', today()->subWeek())
+        $builder = ProductView::humanConfirmed()->where('created_at', '>=', today()->subWeek())
             ->where('created_at', '<', today()->addDay())
             ->select(DB::raw('DATE(created_at) as date, count(*) as pv_totals, COUNT(DISTINCT session_id) AS uv_totals'))
             ->groupBy('date');
@@ -308,7 +313,7 @@ class OrderReportRepo
             $sql = DB::raw('CONCAT(EXTRACT(YEAR FROM created_at), \'-\', EXTRACT(MONTH FROM created_at)) AS ym, count(*) as pv_totals, COUNT(DISTINCT session_id) AS uv_totals');
         }
 
-        $builder = ProductView::query()->where('created_at', '>=', today()->subYear())
+        $builder = ProductView::humanConfirmed()->where('created_at', '>=', today()->subYear())
             ->where('created_at', '<', today()->addDay())
             ->select($sql)
             ->groupBy(['ym']);

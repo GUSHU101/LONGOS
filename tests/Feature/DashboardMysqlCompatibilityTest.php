@@ -98,6 +98,8 @@ class DashboardMysqlCompatibilityTest extends TestCase
             $table->char('visitor_key', 64)->nullable();
             $table->string('referer')->nullable();
             $table->string('country_code', 2)->nullable();
+            $table->timestamp('human_confirmed_at')->nullable();
+            $table->string('confirmation_method', 16)->nullable();
             $table->timestamps();
         });
         Schema::create('storefront_visits', function (Blueprint $table): void {
@@ -177,14 +179,16 @@ class DashboardMysqlCompatibilityTest extends TestCase
         ]);
         DB::table('product_views')->insert([
             [
-                'product_id'  => 1, 'customer_id' => null, 'ip' => '192.0.2.1', 'session_id' => 'covered',
-                'visitor_key' => str_repeat('a', 64), 'referer' => 'https://google.com/search', 'country_code' => 'CN',
-                'created_at'  => '2026-10-23 09:02:00', 'updated_at' => '2026-10-23 09:02:00',
+                'product_id'         => 1, 'customer_id' => null, 'ip' => '192.0.2.1', 'session_id' => 'covered',
+                'visitor_key'        => str_repeat('a', 64), 'referer' => 'https://google.com/search', 'country_code' => 'CN',
+                'human_confirmed_at' => '2026-10-23 09:02:00', 'confirmation_method' => 'pointer',
+                'created_at'         => '2026-10-23 09:02:00', 'updated_at' => '2026-10-23 09:02:00',
             ],
             [
-                'product_id'  => 2, 'customer_id' => null, 'ip' => '192.0.2.2', 'session_id' => 'product-only',
-                'visitor_key' => str_repeat('b', 64), 'referer' => 'https://bing.com/search', 'country_code' => 'US',
-                'created_at'  => '2026-10-23 10:02:00', 'updated_at' => '2026-10-23 10:02:00',
+                'product_id'         => 2, 'customer_id' => null, 'ip' => '192.0.2.2', 'session_id' => 'product-only',
+                'visitor_key'        => str_repeat('b', 64), 'referer' => 'https://bing.com/search', 'country_code' => 'US',
+                'human_confirmed_at' => '2026-10-23 10:02:00', 'confirmation_method' => 'scroll',
+                'created_at'         => '2026-10-23 10:02:00', 'updated_at' => '2026-10-23 10:02:00',
             ],
         ]);
     }

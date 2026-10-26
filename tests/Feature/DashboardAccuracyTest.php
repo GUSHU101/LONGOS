@@ -179,10 +179,24 @@ class DashboardAccuracyTest extends TestCase
             'created_at'          => '2026-10-08 11:20:00',
             'updated_at'          => '2026-10-08 11:20:00',
         ]);
+        DB::table('product_views')->insert([
+            'product_id'          => 3,
+            'customer_id'         => null,
+            'session_id'          => 'unconfirmed-product-view',
+            'visitor_key'         => str_repeat('z', 64),
+            'ip'                  => '10.0.0.99',
+            'referer'             => null,
+            'country_code'        => 'DE',
+            'human_confirmed_at'  => null,
+            'confirmation_method' => null,
+            'created_at'          => '2026-10-08 11:20:00',
+            'updated_at'          => '2026-10-08 11:20:00',
+        ]);
 
         $service = new DashboardService;
 
         self::assertSame(2, $service->getBasicStats('today')['visitors']['current']);
+        self::assertSame(2, $service->getFunnelData('today')[1]['value']);
         self::assertNotContains('DE', array_column($service->getVisitorCountryRanking('today'), 'code'));
     }
 
@@ -212,15 +226,17 @@ class DashboardAccuracyTest extends TestCase
     public function test_partial_visit_ledger_merges_product_only_visitors_across_every_traffic_panel(): void
     {
         DB::table('product_views')->insert([
-            'product_id'   => 3,
-            'customer_id'  => 0,
-            'session_id'   => 'product-only-guest',
-            'visitor_key'  => str_repeat('c', 64),
-            'ip'           => '10.0.0.30',
-            'referer'      => 'https://www.bing.com/search?q=longos',
-            'country_code' => 'GB',
-            'created_at'   => '2026-10-08 11:30:00',
-            'updated_at'   => '2026-10-08 11:30:00',
+            'product_id'          => 3,
+            'customer_id'         => 0,
+            'session_id'          => 'product-only-guest',
+            'visitor_key'         => str_repeat('c', 64),
+            'ip'                  => '10.0.0.30',
+            'referer'             => 'https://www.bing.com/search?q=longos',
+            'country_code'        => 'GB',
+            'human_confirmed_at'  => '2026-10-08 11:30:00',
+            'confirmation_method' => 'pointer',
+            'created_at'          => '2026-10-08 11:30:00',
+            'updated_at'          => '2026-10-08 11:30:00',
         ]);
 
         $overview = (new DashboardService)->getOverview('today');
@@ -502,6 +518,8 @@ class DashboardAccuracyTest extends TestCase
             $table->char('visitor_key', 64)->nullable();
             $table->string('referer')->nullable();
             $table->string('country_code', 2)->nullable();
+            $table->timestamp('human_confirmed_at')->nullable();
+            $table->string('confirmation_method', 16)->nullable();
             $table->timestamps();
         });
         Schema::create('storefront_visits', function (Blueprint $table): void {
@@ -587,14 +605,14 @@ class DashboardAccuracyTest extends TestCase
                 'country_code'       => 'US', 'source_key' => 'google', 'source_detail' => 'google.com',
                 'referer'            => 'https://google.com/search', 'landing_path' => '/products/1', 'page_views' => 1,
                 'first_seen_at'      => '2026-10-08 10:01:00', 'last_seen_at' => '2026-10-08 10:01:00',
-                'human_confirmed_at' => '2026-10-08 10:01:00', 'confirmation_method' => 'engaged',
+                'human_confirmed_at' => '2026-10-08 10:01:00', 'confirmation_method' => 'scroll',
                 'created_at'         => '2026-10-08 10:01:00', 'updated_at' => '2026-10-08 10:01:00',
             ],
         ]);
         DB::table('product_views')->insert([
-            ['product_id' => 1, 'customer_id' => 7, 'session_id' => 'member-a', 'visitor_key' => str_repeat('a', 64), 'ip' => '10.0.0.1', 'referer' => 'https://google.com/search', 'country_code' => 'CN', 'created_at' => '2026-10-08 09:01:00', 'updated_at' => '2026-10-08 09:01:00'],
-            ['product_id' => 1, 'customer_id' => 7, 'session_id' => 'member-b', 'visitor_key' => str_repeat('a', 64), 'ip' => '10.0.0.2', 'referer' => 'https://google.com/search', 'country_code' => 'CN', 'created_at' => '2026-10-08 09:02:00', 'updated_at' => '2026-10-08 09:02:00'],
-            ['product_id' => 2, 'customer_id' => 0, 'session_id' => 'guest-a', 'visitor_key' => str_repeat('b', 64), 'ip' => '10.0.0.3', 'referer' => null, 'country_code' => 'CN', 'created_at' => '2026-10-08 09:03:00', 'updated_at' => '2026-10-08 09:03:00'],
+            ['product_id' => 1, 'customer_id' => 7, 'session_id' => 'member-a', 'visitor_key' => str_repeat('a', 64), 'ip' => '10.0.0.1', 'referer' => 'https://google.com/search', 'country_code' => 'CN', 'human_confirmed_at' => '2026-10-08 09:01:00', 'confirmation_method' => 'pointer', 'created_at' => '2026-10-08 09:01:00', 'updated_at' => '2026-10-08 09:01:00'],
+            ['product_id' => 1, 'customer_id' => 7, 'session_id' => 'member-b', 'visitor_key' => str_repeat('a', 64), 'ip' => '10.0.0.2', 'referer' => 'https://google.com/search', 'country_code' => 'CN', 'human_confirmed_at' => '2026-10-08 09:02:00', 'confirmation_method' => 'keyboard', 'created_at' => '2026-10-08 09:02:00', 'updated_at' => '2026-10-08 09:02:00'],
+            ['product_id' => 2, 'customer_id' => 0, 'session_id' => 'guest-a', 'visitor_key' => str_repeat('b', 64), 'ip' => '10.0.0.3', 'referer' => null, 'country_code' => 'CN', 'human_confirmed_at' => '2026-10-08 09:03:00', 'confirmation_method' => 'scroll', 'created_at' => '2026-10-08 09:03:00', 'updated_at' => '2026-10-08 09:03:00'],
         ]);
         DB::table('dashboard_events')->insert([
             ['event_type' => 'cart_added', 'product_id' => 1, 'customer_id' => 7, 'session_id' => 'member-a', 'quantity' => 2, 'ip' => '10.0.0.1', 'created_at' => '2026-10-08 09:10:00', 'updated_at' => '2026-10-08 09:10:00'],

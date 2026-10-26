@@ -12,7 +12,7 @@ class StorefrontAnalyticsController extends Controller
     public function store(Request $request, StorefrontVisitService $visits): Response
     {
         $validated = $request->validate([
-            'activity' => ['required', 'string', Rule::in(['pointer', 'keyboard', 'touch', 'scroll', 'engaged'])],
+            'activity' => ['required', 'string', Rule::in(['pointer', 'keyboard', 'touch', 'scroll'])],
         ]);
 
         try {

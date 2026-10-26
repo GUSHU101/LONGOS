@@ -2,6 +2,7 @@
 
 namespace Beike\Services;
 
+use Beike\Models\ProductView;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -19,7 +20,7 @@ class StorefrontVisitService
     private const PENDING_TTL_SECONDS = 1800;
 
     /** @var list<string> */
-    private const HUMAN_ACTIVITIES = ['pointer', 'keyboard', 'touch', 'scroll', 'engaged'];
+    private const HUMAN_ACTIVITIES = ['pointer', 'keyboard', 'touch', 'scroll'];
 
     /** @var array<string, bool> */
     private static array $tableAvailability = [];
@@ -56,6 +57,7 @@ class StorefrontVisitService
         $request->session()->put(self::PENDING_SESSION_KEY, [
             'attribution'    => $attribution,
             'landing_path'   => $this->text('/' . ltrim($request->path(), '/'), 1000),
+            'product_id'     => $this->productId($request),
             'staged_at'      => now()->getTimestamp(),
             'user_agent_key' => hash('sha256', (string) $request->userAgent()),
         ]);
@@ -93,6 +95,7 @@ class StorefrontVisitService
             is_array($pending['attribution'] ?? null) ? $pending['attribution'] : [],
             $this->text($pending['landing_path'] ?? null, 1000),
             $activity,
+            $this->positiveInteger($pending['product_id'] ?? null),
         );
 
         return true;
@@ -188,8 +191,13 @@ class StorefrontVisitService
     }
 
     /** @param array<string, mixed> $attribution */
-    private function record(Request $request, array $attribution, ?string $landingPath, string $activity): void
-    {
+    private function record(
+        Request $request,
+        array $attribution,
+        ?string $landingPath,
+        string $activity,
+        ?int $productId,
+    ): void {
         $sessionId = $request->session()->getId();
         if ($sessionId === '') {
             return;
@@ -223,42 +231,111 @@ class StorefrontVisitService
             ->where('visitor_key', $visitorKey)
             ->update($updates);
 
-        if ($updated > 0) {
+        if ($updated === 0) {
+            $payload = [
+                'bucket_at'     => $bucketAt,
+                'visitor_key'   => $visitorKey,
+                'customer_id'   => $customerId ?: null,
+                'country_code'  => $countryCode,
+                'source_key'    => $this->sourceKey($attribution['key'] ?? null),
+                'source_detail' => $this->text($attribution['detail'] ?? null, 190),
+                'referer'       => $this->text($attribution['referer'] ?? null, 1000),
+                'landing_path'  => $landingPath,
+                'page_views'    => 1,
+                'first_seen_at' => $now,
+                'last_seen_at'  => $now,
+                'created_at'    => $now,
+                'updated_at'    => $now,
+            ];
+            if ($this->confirmationColumnsAvailable()) {
+                $payload['human_confirmed_at']  = $now;
+                $payload['confirmation_method'] = $activity;
+            }
+
+            try {
+                DB::table('storefront_visits')->insert($payload);
+            } catch (QueryException $exception) {
+                // Concurrent tabs may confirm the same hourly bucket.
+                $retry = DB::table('storefront_visits')
+                    ->where('bucket_at', $bucketAt)
+                    ->where('visitor_key', $visitorKey)
+                    ->update($updates);
+                if ($retry === 0) {
+                    throw $exception;
+                }
+            }
+        }
+
+        $this->recordProductView(
+            $request,
+            $productId,
+            $visitorKey,
+            $countryCode,
+            $customerId ? (int) $customerId : null,
+            $this->text($attribution['referer'] ?? null, 1000),
+            $activity,
+            $now,
+        );
+    }
+
+    private function recordProductView(
+        Request $request,
+        ?int $productId,
+        string $visitorKey,
+        ?string $countryCode,
+        ?int $customerId,
+        ?string $referer,
+        string $activity,
+        \DateTimeInterface $confirmedAt,
+    ): void {
+        if ($productId === null || ! ProductView::supportsHumanConfirmation()) {
             return;
         }
 
-        $payload = [
-            'bucket_at'     => $bucketAt,
-            'visitor_key'   => $visitorKey,
-            'customer_id'   => $customerId ?: null,
-            'country_code'  => $countryCode,
-            'source_key'    => $this->sourceKey($attribution['key'] ?? null),
-            'source_detail' => $this->text($attribution['detail'] ?? null, 190),
-            'referer'       => $this->text($attribution['referer'] ?? null, 1000),
-            'landing_path'  => $landingPath,
-            'page_views'    => 1,
-            'first_seen_at' => $now,
-            'last_seen_at'  => $now,
-            'created_at'    => $now,
-            'updated_at'    => $now,
-        ];
-        if ($this->confirmationColumnsAvailable()) {
-            $payload['human_confirmed_at']  = $now;
-            $payload['confirmation_method'] = $activity;
+        $minutes = max(1, (int) system_setting('base.product_view_minutes', 1));
+        $exists  = ProductView::humanConfirmed()
+            ->where('product_id', $productId)
+            ->where('visitor_key', $visitorKey)
+            ->where('created_at', '>', now()->subMinutes($minutes))
+            ->exists();
+
+        if ($exists) {
+            return;
         }
 
-        try {
-            DB::table('storefront_visits')->insert($payload);
-        } catch (QueryException $exception) {
-            // Concurrent tabs may confirm the same hourly bucket.
-            $retry = DB::table('storefront_visits')
-                ->where('bucket_at', $bucketAt)
-                ->where('visitor_key', $visitorKey)
-                ->update($updates);
-            if ($retry === 0) {
-                throw $exception;
-            }
+        ProductView::query()->create([
+            'product_id'          => $productId,
+            'customer_id'         => $customerId,
+            'ip'                  => $this->text($request->getClientIp(), 255),
+            'session_id'          => $this->text($request->session()->getId(), 255),
+            'visitor_key'         => $visitorKey,
+            'referer'             => $referer,
+            'user_agent'          => $this->text($request->userAgent(), 255),
+            'country_code'        => $countryCode,
+            'human_confirmed_at'  => $confirmedAt,
+            'confirmation_method' => $activity,
+        ]);
+    }
+
+    private function productId(Request $request): ?int
+    {
+        if (! $request->routeIs('shop.products.show')) {
+            return null;
         }
+
+        $product = $request->route('product');
+        if (is_object($product) && method_exists($product, 'getKey')) {
+            $product = $product->getKey();
+        }
+
+        return $this->positiveInteger($product);
+    }
+
+    private function positiveInteger(mixed $value): ?int
+    {
+        $value = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+
+        return $value === false ? null : $value;
     }
 
     private function confirmationColumnsAvailable(): bool

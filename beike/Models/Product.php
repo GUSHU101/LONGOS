@@ -48,7 +48,7 @@ class Product extends Base
 
     public function views()
     {
-        return $this->hasMany(ProductView::class);
+        return $this->hasMany(ProductView::class)->humanConfirmed();
     }
 
     public function attributes(): HasMany

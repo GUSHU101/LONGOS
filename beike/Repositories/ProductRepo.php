@@ -20,8 +20,6 @@ use Beike\Models\ProductCategory;
 use Beike\Models\ProductDescription;
 use Beike\Models\ProductRelation;
 use Beike\Models\ProductSku;
-use Beike\Services\StorefrontVisitService;
-use Beike\Services\VisitorCurrencyService;
 use Beike\Shop\Http\Resources\ProductSimple;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
@@ -29,15 +27,10 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\HigherOrderBuilderProxy;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 
 class ProductRepo
 {
     private static $allProductsWithName;
-
-    private static ?bool $productViewCountryColumnAvailable = null;
-
-    private static ?bool $productViewVisitorKeyColumnAvailable = null;
 
     private static function getLikeOperator(): string
     {
@@ -589,59 +582,19 @@ class ProductRepo
         $products->forceDelete();
     }
 
-    public static function viewAdd(Product $product)
+    /**
+     * @deprecated Product views are written only after trusted storefront
+     * interaction is confirmed by StorefrontVisitService.
+     */
+    public static function viewAdd(Product $product): void
     {
-        $minutes = system_setting('base.product_view_minutes', 1);
-        $count   = $product->views()->where('session_id', get_session_id())->where('created_at', '>', now()->subMinutes($minutes))->count();
-        // 如果当前session_id对该商品$minutes分钟内有个访问记录，则不重复记录访问次数。
-        if ($count) {
-            return;
-        }
-        $viewData = [
-            'customer_id' => current_customer()->id ?? 0,
-            'ip'          => request()->getClientIp(),
-            'session_id'  => get_session_id(),
-            'referer'     => request()->header('referer'),
-            'user_agent'  => request()->header('user-agent'),
-        ];
-
-        if (self::productViewVisitorKeyTrackingAvailable()) {
-            $viewData['visitor_key'] = StorefrontVisitService::visitorKeyForSession($viewData['session_id']);
-        }
-
-        // Keep storefront traffic safe during a rolling deployment: stores
-        // that have not run the dashboard-country migration continue to log
-        // normal product views, while upgraded stores capture a trusted local
-        // country resolution for the visitor ranking.
-        if (self::productViewCountryTrackingAvailable()) {
-            $viewData['country_code'] = (new VisitorCurrencyService)->countryCode(request());
-        }
-
-        $product->views()->create($viewData);
-    }
-
-    private static function productViewCountryTrackingAvailable(): bool
-    {
-        if (self::$productViewCountryColumnAvailable === null) {
-            self::$productViewCountryColumnAvailable = Schema::hasColumn('product_views', 'country_code');
-        }
-
-        return self::$productViewCountryColumnAvailable;
-    }
-
-    private static function productViewVisitorKeyTrackingAvailable(): bool
-    {
-        if (self::$productViewVisitorKeyColumnAvailable === null) {
-            self::$productViewVisitorKeyColumnAvailable = Schema::hasColumn('product_views', 'visitor_key');
-        }
-
-        return self::$productViewVisitorKeyColumnAvailable;
+        // Kept as an upstream-compatibility shim. Recording here would happen
+        // before the browser proves a real user interaction and would allow
+        // crawlers to corrupt product, source and country analytics.
     }
 
     public static function resetRuntimeCache(): void
     {
-        self::$allProductsWithName                  = null;
-        self::$productViewCountryColumnAvailable    = null;
-        self::$productViewVisitorKeyColumnAvailable = null;
+        self::$allProductsWithName = null;
     }
 }
