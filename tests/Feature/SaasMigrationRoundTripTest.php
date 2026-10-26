@@ -60,6 +60,7 @@ class SaasMigrationRoundTripTest extends TestCase
         self::assertTrue(Schema::hasIndex('saas_platform_payment_sessions', 'spp_created_status_provider_idx'));
         self::assertTrue(Schema::hasIndex('saas_platform_payment_sessions', 'spp_site_created_status_idx'));
         self::assertTrue(Schema::hasColumn('saas_platform_payment_sessions', 'locale'));
+        self::assertTrue(Schema::hasColumn('saas_platform_payment_sessions', 'timestamps_utc'));
         self::assertTrue(Schema::hasColumn('saas_sites', 'provisioning_token'));
         self::assertTrue(Schema::hasTable('cache'));
         self::assertTrue(Schema::hasTable('cache_locks'));
@@ -161,6 +162,7 @@ class SaasMigrationRoundTripTest extends TestCase
         self::assertTrue(Schema::hasIndex('saas_platform_payment_sessions', 'spp_active_uq'));
         self::assertTrue(Schema::hasIndex('saas_platform_payment_sessions', 'spp_created_status_provider_idx'));
         self::assertTrue(Schema::hasIndex('saas_platform_payment_sessions', 'spp_site_created_status_idx'));
+        self::assertTrue(Schema::hasColumn('saas_platform_payment_sessions', 'timestamps_utc'));
         self::assertTrue(Schema::hasColumn('saas_sites', 'provisioning_token'));
         self::assertTrue(Schema::hasTable('cache'));
         self::assertTrue(Schema::hasTable('cache_locks'));

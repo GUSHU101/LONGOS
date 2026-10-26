@@ -25,7 +25,7 @@
   </style>
   @if(in_array('stripe', $providers, true))<script src="https://js.stripe.com/v3/" defer></script>@endif
   @if(in_array('paypal', $providers, true))
-    <script src="https://www.paypal.com/sdk/js?client-id={{ rawurlencode($paypalClientId) }}&currency={{ rawurlencode($session->currency) }}&intent=capture&components=buttons@if($paypalMerchantId !== '')&merchant-id={{ rawurlencode($paypalMerchantId) }}@endif" defer></script>
+    <script src="https://www.paypal.com/sdk/js?client-id={{ rawurlencode($paypalClientId) }}&currency={{ rawurlencode($session->currency) }}&intent=capture&components=buttons@if($paypalMerchantId !== '')&merchant-id={{ rawurlencode($paypalMerchantId) }}@endif" data-namespace="LongosPlatformPayPal" defer></script>
   @endif
 </head>
 <body>
@@ -129,7 +129,7 @@ window.addEventListener('DOMContentLoaded', () => {
   @if(in_array('paypal', $providers, true))
   let paypalLoadAttempts = 0
   const mountPaypal = () => {
-    if (!window.paypal?.Buttons) {
+    if (!window.LongosPlatformPayPal?.Buttons) {
       if (++paypalLoadAttempts >= 100) {
         methodUnavailable(document.getElementById('paypal-method'), @json(__('platform_pay.status.paypal_load')))
         return
@@ -137,7 +137,7 @@ window.addEventListener('DOMContentLoaded', () => {
       setTimeout(mountPaypal, 100); return
     }
     try {
-      const buttons = window.paypal.Buttons({
+      const buttons = window.LongosPlatformPayPal.Buttons({
         style:{layout:'vertical',shape:'rect',label:'paypal'},
         createOrder: async () => {
           lockProvider('paypal'); setStatus(@json(__('platform_pay.status.connect_paypal')))

@@ -43,29 +43,29 @@ class ReconcilePlatformPayments extends Command
             ->where('status', PlatformPaymentSession::STATUS_PROCESSING)
             ->whereIn('provider', ['paypal', 'stripe'])
             ->whereNull('provider_order_id')
-            ->where('expires_at', '>', now())
-            ->where('updated_at', '<=', now()->subMinutes(5))
+            ->where('expires_at', '>', now('UTC'))
+            ->where('updated_at', '<=', now('UTC')->subMinutes(5))
             ->update([
                 'provider'   => null,
                 'status'     => PlatformPaymentSession::STATUS_PENDING,
-                'updated_at' => now(),
+                'updated_at' => now('UTC'),
             ]);
         $expiredClaims = PlatformPaymentSession::query()
             ->where('status', PlatformPaymentSession::STATUS_PROCESSING)
             ->whereNull('provider_order_id')
-            ->where('expires_at', '<=', now())
+            ->where('expires_at', '<=', now('UTC'))
             ->update([
                 'provider'   => null,
                 'status'     => PlatformPaymentSession::STATUS_EXPIRED,
                 'active_key' => null,
-                'updated_at' => now(),
+                'updated_at' => now('UTC'),
             ]);
 
         $candidates = PlatformPaymentSession::query()
             ->with('site.domains')
             ->financiallyUnsettled()
             ->whereIn('provider', ['paypal', 'stripe'])
-            ->where('updated_at', '<=', now()->subMinute())
+            ->where('updated_at', '<=', now('UTC')->subMinute())
             ->oldest('id')
             ->limit($limit)
             ->get();
@@ -111,11 +111,11 @@ class ReconcilePlatformPayments extends Command
 
         $expiredPending = PlatformPaymentSession::query()
             ->where('status', PlatformPaymentSession::STATUS_PENDING)
-            ->where('expires_at', '<=', now())
+            ->where('expires_at', '<=', now('UTC'))
             ->update([
                 'status'     => PlatformPaymentSession::STATUS_EXPIRED,
                 'active_key' => null,
-                'updated_at' => now(),
+                'updated_at' => now('UTC'),
             ]);
 
         $releasedStale = PlatformPaymentSession::query()
@@ -123,12 +123,12 @@ class ReconcilePlatformPayments extends Command
             ->where('provider', 'paypal')
             ->whereNotNull('provider_order_id')
             ->whereNotNull('active_key')
-            ->where('expires_at', '<=', now())
-            ->where('created_at', '<', now()->subDays(PlatformPaymentSession::RECOVERY_WINDOW_DAYS))
+            ->where('expires_at', '<=', now('UTC'))
+            ->where('created_at', '<', now('UTC')->subDays(PlatformPaymentSession::RECOVERY_WINDOW_DAYS))
             ->update([
                 'status'     => PlatformPaymentSession::STATUS_EXPIRED,
                 'active_key' => null,
-                'updated_at' => now(),
+                'updated_at' => now('UTC'),
             ]);
         $cancelled = $cancelledSessionIds === [] ? 0 : PlatformPaymentSession::query()
             ->whereKey($cancelledSessionIds)
@@ -137,15 +137,15 @@ class ReconcilePlatformPayments extends Command
             ->update([
                 'status'     => PlatformPaymentSession::STATUS_CANCELLED,
                 'active_key' => null,
-                'updated_at' => now(),
+                'updated_at' => now('UTC'),
             ]);
         $expiredProcessing = $unresolvedSessionIds === [] ? 0 : PlatformPaymentSession::query()
             ->whereKey($unresolvedSessionIds)
             ->where('status', PlatformPaymentSession::STATUS_PROCESSING)
-            ->where('expires_at', '<=', now())
+            ->where('expires_at', '<=', now('UTC'))
             ->update([
                 'status'     => PlatformPaymentSession::STATUS_EXPIRED,
-                'updated_at' => now(),
+                'updated_at' => now('UTC'),
             ]);
 
         $pruned = PlatformPaymentSession::query()
@@ -155,7 +155,7 @@ class ReconcilePlatformPayments extends Command
                 PlatformPaymentSession::STATUS_FAILED,
                 PlatformPaymentSession::STATUS_EXPIRED,
             ])
-            ->where('created_at', '<', now()->subDays($pruneDays))
+            ->where('created_at', '<', now('UTC')->subDays($pruneDays))
             ->delete();
 
         $expired  = $expiredPending + $expiredProcessing + $expiredClaims;

@@ -5,6 +5,7 @@ namespace App\Services\PlatformPayment;
 use App\Saas\Models\PlatformPaymentSession;
 use App\Saas\Models\Site;
 use Beike\Repositories\SettingRepo;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Schema;
 use Throwable;
 
@@ -35,7 +36,11 @@ final class PlatformPaymentOperations
                 return $result;
             }
 
-            $query = PlatformPaymentSession::query()->whereBetween('created_at', $dateRange);
+            $utcRange = [
+                Carbon::instance($dateRange[0])->utc(),
+                Carbon::instance($dateRange[1])->utc(),
+            ];
+            $query = PlatformPaymentSession::query()->whereBetween('created_at', $utcRange);
             if (! $isControl) {
                 $query->where('site_id', $site->id);
             }
@@ -58,7 +63,7 @@ final class PlatformPaymentOperations
                     PlatformPaymentSession::STATUS_FAILED,
                     PlatformPaymentSession::STATUS_EXPIRED,
                     PlatformPaymentSession::STATUS_PROCESSING,
-                    now()->subMinutes(5),
+                    now('UTC')->subMinutes(5),
                     PlatformPaymentSession::STATUS_COMPLETED,
                     'paypal',
                     PlatformPaymentSession::STATUS_COMPLETED,

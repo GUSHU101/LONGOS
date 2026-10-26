@@ -17,6 +17,8 @@ class PlatformPaypalGateway
     /** @var array<string, mixed> */
     private array $settings;
 
+    private bool $authenticatedFromCache = false;
+
     public function __construct(private readonly PlatformPaymentSettings $platformSettings)
     {
         $snapshot       = $platformSettings->snapshot();
@@ -226,9 +228,13 @@ class PlatformPaypalGateway
      */
     public function healthCheck(): void
     {
-        $token = $this->client->getAccessToken();
-        if (! is_array($token) || empty($token['access_token']) || empty($token['token_type'])) {
-            throw new RuntimeException('PayPal 身份验证失败。');
+        // A cache miss already performed a live OAuth exchange in the
+        // constructor. Only revalidate cached credentials over the network.
+        if ($this->authenticatedFromCache) {
+            $token = $this->client->getAccessToken();
+            if (! is_array($token) || empty($token['access_token']) || empty($token['token_type'])) {
+                throw new RuntimeException('PayPal 身份验证失败。');
+            }
         }
     }
 
@@ -245,6 +251,7 @@ class PlatformPaypalGateway
                 $cached = json_decode(Crypt::decryptString($encrypted), true);
                 if (is_array($cached) && ! empty($cached['access_token']) && ! empty($cached['token_type'])) {
                     $this->client->setAccessToken($cached);
+                    $this->authenticatedFromCache = true;
 
                     return;
                 }

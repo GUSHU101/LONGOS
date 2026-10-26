@@ -351,6 +351,7 @@ class SaasPluginRouteIsolationTest extends TestCase
         self::assertStringContainsString('id="longos-paypal-buttons"', $paymentHtml);
         self::assertStringContainsString('id="longos-stripe-card"', $paymentHtml);
         self::assertStringContainsString('https://www.paypal.com/sdk/js?', $paymentHtml);
+        self::assertStringContainsString('LongosPlatformPayPal', $paymentHtml);
         self::assertStringContainsString('https://js.stripe.com/v3/', $paymentHtml);
 
         foreach ([

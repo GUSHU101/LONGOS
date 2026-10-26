@@ -66,6 +66,9 @@ class PlatformPaymentSecurityContractTest extends TestCase
         self::assertStringContainsString('/stripe/intent', $routes);
         self::assertStringContainsString('/stripe/complete', $routes);
         self::assertStringContainsString('https://www.paypal.com/sdk/js?', $checkout);
+        self::assertStringContainsString("'data-namespace':'LongosPlatformPayPal'", $checkout);
+        self::assertStringContainsString('window.LongosPlatformPayPal.Buttons', $checkout);
+        self::assertStringNotContainsString('window.paypal', $checkout);
         self::assertStringContainsString('https://js.stripe.com/v3/', $checkout);
         self::assertStringContainsString('buttons.isEligible()', $checkout);
         self::assertStringContainsString("card.on('ready'", $checkout);
@@ -79,6 +82,9 @@ class PlatformPaymentSecurityContractTest extends TestCase
         self::assertStringContainsString("'longos-platform-pay/*'", $headers);
 
         $hosted = file_get_contents($root . '/resources/views/platform-pay/checkout.blade.php');
+        self::assertStringContainsString('data-namespace="LongosPlatformPayPal"', $hosted);
+        self::assertStringContainsString('window.LongosPlatformPayPal.Buttons', $hosted);
+        self::assertStringNotContainsString('window.paypal', $hosted);
         self::assertStringContainsString('buttons.isEligible()', $hosted);
         self::assertStringContainsString("card.on('ready'", $hosted);
         self::assertStringContainsString('disabled aria-busy="true"', $hosted);

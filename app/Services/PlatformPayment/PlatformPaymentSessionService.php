@@ -114,7 +114,7 @@ class PlatformPaymentSessionService
                     'currency'     => $currency,
                     'locale'       => preg_match('/^[A-Za-z_]{2,16}$/', (string) $order->locale) ? (string) $order->locale : 'en',
                     'status'       => PlatformPaymentSession::STATUS_PENDING,
-                    'expires_at'   => now()->addHours(3),
+                    'expires_at'   => now('UTC')->addHours(3),
                 ]);
 
                 return ['session' => $session, 'token' => $token];
@@ -371,7 +371,7 @@ class PlatformPaymentSessionService
                 'active_key'              => null,
                 'provider_transaction_id' => $transactionId,
                 'provider_payload'        => $providerPayload,
-                'completed_at'            => now(),
+                'completed_at'            => now('UTC'),
             ])->save();
 
             return $session->fresh(['site.domains']);

@@ -10,7 +10,9 @@ use App\Services\PlatformPayment\PlatformPaymentOperations;
 use App\Services\PlatformPayment\PlatformPaymentSessionService;
 use App\Services\PlatformPayment\PlatformPaymentSettings;
 use Beike\Repositories\SettingRepo;
+use Beike\Services\TimezoneService;
 use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -207,6 +209,145 @@ class PlatformPaymentMaintenanceTest extends TestCase
         self::assertSame(2, $childSnapshot['started']);
         self::assertSame(1, $childSnapshot['completed']);
         self::assertSame(50.0, $childSnapshot['completion_rate']);
+    }
+
+    public function test_central_payment_timestamps_remain_absolute_across_tenant_timezones(): void
+    {
+        $site = Site::query()->create([
+            'uuid'          => '18181818-1818-4818-8818-181818181818',
+            'code'          => 'payment-timezone-child',
+            'name'          => 'Payment Timezone Child',
+            'database_name' => 'payment_timezone_child',
+            'status'        => Site::STATUS_ACTIVE,
+            'locale'        => 'en',
+            'timezone'      => 'Asia/Shanghai',
+            'meta'          => [],
+        ]);
+
+        try {
+            TimezoneService::apply('Asia/Shanghai');
+            $expires = now()->addHours(3);
+            $session = $this->session($site, [
+                'uuid'           => '19191919-1919-4919-8919-191919191919',
+                'token_hash'     => str_repeat('6', 64),
+                'active_key'     => str_repeat('7', 64),
+                'status'         => PlatformPaymentSession::STATUS_PENDING,
+                'timestamps_utc' => true,
+                'expires_at'     => $expires,
+            ]);
+
+            self::assertSame(
+                $expires->copy()->utc()->format('Y-m-d H:i:s'),
+                DB::connection('saas')->table('saas_platform_payment_sessions')->where('id', $session->id)->value('expires_at'),
+            );
+
+            TimezoneService::apply('America/Los_Angeles');
+            $reloaded = PlatformPaymentSession::query()->findOrFail($session->id);
+            self::assertSame($expires->timestamp, $reloaded->expires_at->timestamp);
+            self::assertTrue($reloaded->isOpen());
+        } finally {
+            TimezoneService::apply('UTC');
+        }
+    }
+
+    public function test_payment_dashboard_uses_the_current_sites_local_day_boundary(): void
+    {
+        $site = Site::query()->create([
+            'uuid'          => '22222222-2222-4222-8222-222222222220',
+            'code'          => 'payment-dashboard-timezone',
+            'name'          => 'Payment Dashboard Timezone',
+            'database_name' => 'payment_dashboard_timezone',
+            'status'        => Site::STATUS_ACTIVE,
+            'locale'        => 'en',
+            'timezone'      => 'America/Los_Angeles',
+            'meta'          => [],
+        ]);
+        $containerKey = (string) config('multitenancy.current_tenant_container_key', 'currentTenant');
+        app()->instance($containerKey, $site);
+        $settings = $this->createMock(PlatformPaymentSettings::class);
+        $settings->method('snapshot')->willReturn(['enabled' => true]);
+        $settings->method('availableProvidersForSnapshot')->willReturn(['paypal']);
+
+        try {
+            TimezoneService::apply('America/Los_Angeles');
+            foreach ([
+                ['23', '2026-01-01 07:59:59'],
+                ['24', '2026-01-01 08:00:00'],
+                ['25', '2026-01-02 07:59:59'],
+                ['26', '2026-01-02 08:00:00'],
+            ] as [$suffix, $createdAt]) {
+                $this->session($site, [
+                    'uuid'       => "23232323-2323-4323-8323-2323232323{$suffix}",
+                    'token_hash' => str_repeat(substr($suffix, -1), 64),
+                    'active_key' => hash('sha256', "dashboard-boundary-{$suffix}"),
+                    'status'     => PlatformPaymentSession::STATUS_PENDING,
+                    'created_at' => Carbon::parse($createdAt, 'UTC'),
+                    'updated_at' => Carbon::parse($createdAt, 'UTC'),
+                ]);
+            }
+
+            $snapshot = (new PlatformPaymentOperations($settings))->snapshot([
+                Carbon::parse('2026-01-01 00:00:00', 'America/Los_Angeles'),
+                Carbon::parse('2026-01-01 23:59:59', 'America/Los_Angeles'),
+            ]);
+
+            self::assertTrue($snapshot['available']);
+            self::assertSame(2, $snapshot['started']);
+            self::assertSame(0, $snapshot['completed']);
+        } finally {
+            TimezoneService::apply('UTC');
+        }
+    }
+
+    public function test_utc_migration_converts_legacy_child_session_dates_once(): void
+    {
+        $site = Site::query()->create([
+            'uuid'          => '20202020-2020-4020-8020-202020202020',
+            'code'          => 'payment-timezone-migration',
+            'name'          => 'Payment Timezone Migration',
+            'database_name' => 'payment_timezone_migration',
+            'status'        => Site::STATUS_ACTIVE,
+            'locale'        => 'en',
+            'timezone'      => 'Asia/Shanghai',
+            'meta'          => [],
+        ]);
+        DB::connection('saas')->table('saas_platform_payment_sessions')->insert([
+            'uuid'           => '21212121-2121-4121-8121-212121212121',
+            'token_hash'     => str_repeat('8', 64),
+            'active_key'     => null,
+            'site_id'        => $site->id,
+            'order_id'       => 21,
+            'order_number'   => 'TZ-21',
+            'amount'         => '21.00000000',
+            'currency'       => 'USD',
+            'locale'         => 'en',
+            'timestamps_utc' => false,
+            'status'         => PlatformPaymentSession::STATUS_COMPLETED,
+            'provider'       => 'paypal',
+            'expires_at'     => '2026-01-01 13:00:00',
+            'completed_at'   => '2026-01-01 11:00:00',
+            'created_at'     => '2026-01-01 10:00:00',
+            'updated_at'     => '2026-01-01 11:00:00',
+        ]);
+
+        $migration = require database_path('migrations/2026_10_26_020000_normalize_platform_payment_timestamps_to_utc.php');
+        $migration->up();
+        $stored = DB::connection('saas')->table('saas_platform_payment_sessions')
+            ->where('uuid', '21212121-2121-4121-8121-212121212121')
+            ->first();
+
+        self::assertSame(1, (int) $stored->timestamps_utc);
+        self::assertSame('2026-01-01 02:00:00', $stored->created_at);
+        self::assertSame('2026-01-01 05:00:00', $stored->expires_at);
+        self::assertSame('2026-01-01 03:00:00', $stored->completed_at);
+
+        $migration->up();
+        self::assertSame(
+            '2026-01-01 02:00:00',
+            DB::connection('saas')->table('saas_platform_payment_sessions')
+                ->where('uuid', '21212121-2121-4121-8121-212121212121')
+                ->value('created_at'),
+        );
     }
 
     public function test_only_an_unbound_provider_claim_can_be_released(): void

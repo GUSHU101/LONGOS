@@ -50,7 +50,7 @@ class PlatformPaymentRecoveryContractTest extends TestCase
         self::assertStringContainsString('saas:platform-pay:reconcile', $command);
         self::assertStringContainsString('->recoverCompleted(', $command);
         self::assertStringContainsString('$sessions->complete(', $command);
-        self::assertStringContainsString("->where('expires_at', '<=', now())", $command);
+        self::assertStringContainsString("->where('expires_at', '<=', now('UTC'))", $command);
         self::assertStringContainsString("\$schedule->command('saas:platform-pay:reconcile')", $kernel);
         self::assertStringContainsString('->withoutOverlapping(60)', $kernel);
         self::assertStringContainsString('return $failed === 0 ? self::SUCCESS : self::FAILURE', $command);
@@ -63,7 +63,7 @@ class PlatformPaymentRecoveryContractTest extends TestCase
         self::assertStringContainsString('paymentIntents->retrieve(', $stripe);
         self::assertStringContainsString('public function cancelUnresolved(', $stripe);
         self::assertStringContainsString('paymentIntents->cancel(', $stripe);
-        self::assertStringContainsString("'expires_at'   => now()->addHours(3)", $sessions);
+        self::assertStringContainsString("'expires_at'   => now('UTC')->addHours(3)", $sessions);
         self::assertStringContainsString('->financiallyUnsettled()', $command);
         self::assertStringContainsString('public function resolveProviderResult(', $sessions);
         self::assertStringContainsString('RECOVERY_WINDOW_DAYS', $model);

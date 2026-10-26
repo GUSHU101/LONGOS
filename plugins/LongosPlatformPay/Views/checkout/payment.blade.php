@@ -95,15 +95,26 @@
       window.clearTimeout(timeout)
     }
   }
-  const loadScript = (id, source) => new Promise((resolve, reject) => {
-    if (document.getElementById(id)?.dataset.loaded === '1') { resolve(); return }
+  const loadScript = (id, source, attributes = {}) => new Promise((resolve, reject) => {
     const existing = document.getElementById(id)
-    if (existing) existing.remove()
+    const requestedSource = new URL(source, document.baseURI).href
+    const attributesMatch = element => Object.entries(attributes).every(([name, value]) => element.getAttribute(name) === value)
+    if (existing) {
+      if (existing.src !== requestedSource || !attributesMatch(existing)) {
+        reject(new Error(@json(trans('LongosPlatformPay::common.sdk_failed')))); return
+      }
+      if (existing.dataset.loaded === '1') { resolve(); return }
+      const timeout = window.setTimeout(() => reject(new Error(@json(trans('LongosPlatformPay::common.sdk_timeout')))), 20000)
+      existing.addEventListener('load', () => { window.clearTimeout(timeout); resolve() }, {once:true})
+      existing.addEventListener('error', () => { window.clearTimeout(timeout); reject(new Error(@json(trans('LongosPlatformPay::common.sdk_failed')))) }, {once:true})
+      return
+    }
     const script = document.createElement('script')
     const timeout = window.setTimeout(() => { script.remove(); reject(new Error(@json(trans('LongosPlatformPay::common.sdk_timeout')))) }, 20000)
     script.id = id
     script.src = source
     script.async = true
+    Object.entries(attributes).forEach(([name, value]) => script.setAttribute(name, value))
     script.onload = () => { window.clearTimeout(timeout); script.dataset.loaded = '1'; resolve() }
     script.onerror = () => { window.clearTimeout(timeout); script.remove(); reject(new Error(@json(trans('LongosPlatformPay::common.sdk_failed')))) }
     document.head.appendChild(script)
@@ -154,12 +165,12 @@
       components: 'buttons',
     })
     if (data.paypal.merchant_id) query.set('merchant-id', data.paypal.merchant_id)
-    await loadScript('longos-paypal-sdk', `https://www.paypal.com/sdk/js?${query.toString()}`)
-    if (!window.paypal?.Buttons) throw new Error(@json(trans('LongosPlatformPay::common.paypal_load')))
+    await loadScript('longos-paypal-sdk', `https://www.paypal.com/sdk/js?${query.toString()}`, {'data-namespace':'LongosPlatformPayPal'})
+    if (!window.LongosPlatformPayPal?.Buttons) throw new Error(@json(trans('LongosPlatformPay::common.paypal_load')))
 
     const unavailableMessage = @json(trans('LongosPlatformPay::common.paypal_unavailable'))
     try {
-      const buttons = window.paypal.Buttons({
+      const buttons = window.LongosPlatformPayPal.Buttons({
         style:{layout:'vertical',shape:'rect',label:'paypal'},
         createOrder: async () => {
           lockProvider('paypal'); setStatus(@json(trans('LongosPlatformPay::common.connect_paypal')))
@@ -176,7 +187,10 @@
           }
         },
         onCancel: () => { setStatus(@json(trans('LongosPlatformPay::common.cancelled')), true); showFallback(data) },
-        onError: () => { setStatus(@json(trans('LongosPlatformPay::common.failed')), true); showFallback(data) },
+        onError: async () => {
+          if (await recoverCompletion(data)) return
+          setStatus(@json(trans('LongosPlatformPay::common.failed')), true); showFallback(data)
+        },
       })
       if (typeof buttons.isEligible === 'function' && !buttons.isEligible()) throw new Error(unavailableMessage)
       paypalMethod.hidden = false

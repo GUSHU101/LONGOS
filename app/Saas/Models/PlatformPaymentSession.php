@@ -2,9 +2,11 @@
 
 namespace App\Saas\Models;
 
+use DateTimeInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 
 class PlatformPaymentSession extends Model
 {
@@ -33,12 +35,18 @@ class PlatformPaymentSession extends Model
 
     protected $fillable = [
         'uuid', 'token_hash', 'active_key', 'site_id', 'order_id', 'order_number', 'amount', 'currency', 'locale',
+        'timestamps_utc',
         'status', 'provider', 'provider_order_id', 'provider_transaction_id',
         'provider_payload', 'expires_at', 'completed_at',
     ];
 
+    protected $attributes = [
+        'timestamps_utc' => true,
+    ];
+
     protected $casts = [
         'amount'           => 'decimal:8',
+        'timestamps_utc'   => 'boolean',
         'provider_payload' => 'array',
         'expires_at'       => 'datetime',
         'completed_at'     => 'datetime',
@@ -56,7 +64,7 @@ class PlatformPaymentSession extends Model
             ->whereNotNull('provider')
             ->whereNotNull('provider_order_id')
             ->where(function (Builder $query): void {
-                $query->where('created_at', '>=', now()->subDays(self::RECOVERY_WINDOW_DAYS))
+                $query->where('created_at', '>=', now('UTC')->subDays(self::RECOVERY_WINDOW_DAYS))
                     // Stripe PaymentIntents do not have PayPal Orders' short
                     // approval lifetime. Keep an old intent locked until the
                     // reconciliation worker has confirmed or cancelled it.
@@ -84,7 +92,7 @@ class PlatformPaymentSession extends Model
                     // Protect that short race even before an order id exists.
                     $query->where('status', self::STATUS_PROCESSING)
                         ->whereNull('provider_order_id')
-                        ->where('expires_at', '>', now());
+                        ->where('expires_at', '>', now('UTC'));
                 });
             });
     }
@@ -100,7 +108,55 @@ class PlatformPaymentSession extends Model
         return in_array($this->status, [self::STATUS_PROCESSING, self::STATUS_EXPIRED], true)
             && $this->provider          !== null
             && $this->provider_order_id !== null
-            && ($this->created_at?->gte(now()->subDays(self::RECOVERY_WINDOW_DAYS))
+            && ($this->created_at?->gte(now('UTC')->subDays(self::RECOVERY_WINDOW_DAYS))
                 || ($this->provider === 'stripe' && $this->active_key !== null));
+    }
+
+    /**
+     * Central payment timestamps are stored in UTC even while a request is
+     * running in a child store's timezone. Convert them for presentation only
+     * after parsing the database value as an absolute UTC instant.
+     */
+    protected function asDateTime($value): Carbon
+    {
+        if (! (bool) $this->timestamps_utc) {
+            return parent::asDateTime($value);
+        }
+
+        $runtimeTimezone = (string) config('app.timezone', 'UTC');
+        if ($value instanceof DateTimeInterface) {
+            return Carbon::instance($value)->setTimezone($runtimeTimezone);
+        }
+        if (is_numeric($value)) {
+            return Carbon::createFromTimestamp((int) $value, 'UTC')->setTimezone($runtimeTimezone);
+        }
+        if ($this->isStandardDateFormat($value)) {
+            return Carbon::createFromFormat('Y-m-d', $value, 'UTC')->startOfDay()->setTimezone($runtimeTimezone);
+        }
+
+        $date = Carbon::createFromFormat($this->getDateFormat(), (string) $value, 'UTC');
+        if (! $date) {
+            $date = Carbon::parse((string) $value, 'UTC');
+        }
+
+        return $date->setTimezone($runtimeTimezone);
+    }
+
+    public function fromDateTime($value): ?string
+    {
+        if (empty($value) || ! (bool) $this->timestamps_utc) {
+            return parent::fromDateTime($value);
+        }
+
+        $date = $value instanceof DateTimeInterface
+            ? Carbon::instance($value)
+            : Carbon::parse((string) $value, (string) config('app.timezone', 'UTC'));
+
+        return $date->setTimezone('UTC')->format($this->getDateFormat());
+    }
+
+    public function freshTimestamp(): Carbon
+    {
+        return (bool) $this->timestamps_utc ? Carbon::now('UTC') : parent::freshTimestamp();
     }
 }
