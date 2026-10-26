@@ -60,7 +60,7 @@
 (() => {
   let cardNumberElement = null
   let stripe = null
-  const orderNumber = @json($order->number ?? '')
+  const orderNumber = @json((string) ($order->number ?? ''))
   const publicKey = @json(plugin_setting('stripe.publishable_key', ''))
   const intentUrl = @json(shop_route('stripe.intent'))
   const captureUrl = @json(shop_route('stripe_capture'))

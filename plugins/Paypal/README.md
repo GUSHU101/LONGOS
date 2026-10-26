@@ -20,6 +20,12 @@ PayPal 官方定义的 Merchant ID 是 13 位大写字母或数字。LONGOS 会�
 
 ## 支付安全与重试
 
+订单创建后，LONGOS 会在服务端建立 PayPal Order 并直接打开 PayPal
+付款批准页，不再要求顾客先进入一张中间确认页面并再次点击。PayPal
+取消、网络失败或无法取得受信任的 PayPal 批准地址时，系统才回退到
+店铺支付页供顾客安全重试。银行卡资料和 PayPal 登录信息始终由 PayPal
+处理，不会提交给 LONGOS。
+
 LONGOS 会把 PayPal Order ID 与本地订单绑定，并在确认付款前核验：
 
 - 当前租户及订单归属；

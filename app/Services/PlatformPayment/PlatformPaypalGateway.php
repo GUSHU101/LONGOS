@@ -91,7 +91,16 @@ class PlatformPaypalGateway
             throw new RuntimeException('PayPal 创建支付订单失败。');
         }
 
-        return ['id' => $id, 'status' => strtoupper((string) $result['status'])];
+        $approvalUrl = $this->approvalUrl($result);
+        if ($approvalUrl === null) {
+            throw new RuntimeException('PayPal 未返回有效付款地址。');
+        }
+
+        return [
+            'id'           => $id,
+            'status'       => strtoupper((string) $result['status']),
+            'approval_url' => $approvalUrl,
+        ];
     }
 
     /** @return array{transaction_id: string, payload: array<string, mixed>} */
@@ -219,6 +228,26 @@ class PlatformPaypalGateway
     public function merchantId(): string
     {
         return (string) $this->settings['merchant_id'];
+    }
+
+    /** @param array<string, mixed> $result */
+    private function approvalUrl(array $result): ?string
+    {
+        foreach ((array) ($result['links'] ?? []) as $link) {
+            if (! is_array($link)
+                || ! in_array(strtolower((string) ($link['rel'] ?? '')), ['approve', 'payer-action'], true)) {
+                continue;
+            }
+
+            $url    = trim((string) ($link['href'] ?? ''));
+            $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
+            $host   = strtolower((string) parse_url($url, PHP_URL_HOST));
+            if ($scheme === 'https' && in_array($host, ['www.paypal.com', 'www.sandbox.paypal.com'], true)) {
+                return $url;
+            }
+        }
+
+        return null;
     }
 
     /**

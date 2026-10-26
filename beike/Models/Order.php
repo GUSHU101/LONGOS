@@ -40,6 +40,7 @@ class Order extends Base
     protected $appends = ['status_format', 'total_format', 'settlement_total'];
 
     protected $casts = [
+        'number'              => 'string',
         'stock_reserved'      => 'boolean',
         'shipping_quote_data' => 'array',
     ];

@@ -18,6 +18,7 @@ use Beike\Models\Order;
 use Beike\Repositories\OrderRepo;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\Response;
 
 class PaymentService
 {
@@ -51,6 +52,24 @@ class PaymentService
     public function pay()
     {
         $orderPaymentCode = $this->paymentMethodCode;
+
+        // Redirect-capable providers may start checkout immediately after the
+        // order is created.  The response hook keeps that capability inside
+        // the payment plugin while preserving this page as a recovery path
+        // for providers that must collect card details in the browser.
+        $start = hook_filter('service.payment.pay.start', [
+            'response'            => null,
+            'order'               => $this->order,
+            'payment_method_code' => $orderPaymentCode,
+            'allow_direct'        => ! request()->boolean('manual'),
+        ]);
+        $startResponse = is_array($start) ? ($start['response'] ?? null) : null;
+        if ($startResponse instanceof Response) {
+            DashboardEvent::recordPaymentInformationAdded(current_customer());
+
+            return $startResponse;
+        }
+
         $paymentCode      = Str::studly($orderPaymentCode);
         $viewPath         = "$paymentCode::checkout.payment";
 

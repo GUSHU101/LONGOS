@@ -1,12 +1,14 @@
 # LONGOS Platform Pay
 
-Version 1.5.1 stores central payment-session timestamps in UTC and migrates
-legacy tenant-local values once, so expiry, reconciliation, and dashboard date
-boundaries remain correct across site timezones. It also isolates the embedded
-PayPal SDK in a plugin-owned namespace and recovers completed payments after
-browser SDK errors instead of immediately presenting a false failure.
+Version 1.6.0 starts a PayPal-only checkout directly from the store's order
+submission action. The customer no longer sees or confirms an intermediate
+LONGOS payment page before PayPal opens. Stripe and mixed-channel sessions keep
+the embedded child-store form because they still require a browser-side card or
+provider choice. The recovery page remains available if provider initialization
+fails, and large order numbers are serialized as strings so JavaScript cannot
+round them before session creation.
 
-主站统一托管 PayPal 与 Stripe 收款账号，PayPal 按钮和 Stripe 银行卡表单直接渲染在子站订单支付页。子站只会收到供应商的公开 SDK 密钥和短时中央支付会话，不接触任何私钥。供应商返回地址与 Stripe Webhook 固定使用主站域名；完成付款前会再次核对租户、订单、金额、币种、环境和供应商交易绑定。
+主站统一托管 PayPal 与 Stripe 收款账号。仅开启 PayPal 时，顾客提交订单后会直接进入 PayPal；开启 Stripe 或同时开启多个渠道时，必要的银行卡输入或渠道选择仍直接渲染在子站支付页。子站只会收到供应商的公开 SDK 密钥和短时中央支付会话，不接触任何私钥。供应商返回地址与 Stripe Webhook 固定使用主站域名；完成付款前会再次核对租户、订单、金额、币种、环境和供应商交易绑定。
 
 `LONGOS Platform Pay` 是独立支付插件：它拥有自己的 PayPal/Stripe 账号设置、加密凭据和 Webhook，不读取、不修改也不要求启用原有的 PayPal 或 Stripe 店铺插件。
 

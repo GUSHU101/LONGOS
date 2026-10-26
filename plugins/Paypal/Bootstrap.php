@@ -17,6 +17,24 @@ class Bootstrap
     public function boot(): void
     {
         $this->adminSettingPage();
+        $this->directCheckout();
+    }
+
+    private function directCheckout(): void
+    {
+        add_hook_filter('service.payment.pay.start', static function (array $context): array {
+            if (($context['response'] ?? null) !== null
+                || ! ($context['allow_direct'] ?? false)
+                || (string) ($context['payment_method_code'] ?? '') !== 'paypal'
+                || ! ($context['order'] ?? null) instanceof \Beike\Models\Order) {
+                return $context;
+            }
+
+            $context['response'] = app(\Plugin\Paypal\Controllers\PaypalController::class)
+                ->startOrder($context['order']);
+
+            return $context;
+        });
     }
 
     private function adminSettingPage(): void

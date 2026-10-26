@@ -94,7 +94,7 @@ class PaypalService extends PaymentService
      * @return mixed
      * @throws \Throwable
      */
-    public function createOrder(): mixed
+    public function createOrder(array $urls = []): mixed
     {
         if ($this->isNvpApi()) {
             return $this->createNvpOrder();
@@ -124,13 +124,21 @@ class PaypalService extends PaymentService
             'PayPal-Request-Id' => $this->requestId('create'),
             'Prefer'            => 'return=representation',
         ]);
+        $experienceContext = [
+            'user_action' => 'PAY_NOW',
+        ];
+        foreach (['return_url', 'cancel_url'] as $urlKey) {
+            $url = trim((string) ($urls[$urlKey] ?? ''));
+            if ($url !== '') {
+                $experienceContext[$urlKey] = $url;
+            }
+        }
+
         $result = $this->paypalClient->createOrder([
             'intent'         => 'CAPTURE',
             'payment_source' => [
                 'paypal' => [
-                    'experience_context' => [
-                        'user_action' => 'PAY_NOW',
-                    ],
+                    'experience_context' => $experienceContext,
                 ],
             ],
             'purchase_units' => [$unit],
@@ -463,11 +471,45 @@ class PaypalService extends PaymentService
             ]);
         }
 
+        $approval = self::approvalUrl($result);
+
         return self::compactValues([
             'id'             => self::scalarString($result['id'] ?? null),
             'status'         => self::scalarString($result['status'] ?? null),
+            'approval_url'   => $approval,
+            'links'          => $approval === null ? null : [[
+                'href'   => $approval,
+                'rel'    => 'approve',
+                'method' => 'GET',
+            ]],
             'purchase_units' => $units,
         ]);
+    }
+
+    /**
+     * Extract only PayPal-owned approval links. Provider responses can carry
+     * other URLs which must never become an open redirect from the store.
+     */
+    public static function approvalUrl(array $result): ?string
+    {
+        $direct = self::safeApprovalUrl($result['approval_url'] ?? null);
+        if ($direct !== null) {
+            return $direct;
+        }
+
+        foreach ((array) ($result['links'] ?? []) as $link) {
+            if (! is_array($link)
+                || ! in_array(strtolower((string) ($link['rel'] ?? '')), ['approve', 'payer-action'], true)) {
+                continue;
+            }
+
+            $approval = self::safeApprovalUrl($link['href'] ?? null);
+            if ($approval !== null) {
+                return $approval;
+            }
+        }
+
+        return null;
     }
 
     public function validateStoredCapture(array $result, string $expectedProviderId): void

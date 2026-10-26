@@ -81,7 +81,10 @@ class PlatformPaymentController extends Controller
             $providerCreated = true;
             $this->sessions->bindProvider($session, 'paypal', $result['id']);
 
-            return json_success('PayPal order created.', ['id' => $result['id']]);
+            return json_success('PayPal order created.', [
+                'id'           => $result['id'],
+                'approval_url' => $result['approval_url'],
+            ]);
         } catch (Throwable $e) {
             if ($session instanceof PlatformPaymentSession && ! $providerCreated) {
                 $this->releaseClaim($session, 'paypal');

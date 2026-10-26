@@ -12,6 +12,7 @@
 
 namespace Plugin\Paypal\Controllers;
 
+use Beike\Models\Order;
 use Beike\Models\OrderPayment;
 use Beike\Repositories\OrderPaymentRepo;
 use Beike\Repositories\OrderRepo;
@@ -85,7 +86,7 @@ class PaypalController
 
                 $paypalOrder = $paypalService->isNvpApi()
                     ? $paypalService->createNvpOrder($this->getNvpCheckoutUrls($orderNumber))
-                    : $paypalService->createOrder();
+                    : $paypalService->createOrder($this->getRestCheckoutUrls($orderNumber));
 
                 if (! is_array($paypalOrder) || trim((string) ($paypalOrder['id'] ?? '')) === '') {
                     throw new \RuntimeException('PayPal did not return a payment order id.');
@@ -106,6 +107,35 @@ class PaypalController
         } catch (Throwable $e) {
             return $this->paymentError($e, 'PayPal order creation failed.');
         }
+    }
+
+    /**
+     * Start redirect-capable PayPal checkout without rendering a second
+     * confirmation page. Returning null deliberately falls back to the
+     * regular payment view, where the customer can retry with Smart Buttons.
+     */
+    public function startOrder(Order $order): ?RedirectResponse
+    {
+        $orderNumber = trim((string) ($order->number ?? ''));
+        if ($orderNumber === '' || (string) ($order->payment_method_code ?? '') !== 'paypal') {
+            return null;
+        }
+
+        $response = $this->create(Request::create('/paypal/create', 'POST', [
+            'orderNumber' => $orderNumber,
+        ]));
+        if ($response->getStatusCode() >= 400) {
+            return null;
+        }
+
+        $result = $response->getData(true);
+        if (strtoupper((string) ($result['status'] ?? '')) === 'COMPLETED') {
+            return redirect($this->getSuccessRedirectUrl($orderNumber));
+        }
+
+        $approvalUrl = PaypalService::approvalUrl($result);
+
+        return $approvalUrl === null ? null : redirect()->away($approvalUrl);
     }
 
     /**
@@ -232,6 +262,66 @@ class PaypalController
         } catch (Throwable $e) {
             return $this->redirectWithMessage($request, $this->getFailureRedirectUrl($orderNumber), 'error', trans('Paypal::checkout.failed'));
         }
+    }
+
+    public function restReturn(Request $request): RedirectResponse
+    {
+        $orderNumber   = $this->getOrderNumberFromData($request->all(), $request);
+        $paypalOrderId = trim((string) $request->query('token', ''));
+        if ($orderNumber === '' || preg_match('/^[A-Z0-9]{10,32}$/', $paypalOrderId) !== 1) {
+            return $this->redirectWithMessage($request, $this->getFailureRedirectUrl($orderNumber), 'error', trans('Paypal::checkout.failed'));
+        }
+
+        try {
+            // The canonical callback can use the tenant's retained platform
+            // domain while checkout began on a custom domain, so a guest
+            // session cookie is not guaranteed here. The bound PayPal Order
+            // ID, local order reference, amount, currency and merchant checks
+            // authenticate the provider result instead.
+            $order = $this->resolvePaypalOrder($orderNumber, false);
+
+            return $this->withPaymentLock('rest-return', (int) $order->id, function () use ($order, $paypalOrderId, $request, $orderNumber): RedirectResponse {
+                $order = $order->fresh();
+                $this->assertProviderOrderBinding((int) $order->id, $paypalOrderId);
+                $storedResult  = $this->getStoredCompletedResult((int) $order->id, $paypalOrderId);
+                $paypalService = $this->initPaypal($order, true);
+                if ($paypalService->isNvpApi()) {
+                    throw new \RuntimeException('PayPal callback does not match the configured API mode.');
+                }
+
+                if ($storedResult !== null) {
+                    $paypalService->validateStoredCapture($storedResult, $paypalOrderId);
+                    $safeResult = PaypalService::safeProviderResult($storedResult, false);
+                } else {
+                    $result     = $paypalService->captureRestPayment($paypalOrderId);
+                    $safeResult = PaypalService::safeProviderResult($result, false);
+                }
+
+                $this->persistSafeResult((int) $order->id, $paypalService, $safeResult, $paypalOrderId);
+                $this->markOrderPaid($paypalService, $order, $safeResult);
+
+                return $this->redirectWithMessage($request, $this->getSuccessRedirectUrl($orderNumber), 'success', trans('Paypal::checkout.completed'));
+            });
+        } catch (Throwable $e) {
+            Log::warning('PayPal redirect return failed.', [
+                'exception' => $e::class,
+                'message'   => $this->redactProviderMessage($e->getMessage()),
+            ]);
+
+            return $this->redirectWithMessage($request, $this->getFailureRedirectUrl($orderNumber), 'error', trans('Paypal::checkout.failed'));
+        }
+    }
+
+    public function restCancel(Request $request): RedirectResponse
+    {
+        $orderNumber = $this->getOrderNumberFromData($request->all(), $request);
+
+        return $this->redirectWithMessage(
+            $request,
+            $this->getFailureRedirectUrl($orderNumber),
+            'error',
+            trans('Paypal::checkout.cancelled')
+        );
     }
 
     public function nvpCancel(Request $request): RedirectResponse
@@ -517,6 +607,14 @@ class PaypalController
         ];
     }
 
+    private function getRestCheckoutUrls(string $orderNumber): array
+    {
+        return [
+            'return_url' => tenant_operational_route('paypal.rest.return', ['order_number' => $orderNumber]),
+            'cancel_url' => tenant_operational_route('paypal.rest.cancel', ['order_number' => $orderNumber]),
+        ];
+    }
+
     private function getCallbackUrl(string $action, string $orderNumber): string
     {
         return tenant_operational_route('paypal.nvp.' . $action, ['order_number' => $orderNumber]);
@@ -551,7 +649,7 @@ class PaypalController
     private function getFailureRedirectUrl(string $orderNumber): string
     {
         if ($orderNumber !== '') {
-            return shop_route('orders.pay', ['number' => $orderNumber]);
+            return shop_route('orders.pay', ['number' => $orderNumber, 'manual' => 1]);
         }
 
         return shop_route('checkout.index');

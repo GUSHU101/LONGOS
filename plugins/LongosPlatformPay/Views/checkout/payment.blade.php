@@ -275,7 +275,7 @@
     fallback.hidden = true
     setStatus(@json(trans('LongosPlatformPay::common.initializing')))
     try {
-      const data = sessionData = await request(root.dataset.sessionUrl, {order_number:@json($order->number ?? '')})
+      const data = sessionData = await request(root.dataset.sessionUrl, {order_number:@json((string) ($order->number ?? ''))})
       const providers = Array.isArray(data.providers) ? data.providers : []
       if (!providers.length) throw new Error(@json(trans('LongosPlatformPay::common.unavailable')))
       if (providers.includes('paypal')) preconnect('https://www.paypal.com')
