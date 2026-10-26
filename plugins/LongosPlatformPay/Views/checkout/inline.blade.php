@@ -82,7 +82,14 @@
         body:JSON.stringify(body),
       })
       const payload = await response.json().catch(() => null)
-      if (!response.ok || payload?.status !== 'success') throw new Error(payload?.message || messages.failed)
+      if (!response.ok || payload?.status !== 'success') {
+        const message = payload?.message || messages.failed
+        const failure = new Error(message)
+        failure.checkoutMessage = message
+        failure.paymentErrorCode = payload?.data?.error_code || ''
+        failure.paymentReference = payload?.data?.reference || ''
+        throw failure
+      }
       return payload.data || {}
     } catch (error) {
       if (error?.name === 'AbortError') throw new Error(messages.timeout)

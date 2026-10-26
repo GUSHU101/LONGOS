@@ -41,6 +41,9 @@ return [
     'inline_choose'         => 'Choose PayPal or card payment.',
     'card_incomplete'       => 'Complete the card number, expiry date, security code, and postal code.',
     'configuration_changed' => 'Payment settings changed during checkout. Use the secure backup page or reload checkout.',
+    'session_created'       => 'Secure payment session created.',
+    'status_verified'       => 'Payment status verified.',
+    'session_failed'        => 'The secure payment service is temporarily unavailable. Please try again. Reference: :reference',
     'admin'                 => [
         'one_click'                    => 'One-click enablement',
         'platform_collection'          => 'Platform collection',

@@ -26,12 +26,13 @@ class PlatformPaymentSessionService
     ) {}
 
     /** @return array{session: PlatformPaymentSession, token: string, checkout_url: string} */
-    public function create(Site $site, Order $order): array
+    public function create(Site $site, Order $order, ?array $settingsSnapshot = null): array
     {
         if ((bool) data_get($site->meta, 'control_site', false)) {
             throw new RuntimeException('主站不能通过平台代收向自身发起支付。');
         }
-        if ($this->settings->runtimeIssues() !== []) {
+        $settingsSnapshot ??= $this->settings->snapshot();
+        if ($this->settings->runtimeIssuesForSnapshot($settingsSnapshot) !== []) {
             throw new RuntimeException('平台代收当前不可用，请联系平台管理员。');
         }
         $this->assertPayableOrder($order);
@@ -140,7 +141,11 @@ class PlatformPaymentSessionService
             $lock->release();
         }
 
-        return $this->createdPayload($created['session'], $created['token']);
+        return $this->createdPayload(
+            $created['session'],
+            $created['token'],
+            (string) ($settingsSnapshot['control_url'] ?? ''),
+        );
     }
 
     public function resolve(string $token, bool $allowCompleted = true, bool $allowRecoverableExpired = false): PlatformPaymentSession
@@ -413,12 +418,16 @@ class PlatformPaymentSessionService
     }
 
     /** @return array{session: PlatformPaymentSession, token: string, checkout_url: string} */
-    private function createdPayload(PlatformPaymentSession $session, string $token): array
+    private function createdPayload(PlatformPaymentSession $session, string $token, string $controlUrl = ''): array
     {
+        $checkoutUrl = $controlUrl !== ''
+            ? rtrim($controlUrl, '/') . "/_longos/pay/{$token}"
+            : $this->settings->mainUrl("_longos/pay/{$token}");
+
         return [
             'session'      => $session,
             'token'        => $token,
-            'checkout_url' => $this->settings->mainUrl("_longos/pay/{$token}"),
+            'checkout_url' => $checkoutUrl,
         ];
     }
 

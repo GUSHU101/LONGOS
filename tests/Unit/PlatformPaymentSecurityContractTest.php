@@ -124,7 +124,7 @@ class PlatformPaymentSecurityContractTest extends TestCase
         $controller = (string) file_get_contents($root . '/app/Http/Controllers/PlatformPaymentController.php');
 
         self::assertStringContainsString('$this->settings->availableProviders()', $sessions);
-        self::assertStringContainsString('$this->settings->runtimeIssues()', $sessions);
+        self::assertStringContainsString('$this->settings->runtimeIssuesForSnapshot($settingsSnapshot)', $sessions);
         self::assertStringContainsString('$lock->block(10)', $sessions);
         self::assertStringContainsString('catch (LockTimeoutException)', $sessions);
         self::assertStringContainsString('private function isCompletedBy(', $controller);

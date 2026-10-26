@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Console\Commands\SaasUpgrade;
 use App\Saas\Support\DatabaseReadiness;
 use Beike\Exceptions\CartException;
 use Beike\Models\Order;
@@ -45,6 +46,16 @@ class SaasMigrationRoundTripTest extends TestCase
         parent::tearDown();
     }
 
+    public function test_upgrade_discovers_control_migrations_by_database_guard(): void
+    {
+        $method = new \ReflectionMethod(SaasUpgrade::class, 'controlPlaneMigrationFiles');
+        $files  = $method->invoke(new SaasUpgrade);
+        $names  = array_map('basename', $files);
+
+        self::assertContains('2026_10_26_020000_normalize_platform_payment_timestamps_to_utc.php', $names);
+        self::assertContains('2026_10_14_020000_reclassify_external_platform_domains.php', $names);
+    }
+
     public function test_latest_control_plane_migrations_round_trip(): void
     {
         self::assertSame(0, Artisan::call('migrate:fresh', ['--force' => true, '--no-interaction' => true]));
@@ -85,6 +96,7 @@ class SaasMigrationRoundTripTest extends TestCase
         self::assertTrue(Schema::hasColumn('categories', 'auto_assign_keywords'));
         self::assertTrue(Schema::hasColumn('categories', 'auto_assign_brand_ids'));
         DatabaseReadiness::assertMigrated('saas');
+        DatabaseReadiness::assertControlPlaneMigrated('saas');
 
         $roundTripSteps = count(array_filter(
             glob(database_path('migrations/*.php')) ?: [],
@@ -199,6 +211,7 @@ class SaasMigrationRoundTripTest extends TestCase
             json_decode((string) DB::table('order_payments')->where('order_id', 999)->value('response'), true, 512, JSON_THROW_ON_ERROR),
         );
         DatabaseReadiness::assertMigrated('saas');
+        DatabaseReadiness::assertControlPlaneMigrated('saas');
 
         for ($attempt = 1; $attempt <= 2; $attempt++) {
             self::assertSame(0, Artisan::call('db:seed', [

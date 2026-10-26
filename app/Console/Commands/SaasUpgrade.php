@@ -64,6 +64,7 @@ class SaasUpgrade extends Command
 
             $domains->synchronized(function () use ($tenants, $domains, $health, $audit): void {
                 $this->migrateControlPlane();
+                DatabaseReadiness::assertControlPlaneMigrated('saas');
                 $this->assertNoProvisioningInProgress();
 
                 $query = Site::query()
@@ -187,8 +188,12 @@ class SaasUpgrade extends Command
 
     private function migrateControlPlane(): void
     {
-        $files = glob(database_path('migrations/*saas*.php')) ?: [];
-        sort($files, SORT_STRING);
+        // Most control-plane migrations include `saas` in their filename,
+        // but the database guard is the authoritative boundary. Relying on
+        // the filename alone previously skipped the platform-payment UTC
+        // migration, leaving `timestamps_utc` absent in production while the
+        // model attempted to insert it.
+        $files = $this->controlPlaneMigrationFiles();
         if ($files === []) {
             throw new RuntimeException('未找到 SaaS 控制面迁移文件。');
         }
@@ -203,6 +208,27 @@ class SaasUpgrade extends Command
             ], '控制面迁移失败：' . basename($file));
         }
         $this->components->info('控制面迁移完成。');
+    }
+
+    /** @return list<string> */
+    private function controlPlaneMigrationFiles(): array
+    {
+        $files = array_values(array_filter(
+            glob(database_path('migrations/*.php')) ?: [],
+            static function (string $file): bool {
+                if (str_contains(strtolower(basename($file)), 'saas')) {
+                    return true;
+                }
+
+                $source = file_get_contents($file);
+
+                return is_string($source)
+                    && str_contains($source, "DB::getDefaultConnection() === 'tenant'");
+            },
+        ));
+        sort($files, SORT_STRING);
+
+        return $files;
     }
 
     private function assertNoProvisioningInProgress(): void

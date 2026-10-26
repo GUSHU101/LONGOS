@@ -41,6 +41,9 @@ return [
     'inline_choose'         => '请选择 PayPal 或银行卡付款。',
     'card_incomplete'       => '请完整填写卡号、有效期、安全码和邮编。',
     'configuration_changed' => '结账期间支付配置已变更，请使用安全备用支付页或重新加载结账页。',
+    'session_created'       => '安全支付会话已创建。',
+    'status_verified'       => '支付状态已核验。',
+    'session_failed'        => '暂时无法连接平台支付，请稍后重试。参考编号：:reference',
     'admin'                 => [
         'one_click'                    => '一键启用',
         'platform_collection'          => '平台代收',

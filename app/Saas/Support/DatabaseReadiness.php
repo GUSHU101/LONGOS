@@ -38,6 +38,18 @@ final class DatabaseReadiness
     ];
 
     /** @var array<int, string> */
+    private const REQUIRED_CONTROL_TABLES = [
+        'saas_sites',
+        'saas_domains',
+        'saas_platform_payment_sessions',
+    ];
+
+    /** @var array<string, array<int, string>> */
+    private const REQUIRED_CONTROL_COLUMNS = [
+        'saas_platform_payment_sessions' => ['active_key', 'timestamps_utc'],
+    ];
+
+    /** @var array<int, string> */
     private const SEEDED_TABLES = [
         'settings',
         'countries',
@@ -77,6 +89,33 @@ final class DatabaseReadiness
             if ($missingColumns !== []) {
                 throw new RuntimeException(
                     "Database migration completed without required {$table} columns: " . implode(', ', $missingColumns),
+                );
+            }
+        }
+    }
+
+    public static function assertControlPlaneMigrated(?string $connection = 'saas'): void
+    {
+        $schema  = DB::connection($connection)->getSchemaBuilder();
+        $missing = array_values(array_filter(
+            self::REQUIRED_CONTROL_TABLES,
+            static fn (string $table): bool => ! $schema->hasTable($table),
+        ));
+
+        if ($missing !== []) {
+            throw new RuntimeException(
+                'Control-plane migration completed without required tables: ' . implode(', ', $missing),
+            );
+        }
+
+        foreach (self::REQUIRED_CONTROL_COLUMNS as $table => $columns) {
+            $missingColumns = array_values(array_filter(
+                $columns,
+                static fn (string $column): bool => ! $schema->hasColumn($table, $column),
+            ));
+            if ($missingColumns !== []) {
+                throw new RuntimeException(
+                    "Control-plane migration completed without required {$table} columns: " . implode(', ', $missingColumns),
                 );
             }
         }

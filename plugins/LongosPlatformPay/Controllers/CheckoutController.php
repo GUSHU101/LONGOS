@@ -4,14 +4,19 @@ namespace Plugin\LongosPlatformPay\Controllers;
 
 use App\Http\Controllers\PlatformPaymentController;
 use App\Saas\Models\PlatformPaymentSession;
+use App\Saas\Support\SensitiveValueRedactor;
 use App\Services\PlatformPayment\PlatformPaymentAmount;
 use App\Services\PlatformPayment\PlatformPaymentCurrency;
 use App\Services\PlatformPayment\PlatformPaymentSessionService;
 use App\Services\PlatformPayment\PlatformPaymentSettings;
 use Beike\Repositories\OrderRepo;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
+use RuntimeException;
 use Throwable;
 
 class CheckoutController
@@ -21,10 +26,14 @@ class CheckoutController
         PlatformPaymentSessionService $sessions,
         PlatformPaymentSettings $settings,
     ): JsonResponse {
+        $this->useCheckoutLocale();
+        $orderNumber = '';
+
         try {
-            $data     = $request->validate(['order_number' => ['required', 'string', 'max:128']]);
-            $customer = current_customer();
-            $order    = OrderRepo::getOrderByNumber($data['order_number'], $customer);
+            $data        = $request->validate(['order_number' => ['required', 'string', 'max:128']]);
+            $orderNumber = (string) $data['order_number'];
+            $customer    = current_customer();
+            $order       = OrderRepo::getOrderByNumber($orderNumber, $customer);
             if (! $order) {
                 throw new \RuntimeException('订单不存在。');
             }
@@ -39,24 +48,28 @@ class CheckoutController
                 throw new \RuntimeException('当前站点尚未解析。');
             }
 
-            $created   = $sessions->create($site, $order);
-            $session   = $created['session'];
+            // Keep availability, public SDK keys, the persisted session and
+            // the control URL on one immutable credential snapshot. This
+            // avoids a second control-database read after the order session
+            // has already been inserted.
             $snapshot  = $settings->snapshot();
             $providers = $settings->availableProvidersForSnapshot($snapshot);
+            if ($providers === []) {
+                throw new RuntimeException('当前没有可用的平台支付渠道。');
+            }
+
+            $created = $sessions->create($site, $order, $snapshot);
+            $session = $created['session'];
             if ($session->provider) {
                 $configured = $settings->configuredProviders($snapshot);
                 $providers  = in_array($session->provider, $configured, true) ? [$session->provider] : [];
             }
-            if ($providers === []) {
-                throw new \RuntimeException('当前没有可用的平台支付渠道。');
-            }
-
             $token    = $created['token'];
             $decimals = PlatformPaymentCurrency::decimalPlaces((string) $session->currency);
-            $response = json_success('安全支付会话已创建。', [
+            $response = json_success(trans('LongosPlatformPay::common.session_created'), [
                 'token'        => $token,
                 'checkout_url' => $created['checkout_url'],
-                'return_url'   => $settings->mainUrl("_longos/pay/{$token}/return/stripe"),
+                'return_url'   => rtrim((string) $snapshot['control_url'], '/') . "/_longos/pay/{$token}/return/stripe",
                 'providers'    => $providers,
                 'amount'       => [
                     'currency' => (string) $session->currency,
@@ -84,9 +97,22 @@ class CheckoutController
 
             return $response;
         } catch (Throwable $e) {
-            Log::warning('Platform payment session creation failed.', ['exception' => $e::class]);
+            [$errorCode, $httpStatus] = $this->classifySessionFailure($e);
+            $reference                = 'LPP-' . Str::upper(Str::random(10));
+            Log::warning('Platform payment session creation failed.', [
+                'exception'  => $e::class,
+                'reason'     => SensitiveValueRedactor::redact($e->getMessage()),
+                'error_code' => $errorCode,
+                'reference'  => $reference,
+                'site_id'    => current_site()?->id,
+                'order_hash' => $orderNumber !== '' ? hash('sha256', $orderNumber) : null,
+            ]);
 
-            return json_fail('暂时无法连接主站支付，请稍后重试。', [], 422);
+            return json_fail(
+                trans('LongosPlatformPay::common.session_failed', ['reference' => $reference]),
+                ['error_code' => $errorCode, 'reference' => $reference],
+                $httpStatus,
+            );
         }
     }
 
@@ -95,6 +121,7 @@ class CheckoutController
         PlatformPaymentSessionService $sessions,
         PlatformPaymentController $payments,
     ): JsonResponse {
+        $this->useCheckoutLocale();
         $this->assertChildSession($token, $sessions);
 
         return $payments->paypalCreate($token);
@@ -104,10 +131,11 @@ class CheckoutController
         string $token,
         PlatformPaymentSessionService $sessions,
     ): JsonResponse {
+        $this->useCheckoutLocale();
         $session   = $this->assertChildSession($token, $sessions);
         $completed = $session->status === PlatformPaymentSession::STATUS_COMPLETED;
 
-        return json_success('支付状态已核验。', [
+        return json_success(trans('LongosPlatformPay::common.status_verified'), [
             'completed'    => $completed,
             'state'        => (string) $session->status,
             'redirect_url' => $completed ? $sessions->tenantSuccessUrl($session) : null,
@@ -120,6 +148,7 @@ class CheckoutController
         PlatformPaymentSessionService $sessions,
         PlatformPaymentController $payments,
     ): JsonResponse {
+        $this->useCheckoutLocale();
         $this->assertChildSession($token, $sessions);
 
         return $payments->paypalCapture($request, $token);
@@ -130,6 +159,7 @@ class CheckoutController
         PlatformPaymentSessionService $sessions,
         PlatformPaymentController $payments,
     ): JsonResponse {
+        $this->useCheckoutLocale();
         $this->assertChildSession($token, $sessions);
 
         return $payments->stripeIntent($token);
@@ -141,6 +171,7 @@ class CheckoutController
         PlatformPaymentSessionService $sessions,
         PlatformPaymentController $payments,
     ): JsonResponse {
+        $this->useCheckoutLocale();
         $this->assertChildSession($token, $sessions);
 
         return $payments->stripeComplete($request, $token);
@@ -155,5 +186,43 @@ class CheckoutController
         abort_unless((int) $session->site_id === (int) $site->id, 404);
 
         return $session;
+    }
+
+    /** @return array{0: string, 1: int} */
+    private function classifySessionFailure(Throwable $exception): array
+    {
+        if ($exception instanceof ValidationException) {
+            return ['invalid_request', 422];
+        }
+        if ($exception instanceof QueryException) {
+            $message = strtolower($exception->getMessage());
+            if (str_contains($message, 'timestamps_utc') || str_contains($message, 'unknown column')) {
+                return ['control_schema_outdated', 503];
+            }
+
+            return ['control_storage_unavailable', 503];
+        }
+
+        $message = $exception->getMessage();
+        if (str_contains($message, '正在创建') || str_contains($message, '进行中')) {
+            return ['session_busy', 409];
+        }
+        if (str_contains($message, '订单') || str_contains($message, '访客会话')) {
+            return ['order_unavailable', 422];
+        }
+        if (str_contains($message, '站点') || str_contains($message, '子站')) {
+            return ['site_unavailable', 503];
+        }
+        if (str_contains($message, '渠道') || str_contains($message, '主站') || str_contains($message, '平台代收')) {
+            return ['configuration_unavailable', 503];
+        }
+
+        return ['payment_service_unavailable', 503];
+    }
+
+    private function useCheckoutLocale(): void
+    {
+        $locale = trim((string) config('longos.checkout_locale', 'en'));
+        app()->setLocale($locale !== '' ? $locale : 'en');
     }
 }

@@ -102,6 +102,23 @@ class PaymentInitiationFlowTest extends TestCase
         self::assertStringNotContainsString('card_number:', $inline);
         self::assertStringNotContainsString('card_cvc:', $inline);
         self::assertStringContainsString("'stripe' => in_array('stripe', \$providers, true)", $controller);
+        self::assertStringContainsString("config('longos.checkout_locale', 'en')", $controller);
+        self::assertStringContainsString("trans('LongosPlatformPay::common.session_failed'", $controller);
+        self::assertStringNotContainsString('暂时无法连接主站支付', $controller);
+        self::assertStringContainsString('failure.checkoutMessage = message', $inline);
+        self::assertStringContainsString('error?.checkoutMessage', $checkout);
         self::assertStringContainsString('if (event.persisted) window.location.reload()', $checkout);
+    }
+
+    public function test_saas_upgrade_discovers_guarded_control_plane_migrations(): void
+    {
+        $root      = dirname(__DIR__, 2);
+        $upgrade   = (string) file_get_contents($root . '/app/Console/Commands/SaasUpgrade.php');
+        $migration = (string) file_get_contents($root . '/database/migrations/2026_10_26_020000_normalize_platform_payment_timestamps_to_utc.php');
+
+        self::assertStringContainsString("glob(database_path('migrations/*.php'))", $upgrade);
+        self::assertStringContainsString("DB::getDefaultConnection() === 'tenant'", $upgrade);
+        self::assertStringContainsString("DatabaseReadiness::assertControlPlaneMigrated('saas')", $upgrade);
+        self::assertStringContainsString("DB::getDefaultConnection() === 'tenant'", $migration);
     }
 }
