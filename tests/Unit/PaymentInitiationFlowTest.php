@@ -106,8 +106,25 @@ class PaymentInitiationFlowTest extends TestCase
         self::assertStringContainsString("trans('LongosPlatformPay::common.session_failed'", $controller);
         self::assertStringNotContainsString('暂时无法连接主站支付', $controller);
         self::assertStringContainsString('failure.checkoutMessage = message', $inline);
+        self::assertStringContainsString("'orderPaymentUrlTemplate'", $inline);
+        self::assertStringContainsString('recoveryData?.checkout_url || tenantRecoveryUrl', $inline);
         self::assertStringContainsString('error?.checkoutMessage', $checkout);
         self::assertStringContainsString('if (event.persisted) window.location.reload()', $checkout);
+
+        $englishCheckout = require $root . '/lang/en/shop/checkout.php';
+        self::assertStringContainsString('directly from this checkout', $englishCheckout['platform_pay_help']);
+        self::assertStringNotContainsString('main-site payment page', $englishCheckout['platform_pay_help']);
+    }
+
+    public function test_platform_session_public_errors_do_not_expose_control_plane_diagnostics(): void
+    {
+        $controller = new \Plugin\LongosPlatformPay\Controllers\CheckoutController;
+        $method     = new \ReflectionMethod($controller, 'publicErrorCode');
+
+        self::assertSame('payment_service_unavailable', $method->invoke($controller, 'control_schema_outdated'));
+        self::assertSame('payment_service_unavailable', $method->invoke($controller, 'control_storage_unavailable'));
+        self::assertSame('session_busy', $method->invoke($controller, 'session_busy'));
+        self::assertSame('order_unavailable', $method->invoke($controller, 'order_unavailable'));
     }
 
     public function test_saas_upgrade_discovers_guarded_control_plane_migrations(): void

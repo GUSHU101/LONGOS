@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Saas\Models\PlatformPaymentSession;
+use App\Saas\Support\SensitiveValueRedactor;
 use App\Services\PlatformPayment\PlatformPaymentSessionService;
 use App\Services\PlatformPayment\PlatformPaymentSettings;
 use App\Services\PlatformPayment\PlatformPaypalGateway;
@@ -12,6 +13,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
@@ -25,11 +27,16 @@ class PlatformPaymentController extends Controller
 
     public function show(string $token): View|Response
     {
+        $this->useFallbackLocale();
+
         try {
             $session = $this->sessions->resolve($token);
         } catch (Throwable $e) {
-            Log::notice('Platform payment page rejected.', ['exception' => $e::class]);
-            abort(410, '支付链接不存在、已结束或已过期。');
+            Log::notice('Platform payment page rejected.', [
+                'exception' => $e::class,
+                'reason'    => SensitiveValueRedactor::redact($e->getMessage()),
+            ]);
+            abort(410, __('platform_pay.invalid_or_expired'));
         }
 
         App::setLocale($session->locale ?: 'en');
@@ -70,6 +77,7 @@ class PlatformPaymentController extends Controller
 
     public function paypalCreate(string $token): JsonResponse
     {
+        $this->useFallbackLocale();
         $session         = null;
         $providerCreated = false;
 
@@ -81,7 +89,7 @@ class PlatformPaymentController extends Controller
             $providerCreated = true;
             $this->sessions->bindProvider($session, 'paypal', $result['id']);
 
-            return json_success('PayPal order created.', [
+            return json_success(__('platform_pay.status.paypal_created'), [
                 'id'           => $result['id'],
                 'approval_url' => $result['approval_url'],
             ]);
@@ -96,11 +104,14 @@ class PlatformPaymentController extends Controller
 
     public function status(string $token): JsonResponse
     {
+        $this->useFallbackLocale();
+
         try {
             $session   = $this->sessions->resolveProviderResult($token);
+            App::setLocale($session->locale ?: (string) config('longos.checkout_locale', 'en'));
             $completed = $session->status === PlatformPaymentSession::STATUS_COMPLETED;
 
-            return json_success('Payment status verified.', [
+            return json_success(__('platform_pay.status.verified'), [
                 'completed'    => $completed,
                 'state'        => (string) $session->status,
                 'redirect_url' => $completed ? $this->sessions->tenantSuccessUrl($session) : null,
@@ -112,18 +123,20 @@ class PlatformPaymentController extends Controller
 
     public function paypalCapture(Request $request, string $token): JsonResponse
     {
+        $this->useFallbackLocale();
+
         try {
             $data    = $request->validate(['paypal_order_id' => ['required', 'string', 'max:64', 'regex:/^[A-Z0-9]{10,32}$/']]);
             $session = $this->sessions->resolveProviderResult($token);
             App::setLocale($session->locale ?: 'en');
             if ($this->isCompletedBy($session, 'paypal', $data['paypal_order_id'])) {
-                return json_success('Payment already completed.', ['redirect_url' => $this->sessions->tenantSuccessUrl($session)]);
+                return json_success(__('platform_pay.status.already_completed'), ['redirect_url' => $this->sessions->tenantSuccessUrl($session)]);
             }
             $this->sessions->assertProviderBinding($session, 'paypal', $data['paypal_order_id']);
             $result  = app(PlatformPaypalGateway::class)->capture($session, $data['paypal_order_id']);
             $session = $this->sessions->complete($session, 'paypal', $data['paypal_order_id'], $result['transaction_id'], $result['payload']);
 
-            return json_success('Payment completed.', ['redirect_url' => $this->sessions->tenantSuccessUrl($session)]);
+            return json_success(__('platform_pay.status.completed'), ['redirect_url' => $this->sessions->tenantSuccessUrl($session)]);
         } catch (Throwable $e) {
             return $this->error($e, __('platform_pay.status.paypal_failed'));
         }
@@ -131,6 +144,7 @@ class PlatformPaymentController extends Controller
 
     public function stripeIntent(string $token): JsonResponse
     {
+        $this->useFallbackLocale();
         $session         = null;
         $providerCreated = false;
 
@@ -142,7 +156,7 @@ class PlatformPaymentController extends Controller
             $providerCreated = true;
             $this->sessions->bindProvider($session, 'stripe', $result['id']);
 
-            return json_success('Stripe PaymentIntent created.', $result);
+            return json_success(__('platform_pay.status.stripe_created'), $result);
         } catch (Throwable $e) {
             if ($session instanceof PlatformPaymentSession && ! $providerCreated) {
                 $this->releaseClaim($session, 'stripe');
@@ -154,18 +168,20 @@ class PlatformPaymentController extends Controller
 
     public function stripeComplete(Request $request, string $token): JsonResponse
     {
+        $this->useFallbackLocale();
+
         try {
             $data    = $request->validate(['payment_intent_id' => ['required', 'string', 'max:160', 'regex:/^pi_[A-Za-z0-9_]{8,128}$/']]);
             $session = $this->sessions->resolveProviderResult($token);
             App::setLocale($session->locale ?: 'en');
             if ($this->isCompletedBy($session, 'stripe', $data['payment_intent_id'])) {
-                return json_success('Payment already completed.', ['redirect_url' => $this->sessions->tenantSuccessUrl($session)]);
+                return json_success(__('platform_pay.status.already_completed'), ['redirect_url' => $this->sessions->tenantSuccessUrl($session)]);
             }
             $this->sessions->assertProviderBinding($session, 'stripe', $data['payment_intent_id']);
             $result  = app(PlatformStripeGateway::class)->confirm($session, $data['payment_intent_id']);
             $session = $this->sessions->complete($session, 'stripe', $data['payment_intent_id'], $result['transaction_id'], $result['payload']);
 
-            return json_success('Payment completed.', ['redirect_url' => $this->sessions->tenantSuccessUrl($session)]);
+            return json_success(__('platform_pay.status.completed'), ['redirect_url' => $this->sessions->tenantSuccessUrl($session)]);
         } catch (Throwable $e) {
             return $this->error($e, __('platform_pay.status.stripe_failed'));
         }
@@ -173,6 +189,7 @@ class PlatformPaymentController extends Controller
 
     public function providerReturn(Request $request, string $token, string $provider): RedirectResponse
     {
+        $this->useFallbackLocale();
         $session = null;
 
         try {
@@ -196,9 +213,13 @@ class PlatformPaymentController extends Controller
 
             return redirect()->away($this->sessions->tenantSuccessUrl($session));
         } catch (Throwable $e) {
-            Log::warning('Platform payment provider return failed.', ['provider' => $provider, 'exception' => $e::class]);
+            Log::warning('Platform payment provider return failed.', [
+                'provider'  => $provider,
+                'exception' => $e::class,
+                'reason'    => SensitiveValueRedactor::redact($e->getMessage()),
+            ]);
             if (! $session instanceof PlatformPaymentSession) {
-                abort(410, '支付链接不存在、已结束或已过期。');
+                abort(410, __('platform_pay.invalid_or_expired'));
             }
 
             return redirect()->away($this->sessions->tenantRecoveryUrl($session, 'error'));
@@ -207,11 +228,16 @@ class PlatformPaymentController extends Controller
 
     public function cancel(string $token): RedirectResponse
     {
+        $this->useFallbackLocale();
+
         try {
             $session = $this->sessions->resolve($token);
         } catch (Throwable $e) {
-            Log::notice('Platform payment cancellation rejected.', ['exception' => $e::class]);
-            abort(410, '支付链接不存在、已结束或已过期。');
+            Log::notice('Platform payment cancellation rejected.', [
+                'exception' => $e::class,
+                'reason'    => SensitiveValueRedactor::redact($e->getMessage()),
+            ]);
+            abort(410, __('platform_pay.invalid_or_expired'));
         }
         if ($session->status === PlatformPaymentSession::STATUS_COMPLETED) {
             return redirect()->away($this->sessions->tenantSuccessUrl($session));
@@ -223,9 +249,21 @@ class PlatformPaymentController extends Controller
 
     private function error(Throwable $e, string $message): JsonResponse
     {
-        Log::warning($message, ['exception' => $e::class]);
+        $reference = 'LPP-' . Str::upper(Str::random(10));
+        Log::warning('Platform payment provider request failed.', [
+            'exception' => $e::class,
+            'reason'    => SensitiveValueRedactor::redact($e->getMessage()),
+            'reference' => $reference,
+        ]);
 
-        return json_fail($message, [], 422);
+        return json_fail(
+            __('platform_pay.status.failed_with_reference', [
+                'message'   => $message,
+                'reference' => $reference,
+            ]),
+            ['error_code' => 'provider_request_failed', 'reference' => $reference],
+            422,
+        );
     }
 
     private function releaseClaim(PlatformPaymentSession $session, string $provider): void
@@ -236,6 +274,7 @@ class PlatformPaymentController extends Controller
             Log::warning('Platform payment provider claim could not be released.', [
                 'provider'  => $provider,
                 'exception' => $exception::class,
+                'reason'    => SensitiveValueRedactor::redact($exception->getMessage()),
             ]);
         }
     }
@@ -246,5 +285,11 @@ class PlatformPaymentController extends Controller
             && $providerOrderId !== ''
             && hash_equals((string) $session->provider, $provider)
             && hash_equals((string) $session->provider_order_id, $providerOrderId);
+    }
+
+    private function useFallbackLocale(): void
+    {
+        $locale = trim((string) config('longos.checkout_locale', 'en'));
+        App::setLocale($locale !== '' ? $locale : 'en');
     }
 }

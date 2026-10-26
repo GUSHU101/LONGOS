@@ -185,7 +185,23 @@ class PlatformPaymentSettings
             return [$e->getMessage()];
         }
 
-        return $this->runtimeIssuesForSnapshot($settings, $requirePlatformEnabled);
+        $issues = $this->runtimeIssuesForSnapshot($settings, $requirePlatformEnabled);
+        if ($issues !== []) {
+            return $issues;
+        }
+
+        try {
+            $schema = Schema::connection('saas');
+            if (! $schema->hasTable('saas_platform_payment_sessions')
+                || ! $schema->hasColumn('saas_platform_payment_sessions', 'active_key')
+                || ! $schema->hasColumn('saas_platform_payment_sessions', 'timestamps_utc')) {
+                return ['LONGOS 平台支付控制库尚未完成升级。'];
+            }
+        } catch (\Throwable $e) {
+            return [$e->getMessage()];
+        }
+
+        return [];
     }
 
     /** @param array<string, mixed> $settings @return list<string> */

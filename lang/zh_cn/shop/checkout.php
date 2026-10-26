@@ -87,7 +87,7 @@ return [
     'platform_paypal'            => 'PayPal',
     'platform_card'              => '信用卡或借记卡',
     'platform_paypal_card'       => 'PayPal 或信用卡/借记卡',
-    'platform_pay_help'          => '继续前往主站安全支付页选择已开放的付款方式，验证成功后将自动返回本店。',
+    'platform_pay_help'          => '直接在当前结账页启动付款。PayPal 会打开官方授权页，银行卡信息仅安全发送给 Stripe。',
     'accepted_payment_methods'   => '支持的付款方式',
     'platform_pay_cancelled'     => '付款已取消，订单仍已保存，您可以准备好后重新支付。',
     'platform_pay_error'         => '暂时无法确认付款结果。重新支付前请先检查支付账户；验证完成后刷新本页即可查看最新订单状态。',

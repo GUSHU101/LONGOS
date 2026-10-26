@@ -317,6 +317,6 @@ class PlatformPaypalGateway
 
     private function decimals(string $currency): int
     {
-        return in_array($currency, ['HUF', 'JPY', 'TWD'], true) ? 0 : 2;
+        return PlatformPaymentCurrency::decimalPlaces($currency);
     }
 }

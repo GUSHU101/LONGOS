@@ -110,7 +110,7 @@ class CheckoutController
 
             return json_fail(
                 trans('LongosPlatformPay::common.session_failed', ['reference' => $reference]),
-                ['error_code' => $errorCode, 'reference' => $reference],
+                ['error_code' => $this->publicErrorCode($errorCode), 'reference' => $reference],
                 $httpStatus,
             );
         }
@@ -224,5 +224,15 @@ class CheckoutController
     {
         $locale = trim((string) config('longos.checkout_locale', 'en'));
         app()->setLocale($locale !== '' ? $locale : 'en');
+    }
+
+    private function publicErrorCode(string $diagnosticCode): string
+    {
+        return match ($diagnosticCode) {
+            'invalid_request'   => 'invalid_request',
+            'order_unavailable' => 'order_unavailable',
+            'session_busy'      => 'session_busy',
+            default             => 'payment_service_unavailable',
+        };
     }
 }

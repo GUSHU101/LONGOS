@@ -128,7 +128,9 @@ class PlatformPaymentSecurityContractTest extends TestCase
         self::assertStringContainsString('$lock->block(10)', $sessions);
         self::assertStringContainsString('catch (LockTimeoutException)', $sessions);
         self::assertStringContainsString('private function isCompletedBy(', $controller);
-        self::assertStringContainsString("json_success('Payment already completed.'", $controller);
+        self::assertStringContainsString("__('platform_pay.status.already_completed')", $controller);
+        self::assertStringContainsString('SensitiveValueRedactor::redact($e->getMessage())', $controller);
+        self::assertStringContainsString("'error_code' => 'provider_request_failed'", $controller);
         self::assertStringContainsString('if (! $session instanceof PlatformPaymentSession)', $controller);
     }
 
@@ -140,8 +142,10 @@ class PlatformPaymentSecurityContractTest extends TestCase
 
         self::assertStringContainsString('public function runtimeIssues(', $settings);
         self::assertStringContainsString('availableProvidersForSnapshot($settings, false)', $settings);
+        self::assertStringContainsString("hasColumn('saas_platform_payment_sessions', 'timestamps_utc')", $settings);
         self::assertStringContainsString('->runtimeIssues(! $controlSite)', $readiness);
         self::assertStringContainsString('PlatformPaymentAmount::format(', $view);
+        self::assertStringContainsString('PlatformPaymentCurrency::decimalPlaces(', $view);
         self::assertStringNotContainsString('number_format((float) $session->amount', $view);
     }
 

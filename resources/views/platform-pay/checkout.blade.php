@@ -1,6 +1,6 @@
 <!doctype html>
 @php
-  $paymentDecimals = in_array($session->currency, ['HUF', 'JPY', 'TWD'], true) ? 0 : 2;
+  $paymentDecimals = \App\Services\PlatformPayment\PlatformPaymentCurrency::decimalPlaces((string) $session->currency);
   $paymentAmount = \App\Services\PlatformPayment\PlatformPaymentAmount::format((string) $session->amount, $paymentDecimals);
   $paymentAmountLabel = $session->currency . ' ' . $paymentAmount;
 @endphp

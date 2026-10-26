@@ -50,6 +50,7 @@
     'providers' => $inlineProviders,
     'stripePublishableKey' => $stripePublishableKey,
     'sessionUrl' => route('shop.longos_platform_pay.session', [], false),
+    'orderPaymentUrlTemplate' => shop_route('orders.pay', ['number' => '__ORDER_NUMBER__']),
   ]) !!};
   const messages = {!! \Illuminate\Support\Js::from([
     'loading' => trans('LongosPlatformPay::common.inline_loading'),
@@ -65,6 +66,7 @@
   let cardComplete = false
   let stripeSetup = null
   let recoveryData = null
+  let tenantRecoveryUrl = ''
 
   const provider = () => root.querySelector('input[name="longos_platform_inline_provider"]:checked')?.value || ''
   const setStatus = (message, error = false) => {
@@ -147,6 +149,16 @@
     } catch (error) { return false }
   }
   const wait = delay => new Promise(resolve => window.setTimeout(resolve, delay))
+  const orderPaymentUrl = orderNumber => {
+    try {
+      const url = new URL(
+        config.orderPaymentUrlTemplate.replace('__ORDER_NUMBER__', encodeURIComponent(String(orderNumber || ''))),
+        window.location.origin,
+      )
+      url.searchParams.set('type', 'create')
+      return url.toString()
+    } catch (error) { return '' }
+  }
   const recoverCompletion = async data => {
     for (const delay of [0, 1000, 2000]) {
       if (delay) await wait(delay)
@@ -184,6 +196,9 @@
       return true
     },
     async start({orderNumber}) {
+      recoveryData = null
+      tenantRecoveryUrl = orderPaymentUrl(orderNumber)
+      fallback.href = tenantRecoveryUrl || '#'
       fallback.hidden = true
       setStatus(messages.processing)
       const data = recoveryData = await request(config.sessionUrl, {order_number:orderNumber})
@@ -220,7 +235,8 @@
     },
     onError(error) {
       setStatus(error?.response?.data?.message || error?.message || messages.failed, true)
-      if (recoveryData?.checkout_url) { fallback.href = recoveryData.checkout_url; fallback.hidden = false }
+      const recoveryUrl = recoveryData?.checkout_url || tenantRecoveryUrl
+      if (recoveryUrl) { fallback.href = recoveryUrl; fallback.hidden = false }
     },
   }
 

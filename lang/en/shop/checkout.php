@@ -87,7 +87,7 @@ return [
     'platform_paypal'            => 'PayPal',
     'platform_card'              => 'Credit or debit card',
     'platform_paypal_card'       => 'PayPal or credit/debit card',
-    'platform_pay_help'          => 'Continue to the secure main-site payment page, choose an available method, and return here automatically after verification.',
+    'platform_pay_help'          => 'Pay directly from this checkout. PayPal opens its official approval page, while card details are sent securely to Stripe.',
     'accepted_payment_methods'   => 'Accepted payment methods',
     'platform_pay_cancelled'     => 'Payment was cancelled. Your order is still saved and you can retry when ready.',
     'platform_pay_error'         => 'We could not confirm the payment yet. Check your payment account before retrying; refresh this page after verification to see the updated order status.',
