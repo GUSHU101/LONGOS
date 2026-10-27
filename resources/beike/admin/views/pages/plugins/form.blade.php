@@ -114,12 +114,23 @@
               </aside>
             @endif
             @if (($column['type'] ?? '') === 'action')
+              @php
+                $actionUrl = $column['action_url'] ?? '';
+                if ($actionUrl === '' && !empty($column['action_route'])) {
+                  try {
+                    $actionUrl = admin_route($column['action_route'], $column['action_params'] ?? []);
+                  } catch (\Throwable) {
+                    $actionUrl = '';
+                  }
+                }
+              @endphp
               <div class="mb-4">
                 <div class="form-label fw-semibold">{{ $column['label'] }}</div>
                 <button
                   type="button"
                   class="btn btn-outline-primary"
-                  data-plugin-action-url="{{ $column['action_url'] ?? '' }}"
+                  data-plugin-action-url="{{ $actionUrl }}"
+                  data-plugin-action-form="{{ !empty($column['action_form']) ? '1' : '0' }}"
                   data-plugin-action-label="{{ $column['action_label'] ?? $column['label'] }}"
                   data-plugin-action-feedback="{{ $column['action_feedback'] ?? '' }}">{{ $column['action_label'] ?? $column['label'] }}</button>
                 <div id="{{ $column['action_feedback'] ?? '' }}" class="help-text font-size-12 lh-base mt-2" role="status" aria-live="polite"></div>
@@ -356,10 +367,28 @@
       document.querySelectorAll('[data-plugin-action-url]').forEach(button => {
         button.addEventListener('click', async () => {
           const endpoint = button.dataset.pluginActionUrl;
-          if (!endpoint) return;
           const feedback = document.getElementById(button.dataset.pluginActionFeedback || '');
+          if (!endpoint) {
+            if (feedback) {
+              feedback.classList.remove('text-success');
+              feedback.classList.add('text-danger');
+              feedback.textContent = pluginFormMessages.failed;
+            }
+            return;
+          }
           const originalLabel = button.dataset.pluginActionLabel || button.textContent;
           const csrf = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+          const requestPayload = {};
+          if (button.dataset.pluginActionForm === '1') {
+            const form = button.closest('form');
+            if (form) {
+              new FormData(form).forEach((value, key) => {
+                if (key !== '_token' && key !== '_method' && typeof value === 'string') {
+                  requestPayload[key] = value;
+                }
+              });
+            }
+          }
           button.disabled = true;
           button.textContent = pluginFormMessages.processing;
           if (feedback) { feedback.classList.remove('text-danger', 'text-success'); feedback.textContent = pluginFormMessages.sending; }
@@ -368,7 +397,7 @@
               method: 'POST',
               credentials: 'same-origin',
               headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', ...(csrf ? { 'X-CSRF-TOKEN': csrf } : {}) },
-              body: '{}',
+              body: JSON.stringify(requestPayload),
             });
             const payload = await response.json().catch(() => null);
             if (!response.ok || (payload?.success !== true && payload?.status !== 'success')) {

@@ -286,8 +286,17 @@ class PlatformPaymentSettings
         return $issues;
     }
 
-    /** @param array<string, mixed> $fields @param array<string, mixed>|null $base @return array<string, mixed> */
-    private function snapshotWithOverrides(array $fields, ?array $base = null): array
+    /**
+     * Build a transient runtime snapshot from form values without persisting
+     * them. The provider connectivity check uses this to verify exactly what
+     * the operator is looking at. Blank password controls retain their value
+     * from the base snapshot, matching the plugin save contract.
+     *
+     * @param array<string, mixed>      $fields
+     * @param array<string, mixed>|null $base
+     * @return array<string, mixed>
+     */
+    public function snapshotWithOverrides(array $fields, ?array $base = null): array
     {
         $settings = $base ?? $this->snapshot();
         $fields   = PlatformPaymentCredentials::decryptForRuntime($fields);
@@ -303,7 +312,10 @@ class PlatformPaymentSettings
         }
         foreach (['paypal_client_id' => 'client_id', 'paypal_secret' => 'secret', 'paypal_merchant_id' => 'merchant_id'] as $field => $key) {
             if (array_key_exists($field, $fields)) {
-                $value                    = trim((string) $fields[$field]);
+                $value = trim((string) $fields[$field]);
+                if ($field === 'paypal_secret' && $value === '') {
+                    continue;
+                }
                 $settings['paypal'][$key] = $key === 'merchant_id' ? strtoupper($value) : $value;
             }
         }
@@ -312,7 +324,11 @@ class PlatformPaymentSettings
         }
         foreach (['stripe_publishable_key' => 'publishable_key', 'stripe_secret_key' => 'secret_key', 'stripe_webhook_secret' => 'webhook_secret'] as $field => $key) {
             if (array_key_exists($field, $fields)) {
-                $settings['stripe'][$key] = trim((string) $fields[$field]);
+                $value = trim((string) $fields[$field]);
+                if (in_array($field, ['stripe_secret_key', 'stripe_webhook_secret'], true) && $value === '') {
+                    continue;
+                }
+                $settings['stripe'][$key] = $value;
             }
         }
 

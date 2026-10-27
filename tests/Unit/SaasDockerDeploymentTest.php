@@ -242,6 +242,27 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringContainsString("name('longos:scheduler-heartbeat')->everyMinute()", $this->read('app/Console/Kernel.php'));
     }
 
+    public function test_application_runtime_is_built_once_and_shared_by_background_services(): void
+    {
+        $compose = $this->read('docker-compose.yml');
+
+        self::assertSame(1, substr_count($compose, 'dockerfile: docker/nginx/Dockerfile'));
+        self::assertSame(1, substr_count($compose, 'image: "longos-runtime:${COOLIFY_RESOURCE_UUID:-local}"'));
+        self::assertStringContainsString('pull_policy: never', $compose);
+        self::assertMatchesRegularExpression(
+            '/x-app-base: &app-base\R(?:(?!\Rservices:)[\s\S])*?image: "longos-runtime:\$\{COOLIFY_RESOURCE_UUID:-local\}"\R\s+pull_policy: never/',
+            $compose
+        );
+        self::assertMatchesRegularExpression(
+            '/\R  app:\R\s+<<: \*app-base\R(?:\s+#.*\R)*\s+build:\R\s+context: \.\R\s+dockerfile: docker\/nginx\/Dockerfile/',
+            $compose
+        );
+        self::assertDoesNotMatchRegularExpression(
+            '/\R  (?:worker|scheduler):\R\s+<<: \*app-base\R\s+build:/',
+            $compose
+        );
+    }
+
     public function test_public_php_execution_and_health_check_remain_fail_closed(): void
     {
         $nginx      = $this->read('docker/nginx/nginx-site.conf');

@@ -100,7 +100,7 @@ Coolify 解析 Compose 后会自动生成 `SERVICE_*` 凭据。只需手动填�
 
 点击 **Deploy**。正常日志顺序为：
 
-1. 构建 PHP 8.2、锁定的 Composer 生产依赖和 Node 22 前端资源。
+1. 只构建一次 PHP 8.2、锁定的 Composer 生产依赖和 Node 22 前端资源；app、worker 与 scheduler 共用该资源专属镜像，不重复并行构建。
 2. 启动 MySQL 8.4 与内置邮件引擎。
 3. 应用只等待数据库健康，不建立对邮件中继的 Compose 启动依赖；邮件引擎配置错误、重启或暂时不健康都不会阻断商店上线，队列会在引擎恢复后重试。
 4. 自动执行 `longos:install`，创建结构、基础数据、管理员和控制站点。
@@ -189,6 +189,10 @@ Coolify 会分别生成 build-time 和 runtime 环境文件。当管理员邮箱
 ### 构建阶段报 `non-string key in services.app.labels`
 
 请确认部署的 Git 提交已包含列表形式的 `services.app.labels`。Coolify 会追加自身的管理标签；旧版 LONGOS 的映射形式标签与它合并后可能产生 `0`/`1` 数字键，并被 Docker Compose 拒绝。新版已将 Caddy 标签统一为字符串列表；更新到最新 `main` 后直接 Redeploy，无需删除环境变量或数据卷。
+
+### 构建阶段报 `frontend grpc server closed unexpectedly`
+
+这不是 Dockerfile 第 1 行的语法错误，而是 BuildKit 前端进程在构建期间意外退出。旧版 Compose 把同一份应用 `build` 继承给 app、worker 和 scheduler，Compose v2 会并行执行三个完整的 PHP/Composer/Node 构建，可能触发内存压力或 BuildKit 前端异常。新版只由 app 构建一次资源专属的 `longos-runtime` 镜像，worker 与 scheduler 直接复用；更新到包含该修复的最新 `main` 后 Redeploy。若日志中已经只剩 app 和 mail-relay 两个 `Building` 项仍出现同样错误，再检查服务器可用内存、磁盘空间与 Docker daemon 日志并重启 Docker/BuildKit；无需删除 LONGOS 数据卷。
 
 ### 启动阶段报 `docker/mail-relay not found`
 

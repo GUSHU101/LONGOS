@@ -60,7 +60,7 @@ return [
         'runtime_unavailable'          => '当前不可用：无法访问 LONGOS 主站、主域名或中央凭据存储。请检查主站与域名配置后刷新本页。',
         'health_check'                 => '收款连通性检查',
         'health_check_action'          => '立即检查 PayPal / Stripe',
-        'health_check_help'            => '保存设置后执行。检查会直接连接收款服务商验证当前密钥，但不会创建订单或产生扣款。',
+        'health_check_help'            => '可直接检查当前表单中的设置，不会保存设置。检查会连接收款服务商验证密钥，但不会创建订单或产生扣款。',
         'health_paypal_ready'          => 'PayPal 凭据验证成功。',
         'health_paypal_failed'         => 'PayPal 凭据或网络验证失败。',
         'health_paypal_incomplete'     => 'PayPal 共享已开启，但凭据不完整。',

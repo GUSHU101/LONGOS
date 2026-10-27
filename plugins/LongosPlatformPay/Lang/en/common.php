@@ -60,7 +60,7 @@ return [
         'runtime_unavailable'          => 'Unavailable: the LONGOS main site, its primary domain, or the central credential store cannot currently be reached. Verify the control-site and domain configuration, then reload this page.',
         'health_check'                 => 'Provider connectivity check',
         'health_check_action'          => 'Check PayPal / Stripe now',
-        'health_check_help'            => 'Run this after saving. It contacts the payment providers to validate the current credentials without creating an order or charge.',
+        'health_check_help'            => 'Checks the values currently shown in this form without saving them. It contacts the payment providers to validate the credentials without creating an order or charge.',
         'health_paypal_ready'          => 'PayPal credentials were verified.',
         'health_paypal_failed'         => 'PayPal credential or network verification failed.',
         'health_paypal_incomplete'     => 'PayPal sharing is enabled, but its credentials are incomplete.',

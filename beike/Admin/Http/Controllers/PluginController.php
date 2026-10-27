@@ -373,11 +373,17 @@ class PluginController extends Controller
         ];
     }
 
-    public function platformPaymentHealth(PlatformPaymentHealthService $health): JsonResponse
+    public function platformPaymentHealth(Request $request, PlatformPaymentHealthService $health): JsonResponse
     {
         abort_unless((bool) data_get(current_site()?->meta, 'control_site', false), 404);
 
-        $result   = $health->check();
+        $fields = $this->platformPaymentFields($request->all(), true);
+        $fields = array_filter(
+            $fields,
+            static fn (mixed $value): bool => is_scalar($value) || $value === null,
+        );
+
+        $result   = $health->check($fields);
         $messages = array_values(array_filter(array_map(
             static fn (array $provider): string => trim((string) ($provider['message'] ?? '')),
             $result['providers'],

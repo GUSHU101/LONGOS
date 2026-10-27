@@ -2,11 +2,23 @@
 
 namespace App\Services\PlatformPayment;
 
+use Closure;
 use Throwable;
 
 final class PlatformPaymentHealthService
 {
-    public function __construct(private readonly PlatformPaymentSettings $settings) {}
+    /**
+     * Optional probes keep the orchestration independently testable while the
+     * service container uses the real provider gateways in production.
+     *
+     * @param (Closure(array<string, mixed>): void)|null $paypalProbe
+     * @param (Closure(array<string, mixed>): void)|null $stripeProbe
+     */
+    public function __construct(
+        private readonly PlatformPaymentSettings $settings,
+        private readonly ?Closure $paypalProbe = null,
+        private readonly ?Closure $stripeProbe = null,
+    ) {}
 
     /**
      * Verify the credentials against the real provider APIs without creating
@@ -15,10 +27,12 @@ final class PlatformPaymentHealthService
      *
      * @return array{state: string, healthy: bool, providers: array<string, array{state: string, message: string}>}
      */
-    public function check(): array
+    public function check(array $overrides = []): array
     {
         try {
-            $snapshot = $this->settings->snapshot();
+            $snapshot = $overrides === []
+                ? $this->settings->snapshot()
+                : $this->settings->snapshotWithOverrides($overrides);
         } catch (Throwable) {
             return [
                 'state'     => 'unavailable',
@@ -45,9 +59,9 @@ final class PlatformPaymentHealthService
 
             try {
                 if ($provider === 'paypal') {
-                    app(PlatformPaypalGateway::class)->healthCheck();
+                    $this->probePaypal($snapshot);
                 } else {
-                    app(PlatformStripeGateway::class)->healthCheck();
+                    $this->probeStripe($snapshot);
                 }
 
                 $providers[$provider] = [
@@ -69,5 +83,29 @@ final class PlatformPaymentHealthService
             : (in_array('ready', $states, true) ? 'degraded' : 'unavailable');
 
         return compact('state', 'healthy', 'providers');
+    }
+
+    /** @param array<string, mixed> $snapshot */
+    private function probePaypal(array $snapshot): void
+    {
+        if ($this->paypalProbe) {
+            ($this->paypalProbe)($snapshot);
+
+            return;
+        }
+
+        (new PlatformPaypalGateway($this->settings, $snapshot))->healthCheck();
+    }
+
+    /** @param array<string, mixed> $snapshot */
+    private function probeStripe(array $snapshot): void
+    {
+        if ($this->stripeProbe) {
+            ($this->stripeProbe)($snapshot);
+
+            return;
+        }
+
+        (new PlatformStripeGateway($this->settings, $snapshot))->healthCheck();
     }
 }

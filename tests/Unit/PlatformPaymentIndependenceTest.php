@@ -3,12 +3,12 @@
 namespace Tests\Unit;
 
 use App\Saas\Models\Site;
+use App\Saas\TenantManager;
 use App\Services\PlatformPayment\PlatformPaymentCurrency;
 use App\Services\PlatformPayment\PlatformPaymentHealthService;
 use App\Services\PlatformPayment\PlatformPaymentPayload;
 use App\Services\PlatformPayment\PlatformPaymentSettings;
 use App\Services\PlatformPayment\PlatformPaypalGateway;
-use App\Services\PlatformPayment\PlatformStripeGateway;
 use Beike\Admin\Http\Controllers\PluginController;
 use Beike\Plugin\Plugin;
 use Illuminate\Config\Repository;
@@ -40,24 +40,103 @@ class PlatformPaymentIndependenceTest extends TestCase
         ]);
         $settings->method('configuredProviders')->willReturn(['paypal', 'stripe']);
 
-        $paypal = $this->createMock(PlatformPaypalGateway::class);
-        $paypal->expects(self::once())->method('healthCheck');
-        $stripe = $this->createMock(PlatformStripeGateway::class);
-        $stripe->expects(self::once())->method('healthCheck');
-        $container->instance(PlatformPaypalGateway::class, $paypal);
-        $container->instance(PlatformStripeGateway::class, $stripe);
+        $probed = [];
+        $paypal = static function (array $snapshot) use (&$probed): void {
+            $probed[] = ['paypal', $snapshot];
+        };
+        $stripe = static function (array $snapshot) use (&$probed): void {
+            $probed[] = ['stripe', $snapshot];
+        };
 
         try {
-            $result = (new PlatformPaymentHealthService($settings))->check();
+            $result = (new PlatformPaymentHealthService($settings, $paypal, $stripe))->check();
 
             self::assertTrue($result['healthy']);
             self::assertSame('ready', $result['state']);
             self::assertSame(['paypal', 'stripe'], array_keys($result['providers']));
             self::assertSame(['ready', 'ready'], array_column($result['providers'], 'state'));
+            self::assertSame(['paypal', 'stripe'], array_column($probed, 0));
+            self::assertSame($probed[0][1], $probed[1][1]);
             self::assertStringNotContainsString('secret', json_encode($result, JSON_THROW_ON_ERROR));
         } finally {
             Container::setInstance($previous);
         }
+    }
+
+    public function test_provider_health_check_uses_one_transient_form_snapshot(): void
+    {
+        $previous  = Container::getInstance();
+        $container = new Container;
+        Container::setInstance($container);
+        $container->instance('translator', new Translator(new ArrayLoader, 'en'));
+
+        $overrides = [
+            'share_paypal'     => '1',
+            'share_stripe'     => '0',
+            'paypal_client_id' => 'new-client-id',
+            'paypal_secret'    => 'new-secret',
+        ];
+        $snapshot = [
+            'share_paypal' => true,
+            'share_stripe' => false,
+            'paypal'       => ['client_id' => 'new-client-id', 'secret' => 'new-secret'],
+        ];
+        $settings = $this->createMock(PlatformPaymentSettings::class);
+        $settings->expects(self::never())->method('snapshot');
+        $settings->expects(self::once())->method('snapshotWithOverrides')->with($overrides)->willReturn($snapshot);
+        $settings->expects(self::once())->method('configuredProviders')->with($snapshot)->willReturn(['paypal']);
+
+        $probed = null;
+        $paypal = static function (array $candidate) use (&$probed): void {
+            $probed = $candidate;
+        };
+        $stripe = static function (): void {
+            self::fail('A disabled provider must not be probed.');
+        };
+
+        try {
+            $result = (new PlatformPaymentHealthService($settings, $paypal, $stripe))->check($overrides);
+
+            self::assertTrue($result['healthy']);
+            self::assertSame($snapshot, $probed);
+            self::assertSame(['paypal'], array_keys($result['providers']));
+        } finally {
+            Container::setInstance($previous);
+        }
+    }
+
+    public function test_transient_snapshot_preserves_blank_password_controls(): void
+    {
+        $settings = new PlatformPaymentSettings($this->createMock(TenantManager::class));
+        $base     = [
+            'enabled'      => true,
+            'share_paypal' => true,
+            'share_stripe' => true,
+            'paypal'       => [
+                'api_mode' => 'rest', 'mode' => 'sandbox', 'client_id' => 'saved-client',
+                'secret'   => 'saved-paypal-secret', 'merchant_id' => 'SAVEDMERCHANT',
+            ],
+            'stripe' => [
+                'test_mode'  => true, 'publishable_key' => 'pk_test_saved',
+                'secret_key' => 'sk_test_saved-secret', 'webhook_secret' => 'whsec_saved-secret',
+            ],
+        ];
+
+        $snapshot = $settings->snapshotWithOverrides([
+            'paypal_client_id'       => 'new-client',
+            'paypal_secret'          => '',
+            'paypal_merchant_id'     => '',
+            'stripe_publishable_key' => 'pk_test_new',
+            'stripe_secret_key'      => '',
+            'stripe_webhook_secret'  => '',
+        ], $base);
+
+        self::assertSame('new-client', $snapshot['paypal']['client_id']);
+        self::assertSame('saved-paypal-secret', $snapshot['paypal']['secret']);
+        self::assertSame('', $snapshot['paypal']['merchant_id']);
+        self::assertSame('pk_test_new', $snapshot['stripe']['publishable_key']);
+        self::assertSame('sk_test_saved-secret', $snapshot['stripe']['secret_key']);
+        self::assertSame('whsec_saved-secret', $snapshot['stripe']['webhook_secret']);
     }
 
     public function test_platform_settings_surface_saved_runtime_readiness_and_validation_failures(): void
@@ -65,6 +144,7 @@ class PlatformPaymentIndependenceTest extends TestCase
         $root       = dirname(__DIR__, 2);
         $controller = (string) file_get_contents($root . '/beike/Admin/Http/Controllers/PluginController.php');
         $form       = (string) file_get_contents($root . '/resources/beike/admin/views/pages/plugins/form.blade.php');
+        $columns    = (string) file_get_contents($root . '/plugins/LongosPlatformPay/columns.php');
         $english    = require $root . '/plugins/LongosPlatformPay/Lang/en/common.php';
         $chinese    = require $root . '/plugins/LongosPlatformPay/Lang/zh_cn/common.php';
 
@@ -75,6 +155,12 @@ class PlatformPaymentIndependenceTest extends TestCase
         self::assertStringContainsString('$errors->any()', $form);
         self::assertStringContainsString('data-plugin-validation-summary', $form);
         self::assertStringContainsString("payload?.status !== 'success'", $form);
+        self::assertStringContainsString('data-plugin-action-form', $form);
+        self::assertStringContainsString('new FormData(form)', $form);
+        self::assertStringContainsString("key !== '_method'", $form);
+        self::assertStringContainsString("'action_route'     => 'plugins.platform_payment_health'", $columns);
+        self::assertStringContainsString("'action_form'      => true", $columns);
+        self::assertStringNotContainsString("admin_route('plugins.platform_payment_health')", $columns);
         self::assertStringContainsString("['info', 'success', 'warning', 'danger']", $form);
         self::assertStringContainsString("__('admin/plugin.enable_status')", $form);
         self::assertStringNotContainsString("? '启用状态' : '基础设置'", $form);

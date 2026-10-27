@@ -30,15 +30,6 @@ $paypalEnabled  = static fn (): bool => $isEnabled()
     && filter_var(request()->input('share_paypal', false), FILTER_VALIDATE_BOOLEAN);
 $stripeEnabled = static fn (): bool => $isEnabled()
     && filter_var(request()->input('share_stripe', false), FILTER_VALIDATE_BOOLEAN);
-$healthUrl = '';
-
-try {
-    $healthUrl = admin_route('plugins.platform_payment_health');
-} catch (\Throwable) {
-    // Column metadata is also loaded by isolated validation and packaging
-    // commands where the route facade is intentionally unavailable.
-}
-
 return [
     [
         'name'               => 'control_guide',
@@ -55,7 +46,11 @@ return [
         'section_key'      => 'common.admin.runtime_section',
         'type'             => 'action',
         'required'         => false,
-        'action_url'       => $healthUrl,
+        // Plugin columns may be discovered before the admin route collection
+        // is ready. Resolve the named route when the form is rendered instead
+        // of caching an empty URL that leaves a visible but inert button.
+        'action_route'     => 'plugins.platform_payment_health',
+        'action_form'      => true,
         'action_label_key' => 'common.admin.health_check_action',
         'action_feedback'  => 'longos-platform-payment-health-feedback',
         'description_key'  => 'common.admin.health_check_help',

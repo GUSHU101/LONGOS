@@ -173,6 +173,24 @@ jobs:
             /tmp/longos-compose-paths.json
           jq -e '.services["mail-relay"].build.dockerfile == "docker/mail-relay/Dockerfile"' \
             /tmp/longos-compose-paths.json
+          # app, worker and scheduler are processes from one release image.
+          # Building all three independently makes Compose v2 run three heavy
+          # BuildKit graphs in parallel and can terminate the frontend server.
+          jq -e '[.services[] | select(.build.dockerfile? == "docker/nginx/Dockerfile")] | length == 1' \
+            /tmp/longos-compose-paths.json
+          jq -e '.services.app.build.dockerfile == "docker/nginx/Dockerfile"' \
+            /tmp/longos-compose-paths.json
+          jq -e '.services.worker.build == null and .services.scheduler.build == null' \
+            /tmp/longos-compose-paths.json
+          jq -e '[.services.app.image, .services.worker.image, .services.scheduler.image] | unique | length == 1' \
+            /tmp/longos-compose.json
+          jq -e '.services.app.image == "longos-runtime:ci"' /tmp/longos-compose.json
+          jq -e '.services.app.pull_policy == "never" and .services.worker.pull_policy == "never" and .services.scheduler.pull_policy == "never"' \
+            /tmp/longos-compose.json
+          # Coolify runs this pull phase after the build. The local-only
+          # worker/scheduler image must be skipped instead of queried from a
+          # public registry.
+          docker compose pull --ignore-buildable worker scheduler
           jq -e '.services.app.depends_on.mysql.condition == "service_healthy"' /tmp/longos-compose.json
           jq -e '.services.app.depends_on["mail-relay"] == null' /tmp/longos-compose.json
 

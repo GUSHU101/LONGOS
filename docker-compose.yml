@@ -96,9 +96,12 @@ x-app-volumes: &app-volumes
   - mail-relay-dns:/var/lib/longos-mail-dns:ro
 
 x-app-base: &app-base
-  build:
-    context: .
-    dockerfile: docker/nginx/Dockerfile
+  # app, worker and scheduler are three processes from one release artifact.
+  # Give them one resource-scoped local image instead of inheriting `build`:
+  # Compose v2 schedules service builds in parallel, and three copies of the
+  # PHP/Composer/Node build can exhaust or crash the BuildKit frontend.
+  image: "longos-runtime:${COOLIFY_RESOURCE_UUID:-local}"
+  pull_policy: never
   init: true
   restart: unless-stopped
   stop_grace_period: 45s
@@ -113,6 +116,11 @@ services:
   # serves HTTP only on the private Docker network; no host port is published.
   app:
     <<: *app-base
+    # Only app owns the build. worker and scheduler consume this exact image,
+    # so a Coolify build produces the application release once.
+    build:
+      context: .
+      dockerfile: docker/nginx/Dockerfile
     expose:
       - "80"
     environment:

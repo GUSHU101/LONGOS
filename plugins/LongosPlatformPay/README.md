@@ -1,5 +1,11 @@
 # LONGOS Platform Pay
 
+Version 1.8.1 repairs the administration connectivity check. Its endpoint is
+resolved only when the settings form is rendered, the check can safely use the
+current unsaved form values, and PayPal and Stripe are probed from one
+consistent in-memory snapshot. Blank secret controls retain their saved values;
+the check does not persist or return credentials.
+
 Version 1.7.0 starts every available platform channel from the original store
 checkout. PayPal redirects straight to its official approval page, while
 Stripe card details are collected by Stripe Elements before the order is

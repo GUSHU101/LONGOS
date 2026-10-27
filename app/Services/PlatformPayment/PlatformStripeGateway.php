@@ -17,9 +17,12 @@ class PlatformStripeGateway
     /** @var array<string, mixed> */
     private array $settings;
 
-    public function __construct(private readonly PlatformPaymentSettings $platformSettings)
-    {
-        $snapshot       = $platformSettings->snapshot();
+    /** @param array<string, mixed>|null $snapshot */
+    public function __construct(
+        private readonly PlatformPaymentSettings $platformSettings,
+        ?array $snapshot = null,
+    ) {
+        $snapshot       ??= $platformSettings->snapshot();
         $this->settings = $snapshot['stripe'];
         if (! in_array('stripe', $platformSettings->configuredProviders($snapshot), true)) {
             throw new RuntimeException('主站 Stripe 收款尚未配置完整。');
