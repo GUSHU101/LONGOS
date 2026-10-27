@@ -30,6 +30,7 @@ $paypalEnabled  = static fn (): bool => $isEnabled()
     && filter_var(request()->input('share_paypal', false), FILTER_VALIDATE_BOOLEAN);
 $stripeEnabled = static fn (): bool => $isEnabled()
     && filter_var(request()->input('share_stripe', false), FILTER_VALIDATE_BOOLEAN);
+
 return [
     [
         'name'               => 'control_guide',
