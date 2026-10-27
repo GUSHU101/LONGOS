@@ -21,12 +21,17 @@ class StorefrontMediaPresentationTest extends TestCase
         self::assertStringContainsString('aspect-ratio: 4 / 3;', $secondCss);
         self::assertStringContainsString('aspect-ratio: 4 / 5;', $secondCss);
         self::assertStringContainsString('object-fit: contain;', $secondCss);
+        self::assertStringNotContainsString('.has-mobile-image .slide-media', $primaryCss);
+        self::assertStringNotContainsString('.has-mobile-image .slide-media', $secondCss);
+        self::assertStringContainsString('.slide-backdrop-picture', $secondCss);
         self::assertStringContainsString('.slide-media-backdrop', $secondCss);
         self::assertStringContainsString('data-builder-module-code="img_text_slideshow_2"', $secondCss);
         self::assertStringContainsString('.shopify-slideshow__image { height: auto; min-height: 0; object-fit: contain; }', $shopifyCss);
         self::assertStringContainsString('<picture class="slide-picture">', $primary);
+        self::assertStringContainsString('<picture class="slide-backdrop-picture" aria-hidden="true">', $primary);
         self::assertStringContainsString('media="(max-width: 767.98px)"', $primary);
         self::assertStringContainsString('<picture class="slide-picture">', $second);
+        self::assertStringContainsString('<picture class="slide-backdrop-picture" aria-hidden="true">', $second);
         self::assertStringContainsString('$image[\'mobile_image\']', $second);
         self::assertStringContainsString('autoHeight: true', $primary);
         self::assertStringContainsString('autoHeight: true', $second);

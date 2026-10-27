@@ -147,7 +147,7 @@
     z-index: 0;
   }
 
-  .slide-media-backdrop {
+  .slide-backdrop-picture {
     display: none;
   }
 
@@ -182,9 +182,16 @@
       z-index: 0;
     }
 
-    .has-mobile-image .slide-media,
     .is-video .slide-media {
       object-fit: cover;
+    }
+
+    .slide-backdrop-picture {
+      display: block;
+      inset: 0;
+      overflow: hidden;
+      position: absolute;
+      z-index: -1;
     }
 
     .slide-media-backdrop {
@@ -197,7 +204,6 @@
       position: absolute;
       transform: scale(1.06);
       width: calc(100% + 28px);
-      z-index: -1;
     }
 
     .has-slide-copy .image-wrap::after {

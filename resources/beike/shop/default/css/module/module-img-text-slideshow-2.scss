@@ -151,7 +151,7 @@
     z-index: 1;
   }
 
-  .slide-media-backdrop {
+  .slide-backdrop-picture {
     display: none;
   }
 
@@ -257,9 +257,16 @@
       object-fit: contain;
     }
 
-    .has-mobile-image .slide-media,
     .is-video .slide-media {
       object-fit: cover;
+    }
+
+    .slide-backdrop-picture {
+      display: block;
+      inset: 0;
+      overflow: hidden;
+      position: absolute;
+      z-index: 0;
     }
 
     .slide-media-backdrop {

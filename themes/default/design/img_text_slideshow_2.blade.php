@@ -35,9 +35,12 @@
                 @if(!empty($image['image']) && ($image['type'] ?? 'image') === 'video')
                   <video class="slide-media" controls preload="metadata" playsinline @if(!empty($image['image_alt'])) aria-label="{{ $image['image_alt'] }}" @endif><source src="{{ $image['image'] }}"></video>
                 @elseif(!empty($image['image']))
-                  @unless($hasMobileImage)
-                    <img src="{{ $image['image'] }}" loading="lazy" decoding="async" class="slide-media-backdrop" alt="" aria-hidden="true">
-                  @endunless
+                  <picture class="slide-backdrop-picture" aria-hidden="true">
+                    @if($hasMobileImage)
+                      <source media="(max-width: 767.98px)" srcset="{{ $image['mobile_image'] }}">
+                    @endif
+                    <img src="{{ $image['image'] }}" loading="lazy" decoding="async" class="slide-media-backdrop" alt="">
+                  </picture>
                   <picture class="slide-picture">
                     @if($hasMobileImage)
                       <source media="(max-width: 767.98px)" srcset="{{ $image['mobile_image'] }}">
