@@ -804,7 +804,8 @@ class DesignService
                 $moduleData['html'] = self::wrapResponsiveModuleHtml(
                     view($viewPath, $moduleData)->render(),
                     $module['content'] ?? [],
-                    $moduleId
+                    $moduleId,
+                    (string) ($module['code'] ?? '')
                 );
             } catch (\Throwable $exception) {
                 logger()->warning('Skipping an invalid placement design module.', [
@@ -868,7 +869,8 @@ class DesignService
         $moduleData['html'] = self::wrapResponsiveModuleHtml(
             view($viewPath, $moduleData)->render(),
             $rawContent,
-            $moduleId
+            $moduleId,
+            (string) ($module['code'] ?? '')
         );
 
         return $moduleData;
@@ -907,7 +909,7 @@ class DesignService
      * Apply device visibility once around every storefront module, rather than
      * duplicating responsive conditions in every Blade component.
      */
-    public static function wrapResponsiveModuleHtml(string $html, mixed $content, string $moduleId): string
+    public static function wrapResponsiveModuleHtml(string $html, mixed $content, string $moduleId, string $moduleCode = ''): string
     {
         $visibility = is_array($content) && is_array($content['responsive']['visibility'] ?? null)
             ? $content['responsive']['visibility']
@@ -920,6 +922,9 @@ class DesignService
         }
         if ($moduleId !== '') {
             $attributes[] = 'data-builder-module-id="' . e($moduleId) . '"';
+        }
+        if (preg_match('/^[a-z][a-z0-9_-]{0,63}$/', $moduleCode)) {
+            $attributes[] = 'data-builder-module-code="' . e($moduleCode) . '"';
         }
 
         // Layout controls live on the stable wrapper so every native and
@@ -2073,6 +2078,24 @@ class DesignService
             $image['image_path']     = $resolvedImage;
             $image['image_alt']      = self::localizedValue($image['image_alt'] ?? (is_array($imageValue) ? ($imageValue['alt'] ?? '') : ''));
             $image['type']           = preg_match('/\.(?:mp4|webm|ogg)$/i', $mediaPath) ? 'video' : 'image';
+
+            $mobileImageValue = $image['mobile_image'] ?? '';
+            if (is_string($mobileImageValue)) {
+                $mobileImagePath = $mobileImageValue;
+            } elseif (is_array($mobileImageValue) && isset($mobileImageValue['src'])) {
+                $mobileImagePath = is_array($mobileImageValue['src'])
+                    ? ($mobileImageValue['src'][locale()] ?? '')
+                    : $mobileImageValue['src'];
+            } elseif (is_array($mobileImageValue)) {
+                $mobileImagePath = self::localizedValue($mobileImageValue['url'] ?? $mobileImageValue);
+            } else {
+                $mobileImagePath = '';
+            }
+            $resolvedMobileImage   = self::resolveImageSource($mobileImagePath);
+            $mobileMediaPath       = (string) (parse_url($resolvedMobileImage, PHP_URL_PATH) ?? '');
+            $image['mobile_image'] = preg_match('/\.(?:mp4|webm|ogg)$/i', $mobileMediaPath)
+                ? ''
+                : $resolvedMobileImage;
             $image['sub_title']      = self::localizedValue($image['sub_title'] ?? '');
             $image['title']          = self::localizedValue($image['title'] ?? '');
             $image['description']    = self::localizedValue($image['description'] ?? '');

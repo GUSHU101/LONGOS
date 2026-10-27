@@ -134,23 +134,111 @@
     z-index: -2;
   }
 
+  .slide-picture {
+    display: block;
+    height: 100%;
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    z-index: -2;
+  }
+
+  .slide-picture .slide-media {
+    z-index: 0;
+  }
+
+  .slide-media-backdrop {
+    display: none;
+  }
+
   @media (max-width: 767.98px) {
     .image-wrap {
+      aspect-ratio: 4 / 3;
+      background: #e9edf1;
       height: auto;
       transform: none;
     }
 
+    .image-wrap.has-mobile-image {
+      aspect-ratio: 4 / 5;
+    }
+
+    .image-wrap.is-video {
+      aspect-ratio: 16 / 9;
+    }
+
+    .slide-picture {
+      height: 100%;
+      inset: auto;
+      position: relative;
+      z-index: 0;
+    }
+
     .slide-media {
-      height: auto;
+      height: 100%;
       inset: auto;
       object-fit: contain;
-      position: relative;
+      position: absolute;
+      z-index: 0;
+    }
+
+    .has-mobile-image .slide-media,
+    .is-video .slide-media {
+      object-fit: cover;
+    }
+
+    .slide-media-backdrop {
+      display: block;
+      filter: blur(14px) saturate(.72);
+      height: calc(100% + 28px);
+      inset: -14px;
+      object-fit: cover;
+      opacity: .55;
+      position: absolute;
+      transform: scale(1.06);
+      width: calc(100% + 28px);
+      z-index: -1;
+    }
+
+    .has-slide-copy .image-wrap::after {
+      background: linear-gradient(90deg, rgba(9, 13, 20, .62), rgba(9, 13, 20, .08) 78%);
+      content: '';
+      inset: 0;
+      pointer-events: none;
+      position: absolute;
       z-index: 0;
     }
 
     .content-wrap {
       inset: 0;
+      padding-inline: clamp(1rem, 6vw, 1.5rem);
       position: absolute;
+      z-index: 1;
+    }
+
+    .text-wrap {
+      max-width: min(82%, 24rem);
+      padding-block: 1.25rem;
+      text-shadow: 0 1px 14px rgba(0, 0, 0, .32);
+    }
+
+    .swiper-pagination {
+      bottom: .5rem !important;
+    }
+
+    .builder-slideshow-toggle {
+      bottom: .5rem;
+      padding: 0;
+      right: .5rem;
+
+      span {
+        height: 1px;
+        margin: -1px;
+        overflow: hidden;
+        padding: 0;
+        position: absolute;
+        width: 1px;
+      }
     }
 
     .builder-slideshow-placeholder { min-height: 20rem; }

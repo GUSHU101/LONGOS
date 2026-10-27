@@ -140,11 +140,18 @@ $verify(str_contains($responsiveCustomCode['document'], 'img,video,svg,canvas{di
 $emptyNativeCards = DesignService::handleModuleContent('feature_grid', ['items' => [[], ['title' => 'Keep me'], ['image' => 'javascript:alert(1)']]]);
 $verify(count($emptyNativeCards['items']) === 1 && $emptyNativeCards['items'][0]['title'] === 'Keep me', 'Feature-grid did not remove empty or unsafe cards.');
 $nativeSlides = DesignService::handleModuleContent('img_text_slideshow', ['title' => 'Carousel', 'images' => [
-    ['image' => 'javascript:alert(1)'],
+    ['image' => 'javascript:alert(1)', 'mobile_image' => 'javascript:alert(2)'],
     ['image' => 'javascript:alert(1)', 'title' => 'Editable placeholder'],
     ['image' => 'https://cdn.example.com/launch.webm', 'image_alt' => 'Launch video'],
+    ['image' => '/image/catalog/desktop.jpg', 'mobile_image' => '/image/catalog/mobile.jpg', 'title' => 'Responsive art direction'],
 ]]);
-$verify(count($nativeSlides['images']) === 2 && $nativeSlides['images'][0]['image'] === '' && $nativeSlides['images'][0]['image_path'] === '' && $nativeSlides['images'][1]['type'] === 'video', 'Native slideshow did not discard empty unsafe media or normalize supported video media.');
+$verify(count($nativeSlides['images'])            === 3
+    && $nativeSlides['images'][0]['image']        === ''
+    && $nativeSlides['images'][0]['mobile_image'] === ''
+    && $nativeSlides['images'][0]['image_path']   === ''
+    && $nativeSlides['images'][1]['type']         === 'video'
+    && str_ends_with($nativeSlides['images'][2]['mobile_image'], '/image/catalog/mobile.jpg'),
+    'Native slideshow did not discard unsafe media or normalize its responsive desktop and mobile artwork.');
 $sectionLayoutData = DesignService::handleRequestModules(['modules' => [[
     'code'      => 'promo_bar',
     'module_id' => 'section-layout',
@@ -160,8 +167,9 @@ $verify($sectionLayoutData['modules'][0]['content']['anchor']        === 'new-ar
 $verify($sectionLayoutData['modules'][1]['content']['anchor']                        === ''
     && $sectionLayoutData['modules'][1]['content']['section_layout']['spacing_mode'] === 'inherit',
     'Invalid section anchors or spacing modes survived durable-data sanitization.');
-$sectionWrapper = DesignService::wrapResponsiveModuleHtml('<section class="module-item"></section>', $sectionLayoutData['modules'][0]['content'], 'section-layout');
+$sectionWrapper = DesignService::wrapResponsiveModuleHtml('<section class="module-item"></section>', $sectionLayoutData['modules'][0]['content'], 'section-layout', 'promo_bar');
 $verify(str_contains($sectionWrapper, 'id="new-arrivals"')
+    && str_contains($sectionWrapper, 'data-builder-module-code="promo_bar"')
     && str_contains($sectionWrapper, '--builder-section-space-top: 0px')
     && str_contains($sectionWrapper, '--builder-section-space-bottom: 200px'),
     'The shared storefront wrapper did not apply verified section layout controls.');
@@ -362,7 +370,7 @@ $catalogByCode = array_column($nativeCatalog, null, 'code');
 $verify(($catalogByCode['payment_trust']['available_on'] ?? null) === ['product'] && ! in_array('product', $catalogByCode['img_text_slideshow']['available_on'] ?? [], true), 'Native placement constraints allow an incompatible full-width module in the product purchase column.');
 $verify(($catalogByCode['payment_trust']['max_instances'] ?? null) === 1 && ($catalogByCode['img_text_slideshow']['max_instances'] ?? null) === 6, 'Native module instance constraints are missing.');
 $nativeDefaults = array_column($nativeCatalog, 'make', 'code');
-$verify(isset($nativeDefaults['img_text_slideshow']['images'][0]['link'], $nativeDefaults['img_text_slideshow']['scroll_text']) && ($nativeDefaults['img_text_slideshow']['autoplay'] ?? null) === false && ($nativeDefaults['img_text_slideshow']['autoplay_delay'] ?? null) === 5000 && isset($nativeDefaults['tab_product']['tabs'][0]['products']) && array_key_exists('products', $nativeDefaults['product']) && array_key_exists('brands', $nativeDefaults['brand']) && isset($nativeDefaults['icons']['images'][0]['link']) && array_key_exists('items', $nativeDefaults['page']), 'Native Builder modules must retain their renderer-specific default payloads rather than share a generic section shape.');
+$verify(isset($nativeDefaults['img_text_slideshow']['images'][0]['link'], $nativeDefaults['img_text_slideshow']['scroll_text']) && array_key_exists('mobile_image', $nativeDefaults['img_text_slideshow']['images'][0]) && ($nativeDefaults['img_text_slideshow']['autoplay'] ?? null) === false && ($nativeDefaults['img_text_slideshow']['autoplay_delay'] ?? null) === 5000 && isset($nativeDefaults['tab_product']['tabs'][0]['products']) && array_key_exists('products', $nativeDefaults['product']) && array_key_exists('brands', $nativeDefaults['brand']) && isset($nativeDefaults['icons']['images'][0]['link']) && array_key_exists('items', $nativeDefaults['page']), 'Native Builder modules must retain their renderer-specific default payloads rather than share a generic section shape.');
 $verify(($nativeDefaults['promo_bar']['title']['en'] ?? null) === 'Limited-time offer', 'Native Builder defaults must use the storefront language instead of copying Chinese text into English content.');
 $pageRepoSource = (string) file_get_contents(dirname(__DIR__) . '/beike/Admin/Repositories/PageRepo.php');
 $verify(str_contains($pageRepoSource, 'array_unique(array_filter(array_map') && str_contains($pageRepoSource, 'FIELD({$column}') && str_contains($pageRepoSource, 'CASE {$caseWhen}'), 'Manually selected content pages must retain the merchant-defined Builder order on MySQL and PostgreSQL.');

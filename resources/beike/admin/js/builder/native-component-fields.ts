@@ -66,17 +66,18 @@ export const nativeSharedFields = (code: string, ColorField: unknown): Record<st
 export const nativeComponentFields = (code: string, renderers: NativeFieldRenderers): Record<string, unknown> => {
   const link = { type: "custom", label: "跳转链接", render: renderers.StructuredLinkField };
   const image = { type: "custom", label: "图片", render: renderers.MediaField };
+  const mobileImage = { type: "custom", label: "移动端专用图（建议 4:5）", render: renderers.MediaField };
   const cardLink = { type: "custom", label: "卡片链接", render: renderers.StructuredLinkField };
   const productList = (label: string): Record<string, unknown> => ({ type: "custom", label, render: renderers.CommerceField, resourceType: "product", multiple: true, max: 24 });
   const brandList = (label: string): Record<string, unknown> => ({ type: "custom", label, render: renderers.CommerceField, resourceType: "brand", multiple: true, max: 24 });
   const pageList = (label: string): Record<string, unknown> => ({ type: "custom", label, render: renderers.CommerceField, resourceType: "page", multiple: true, max: 24 });
   const imageItemFields = { image, image_alt: text("图片替代文字", "描述图片内容，装饰图可留空", 180), text: text("主文案", "例如：免费配送", 80), sub_text: text("补充文案", "用一句话说明具体权益", 180), link: cardLink };
-  const slideItemFields = { image, image_alt: text("图片替代文字", "描述图片内容，装饰图可留空", 180), sub_title: text("眉题", "例如：本周新品", 80), title: text("标题", "输入轮播主标题", 120), description: area("说明", "补充活动或商品信息", 320, 3), text_position: select("文字位置", [["start", "左侧"], ["center", "居中"], ["end", "右侧"]]), link: cardLink };
+  const slideItemFields = { image, mobile_image: mobileImage, image_alt: text("图片替代文字", "描述图片内容，装饰图可留空", 180), sub_title: text("眉题", "例如：本周新品", 80), title: text("标题", "输入轮播主标题", 120), description: area("说明", "补充活动或商品信息", 320, 3), text_position: select("文字位置", [["start", "左侧"], ["center", "居中"], ["end", "右侧"]]), link: cardLink };
   if (["img_text_slideshow", "img_text_slideshow_2"].includes(code)) return {
     title: text("轮播名称（辅助阅读）", "例如：首页主轮播", 80),
     autoplay: yesNo("自动轮播"),
     autoplay_delay: { type: "number", label: "轮播间隔（毫秒）", min: 2000, max: 15000 },
-    images: itemArray("轮播内容", slideItemFields, 12, { image: "", image_alt: localizedDefault("", ""), sub_title: localizedDefault("", ""), title: localizedDefault("New slide", "新轮播内容"), description: localizedDefault("", ""), text_position: "start", link: { type: "custom", value: "", new_window: false } }, ["title", "sub_title"]),
+    images: itemArray("轮播内容", slideItemFields, 12, { image: "", mobile_image: "", image_alt: localizedDefault("", ""), sub_title: localizedDefault("", ""), title: localizedDefault("New slide", "新轮播内容"), description: localizedDefault("", ""), text_position: "start", link: { type: "custom", value: "", new_window: false } }, ["title", "sub_title"]),
     scroll_text: { type: "object", label: "滚动公告", objectFields: { text: text("公告文字"), bg: { type: "custom", label: "公告背景色", render: renderers.ColorField }, color: { type: "custom", label: "公告文字颜色", render: renderers.ColorField }, font_size: { type: "number", label: "字体大小", min: 12, max: 32 }, padding: { type: "number", label: "上下留白", min: 0, max: 48 } } },
   };
   const commerceGrid = {

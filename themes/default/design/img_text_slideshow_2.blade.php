@@ -3,11 +3,13 @@
 
 @php
   $hasSlides = collect($content['images'] ?? [])->contains(fn ($image) => !empty($image['image']));
+  $slideCount = count($content['images'] ?? []);
+  $moduleSize = $content['module_size'] ?? 'w-100';
 @endphp
 @if($design || $hasSlides)
 <section class="module-item {{ $design ? 'module-item-design' : ''}}" id="module-{{ $module_id }}" @include('design.partials.section_style')>
   <div class="module-info  ">
-    <div class="{{ $content['module_size'] ?? 'w-100' }}">
+    <div class="{{ $moduleSize }}">
       @if ($content['scroll_text']['text'])
         <div class="module-swiper-img-scroll-text-2" style="
           background-color: {{ $content['scroll_text']['bg'] }};
@@ -21,15 +23,27 @@
         </div>
       @endif
 
-      <div class="swiper module-swiper-img-text-{{ $module_id }} module-img-text-slideshow-2 {{ $content['module_size'] ?? 'w-100' }}" aria-roledescription="carousel" aria-label="{{ $content['title'] ?? site_brand_name() }}">
+      <div class="swiper module-swiper-img-text-{{ $module_id }} module-img-text-slideshow-2 {{ $moduleSize !== 'w-100' ? 'is-contained' : '' }} {{ $slideCount > 1 ? 'has-controls' : '' }}" aria-roledescription="carousel" aria-label="{{ $content['title'] ?? site_brand_name() }}">
         <div class="swiper-wrapper">
           @foreach($content['images'] as $image)
-            <div class="swiper-slide">
-              <div class="image-wrap">
+            @php
+              $hasMobileImage = !empty($image['mobile_image']) && ($image['type'] ?? 'image') === 'image';
+              $hasSlideCopy = !empty($image['sub_title']) || !empty($image['title']) || !empty($image['description']) || !empty($image['link']['link']);
+            @endphp
+            <div class="swiper-slide {{ $hasSlideCopy ? 'has-slide-copy' : '' }}">
+              <div class="image-wrap {{ $hasMobileImage ? 'has-mobile-image' : '' }} {{ ($image['type'] ?? 'image') === 'video' ? 'is-video' : '' }}">
                 @if(!empty($image['image']) && ($image['type'] ?? 'image') === 'video')
                   <video class="slide-media" controls preload="metadata" playsinline @if(!empty($image['image_alt'])) aria-label="{{ $image['image_alt'] }}" @endif><source src="{{ $image['image'] }}"></video>
                 @elseif(!empty($image['image']))
-                  <img src="{{ $image['image'] }}" @if ($loop->first) fetchpriority="high" @else loading="lazy" @endif decoding="async" class="slide-media img-fluid" alt="{{ $image['image_alt'] ?? '' }}">
+                  @unless($hasMobileImage)
+                    <img src="{{ $image['image'] }}" loading="lazy" decoding="async" class="slide-media-backdrop" alt="" aria-hidden="true">
+                  @endunless
+                  <picture class="slide-picture">
+                    @if($hasMobileImage)
+                      <source media="(max-width: 767.98px)" srcset="{{ $image['mobile_image'] }}">
+                    @endif
+                    <img src="{{ $image['image'] }}" @if ($loop->first) fetchpriority="high" @else loading="lazy" @endif decoding="async" class="slide-media img-fluid" alt="{{ $image['image_alt'] ?? '' }}">
+                  </picture>
                 @elseif($design)
                   <div class="builder-slideshow-placeholder" aria-hidden="true">{{ __('shop/design.empty.slideshow_media') }}</div>
                 @endif
@@ -55,8 +69,10 @@
             </div>
           @endforeach
         </div>
-        <div class="swiper-pagination slideshow-pagination-{{ $module_id }}"></div>
-        @if (count($content['images']) > 1 && !empty($content['autoplay']))
+        @if($slideCount > 1)
+          <div class="swiper-pagination slideshow-pagination-{{ $module_id }}"></div>
+        @endif
+        @if ($slideCount > 1 && !empty($content['autoplay']))
           <button class="builder-slideshow-toggle" type="button" aria-pressed="false" aria-label="{{ __('common.slideshow_pause') }}">
             <i class="bi bi-pause-fill" aria-hidden="true"></i><span>{{ __('common.slideshow_pause') }}</span>
           </button>
@@ -72,7 +88,7 @@
     if (reduceMotion) autoplayOptions = false;
     var slideshow = null;
     if (typeof Swiper === "function") slideshow = new Swiper ('.module-swiper-img-text-{{ $module_id }}', {
-      loop: {{ count($content['images']) > 1 ? 'true' : 'false' }},
+      loop: {{ $slideCount > 1 ? 'true' : 'false' }},
       autoHeight: true,
       parallax : true,
       pauseOnMouseEnter: true,

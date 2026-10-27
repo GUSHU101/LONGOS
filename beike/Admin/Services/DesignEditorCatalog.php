@@ -356,7 +356,7 @@ class DesignEditorCatalog
                 $make['autoplay']       = false;
                 $make['autoplay_delay'] = 5000;
                 $make['images']         = [[
-                    'image'       => '', 'image_alt' => $text(''), 'sub_title' => $text('新品推荐'), 'title' => $text('添加轮播图片和文案'),
+                    'image'       => '', 'mobile_image' => '', 'image_alt' => $text(''), 'sub_title' => $text('新品推荐'), 'title' => $text('添加轮播图片和文案'),
                     'description' => $text('在右侧添加图片、链接和文字内容。'), 'text_position' => 'start', 'link' => ['type' => 'custom', 'value' => '', 'new_window' => false],
                 ]];
                 $make['scroll_text'] = ['text' => $text(''), 'bg' => '#000000', 'color' => '#FFFFFF', 'font_size' => 14, 'padding' => 10];
