@@ -13,6 +13,7 @@
 namespace Beike\Shop\Http\Controllers;
 
 use App\Saas\Support\SensitiveValueRedactor;
+use App\Services\PlatformPayment\PlatformPaymentSessionService;
 use Beike\Exceptions\CartException;
 use Beike\Models\Order;
 use Beike\Repositories\OrderRepo;
@@ -195,16 +196,26 @@ class CheckoutController extends Controller
             $this->rememberGuestOrderNumber((string) $order->number);
         }
 
-        $notice = match ((string) request('payment_status')) {
+        $paymentStatus = (string) request('payment_status');
+        $notice        = match ($paymentStatus) {
             'cancelled'   => trans('shop/checkout.platform_pay_cancelled'),
             'error'       => trans('shop/checkout.platform_pay_error'),
             'unavailable' => trans('shop/checkout.platform_pay_unavailable'),
             default       => '',
         };
+        $autoRestoreCart = $notice !== ''
+            && (string) $order->status              === StateMachineService::UNPAID
+            && (string) $order->payment_method_code === PlatformPaymentSessionService::PAYMENT_CODE
+            && current_site() !== null;
         $data = hook_filter('account.order.show.data', [
             'order'                  => $order,
             'html_items'             => [],
             'platformPaymentNotice'  => $notice,
+            'autoRestoreCart'        => $autoRestoreCart,
+            'cartRestoreUrl'         => $autoRestoreCart
+                ? shop_route('orders.restore-cart', ['number' => $order->number])
+                : '',
+            'cartUrl'                => shop_route('carts.index'),
         ]);
 
         return view('checkout/success', $data);

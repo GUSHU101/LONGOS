@@ -23,6 +23,12 @@ class PlatformPaymentRecoveryContractTest extends TestCase
         self::assertStringContainsString('recentUnpaidConfirmation()', $checkout);
         self::assertStringContainsString('$platformPaymentNotice', $success);
         self::assertStringContainsString('!empty($platformPaymentNotice) && $paymentRequired', $success);
+        self::assertStringContainsString('cart-restore-status', $success);
+        self::assertStringContainsString('fetch(@json($cartRestoreUrl)', $success);
+        self::assertStringContainsString('new AbortController()', $success);
+        self::assertStringContainsString("retry?.addEventListener('click', restoreCart)", $success);
+        self::assertStringContainsString("'orders.restore-cart'", (string) file_get_contents($root . '/beike/Shop/Routes/shop.php'));
+        self::assertFileExists($root . '/beike/Shop/Services/OrderCartRestoreService.php');
     }
 
     public function test_confirmed_checkout_failures_recover_through_the_saved_unpaid_order(): void

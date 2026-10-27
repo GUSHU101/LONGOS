@@ -9,6 +9,7 @@ use Beike\Models\Order;
 use Beike\Models\OrderPayment;
 use Beike\Repositories\OrderPaymentRepo;
 use Beike\Services\StateMachineService;
+use Closure;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Cache;
@@ -53,6 +54,12 @@ class PlatformPaymentSessionService
         }
 
         try {
+            // The order may have been restored to the cart while this request
+            // waited for the shared order lock. Re-check it before creating a
+            // new charge session so a cancelled order can never be revived.
+            $order->refresh();
+            $this->assertPayableOrder($order);
+
             $created = DB::connection('saas')->transaction(function () use ($site, $order, $amount, $currency, $activeKey): array {
                 $candidates = PlatformPaymentSession::query()
                     ->where('site_id', $site->id)
@@ -392,6 +399,74 @@ class PlatformPaymentSessionService
         }
     }
 
+    /**
+     * Retire charge-free sessions before an unpaid order is cancelled and
+     * restored to its tenant cart. Provider-bound or in-flight sessions are
+     * deliberately rejected because their callbacks may still confirm a
+     * charge after the customer has left the hosted payment page.
+     */
+    public function restoreCartWhenSafe(Site $site, Order $order, Closure $restore): mixed
+    {
+        $activeKey = hash('sha256', $site->id . ':' . $order->id);
+        $lock      = Cache::lock('platform-payment:create:' . $activeKey, 30);
+
+        try {
+            $lock->block(10);
+        } catch (LockTimeoutException) {
+            throw new UnsafeCartRestoreException('订单支付状态正在更新，请稍后重试。');
+        }
+
+        try {
+            $order->refresh();
+            $this->assertCartRestorableOrder($order);
+
+            DB::connection('saas')->transaction(function () use ($site, $order): void {
+                $sessions = PlatformPaymentSession::query()
+                    ->where('site_id', $site->id)
+                    ->where('order_id', $order->id)
+                    ->lockForUpdate()
+                    ->get();
+
+                foreach ($sessions as $session) {
+                    if ($session->status === PlatformPaymentSession::STATUS_COMPLETED) {
+                        throw new UnsafeCartRestoreException('该订单已收到付款，不能恢复到购物车。');
+                    }
+
+                    // A processing claim protects the short interval around
+                    // provider API creation even before a remote id exists.
+                    if ($session->status === PlatformPaymentSession::STATUS_PROCESSING
+                        || $session->isFinanciallyRecoverable()) {
+                        throw new UnsafeCartRestoreException('付款结果仍在核验，暂时不能恢复购物车。');
+                    }
+
+                    if ($session->status === PlatformPaymentSession::STATUS_PENDING) {
+                        if ($session->provider || $session->provider_order_id) {
+                            throw new UnsafeCartRestoreException('付款交易已在创建，暂时不能恢复购物车。');
+                        }
+
+                        $session->forceFill([
+                            'status'     => PlatformPaymentSession::STATUS_CANCELLED,
+                            'active_key' => null,
+                        ])->save();
+
+                        continue;
+                    }
+
+                    if ($session->active_key !== null) {
+                        $session->forceFill(['active_key' => null])->save();
+                    }
+                }
+            }, 3);
+
+            $order->refresh();
+            $this->assertCartRestorableOrder($order);
+
+            return $restore();
+        } finally {
+            $lock->release();
+        }
+    }
+
     public function tenantSuccessUrl(PlatformPaymentSession $session): string
     {
         return $this->tenants->run($session->site, fn (): string => order_checkout_result_url($session->order_number));
@@ -414,6 +489,14 @@ class PlatformPaymentSessionService
         }
         if ((string) $order->status !== StateMachineService::UNPAID) {
             throw new RuntimeException('订单已不再等待付款。');
+        }
+    }
+
+    private function assertCartRestorableOrder(Order $order): void
+    {
+        if ((string) $order->payment_method_code !== self::PAYMENT_CODE
+            || (string) $order->status           !== StateMachineService::UNPAID) {
+            throw new UnsafeCartRestoreException('订单已不再等待付款，不能恢复到购物车。');
         }
     }
 

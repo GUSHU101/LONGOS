@@ -17,6 +17,9 @@
     @if ($errors->has('error'))
       <x-shop-alert type="danger" msg="{{ $errors->first('error') }}" class="mt-4" />
     @endif
+    @if (session('success'))
+      <x-shop-alert type="success" msg="{{ session('success') }}" class="mt-4" />
+    @endif
 
     <div class="cart-progress" aria-label="{{ __('shop/carts.checkout_progress') }}">
       @include('shared.steps', ['steps' => 1])

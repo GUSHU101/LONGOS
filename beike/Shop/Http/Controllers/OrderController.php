@@ -17,6 +17,7 @@ use Beike\Exceptions\CartException;
 use Beike\Models\Order;
 use Beike\Repositories\OrderRepo;
 use Beike\Services\StateMachineService;
+use Beike\Shop\Services\OrderCartRestoreService;
 use Beike\Shop\Services\PaymentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -93,6 +94,60 @@ class OrderController extends Controller
         }
 
         return json_success(trans('shop/account/order.cancelled'));
+    }
+
+    /**
+     * Cancel a charge-free platform order and merge its products back into
+     * the current customer's (or guest session's) cart.
+     */
+    public function restoreCart(Request $request, $number, OrderCartRestoreService $restoreService)
+    {
+        $order = null;
+
+        try {
+            $order = $this->authorizedOrder($request, $number);
+            $site  = current_site();
+            if (! $site) {
+                throw new CartException(trans('shop/checkout.cart_restore_failed'));
+            }
+
+            $result  = $restoreService->restore($site, $order, current_customer());
+            $message = $result['unavailable_quantity'] > 0
+                ? trans('shop/checkout.cart_restored_partial', [
+                    'restored'    => $result['restored_quantity'],
+                    'unavailable' => $result['unavailable_quantity'],
+                ])
+                : trans('shop/checkout.cart_restored', ['count' => $result['restored_quantity']]);
+
+            session()->flash('success', $message);
+
+            if (! $request->expectsJson()) {
+                return redirect(shop_route('carts.index'));
+            }
+
+            return json_success($message, [
+                ...$result,
+                'redirect_url' => shop_route('carts.index'),
+            ]);
+        } catch (CartException $exception) {
+            if (! $request->expectsJson()) {
+                return back()->withErrors(['error' => $exception->getMessage()]);
+            }
+
+            return json_fail($exception->getMessage());
+        } catch (Throwable $exception) {
+            Log::error('Order products could not be restored to the cart.', [
+                'order_id'  => $order?->id,
+                'exception' => $exception::class,
+                'message'   => SensitiveValueRedactor::redact($exception->getMessage()),
+            ]);
+
+            $message = trans('shop/checkout.cart_restore_failed');
+
+            return $request->expectsJson()
+                ? json_fail($message)
+                : back()->withErrors(['error' => $message]);
+        }
     }
 
     /**
