@@ -505,6 +505,7 @@
     const checkoutPaymentBrandsLabel = {!! \Illuminate\Support\Js::from(__('shop/checkout.accepted_payment_methods')) !!};
     window.longosCheckoutPaymentHandlers = window.longosCheckoutPaymentHandlers || {};
     let isSubmittingOrder = false;
+    let confirmedOrderRecoveryUrl = '';
     window.addEventListener('pageshow', (event) => {
       // PayPal and 3DS can return with the checkout restored from the
       // back-forward cache. Reload that frozen snapshot so the submit lock,
@@ -529,6 +530,30 @@
       return typeof responseMessage === 'string' && responseMessage.trim() !== '' ? responseMessage : fallback;
     };
     const checkoutFailure = (message) => Object.assign(new Error(String(message || '')), {checkoutMessage: String(message || '')});
+    const validRecoveryUrl = (value) => {
+      try {
+        const url = new URL(String(value || ''), window.location.origin);
+        return ['http:', 'https:'].includes(url.protocol) ? url.toString() : '';
+      } catch (error) {
+        return '';
+      }
+    };
+    const rememberConfirmedOrder = (response) => {
+      confirmedOrderRecoveryUrl = validRecoveryUrl(response?.payment_recovery_url);
+      if (!confirmedOrderRecoveryUrl) throw checkoutFailure(checkoutMessages.invalidOrderResponse);
+
+      // Replace the now-consumed checkout entry before leaving for PayPal or
+      // 3DS. Browser Back and BFCache reloads will then reopen the saved order
+      // instead of attempting to submit a cart that no longer exists.
+      const recovery = new URL(confirmedOrderRecoveryUrl);
+      if (recovery.origin === window.location.origin) {
+        window.history.replaceState(
+          Object.assign({}, window.history.state || {}, {longosOrderNumber: String(response.number)}),
+          '',
+          recovery.toString(),
+        );
+      }
+    };
     window.showCheckoutError = showCheckoutError;
     window.clearCheckoutError = clearCheckoutError;
     const escapeCheckoutText = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({
@@ -662,6 +687,7 @@
           if (!res || !res.number) {
             throw checkoutFailure(checkoutMessages.invalidOrderResponse);
           }
+          rememberConfirmedOrder(res);
 
           if (paymentHandler && typeof paymentHandler.start === 'function') {
             await paymentHandler.start({orderNumber: String(res.number)});
@@ -675,6 +701,12 @@
         }).catch((error) => {
           if (paymentHandler && typeof paymentHandler.onError === 'function') {
             try { paymentHandler.onError(error); } catch (handlerError) {}
+          }
+          if (confirmedOrderRecoveryUrl) {
+            // The order already exists and owns the selected products. Never
+            // unlock this stale checkout for a second submission.
+            window.location.replace(confirmedOrderRecoveryUrl);
+            return;
           }
           isSubmittingOrder = false;
           $submitButton.html(originalLabel);

@@ -14,7 +14,9 @@ namespace Beike\Shop\Http\Controllers;
 
 use App\Saas\Support\SensitiveValueRedactor;
 use Beike\Exceptions\CartException;
+use Beike\Models\Order;
 use Beike\Repositories\OrderRepo;
+use Beike\Services\StateMachineService;
 use Beike\Shop\Services\CheckoutService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -38,6 +40,11 @@ class CheckoutController extends Controller
             // below and exposing the generic 500 page to the customer.
             return response()->view('checkout', $data);
         } catch (CartException $e) {
+            if ($e->getMessage() === trans('shop/carts.empty_selected_products')
+                && ($order = $this->recentUnpaidConfirmation())) {
+                return redirect(order_checkout_result_url($order, 'error'));
+            }
+
             return redirect(shop_route('carts.index'))->withErrors(['error' => $e->getMessage()]);
         } catch (Throwable $e) {
             Log::error('Checkout page could not be rendered.', [
@@ -150,19 +157,14 @@ class CheckoutController extends Controller
                     if (! $customer) {
                         $this->rememberGuestOrderNumber((string) $existingOrder->number);
                     }
-                    $existingOrder->setVisible(['number']);
 
-                    return hook_filter('checkout.confirm.data', $existingOrder);
+                    return $this->confirmationResponse($existingOrder);
                 }
             }
 
             $data = (new CheckoutService)->confirm($validated, $checkoutToken);
 
-            // Preserve the Order object for hook compatibility while limiting
-            // the browser response to the only field the checkout needs.
-            $data->setVisible(['number']);
-
-            return hook_filter('checkout.confirm.data', $data);
+            return $this->confirmationResponse($data);
         } catch (CartException $e) {
             return json_fail($e->getMessage());
         } catch (Throwable $e) {
@@ -219,5 +221,51 @@ class CheckoutController extends Controller
         $numbers   = array_values(array_unique(array_map('strval', (array) session('guest_order_numbers', []))));
         $numbers[] = $number;
         session()->put('guest_order_numbers', array_slice(array_values(array_unique($numbers)), -20));
+    }
+
+    /**
+     * Keep the hook-compatible Order response while exposing only the order
+     * number and a signed, same-store recovery destination. Once confirmation
+     * succeeds the cart no longer owns these items, so every later payment
+     * failure must recover through the unpaid order rather than resubmitting
+     * the stale checkout.
+     */
+    private function confirmationResponse(Order $order): mixed
+    {
+        $order->setAttribute('payment_recovery_url', order_checkout_result_url($order, 'error'));
+        $order->setVisible(['number', 'payment_recovery_url']);
+
+        return hook_filter('checkout.confirm.data', $order);
+    }
+
+    /**
+     * A provider or browser-back navigation can reload the old checkout after
+     * its selected rows were converted into an order. Recover only the newest
+     * confirmation belonging to this customer/session, and only while it is
+     * still unpaid; unrelated empty-cart visits continue to the cart page.
+     */
+    private function recentUnpaidConfirmation(): ?Order
+    {
+        $confirmations = array_reverse((array) session('checkout_confirmations', []), true);
+        $customer      = current_customer();
+        $customerId    = (int) ($customer->id ?? 0);
+
+        foreach ($confirmations as $confirmation) {
+            if (! is_array($confirmation)
+                || (int) ($confirmation['customer_id'] ?? -1) !== $customerId
+                || (int) ($confirmation['created_at'] ?? 0) < now()->subDay()->timestamp) {
+                continue;
+            }
+
+            $number = trim((string) ($confirmation['number'] ?? ''));
+            $order  = $number !== '' ? OrderRepo::getOrderByNumber($number, $customer) : null;
+            if (! $order || (! $customer && (int) $order->customer_id !== 0)) {
+                return null;
+            }
+
+            return $order->status === StateMachineService::UNPAID ? $order : null;
+        }
+
+        return null;
     }
 }

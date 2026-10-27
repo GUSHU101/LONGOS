@@ -20,8 +20,23 @@ class PlatformPaymentRecoveryContractTest extends TestCase
         self::assertStringContainsString("tenantRecoveryUrl(\$session, 'cancelled')", $controller);
         self::assertStringNotContainsString("tenantCheckoutUrl(\$session) . '?payment_error=1'", $controller);
         self::assertStringContainsString("request('payment_status')", $checkout);
+        self::assertStringContainsString('recentUnpaidConfirmation()', $checkout);
         self::assertStringContainsString('$platformPaymentNotice', $success);
         self::assertStringContainsString('!empty($platformPaymentNotice) && $paymentRequired', $success);
+    }
+
+    public function test_confirmed_checkout_failures_recover_through_the_saved_unpaid_order(): void
+    {
+        $root       = dirname(__DIR__, 2);
+        $controller = (string) file_get_contents($root . '/beike/Shop/Http/Controllers/CheckoutController.php');
+        $checkout   = (string) file_get_contents($root . '/themes/default/checkout.blade.php');
+
+        self::assertStringContainsString("'payment_recovery_url'", $controller);
+        self::assertStringContainsString("order_checkout_result_url(\$order, 'error')", $controller);
+        self::assertStringContainsString('rememberConfirmedOrder(res)', $checkout);
+        self::assertStringContainsString('window.history.replaceState(', $checkout);
+        self::assertStringContainsString('window.location.replace(confirmedOrderRecoveryUrl)', $checkout);
+        self::assertStringContainsString('if (confirmedOrderRecoveryUrl)', $checkout);
     }
 
     public function test_unavailable_hosted_checkout_has_a_safe_way_back_to_the_order(): void

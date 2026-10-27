@@ -109,6 +109,8 @@ class PaymentInitiationFlowTest extends TestCase
         self::assertStringContainsString("'orderPaymentUrlTemplate'", $inline);
         self::assertStringContainsString('recoveryData?.checkout_url || tenantRecoveryUrl', $inline);
         self::assertStringContainsString('error?.checkoutMessage', $checkout);
+        self::assertStringContainsString('payment_recovery_url', $checkout);
+        self::assertStringContainsString('window.location.replace(confirmedOrderRecoveryUrl)', $checkout);
         self::assertStringContainsString('if (event.persisted) window.location.reload()', $checkout);
 
         $englishCheckout = require $root . '/lang/en/shop/checkout.php';
