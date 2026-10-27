@@ -239,7 +239,7 @@ case "$role" in
     wait_for_application
     refresh_package_manifest
     exec su -s /bin/sh www-data -c \
-      'php artisan queue:work --sleep=3 --tries=5 --backoff=30 --timeout=3300 --max-time=3600'
+      'php -d memory_limit="${PHP_WORKER_MEMORY_LIMIT:-512M}" artisan queue:work --sleep=3 --tries=5 --backoff=30 --timeout=3300 --memory=384 --max-time=3600'
     ;;
   scheduler)
     wait_for_application

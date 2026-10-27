@@ -25,6 +25,10 @@ x-app-environment: &app-environment
   APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Shanghai}
   LOG_CHANNEL: daily
   LOG_LEVEL: ${LOG_LEVEL:-warning}
+  # Image derivatives decode compressed media into large pixel buffers. Keep
+  # the background worker above PHP's 128 MiB CLI default while retaining a
+  # finite ceiling suitable for a small Coolify host.
+  PHP_WORKER_MEMORY_LIMIT: ${PHP_WORKER_MEMORY_LIMIT:-512M}
   LONGOS_DEPLOYMENT_PLATFORM: coolify
   LONGOS_UPDATER_ENABLED: "false"
   LONGOS_PROXY_TOKEN: ${SERVICE_PASSWORD_64_PROXYTOKEN}

@@ -94,7 +94,9 @@ RUN npm run production
 FROM runtime-base AS runtime
 
 ENV APP_ENV=production \
-    APP_DEBUG=false
+    APP_DEBUG=false \
+    HOME=/var/www \
+    XDG_CACHE_HOME=/var/www/.cache
 
 WORKDIR /var/www/html
 
@@ -118,11 +120,13 @@ RUN chmod 0755 /usr/local/bin/longos-entrypoint \
        public/image/catalog \
        public/plugin \
        public/upload \
+       /var/www/.cache/fontconfig \
     && mkdir -p /opt/longos-seed \
     && cp -a plugins /opt/longos-seed/plugins \
     && cp -a public/plugin /opt/longos-seed/public-plugin \
     && find storage bootstrap/cache public/cache public/image/catalog public/plugin public/upload \
-       -type d -exec chmod 0775 {} +
+       -type d -exec chmod 0775 {} + \
+    && chown -R www-data:www-data /var/www/.cache
 
 EXPOSE 80
 

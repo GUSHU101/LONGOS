@@ -11,6 +11,7 @@ class LongosRelayTransportContractTest extends TestCase
     {
         $config     = file_get_contents(dirname(__DIR__, 2) . '/config/mail.php');
         $compose    = file_get_contents(dirname(__DIR__, 2) . '/docker-compose.yml');
+        $envExample = file_get_contents(dirname(__DIR__, 2) . '/.env.example');
         $entrypoint = file_get_contents(dirname(__DIR__, 2) . '/docker/mail-relay/entrypoint.sh');
         $source     = file_get_contents(dirname(__DIR__, 2) . '/beike/Mail/Transport/LongosRelayTransport.php');
         $provider   = file_get_contents(dirname(__DIR__, 2) . '/beike/Shop/Providers/ShopServiceProvider.php');
@@ -28,6 +29,8 @@ class LongosRelayTransportContractTest extends TestCase
         self::assertStringContainsString('MAIL_RELAY_DOMAINS:-${SAAS_BASE_DOMAIN}', $compose);
         self::assertStringContainsString('MAIL_RELAY_DNS_RECORDS_PATH: /var/lib/longos-mail-dns', $compose);
         self::assertStringContainsString('MAIL_RELAY_MAX_REQUEST_BYTES:-33554432', $compose);
+        self::assertStringContainsString('MAIL_RELAY_MAX_REQUEST_BYTES=33554432', $envExample);
+        self::assertStringNotContainsString('MAIL_RELAY_MAX_REQUEST_BYTES=26214400', $envExample);
         self::assertStringContainsString('mail-relay-dns:/var/lib/longos-mail-dns:ro', $compose);
         self::assertStringContainsString('mail-relay-dns:/var/lib/mail-relay-dns', $compose);
         self::assertStringContainsString('DNS_RECORDS_PATH: /var/lib/mail-relay-dns', $compose);
@@ -46,6 +49,8 @@ class LongosRelayTransportContractTest extends TestCase
         self::assertStringNotContainsString('${RELAY_SHARED_SECRET:?', $entrypoint);
         self::assertStringContainsString('must be different', $entrypoint);
         self::assertStringContainsString('must each contain at least 32 characters', $entrypoint);
+        self::assertStringContainsString('Migrated legacy mail relay request limit from 25 MiB to 32 MiB.', $entrypoint);
+        self::assertStringContainsString('[ "$MAX_REQUEST_BYTES" = "26214400" ]', $entrypoint);
         self::assertStringNotContainsString('eval ', $entrypoint);
         self::assertStringContainsString("sed 's/^[[:space:]]*//; s/[[:space:]]*$//'", $entrypoint);
         self::assertStringContainsString('MAIL_DOMAINS must contain at least one valid signing domain', $entrypoint);

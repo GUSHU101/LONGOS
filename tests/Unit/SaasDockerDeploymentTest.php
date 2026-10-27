@@ -225,6 +225,10 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringContainsString('gosu node:node node /app/src/server.mjs', $relay);
         self::assertStringContainsString('A required mail relay process exited', $relay);
         self::assertStringContainsString('--tries=5 --backoff=30', $this->read('docker/nginx/start.sh'));
+        self::assertStringContainsString('memory_limit="${PHP_WORKER_MEMORY_LIMIT:-512M}"', $this->read('docker/nginx/start.sh'));
+        self::assertStringContainsString('PHP_WORKER_MEMORY_LIMIT: ${PHP_WORKER_MEMORY_LIMIT:-512M}', $compose);
+        self::assertStringContainsString('--memory=384', $this->read('docker/nginx/start.sh'));
+        self::assertStringContainsString('/var/www/.cache/fontconfig', $this->read('docker/nginx/Dockerfile'));
         self::assertStringContainsString('wait_for_healthy worker', $ci);
         self::assertStringContainsString('wait_for_healthy scheduler', $ci);
         self::assertStringContainsString('--network coolify --entrypoint curl', $ci);

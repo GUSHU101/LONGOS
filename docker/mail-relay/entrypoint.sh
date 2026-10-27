@@ -65,6 +65,19 @@ PROCESS_CHECK_INTERVAL_SECONDS="${PROCESS_CHECK_INTERVAL_SECONDS:-5}"
 DNS_RECORDS_PATH="${DNS_RECORDS_PATH:-/var/lib/mail-relay-dns}"
 IDEMPOTENCY_STORE_PATH="${IDEMPOTENCY_STORE_PATH:-/var/lib/mail-relay-state/receipts.jsonl}"
 
+# Coolify persists Compose variables after their defaults change. Releases
+# before the Base64-envelope validation used 25 MiB for a 20 MiB attachment,
+# which makes the hardened API reject its own historical defaults and enter a
+# restart loop. Migrate only that exact legacy pair; custom invalid limits
+# still fail closed in server.mjs with an actionable error.
+MAX_REQUEST_BYTES="${MAX_REQUEST_BYTES:-33554432}"
+MAX_ATTACHMENT_BYTES="${MAX_ATTACHMENT_BYTES:-20971520}"
+if [ "$MAX_REQUEST_BYTES" = "26214400" ] && [ "$MAX_ATTACHMENT_BYTES" = "20971520" ]; then
+  MAX_REQUEST_BYTES=33554432
+  export MAX_REQUEST_BYTES
+  echo "Migrated legacy mail relay request limit from 25 MiB to 32 MiB." >&2
+fi
+
 case "$PROCESS_CHECK_INTERVAL_SECONDS" in
   ''|*[!0-9]*)
     echo "PROCESS_CHECK_INTERVAL_SECONDS must be an integer between 2 and 300" >&2

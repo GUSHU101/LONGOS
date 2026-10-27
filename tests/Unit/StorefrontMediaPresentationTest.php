@@ -73,6 +73,9 @@ class StorefrontMediaPresentationTest extends TestCase
         self::assertStringContainsString("config('queue.default', 'sync') !== 'sync'", $imageService);
         self::assertStringContainsString('implements ShouldBeUnique, ShouldQueue', $job);
         self::assertStringContainsString('resize($this->width, $this->height, true)', $job);
+        self::assertStringContainsString('MAX_SOURCE_PIXELS = 40_000_000', $imageService);
+        self::assertStringContainsString('assertSourceDimensionsAreSafe()', $imageService);
+        self::assertStringContainsString('intdiv(self::MAX_SOURCE_PIXELS, $height)', $imageService);
         self::assertStringContainsString('bool $throwOnFailure = false', $imageService);
         self::assertStringContainsString("'preview' => image_cached_resize(\$image, 800", $detail);
         self::assertStringContainsString("'popup'   => \$origin", $detail);
