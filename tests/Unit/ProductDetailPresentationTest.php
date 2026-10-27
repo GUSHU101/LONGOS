@@ -26,15 +26,16 @@ class ProductDetailPresentationTest extends TestCase
 
     public function test_product_information_assurance_and_images_follow_the_new_contract(): void
     {
-        $root        = dirname(__DIR__, 2);
-        $product     = (string) file_get_contents($root . '/themes/default/product/product.blade.php');
-        $detail      = (string) file_get_contents($root . '/beike/Shop/Http/Resources/ProductDetail.php');
-        $sku         = (string) file_get_contents($root . '/beike/Shop/Http/Resources/SkuDetail.php');
-        $styles      = (string) file_get_contents($root . '/resources/beike/shop/default/css/product-detail-rebuild.scss');
-        $commerce    = (string) file_get_contents($root . '/resources/beike/shop/default/css/longos-commerce.scss');
-        $master      = (string) file_get_contents($root . '/themes/default/layout/master.blade.php');
-        $footer      = (string) file_get_contents($root . '/themes/default/layout/footer.blade.php');
-        $footerStyle = (string) file_get_contents($root . '/resources/beike/shop/default/css/footer-rebuild.scss');
+        $root         = dirname(__DIR__, 2);
+        $product      = (string) file_get_contents($root . '/themes/default/product/product.blade.php');
+        $detail       = (string) file_get_contents($root . '/beike/Shop/Http/Resources/ProductDetail.php');
+        $sku          = (string) file_get_contents($root . '/beike/Shop/Http/Resources/SkuDetail.php');
+        $styles       = (string) file_get_contents($root . '/resources/beike/shop/default/css/product-detail-rebuild.scss');
+        $commerce     = (string) file_get_contents($root . '/resources/beike/shop/default/css/longos-commerce.scss');
+        $master       = (string) file_get_contents($root . '/themes/default/layout/master.blade.php');
+        $footer       = (string) file_get_contents($root . '/themes/default/layout/footer.blade.php');
+        $paymentTrust = (string) file_get_contents($root . '/themes/default/design/payment_trust.blade.php');
+        $footerStyle  = (string) file_get_contents($root . '/resources/beike/shop/default/css/footer-rebuild.scss');
 
         $buttonPosition      = strpos($product, 'class="product-btns"');
         $descriptionPosition = strpos($product, 'class="product-description');
@@ -49,7 +50,10 @@ class ProductDetailPresentationTest extends TestCase
         self::assertStringContainsString("__('shop/products.secure_checkout')", $product);
         self::assertStringContainsString("__('shop/products.tracked_delivery')", $product);
         self::assertStringContainsString("__('shop/products.easy_support')", $product);
-        self::assertStringContainsString('FooterRepo::availablePaymentMarks()', $product);
+        self::assertStringContainsString("\$footer_content['bottom']['enabled_payments']", $product);
+        self::assertStringNotContainsString('FooterRepo::availablePaymentMarks()', $product);
+        self::assertStringContainsString("\$footer_content['bottom']['enabled_payments']", $paymentTrust);
+        self::assertStringContainsString('$visiblePaymentMarks', $paymentTrust);
         self::assertStringNotContainsString('<li class="is-paypal" aria-label="PayPal">PayPal</li>', $product);
         self::assertStringContainsString('role="tablist"', $product);
         self::assertStringContainsString('scope="row"', $product);

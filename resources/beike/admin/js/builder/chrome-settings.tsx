@@ -961,6 +961,10 @@ export const ChromeSettings = ({
                             </section>
                             <section className="beike-puck-chrome-section">
                                 <h3>安全付款标识</h3>
+                                <p className="beike-puck-chrome-help">
+                                    仅展示已启用支付渠道可能支持且在此勾选的品牌。PayPal
+                                    卡付款仍取决于商户账户、买家地区、币种与实时资格。
+                                </p>
                                 <label className="beike-puck-chrome-switch">
                                     <input
                                         type="checkbox"

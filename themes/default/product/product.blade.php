@@ -341,9 +341,12 @@
                 'paypal' => ['label' => 'PayPal', 'text' => 'PayPal'],
                 'amex' => ['label' => 'American Express', 'text' => 'AMEX'],
               ];
+              $storefrontPaymentMarks = is_array($footer_content['bottom']['enabled_payments'] ?? null)
+                ? $footer_content['bottom']['enabled_payments']
+                : [];
               $productPaymentMarks = array_values(array_intersect(
                 array_keys($productPaymentLabels),
-                \Beike\Repositories\FooterRepo::availablePaymentMarks(),
+                $storefrontPaymentMarks,
               ));
             @endphp
             @if ($productPaymentMarks !== [])

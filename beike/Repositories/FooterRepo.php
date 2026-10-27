@@ -408,7 +408,10 @@ class FooterRepo
         $available = [];
         foreach ($pluginCodes as $code) {
             if ($code === 'paypal') {
-                $available[] = 'paypal';
+                $available = array_merge(
+                    $available,
+                    PlatformPaymentSettings::paymentMarksForProviders(['paypal'])
+                );
             } elseif ($code === 'stripe') {
                 // The bundled Stripe checkout currently mounts card Elements,
                 // not wallet buttons. Never advertise Apple Pay or Google Pay

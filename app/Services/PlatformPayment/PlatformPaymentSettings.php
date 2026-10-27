@@ -18,6 +18,18 @@ class PlatformPaymentSettings
 
     public const CONFIGURATION_LOCK_SECONDS = 120;
 
+    /**
+     * PayPal Smart Payment Buttons can offer eligible buyers card funding in
+     * addition to the PayPal wallet. These are potential storefront marks:
+     * the merchant must still select a mark in the Builder and PayPal makes
+     * the final buyer/account/currency eligibility decision at checkout.
+     *
+     * @var list<string>
+     */
+    private const PAYPAL_PAYMENT_MARKS = [
+        'paypal', 'visa', 'mastercard', 'amex', 'discover',
+    ];
+
     /** @var list<string> */
     private const STRIPE_PAYMENT_MARKS = [
         'visa', 'mastercard', 'amex', 'discover', 'jcb', 'diners', 'unionpay', 'cartes_bancaires',
@@ -148,7 +160,7 @@ class PlatformPaymentSettings
         foreach ($providers as $provider) {
             $provider = strtolower(trim(is_scalar($provider) ? (string) $provider : ''));
             if ($provider === 'paypal') {
-                $marks[] = 'paypal';
+                $marks = array_merge($marks, self::PAYPAL_PAYMENT_MARKS);
             } elseif ($provider === 'stripe') {
                 $marks = array_merge($marks, self::STRIPE_PAYMENT_MARKS);
             }

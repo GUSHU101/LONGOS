@@ -97,7 +97,10 @@ class PlatformPaymentSecurityContractTest extends TestCase
 
     public function test_hosted_provider_marks_are_shared_by_checkout_and_footer_presentations(): void
     {
-        self::assertSame(['paypal'], PlatformPaymentSettings::paymentMarksForProviders(['paypal']));
+        self::assertSame(
+            ['paypal', 'visa', 'mastercard', 'amex', 'discover'],
+            PlatformPaymentSettings::paymentMarksForProviders(['paypal'])
+        );
         self::assertSame(
             ['paypal', 'visa', 'mastercard', 'amex', 'discover', 'jcb', 'diners', 'unionpay', 'cartes_bancaires'],
             PlatformPaymentSettings::paymentMarksForProviders(['paypal', 'stripe', 'paypal'])
@@ -110,6 +113,7 @@ class PlatformPaymentSecurityContractTest extends TestCase
 
         self::assertStringContainsString("\$method['brand_marks']", $checkout);
         self::assertStringContainsString('paymentMarksForProviders($providers)', $footer);
+        self::assertStringContainsString("paymentMarksForProviders(['paypal'])", $footer);
         self::assertStringContainsString('public static function availablePaymentMarks(): array', $footer);
         self::assertStringContainsString('self::availablePaymentMarks()', $footer);
         self::assertStringContainsString('PAYMENT_MARKS_REQUEST_KEY', $footer);
