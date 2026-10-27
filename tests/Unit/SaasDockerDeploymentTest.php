@@ -236,6 +236,9 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringContainsString('unregistered.example.test', $ci);
         self::assertStringContainsString('dkim_before=', $ci);
         self::assertStringContainsString('test "$dkim_after" = "$dkim_before"', $ci);
+        self::assertStringContainsString('ALTER TABLE saas_platform_payment_sessions DROP COLUMN timestamps_utc', $ci);
+        self::assertStringContainsString("test \"\$repair_state\" = '1:2026-01-01 02:00:00'", $ci);
+        self::assertStringContainsString("test \"\$repair_migration_count\" = '1'", $ci);
         self::assertStringContainsString("name('longos:scheduler-heartbeat')->everyMinute()", $this->read('app/Console/Kernel.php'));
     }
 

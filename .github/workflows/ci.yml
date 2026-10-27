@@ -455,8 +455,32 @@ jobs:
           wait_for_healthy scheduler 60
           docker compose exec -T scheduler test -s storage/framework/scheduler-heartbeat
 
-          # A second web start exercises the persisted-volume sync and the
-          # automatic saas:upgrade path used by every later Coolify deploy.
+          # Reproduce a historical release whose migration row was persisted
+          # even though timestamps_utc was absent. Keep a legacy local-time
+          # payment row in the table so this validates both MySQL DDL repair
+          # and the resumable UTC conversion used by a real Coolify upgrade.
+          repair_migration='2026_10_26_030000_repair_saas_platform_payment_timestamp_marker'
+          docker compose exec -T \
+            -e MYSQL_PWD="${SERVICE_PASSWORD_64_DBPASSWORD}" mysql \
+            mysql -u"${SERVICE_USER_DBUSER}" -D "${DB_DATABASE:-longos}" -e \
+            "ALTER TABLE saas_platform_payment_sessions DROP COLUMN timestamps_utc;
+             DELETE FROM migrations WHERE migration = '${repair_migration}';
+             INSERT INTO saas_platform_payment_sessions (
+               uuid, token_hash, site_id, order_id, order_number, amount,
+               currency, locale, status, provider, expires_at, completed_at,
+               created_at, updated_at
+             )
+             SELECT
+               '32323232-3232-4232-8232-323232323232',
+               REPEAT('a', 64), id, 320032, 'CI-UTC-REPAIR', 32.00000000,
+               'USD', 'en', 'completed', 'paypal',
+               '2026-01-01 13:00:00', '2026-01-01 11:00:00',
+               '2026-01-01 10:00:00', '2026-01-01 11:00:00'
+             FROM saas_sites WHERE code = 'main' LIMIT 1;"
+          docker compose exec -T app rm -f storage/framework/longos-saas-upgrade.fingerprint
+
+          # A second web start now exercises persisted-volume sync and the
+          # exact automatic repair path used by the failed production deploy.
           docker compose restart app
           wait_for_app
           docker compose exec -T app test -f storage/installed
@@ -464,5 +488,16 @@ jobs:
             -H "Host: ${DOMAIN}" http://127.0.0.1/
           docker compose exec -T app curl -fsS -o /dev/null \
             -H "Host: ${DOMAIN}" http://127.0.0.1/admin/login
+          repair_state="$(docker compose exec -T \
+            -e MYSQL_PWD="${SERVICE_PASSWORD_64_DBPASSWORD}" mysql \
+            mysql -u"${SERVICE_USER_DBUSER}" -D "${DB_DATABASE:-longos}" -Nse \
+            "SELECT CONCAT(timestamps_utc, ':', DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s'))
+             FROM saas_platform_payment_sessions WHERE order_number = 'CI-UTC-REPAIR'")"
+          test "$repair_state" = '1:2026-01-01 02:00:00'
+          repair_migration_count="$(docker compose exec -T \
+            -e MYSQL_PWD="${SERVICE_PASSWORD_64_DBPASSWORD}" mysql \
+            mysql -u"${SERVICE_USER_DBUSER}" -D "${DB_DATABASE:-longos}" -Nse \
+            "SELECT COUNT(*) FROM migrations WHERE migration = '${repair_migration}'")"
+          test "$repair_migration_count" = '1'
           test "$(docker inspect --format '{{.State.Running}}' "$(docker compose ps -q worker)")" = "true"
           test "$(docker inspect --format '{{.State.Health.Status}}' "$(docker compose ps -q scheduler)")" = "healthy"

@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Console\Commands\SaasUpgrade;
+use App\Saas\Models\Site;
 use App\Saas\Support\DatabaseReadiness;
 use Beike\Exceptions\CartException;
 use Beike\Models\Order;
@@ -11,6 +12,7 @@ use Beike\Models\ProductSku;
 use Beike\Repositories\OrderPaymentRepo;
 use Beike\Services\StateMachineService;
 use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -53,7 +55,73 @@ class SaasMigrationRoundTripTest extends TestCase
         $names  = array_map('basename', $files);
 
         self::assertContains('2026_10_26_020000_normalize_platform_payment_timestamps_to_utc.php', $names);
+        self::assertContains('2026_10_26_030000_repair_saas_platform_payment_timestamp_marker.php', $names);
         self::assertContains('2026_10_14_020000_reclassify_external_platform_domains.php', $names);
+    }
+
+    public function test_repair_migration_restores_a_recorded_but_incomplete_utc_schema(): void
+    {
+        self::assertSame(0, Artisan::call('migrate:fresh', ['--force' => true, '--no-interaction' => true]));
+
+        $site = Site::query()->create([
+            'uuid'          => '30303030-3030-4030-8030-303030303030',
+            'code'          => 'utc-schema-repair',
+            'name'          => 'UTC Schema Repair',
+            'database_name' => 'utc_schema_repair',
+            'status'        => Site::STATUS_ACTIVE,
+            'locale'        => 'en',
+            'timezone'      => 'Asia/Shanghai',
+            'meta'          => [],
+        ]);
+
+        Schema::table('saas_platform_payment_sessions', static function (Blueprint $table): void {
+            $table->dropColumn('timestamps_utc');
+        });
+        DB::table('saas_platform_payment_sessions')->insert([
+            'uuid'           => '31313131-3131-4131-8131-313131313131',
+            'token_hash'     => str_repeat('9', 64),
+            'active_key'     => null,
+            'site_id'        => $site->id,
+            'order_id'       => 31,
+            'order_number'   => 'REPAIR-31',
+            'amount'         => '31.00000000',
+            'currency'       => 'USD',
+            'locale'         => 'en',
+            'status'         => 'completed',
+            'provider'       => 'paypal',
+            'expires_at'     => '2026-01-01 13:00:00',
+            'completed_at'   => '2026-01-01 11:00:00',
+            'created_at'     => '2026-01-01 10:00:00',
+            'updated_at'     => '2026-01-01 11:00:00',
+        ]);
+
+        $legacy = '2026_10_26_020000_normalize_platform_payment_timestamps_to_utc';
+        $repair = '2026_10_26_030000_repair_saas_platform_payment_timestamp_marker';
+        self::assertTrue(DB::table('migrations')->where('migration', $legacy)->exists());
+        DB::table('migrations')->where('migration', $repair)->delete();
+
+        self::assertSame(0, Artisan::call('migrate', [
+            '--database'       => 'saas',
+            '--path'           => "database/migrations/{$repair}.php",
+            '--force'          => true,
+            '--no-interaction' => true,
+        ]), Artisan::output());
+
+        self::assertTrue(Schema::hasColumn('saas_platform_payment_sessions', 'timestamps_utc'));
+        $stored = DB::table('saas_platform_payment_sessions')->where('order_number', 'REPAIR-31')->first();
+        self::assertSame(1, (int) $stored->timestamps_utc);
+        self::assertSame('2026-01-01 02:00:00', $stored->created_at);
+        self::assertSame('2026-01-01 05:00:00', $stored->expires_at);
+        self::assertSame('2026-01-01 03:00:00', $stored->completed_at);
+        self::assertTrue(DB::table('migrations')->where('migration', $repair)->exists());
+        DatabaseReadiness::assertControlPlaneMigrated('saas');
+
+        $migration = require database_path("migrations/{$repair}.php");
+        $migration->up();
+        self::assertSame(
+            '2026-01-01 02:00:00',
+            DB::table('saas_platform_payment_sessions')->where('order_number', 'REPAIR-31')->value('created_at'),
+        );
     }
 
     public function test_latest_control_plane_migrations_round_trip(): void
