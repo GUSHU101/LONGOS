@@ -89,7 +89,13 @@ footer.longos-footer .longos-footer__social a {
 }
 
 footer.longos-footer .longos-footer__social a:hover { background: var(--footer-panel-hover); border-color: rgba(255,255,255,.28); color: var(--footer-white) !important; transform: translateY(-2px); }
-footer.longos-footer .longos-footer__social img { filter: brightness(0) invert(1); height: 1rem; object-fit: contain; opacity: .85; width: 1rem; }
+footer.longos-footer .longos-footer__social img {
+  filter: none;
+  height: 1.15rem;
+  object-fit: contain;
+  opacity: 1;
+  width: 1.15rem;
+}
 
 footer.longos-footer .longos-footer__protection {
   display: grid;

@@ -26,6 +26,16 @@ class FooterSupportTrackingTest extends TestCase
         self::assertStringContainsString('longos-footer__brand-logo', $footer);
     }
 
+    public function test_uploaded_social_icons_keep_their_original_colours(): void
+    {
+        $styles = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/beike/shop/default/css/footer-rebuild.scss');
+
+        self::assertStringContainsString('.longos-footer__social img', $styles);
+        self::assertStringContainsString('filter: none;', $styles);
+        self::assertStringContainsString('opacity: 1;', $styles);
+        self::assertStringNotContainsString('filter: brightness(0) invert(1)', $styles);
+    }
+
     public function test_contact_dialog_waits_for_the_footer_dom_and_keeps_accessible_focus_behavior(): void
     {
         $root   = dirname(__DIR__, 2);

@@ -52,6 +52,11 @@ class StorefrontMediaPresentationTest extends TestCase
         self::assertStringContainsString('box-shadow: none;', $secondCss);
         self::assertStringContainsString('data-builder-module-code="img_text_slideshow_2"', $secondCss);
         self::assertStringContainsString('--builder-section-space-top: 0;', $secondCss);
+        self::assertStringContainsString('margin-block-start: 0 !important;', $secondCss);
+        self::assertStringContainsString('.has-slide-copy .image-wrap::after { display: none; }', $primaryCss);
+        self::assertStringContainsString('text-shadow: none;', $primaryCss);
+        self::assertStringContainsString('.image-text-wrap {', $secondCss);
+        self::assertStringContainsString('text-shadow: none;', $secondCss);
         self::assertMatchesRegularExpression('/wrapResponsiveModuleHtml\([\s\S]*?\$moduleId,\s*\(string\) \$code\s*\)/', $home);
         self::assertStringContainsString('.shopify-slideshow__image { height: auto; min-height: 0; object-fit: contain; }', $shopifyCss);
         self::assertStringContainsString('<picture class="slide-picture">', $primary);

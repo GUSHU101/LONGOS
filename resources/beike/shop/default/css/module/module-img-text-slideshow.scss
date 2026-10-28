@@ -147,81 +147,6 @@
     z-index: 0;
   }
 
-  @media (max-width: 767.98px) {
-    .image-wrap {
-      aspect-ratio: auto;
-      background: transparent;
-      height: auto;
-      transform: none;
-    }
-
-    .image-wrap.is-video {
-      aspect-ratio: 16 / 9;
-    }
-
-    .slide-picture {
-      height: auto;
-      inset: auto;
-      position: relative;
-      z-index: 0;
-    }
-
-    .slide-media {
-      height: auto;
-      inset: auto;
-      object-fit: contain;
-      position: relative;
-      z-index: 0;
-    }
-
-    .is-video .slide-media {
-      object-fit: cover;
-    }
-
-    .has-slide-copy .image-wrap::after {
-      background: linear-gradient(90deg, rgba(9, 13, 20, .62), rgba(9, 13, 20, .08) 78%);
-      content: '';
-      inset: 0;
-      pointer-events: none;
-      position: absolute;
-      z-index: 0;
-    }
-
-    .content-wrap {
-      inset: 0;
-      padding-inline: clamp(1rem, 6vw, 1.5rem);
-      position: absolute;
-      z-index: 1;
-    }
-
-    .text-wrap {
-      max-width: min(82%, 24rem);
-      padding-block: 1.25rem;
-      text-shadow: 0 1px 14px rgba(0, 0, 0, .32);
-    }
-
-    .swiper-pagination {
-      bottom: .5rem !important;
-    }
-
-    .builder-slideshow-toggle {
-      bottom: .5rem;
-      padding: 0;
-      right: .5rem;
-
-      span {
-        height: 1px;
-        margin: -1px;
-        overflow: hidden;
-        padding: 0;
-        position: absolute;
-        width: 1px;
-      }
-    }
-
-    .builder-slideshow-placeholder { min-height: 20rem; }
-  }
-
   .builder-slideshow-placeholder {
     align-items: center;
     background: linear-gradient(135deg, #eef2f6, #dfe5ec);
@@ -306,6 +231,98 @@
         margin-top: 1.5rem;
       }
     }
+  }
+
+  // Mobile content is intentionally stacked instead of squeezing a landscape
+  // image and its copy into two unreadable half-width flex columns.
+  @media (max-width: 767.98px) {
+    background: #fff;
+
+    .swiper-slide { background: #fff; }
+    &.has-controls .swiper-slide { padding-bottom: 3rem; }
+
+    .image-wrap {
+      align-items: stretch;
+      aspect-ratio: auto;
+      background: #fff;
+      display: block;
+      height: auto;
+      transform: none;
+    }
+
+    .slide-picture {
+      display: block;
+      height: auto;
+      inset: auto;
+      position: relative;
+      width: 100%;
+      z-index: 0;
+    }
+
+    .slide-media {
+      display: block;
+      height: auto;
+      inset: auto;
+      object-fit: contain;
+      position: relative;
+      width: 100%;
+      z-index: 0;
+    }
+
+    .image-wrap.is-video { aspect-ratio: auto; }
+    .is-video .slide-media { aspect-ratio: 16 / 9; object-fit: cover; }
+    .has-slide-copy .image-wrap::after { display: none; }
+
+    .content-wrap,
+    .content-wrap.start,
+    .content-wrap.center,
+    .content-wrap.end {
+      inset: auto;
+      justify-content: flex-start;
+      padding: 0;
+      position: relative;
+      text-align: left;
+      width: 100%;
+      z-index: 1;
+    }
+
+    .text-wrap,
+    .content-wrap.center .text-wrap {
+      color: var(--shop-ink);
+      margin: 0;
+      max-width: none;
+      padding: 1.25rem 1rem 1.5rem;
+      text-shadow: none;
+      width: 100%;
+
+      .sub-title { color: var(--shop-muted); font-size: .75rem; margin-bottom: .5rem; }
+      .title { color: var(--shop-ink); font-size: clamp(1.35rem, 6vw, 1.8rem); line-height: 1.15; margin-bottom: .65rem; }
+      .description { color: var(--shop-muted); font-size: .95rem; line-height: 1.6; margin: 0; }
+      a.btn { margin-top: 1rem; }
+    }
+
+    .swiper-pagination { bottom: .25rem !important; }
+    .swiper-pagination-bullet { background-color: rgba(20, 20, 20, .24); }
+    .swiper-pagination-bullet span { background-color: var(--shop-ink); }
+
+    .builder-slideshow-toggle {
+      background: var(--shop-ink);
+      border-color: var(--shop-ink);
+      bottom: .25rem;
+      padding: 0;
+      right: .5rem;
+
+      span {
+        height: 1px;
+        margin: -1px;
+        overflow: hidden;
+        padding: 0;
+        position: absolute;
+        width: 1px;
+      }
+    }
+
+    .builder-slideshow-placeholder { min-height: 20rem; }
   }
 }
 
