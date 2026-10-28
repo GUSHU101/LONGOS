@@ -23,7 +23,7 @@
     "test:php": "php vendor/bin/phpunit",
     "test:quality": "cross-env APP_ENV=testing php tests/StorePolicyAssertions.php && cross-env APP_ENV=testing php tests/SettingsHardeningAssertions.php && npm run typecheck:builder && npm run test:builder && npm run test:storefront",
     "test:builder": "node --test tests/BuilderEditorAssertions.cjs && cross-env APP_ENV=testing php tests/BuilderCoreAssertions.php && cross-env APP_ENV=testing php tests/BuilderPublishAssertions.php",
-    "test:storefront": "node --test tests/ProductQuantityStepperAssertions.cjs tests/OrderActionsAssertions.cjs"
+    "test:storefront": "node --test tests/ProductQuantityStepperAssertions.cjs tests/OrderActionsAssertions.cjs tests/SlideshowMediaAssertions.cjs"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",

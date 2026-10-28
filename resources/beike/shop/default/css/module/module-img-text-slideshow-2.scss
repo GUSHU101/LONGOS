@@ -248,6 +248,18 @@
       aspect-ratio: 4 / 5;
     }
 
+    .image-wrap[data-mobile-media-shape="landscape"] {
+      aspect-ratio: 4 / 3;
+    }
+
+    .image-wrap[data-mobile-media-shape="square"] {
+      aspect-ratio: 1;
+    }
+
+    .image-wrap[data-mobile-media-shape="portrait"] {
+      aspect-ratio: 4 / 5;
+    }
+
     .image-wrap.is-video {
       aspect-ratio: 16 / 9;
     }

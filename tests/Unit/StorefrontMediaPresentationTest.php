@@ -12,6 +12,8 @@ class StorefrontMediaPresentationTest extends TestCase
         $primaryCss = (string) file_get_contents($root . '/resources/beike/shop/default/css/module/module-img-text-slideshow.scss');
         $secondCss  = (string) file_get_contents($root . '/resources/beike/shop/default/css/module/module-img-text-slideshow-2.scss');
         $shopifyCss = (string) file_get_contents($root . '/resources/beike/shop/default/css/module/module-shopify-sections.scss');
+        $storefront = (string) file_get_contents($root . '/resources/beike/shop/default/js/app.js');
+        $mediaJs    = (string) file_get_contents($root . '/resources/beike/shop/default/js/slideshow-media.js');
         $primary    = (string) file_get_contents($root . '/themes/default/design/img_text_slideshow.blade.php');
         $second     = (string) file_get_contents($root . '/themes/default/design/img_text_slideshow_2.blade.php');
 
@@ -20,6 +22,8 @@ class StorefrontMediaPresentationTest extends TestCase
         self::assertStringContainsString('object-fit: contain;', $primaryCss);
         self::assertStringContainsString('aspect-ratio: 4 / 3;', $secondCss);
         self::assertStringContainsString('aspect-ratio: 4 / 5;', $secondCss);
+        self::assertStringContainsString('data-mobile-media-shape="landscape"', $secondCss);
+        self::assertStringContainsString('data-mobile-media-shape="square"', $secondCss);
         self::assertStringContainsString('object-fit: contain;', $secondCss);
         self::assertStringNotContainsString('.has-mobile-image .slide-media', $primaryCss);
         self::assertStringNotContainsString('.has-mobile-image .slide-media', $secondCss);
@@ -33,6 +37,12 @@ class StorefrontMediaPresentationTest extends TestCase
         self::assertStringContainsString('<picture class="slide-picture">', $second);
         self::assertStringContainsString('<picture class="slide-backdrop-picture" aria-hidden="true">', $second);
         self::assertStringContainsString('$image[\'mobile_image\']', $second);
+        self::assertStringContainsString('data-longos-slideshow-media', $second);
+        self::assertStringContainsString('slideshow?.updateAutoHeight?.(0)', $primary);
+        self::assertStringContainsString('slideshow?.updateAutoHeight?.(0)', $second);
+        self::assertStringContainsString("import './slideshow-media'", $storefront);
+        self::assertStringContainsString("return 'landscape'", $mediaJs);
+        self::assertStringContainsString("return 'portrait'", $mediaJs);
         self::assertStringContainsString('autoHeight: true', $primary);
         self::assertStringContainsString('autoHeight: true', $second);
     }

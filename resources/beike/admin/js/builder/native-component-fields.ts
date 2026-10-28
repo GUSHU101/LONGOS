@@ -66,7 +66,7 @@ export const nativeSharedFields = (code: string, ColorField: unknown): Record<st
 export const nativeComponentFields = (code: string, renderers: NativeFieldRenderers): Record<string, unknown> => {
   const link = { type: "custom", label: "跳转链接", render: renderers.StructuredLinkField };
   const image = { type: "custom", label: "图片", render: renderers.MediaField };
-  const mobileImage = { type: "custom", label: "移动端专用图（建议 4:5）", render: renderers.MediaField };
+  const mobileImage = { type: "custom", label: "移动端专用图（建议 4:5，横图自动适配）", render: renderers.MediaField };
   const cardLink = { type: "custom", label: "卡片链接", render: renderers.StructuredLinkField };
   const productList = (label: string): Record<string, unknown> => ({ type: "custom", label, render: renderers.CommerceField, resourceType: "product", multiple: true, max: 24 });
   const brandList = (label: string): Record<string, unknown> => ({ type: "custom", label, render: renderers.CommerceField, resourceType: "brand", multiple: true, max: 24 });

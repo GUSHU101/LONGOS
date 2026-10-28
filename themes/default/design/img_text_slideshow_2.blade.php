@@ -45,7 +45,7 @@
                     @if($hasMobileImage)
                       <source media="(max-width: 767.98px)" srcset="{{ $image['mobile_image'] }}">
                     @endif
-                    <img src="{{ $image['image'] }}" @if ($loop->first) fetchpriority="high" @else loading="lazy" @endif decoding="async" class="slide-media img-fluid" alt="{{ $image['image_alt'] ?? '' }}">
+                    <img src="{{ $image['image'] }}" @if ($loop->first) fetchpriority="high" @else loading="lazy" @endif decoding="async" class="slide-media img-fluid" data-longos-slideshow-media alt="{{ $image['image_alt'] ?? '' }}">
                   </picture>
                 @elseif($design)
                   <div class="builder-slideshow-placeholder" aria-hidden="true">{{ __('shop/design.empty.slideshow_media') }}</div>
@@ -106,6 +106,12 @@
       a11y: { enabled: true },
       autoplay: autoplayOptions,
     })
+
+    var slideshowElement = document.querySelector('.module-swiper-img-text-{{ $module_id }}');
+    slideshowElement?.addEventListener('longos:slideshow-media-ready', function () {
+      window.requestAnimationFrame(function () { slideshow?.updateAutoHeight?.(0); });
+    });
+    window.LongosSlideshowMedia?.mount(slideshowElement);
 
     var $toggle = $('.module-swiper-img-text-{{ $module_id }} .builder-slideshow-toggle');
     function updateToggle(paused) {

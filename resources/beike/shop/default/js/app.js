@@ -23,6 +23,7 @@ import './order-tracking'
 import './order-actions'
 import './campaign-offer'
 import './bootstrap-validation'
+import './slideshow-media'
 
 $(document).ready(function ($) {
   const analyticsUrl = window.longosStorefrontRoutes?.analyticsVisit;
