@@ -95,7 +95,8 @@ class HomeController extends Controller
                 $moduleData['html'] = DesignService::wrapResponsiveModuleHtml(
                     view($viewPath, $moduleData)->render(),
                     $content,
-                    $moduleId
+                    $moduleId,
+                    (string) $code
                 );
                 $moduleItems[] = $moduleData;
             } catch (\Throwable $exception) {

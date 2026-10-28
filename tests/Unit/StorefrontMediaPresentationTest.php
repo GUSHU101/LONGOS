@@ -36,6 +36,7 @@ class StorefrontMediaPresentationTest extends TestCase
         $mediaJs    = (string) file_get_contents($root . '/resources/beike/shop/default/js/slideshow-media.js');
         $primary    = (string) file_get_contents($root . '/themes/default/design/img_text_slideshow.blade.php');
         $second     = (string) file_get_contents($root . '/themes/default/design/img_text_slideshow_2.blade.php');
+        $home       = (string) file_get_contents($root . '/beike/Shop/Http/Controllers/HomeController.php');
 
         self::assertStringContainsString('@media (max-width: 767.98px)', $primaryCss);
         self::assertStringContainsString('aspect-ratio: auto;', $primaryCss);
@@ -50,6 +51,8 @@ class StorefrontMediaPresentationTest extends TestCase
         self::assertStringContainsString('border-radius: 0;', $secondCss);
         self::assertStringContainsString('box-shadow: none;', $secondCss);
         self::assertStringContainsString('data-builder-module-code="img_text_slideshow_2"', $secondCss);
+        self::assertStringContainsString('--builder-section-space-top: 0;', $secondCss);
+        self::assertMatchesRegularExpression('/wrapResponsiveModuleHtml\([\s\S]*?\$moduleId,\s*\(string\) \$code\s*\)/', $home);
         self::assertStringContainsString('.shopify-slideshow__image { height: auto; min-height: 0; object-fit: contain; }', $shopifyCss);
         self::assertStringContainsString('<picture class="slide-picture">', $primary);
         self::assertStringNotContainsString('slide-backdrop-picture', $primary);

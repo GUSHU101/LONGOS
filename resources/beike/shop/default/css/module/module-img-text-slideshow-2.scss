@@ -350,6 +350,15 @@
   }
 }
 
+body.page-home .builder-responsive-module[data-builder-module-code="img_text_slideshow"],
+body.page-home .builder-responsive-module[data-builder-module-code="img_text_slideshow_2"] {
+  // A homepage hero owns the first visual edge. Its preceding section margin
+  // created an empty band between the mobile header and announcement strip.
+  // Later placements still receive separation from the previous section's
+  // bottom margin, so this remains correct when merchants reorder modules.
+  --builder-section-space-top: 0;
+}
+
 @media (max-width: 767.98px) {
   body.page-home .builder-responsive-module[data-builder-module-code="img_text_slideshow"],
   body.page-home .builder-responsive-module[data-builder-module-code="img_text_slideshow_2"] {
