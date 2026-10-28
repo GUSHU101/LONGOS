@@ -151,10 +151,6 @@
     z-index: 1;
   }
 
-  .slide-backdrop-picture {
-    display: none;
-  }
-
   .builder-slideshow-placeholder {
     align-items: center;
     color: #667085;
@@ -233,64 +229,32 @@
     border-radius: 0;
 
     &.is-contained {
-      border: 1px solid rgba(17, 24, 39, .08);
-      border-radius: 14px;
-      box-shadow: 0 12px 32px rgba(17, 24, 39, .12);
+      border: 0;
+      border-radius: 0;
+      box-shadow: none;
     }
 
     .image-wrap {
-      aspect-ratio: 4 / 3;
-      background: #e9edf1;
+      aspect-ratio: auto;
+      background: transparent;
       transform: none;
-    }
-
-    .image-wrap.has-mobile-image {
-      aspect-ratio: 4 / 5;
-    }
-
-    .image-wrap[data-mobile-media-shape="landscape"] {
-      aspect-ratio: 4 / 3;
-    }
-
-    .image-wrap[data-mobile-media-shape="square"] {
-      aspect-ratio: 1;
-    }
-
-    .image-wrap[data-mobile-media-shape="portrait"] {
-      aspect-ratio: 4 / 5;
     }
 
     .image-wrap.is-video {
       aspect-ratio: 16 / 9;
     }
 
+    .slide-picture {
+      height: auto;
+    }
+
     .slide-media {
-      height: 100%;
+      height: auto;
       object-fit: contain;
     }
 
     .is-video .slide-media {
       object-fit: cover;
-    }
-
-    .slide-backdrop-picture {
-      display: block;
-      inset: 0;
-      overflow: hidden;
-      position: absolute;
-      z-index: 0;
-    }
-
-    .slide-media-backdrop {
-      display: block;
-      filter: blur(14px) saturate(.72);
-      height: calc(100% + 28px);
-      inset: -14px;
-      object-fit: cover;
-      opacity: .55;
-      position: absolute;
-      transform: scale(1.06);
-      width: calc(100% + 28px);
     }
 
     .has-slide-copy .image-wrap::after {
@@ -314,14 +278,9 @@
 
     .swiper-pagination {
       align-items: center;
-      backdrop-filter: blur(8px);
-      background: rgba(17, 24, 39, .5);
-      border: 1px solid rgba(255, 255, 255, .18);
-      border-radius: 999px;
       bottom: .5rem !important;
       display: flex;
       left: 50% !important;
-      padding-inline: .2rem;
       transform: translateX(-50%);
       width: auto !important;
     }

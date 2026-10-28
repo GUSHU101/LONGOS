@@ -4,11 +4,12 @@
 @php
   $hasSlides = collect($content['images'] ?? [])->contains(fn ($image) => !empty($image['image']));
   $slideCount = count($content['images'] ?? []);
+  $moduleSize = $content['module_size'] ?? 'w-100';
 @endphp
 @if($design || $hasSlides)
 <section class="module-item {{ $design ? 'module-item-design' : ''}}" id="module-{{ $module_id }}" @include('design.partials.section_style')>
   <div class="module-info  ">
-    <div class="{{ $content['module_size'] ?? 'w-100' }}">
+    <div class="{{ $moduleSize }} module-slideshow-shell">
       <div class="swiper module-swiper-img-text-{{ $module_id }} module-img-text-slideshow {{ $slideCount > 1 ? 'has-controls' : '' }}" aria-roledescription="carousel" aria-label="{{ $content['title'] ?? site_brand_name() }}">
         <div class="swiper-wrapper">
           @foreach($content['images'] as $image)
@@ -21,12 +22,6 @@
                 @if(!empty($image['image']) && ($image['type'] ?? 'image') === 'video')
                   <video class="slide-media" controls preload="metadata" playsinline @if(!empty($image['image_alt'])) aria-label="{{ $image['image_alt'] }}" @endif><source src="{{ $image['image'] }}"></video>
                 @elseif(!empty($image['image']))
-                  <picture class="slide-backdrop-picture" aria-hidden="true">
-                    @if($hasMobileImage)
-                      <source media="(max-width: 767.98px)" srcset="{{ $image['mobile_image'] }}">
-                    @endif
-                    <img src="{{ $image['image'] }}" loading="lazy" decoding="async" class="slide-media-backdrop" alt="">
-                  </picture>
                   <picture class="slide-picture">
                     @if($hasMobileImage)
                       <source media="(max-width: 767.98px)" srcset="{{ $image['mobile_image'] }}">

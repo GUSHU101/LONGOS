@@ -9,7 +9,7 @@
 @if($design || $hasSlides)
 <section class="module-item {{ $design ? 'module-item-design' : ''}}" id="module-{{ $module_id }}" @include('design.partials.section_style')>
   <div class="module-info  ">
-    <div class="{{ $moduleSize }}">
+    <div class="{{ $moduleSize }} module-slideshow-shell">
       @if ($content['scroll_text']['text'])
         <div class="module-swiper-img-scroll-text-2" style="
           background-color: {{ $content['scroll_text']['bg'] }};
@@ -35,12 +35,6 @@
                 @if(!empty($image['image']) && ($image['type'] ?? 'image') === 'video')
                   <video class="slide-media" controls preload="metadata" playsinline @if(!empty($image['image_alt'])) aria-label="{{ $image['image_alt'] }}" @endif><source src="{{ $image['image'] }}"></video>
                 @elseif(!empty($image['image']))
-                  <picture class="slide-backdrop-picture" aria-hidden="true">
-                    @if($hasMobileImage)
-                      <source media="(max-width: 767.98px)" srcset="{{ $image['mobile_image'] }}">
-                    @endif
-                    <img src="{{ $image['image'] }}" loading="lazy" decoding="async" class="slide-media-backdrop" alt="">
-                  </picture>
                   <picture class="slide-picture">
                     @if($hasMobileImage)
                       <source media="(max-width: 767.98px)" srcset="{{ $image['mobile_image'] }}">

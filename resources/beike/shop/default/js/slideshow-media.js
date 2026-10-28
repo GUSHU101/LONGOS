@@ -1,34 +1,27 @@
-/**
- * Keep mobile slideshow artwork complete while choosing a frame that matches
- * the image's real orientation. The blurred backdrop fills only the remaining
- * space; the foreground image is never cropped or stretched.
- */
-const slideshowMediaShape = (width, height) => {
+/** Keep Swiper's auto-height in sync when a responsive picture source loads. */
+const slideshowMediaDimensions = (width, height) => {
   const safeWidth = Number(width);
   const safeHeight = Number(height);
-  if (!Number.isFinite(safeWidth) || !Number.isFinite(safeHeight) || safeWidth <= 0 || safeHeight <= 0) return '';
+  if (!Number.isFinite(safeWidth) || !Number.isFinite(safeHeight) || safeWidth <= 0 || safeHeight <= 0) return null;
 
-  const ratio = safeWidth / safeHeight;
-  if (ratio >= 1.2) return 'landscape';
-  if (ratio <= 0.9) return 'portrait';
-  return 'square';
+  return {width: safeWidth, height: safeHeight};
 };
 
 const syncSlideshowMedia = (image) => {
   const frame = image?.closest?.('.image-wrap');
   if (!frame) return;
 
-  const shape = slideshowMediaShape(image.naturalWidth, image.naturalHeight);
-  const previousShape = frame.dataset.mobileMediaShape || '';
-  if (shape) frame.dataset.mobileMediaShape = shape;
-  else delete frame.dataset.mobileMediaShape;
+  const dimensions = slideshowMediaDimensions(image.naturalWidth, image.naturalHeight);
+  if (!dimensions) return;
+  const signature = `${image.currentSrc || image.src}|${dimensions.width}x${dimensions.height}`;
+  if (image.dataset.longosMediaSignature === signature) return;
+  image.dataset.longosMediaSignature = signature;
 
-  if (shape !== previousShape && typeof CustomEvent === 'function') {
-    frame.dispatchEvent(new CustomEvent('longos:slideshow-media-ready', {
-      bubbles: true,
-      detail: {shape},
-    }));
-  }
+  if (typeof CustomEvent !== 'function') return;
+  frame.dispatchEvent(new CustomEvent('longos:slideshow-media-ready', {
+    bubbles: true,
+    detail: dimensions,
+  }));
 };
 
 const mountSlideshowMedia = (root) => {
@@ -47,7 +40,6 @@ const mountSlideshowMedia = (root) => {
 
 if (typeof window !== 'undefined') {
   window.LongosSlideshowMedia = Object.freeze({
-    mediaShape: slideshowMediaShape,
     mount: mountSlideshowMedia,
   });
 
@@ -58,4 +50,4 @@ if (typeof window !== 'undefined') {
   }
 }
 
-module.exports = {slideshowMediaShape, mountSlideshowMedia};
+module.exports = {slideshowMediaDimensions, mountSlideshowMedia};

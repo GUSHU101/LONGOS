@@ -43,7 +43,7 @@ test('native functional modules expose their required controls and preserve tran
   assert.deepEqual(nativeFieldVisibility('campaign_offer', { timer_mode: 'daily' }), { ends_at: false });
   assert.deepEqual(nativeFieldVisibility('campaign_offer', { timer_mode: 'fixed' }), { ends_at: true });
   const slideshowFields = nativeComponentFields('img_text_slideshow_2', renderers);
-  assert.match(slideshowFields.images.arrayFields.mobile_image.label, /4:5/);
+  assert.match(slideshowFields.images.arrayFields.mobile_image.label, /完整显示/);
   assert.equal(slideshowFields.images.defaultItemProps.mobile_image, '');
   const translated = writeLocalized({ en: 'Title', zh_cn: '标题' }, 'zh_cn', '新标题');
   assert.deepEqual(translated, { en: 'Title', zh_cn: '新标题' });
