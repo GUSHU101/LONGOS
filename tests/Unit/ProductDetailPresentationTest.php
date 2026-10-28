@@ -214,7 +214,10 @@ class ProductDetailPresentationTest extends TestCase
         sort($chineseKeys);
         self::assertSame($englishKeys, $chineseKeys);
         self::assertSame('Protected payment processing', $english['secure_checkout_description']);
-        self::assertSame('发货后可随时追踪订单', $chinese['tracked_delivery_description']);
+        self::assertSame('Free worldwide shipping', $english['tracked_delivery']);
+        self::assertSame('Free delivery on every order worldwide', $english['tracked_delivery_description']);
+        self::assertSame('全球免费配送', $chinese['tracked_delivery']);
+        self::assertSame('所有订单均享全球免运费', $chinese['tracked_delivery_description']);
         self::assertSame('You may also like', $english['related_products_title']);
         self::assertSame('你可能也喜欢', $chinese['related_products_title']);
     }
