@@ -36,6 +36,25 @@ final class MailRelayPublicIpResolver
             ];
         }
 
+        $identity = app(MailRelayIdentityService::class);
+        if ($identity->external()) {
+            try {
+                $addresses = $identity->identity()['public_ips'];
+
+                return [
+                    'ips'     => $addresses,
+                    'source'  => 'remote_node',
+                    'message' => '使用第二台邮件出口节点经 HMAC 身份校验后报告的公网 IP：' . implode(', ', $addresses) . '。',
+                ];
+            } catch (Throwable $exception) {
+                return [
+                    'ips'     => [],
+                    'source'  => 'unavailable',
+                    'message' => $exception->getMessage(),
+                ];
+            }
+        }
+
         if (! (bool) config('mail.relay.auto_detect_public_ips', true)) {
             return [
                 'ips'     => [],

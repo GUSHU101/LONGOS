@@ -55,6 +55,7 @@ Coolify 解析 Compose 后会自动生成 `SERVICE_*` 凭据。只需手动填�
 | `MAIL_RELAY_PLATFORM_SENDER_DOMAIN` | `mail.platform.com` | 推荐 | 主站及未配置独立域的子站使用的共享兜底域，必须包含在前两项中 |
 | `MAIL_RELAY_IPS` | 留空 | 特殊网络才需要 | 留空时安全自动识别服务器公网 IPv4 出口；独立 SMTP 出口、特殊 NAT/策略路由、多 IP 或已验收的 IPv6 发信时才填写逗号分隔的 IPv4/IPv6 |
 | `MAIL_RELAY_AUTO_DETECT_IPS` | `true` | 否 | 要求多个独立 HTTPS 源至少两个结果一致；关闭后必须显式填写 `MAIL_RELAY_IPS` |
+| `MAIL_RELAY_ENDPOINT` | `http://mail-relay:3000` | 第二台服务器出口节点才修改 | 保持 LONGOS 与 Cloud Mail 在本机、仅把 Postfix/OpenDKIM 放到另一台服务器时，填写其无凭据、无查询参数的 HTTPS API 根地址 |
 | `MAIL_FROM_ADDRESS` | `no-reply@example.com` | 否 | 平台默认发件地址；留空时自动跟随 `MAIL_RELAY_PLATFORM_SENDER_DOMAIN` |
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API Token | 否 | 仅在不使用 Cloud Mail GitHub 自动同步时需要；应在 Coolify 标记为 Secret |
 | `LONGOS_AUTO_CONFIGURE_MAIL_DNS` | `true` | 否 | 有可用 Token 时维护邮件 DNS；保留已有发信来源并将 SPF 合并为唯一一条，保留 DMARC 策略 |
@@ -135,6 +136,8 @@ Compose 自动启动 Postfix/OpenDKIM 和内部 HMAC API，不开放公共 SMTP 
 部署后在 LONGOS 邮件设置点击“立即检测”，可直接查看和复制各发件域的 DKIM、SPF、DMARC 及明确配置的邮件主机 A/AAAA。PTR/rDNS 由两个独立公共 DoH 解析器交叉验收并显示 DNS RCODE，因此服务商反向区域的 `SERVFAIL/REFUSED` 不会再被误写成普通“无 PTR”；解析结果不做持久缓存。有持久 Cloudflare Token 时，容器启动后会尝试立即同步，调度器每 5 分钟幂等重试；否则 Cloud Mail 工作流从受保护端点读取只含公开值的 DNS 清单，并由 GitHub Runner 直接写入 Cloudflare。Cloudflare Token 不会发送到 LONGOS。自动化只更新 LONGOS selector 的 DKIM，保留现有 DMARC 策略，并把所有 SPF 发信机制安全合并为唯一一条。
 
 “立即检测”还会分别显示 Postfix、OpenDKIM、邮件队列和持久回执存储的状态，包括队列深度/上限、回执占用和状态不确定的投递数。这能区分“中继不可用”、“DKIM 签名进程异常”和“对方邮服导致队列积压”。
+
+主服务器不具备 PTR/rDNS 或 TCP 25 条件时，不要迁移 LONGOS 或 Cloud Mail。可在第二台 VPS 只部署配套仓库的 `mail-relay/`，然后设置 `MAIL_RELAY_ENDPOINT=https://relay-api.example.com`、`MAIL_RELAY_IPS=<第二台服务器公网 IP>`、`MAIL_RELAY_AUTO_DETECT_IPS=false`。LONGOS 会通过 HMAC 校验该节点报告的公网身份和 DKIM 公钥；不一致时拒绝同步 DNS。PTR 必须由第二台服务器的 IP 服务商设置为 `MAIL_RELAY_HOSTNAME`，普通反向代理不能产生或转移 PTR。
 
 新增签名域名后更新 `MAIL_RELAY_DOMAINS` 与 `MAIL_RELAY_ALLOWED_SENDER_DOMAINS` 并在 Coolify 点击 Redeploy；新域会自动生成独立 DKIM，已有私钥保存在卷中，不会重新生成。
 

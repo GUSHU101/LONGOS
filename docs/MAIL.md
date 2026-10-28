@@ -4,6 +4,8 @@ LONGOS 的 Coolify Compose 会把 Postfix、OpenDKIM 和 Cloud Mail HTTPS 中继
 
 该能力使用项目唯一支持的 Coolify 部署模式；邮件容器不公开 SMTP 入口，只通过私有 `longos` 网络接受 HMAC 请求。
 
+如果 LONGOS 与 Cloud Mail 所在的主服务器没有可控 PTR/rDNS 或出站 TCP 25，可以只把 Postfix/OpenDKIM 邮件出口节点放到第二台服务器。主站和 Cloud Mail 不需要搬迁；`MAIL_RELAY_ENDPOINT` 指向第二台服务器的 HTTPS HMAC API，LONGOS 会读取其签名的公网 IP 与 DKIM 公钥并按该节点执行 DNS/PTR 验收。第二台服务器部署说明见配套仓库的 `doc/REMOTE_MAIL_NODE.md`。
+
 ## 自动部署行为
 
 点击 Coolify Deploy 后，Compose 会自动：
@@ -20,6 +22,7 @@ LONGOS 的 Coolify Compose 会把 Postfix、OpenDKIM 和 Cloud Mail HTTPS 中继
 
 ```text
 MAIL_RELAY_HOSTNAME=mailout.<SAAS_BASE_DOMAIN>
+MAIL_RELAY_ENDPOINT=http://mail-relay:3000
 MAIL_RELAY_DOMAINS=<SAAS_BASE_DOMAIN>
 MAIL_RELAY_PLATFORM_SENDER_DOMAIN=<SAAS_BASE_DOMAIN>
 MAIL_RELAY_IPS=<默认留空；特殊 SMTP 出口时才手工覆盖>
@@ -29,6 +32,17 @@ MAIL_FROM_ADDRESS=no-reply@<SAAS_BASE_DOMAIN>
 ```
 
 需要自定义时，在 Coolify 环境变量中设置同名值并 Redeploy。`MAIL_RELAY_DOMAINS` 和 `MAIL_RELAY_ALLOWED_SENDER_DOMAINS` 支持逗号分隔的多个域名；留空时 Laravel 和 Compose 从 `SAAS_BASE_DOMAIN` 推导。首次打开后台邮件设置时，默认、订单、账户、退货/客服和营销五类发件人会按当前租户自动填充。
+
+第二台服务器专用邮件出口模式使用：
+
+```dotenv
+MAIL_RELAY_ENDPOINT=https://relay-api.example.com
+MAIL_RELAY_HOSTNAME=mailout.example.com
+MAIL_RELAY_IPS=<第二台服务器公网 IP>
+MAIL_RELAY_AUTO_DETECT_IPS=false
+```
+
+外置节点必须使用配套 `longos-cloud-mail/mail-relay` 的新版本，并配置与 Coolify 中两条 `SERVICE_PASSWORD_64_*` 相同的独立 HMAC 密钥。它会返回只读身份清单；LONGOS 严格核对主机名、IP、DKIM selector、全部签名域和公钥，任何不一致都会停止 DNS 同步。PTR 仍在第二台服务器的 IP 服务商后台设置，不能由 Cloudflare/Nginx/Caddy 的反向代理代替。
 
 采用 Cloud Mail 本地部署向导时，不必把 Cloudflare Token 长期保存到 LONGOS/Coolify，`MAIL_RELAY_IPS` 也可默认留空。LONGOS 会在服务器内通过 3 个独立 HTTPS 回显源探测，仅当至少 2 个结果一致时才把该 IP 加入受保护的公开 DNS 清单。再运行 Cloud Mail 向导，即可用当次输入的 Token 同步 A/AAAA、SPF、DKIM 和 DMARC。只有独立 SMTP 出口、特殊 NAT/策略路由或多公网 IP 才需要手工填写 `MAIL_RELAY_IPS`。此模式下后台会明确显示“由 Cloud Mail 部署向导管理”，并隐藏需要持久 Token 的手动同步按钮；“立即检测”和邮件发送不受影响。只有确实需要从 LONGOS 后台按钮或 scheduler 独立修改 Cloudflare DNS 时，才配置 `CLOUDFLARE_API_TOKEN` Secret。
 
@@ -162,7 +176,8 @@ SaaS 模式的生产调度由独立 `scheduler` 容器逐租户执行清理，�
 
 ## 常见故障定位
 
-- 后台诊断显示“无法连接内置中继”：在 Coolify 检查 `mail-relay` 是否健康、应用与中继是否同属私有 `longos` 网络，以及 `MAIL_RELAY_ENDPOINT=http://mail-relay:3000`。
+- 后台诊断显示“无法连接同机中继”：在 Coolify 检查 `mail-relay` 是否健康、应用与中继是否同属私有 `longos` 网络，以及 `MAIL_RELAY_ENDPOINT=http://mail-relay:3000`。
+- 后台诊断显示“无法连接第二台服务器”：检查 `MAIL_RELAY_ENDPOINT` 是否为标准 HTTPS 地址、API 域证书和反向代理是否正常、8788 是否仍只监听回环，以及两端 HMAC 密钥是否一致。不要把 Worker 直接指向第二台服务器。
 - 中继健康但外部收不到：先确认云服务器允许出站 TCP 25，并让服务商把公网 IP 的 PTR/rDNS 设置成 `MAIL_RELAY_HOSTNAME`。
 - PTR 显示 `SERVFAIL/REFUSED` 或 `lame delegation`：这不是缓存或“等待 TTL”能够修复的问题；向 IP 服务商提交反向区域委派/权威服务器故障工单。只有公共查询返回 `Status=0` 且 PTR 指向 `MAIL_RELAY_HOSTNAME` 才算生效。
 - 测试邮件提交失败：先读取页面显示的脱敏原因，再到“邮件日志”打开最新 `system_test` 记录；中继容器日志中的 `mail_queued` 表示 Postfix 已接收，后续退信则按 Postfix 日志定位目标服务商响应。

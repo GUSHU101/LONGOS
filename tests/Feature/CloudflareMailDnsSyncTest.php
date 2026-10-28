@@ -37,6 +37,8 @@ class CloudflareMailDnsSyncTest extends TestCase
             'mail.relay.domains'                => 'brand-a.com,mail.brand-b.net',
             'mail.relay.public_ips'             => ['8.8.8.8', '127.0.0.1', '2001:db8::1'],
             'mail.relay.auto_detect_public_ips' => false,
+            'mail.mailers.self_hosted.endpoint' => 'http://mail-relay:3000',
+            'mail.mailers.self_hosted.secret'   => str_repeat('l', 64),
             'longos.cloudflare.api_token'       => '',
             'longos.cloudflare.api_token_file'  => '',
         ]);
@@ -210,6 +212,62 @@ class CloudflareMailDnsSyncTest extends TestCase
         self::assertSame(['8.8.8.8'], $resolution['ips']);
         self::assertSame('configured', $resolution['source']);
         Http::assertNothingSent();
+    }
+
+    public function test_external_mail_node_supplies_its_egress_ip_and_public_dkim_without_sharing_private_keys(): void
+    {
+        config([
+            'mail.mailers.self_hosted.endpoint' => 'https://relay-api.example.net',
+            'mail.mailers.self_hosted.secret'   => str_repeat('s', 64),
+            'mail.relay.public_ips'             => [],
+            'mail.relay.auto_detect_public_ips' => true,
+        ]);
+        $this->app->forgetInstance(MailRelayPublicIpResolver::class);
+        Http::fake([
+            'https://relay-api.example.net/v1/identity' => Http::response([
+                'schema'         => 1,
+                'status'         => 'ok',
+                'hostname'       => 'mailout.brand-a.com',
+                'publicIps'      => ['8.8.8.8'],
+                'dkimSelector'   => 'mail2026',
+                'signingDomains' => ['brand-a.com', 'mail.brand-b.net'],
+                'records'        => [[
+                    'type'  => 'TXT',
+                    'name'  => 'mail2026._domainkey.brand-a.com',
+                    'value' => 'v=DKIM1; h=sha256; k=rsa; p=QlJBTkRB',
+                ], [
+                    'type'  => 'TXT',
+                    'name'  => 'mail2026._domainkey.mail.brand-b.net',
+                    'value' => 'v=DKIM1; h=sha256; k=rsa; p=QlJBTkRC',
+                ]],
+            ]),
+        ]);
+
+        $records = (new CloudflareMailDnsService)->expectedRecords();
+
+        self::assertContains([
+            'type'      => 'A',
+            'name'      => 'mailout.brand-a.com',
+            'value'     => '8.8.8.8',
+            'mode'      => 'managed',
+            'available' => true,
+        ], $records);
+        self::assertContains([
+            'type'      => 'TXT',
+            'name'      => 'mail2026._domainkey.brand-a.com',
+            'value'     => 'v=DKIM1; h=sha256; k=rsa; p=QlJBTkRB',
+            'mode'      => 'managed',
+            'available' => true,
+        ], $records);
+        self::assertSame('remote_node', app(MailRelayPublicIpResolver::class)->resolution()['source']);
+        // DNS material and egress-IP resolution each perform an independently
+        // signed read; the final call verifies the resolver source in isolation.
+        Http::assertSentCount(3);
+        Http::assertSent(static function (ClientRequest $request): bool {
+            return $request->url() === 'https://relay-api.example.net/v1/identity'
+                && $request->hasHeader('X-Relay-Client', 'longos')
+                && $request->hasHeader('X-Relay-Signature');
+        });
     }
 
     public function test_it_reads_the_api_token_from_the_config_cache_safe_layer(): void

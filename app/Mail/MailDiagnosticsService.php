@@ -53,8 +53,16 @@ class MailDiagnosticsService
     /** @param array<int, array{key: string, status: string, message: string}> $checks */
     private function diagnoseSelfHosted(array &$checks, string $sender, array $expectedDnsRecords): void
     {
-        $enabled = (bool) config('mail.relay.enabled');
-        $this->add($checks, 'relay_enabled', $enabled ? 'ok' : 'error', $enabled ? '内置邮件中继已启用。' : 'LONGOS_MAIL_RELAY_ENABLED 未启用。');
+        $enabled  = (bool) config('mail.relay.enabled');
+        $external = app(MailRelayIdentityService::class)->external();
+        $this->add(
+            $checks,
+            'relay_enabled',
+            $enabled ? 'ok' : 'error',
+            $enabled
+                ? ($external ? '独立邮件出口节点已启用；LONGOS 与 Cloud Mail 仍运行在主服务器。' : '同机内置邮件中继已启用。')
+                : 'LONGOS_MAIL_RELAY_ENABLED 未启用。',
+        );
 
         $credentialsReady = (bool) config('mail.relay.longos_client_configured')
             && (bool) config('mail.relay.cloud_mail_client_configured')
@@ -70,7 +78,7 @@ class MailDiagnosticsService
 
         $endpoint = rtrim(trim((string) config('mail.mailers.self_hosted.endpoint')), '/');
         if (! $this->safeEndpoint($endpoint)) {
-            $this->add($checks, 'relay_health', 'error', '内置中继端点无效，仅允许 HTTPS 或私有 mail-relay/localhost HTTP。');
+            $this->add($checks, 'relay_health', 'error', '邮件中继端点无效：外置节点必须使用 HTTPS，同机节点仅允许私有 mail-relay/localhost HTTP。');
         } else {
             try {
                 $response = (new Client([
@@ -102,7 +110,9 @@ class MailDiagnosticsService
                     'relay_health',
                     $healthy ? 'ok' : 'error',
                     $healthy
-                        ? '中继 API、Postfix、OpenDKIM 和去重回执存储运行正常。'
+                        ? ($external
+                            ? '第二台服务器的中继 API、Postfix、OpenDKIM 和去重回执存储运行正常。'
+                            : '同机中继 API、Postfix、OpenDKIM 和去重回执存储运行正常。')
                         : ($degraded === [] ? '中继健康检查返回异常状态。' : '中继组件异常：' . implode('、', $degraded) . '。'),
                 );
 
@@ -136,7 +146,14 @@ class MailDiagnosticsService
                     }
                 }
             } catch (Throwable) {
-                $this->add($checks, 'relay_health', 'error', '无法连接内置中继 API，请检查 mail-relay 容器与 Docker 网络。');
+                $this->add(
+                    $checks,
+                    'relay_health',
+                    'error',
+                    $external
+                        ? '无法连接第二台服务器的中继 API，请检查 HTTPS 反向代理、证书、防火墙和 mail-relay 容器。'
+                        : '无法连接同机中继 API，请检查 mail-relay 容器与 Docker 网络。',
+                );
             }
         }
 
@@ -158,7 +175,11 @@ class MailDiagnosticsService
                 );
             } else {
                 $matches = array_diff($expected, $addresses) === [] && array_diff($addresses, $expected) === [];
-                $source  = $resolution['source']             === 'detected' ? '（服务器自动识别）' : '（MAIL_RELAY_IPS）';
+                $source  = match ($resolution['source']) {
+                    'detected'    => '（主服务器自动识别）',
+                    'remote_node' => '（第二台邮件出口节点签名报告）',
+                    default       => '（MAIL_RELAY_IPS）',
+                };
                 $this->add(
                     $checks,
                     'mail_hostname',
@@ -193,7 +214,10 @@ class MailDiagnosticsService
                 $message = match ($status) {
                     'ok'      => '所有邮件服务器公网 IP 的 PTR/rDNS 均已由独立公共解析器确认反向指向 ' . $hostname . '。',
                     'warning' => 'PTR/rDNS 尚未完成公网验收：' . implode('；', $ptrWarnings),
-                    default   => 'PTR/rDNS 未与 MAIL_RELAY_HOSTNAME 对齐：' . implode('；', $ptrFailures) . '。PTR 只能在服务器/IP 服务商处设置。',
+                    default   => 'PTR/rDNS 未与 MAIL_RELAY_HOSTNAME 对齐：' . implode('；', $ptrFailures)
+                        . ($external
+                            ? '。请在第二台邮件出口服务器的 IP 服务商后台设置；Cloudflare 代理和普通反向代理都不能代替 PTR。'
+                            : '。PTR 只能在当前邮件服务器/IP 服务商处设置；Cloudflare 代理不能代替 PTR。'),
                 };
                 $this->add(
                     $checks,

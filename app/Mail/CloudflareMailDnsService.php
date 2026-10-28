@@ -21,6 +21,8 @@ class CloudflareMailDnsService
     /** @var array<string, array{id: string, name: string}> */
     private array $zones = [];
 
+    private ?MailRelayIdentityService $relayIdentity = null;
+
     public function __construct(private readonly ?string $tokenOverride = null) {}
 
     public function configured(): bool
@@ -196,6 +198,16 @@ class CloudflareMailDnsService
 
     private function readDkimValue(string $domain, string $selector): string
     {
+        $identity = $this->relayIdentity ??= app(MailRelayIdentityService::class);
+        if ($identity->external()) {
+            $value = $identity->dkimValue($domain, $selector);
+            if ($value === '') {
+                throw new RuntimeException("外置邮件节点没有提供 {$domain} 的 DKIM 公钥。");
+            }
+
+            return $value;
+        }
+
         $root = rtrim((string) config('mail.relay.dns_records_path', '/var/lib/longos-mail-dns'), '/\\');
         if ($root === '' || ! is_dir($root)) {
             throw new RuntimeException('邮件中继尚未生成可发布的 DKIM 记录，系统将在下一次调度时重试。');

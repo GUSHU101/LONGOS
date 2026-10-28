@@ -67,7 +67,9 @@ x-app-environment: &app-environment
   LONGOS_AUTO_CONFIGURE_MAIL_DNS: ${LONGOS_AUTO_CONFIGURE_MAIL_DNS:-true}
   LONGOS_MAIL_RELAY_ENABLED: "true"
   MAIL_MAILER: self_hosted
-  MAIL_RELAY_ENDPOINT: http://mail-relay:3000
+  # Default to the bundled relay. To keep LONGOS + Cloud Mail on this server
+  # while using a second VPS as the SMTP egress/PTR owner, set an HTTPS URL.
+  MAIL_RELAY_ENDPOINT: ${MAIL_RELAY_ENDPOINT:-http://mail-relay:3000}
   MAIL_RELAY_HOSTNAME: ${MAIL_RELAY_HOSTNAME:-mailout.${SAAS_BASE_DOMAIN}}
   # Optional override for unusual NAT, policy-routing or dedicated SMTP
   # egress. When blank, LONGOS safely detects the shared server egress IP by
