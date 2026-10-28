@@ -30,6 +30,18 @@ class MailDiagnosticsService
         );
 
         if ($engine === 'self_hosted') {
+            $runtime = app(MailRelayRuntimeSettings::class)->status();
+            $this->add(
+                $checks,
+                'runtime_topology',
+                $runtime['source'] === 'invalid' ? 'warning' : 'ok',
+                match ($runtime['source']) {
+                    'control_panel' => '当前使用控制站后台保存的全平台邮件出口配置。',
+                    'invalid'       => '后台邮件出口配置不可用，已安全回退 Coolify/Compose 默认值：' . ($runtime['error'] ?: '未知格式错误'),
+                    default         => '当前使用 Coolify/Compose 环境变量中的邮件出口默认配置。',
+                },
+            );
+
             try {
                 $dnsRecords = app(CloudflareMailDnsService::class)->expectedRecords();
             } catch (Throwable $exception) {

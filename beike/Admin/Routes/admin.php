@@ -356,6 +356,7 @@ Route::prefix($adminName)
                 Route::middleware('can:settings_index')->get('settings/seo', [Controllers\SettingController::class, 'seoSettings'])->name('settings.seo');
                 Route::middleware('can:settings_index')->get('settings/express', [Controllers\SettingController::class, 'expressSettings'])->name('settings.express');
                 Route::middleware('can:settings_index')->get('settings/mail', [Controllers\SettingController::class, 'mailSettings'])->name('settings.mail');
+                Route::middleware(['can:settings_update', 'saas.platform-admin', 'throttle:10,1'])->post('settings/mail/relay', [Controllers\SettingController::class, 'storeMailRelaySettings'])->name('settings.mail.relay.store');
                 Route::middleware('can:settings_update')->post('settings', [Controllers\SettingController::class, 'store'])->name('settings.store');
                 Route::middleware('can:settings_update')->post('settings/currency/refresh', [Controllers\SettingController::class, 'refreshCurrencyRates'])->name('settings.currency.refresh');
                 Route::middleware('can:settings_update')->post('settings/mail/test', [Controllers\SettingController::class, 'testMail'])->name('settings.mail.test');

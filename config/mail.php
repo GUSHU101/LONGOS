@@ -189,16 +189,19 @@ return [
         'dkim_selector'                     => env('MAIL_RELAY_DKIM_SELECTOR', 'mail2026'),
         'auto_configure_dns'                => (bool) env('LONGOS_AUTO_CONFIGURE_MAIL_DNS', true),
         'dns_records_path'                  => env('MAIL_RELAY_DNS_RECORDS_PATH', '/var/lib/longos-mail-dns'),
-        'cloudflare_api_base'               => rtrim((string) env('CLOUDFLARE_API_BASE', 'https://api.cloudflare.com/client/v4'), '/'),
-        'cloud_mail_secret'                 => $cloudMailRelaySecret,
-        'max_request_bytes'                 => (int) env('MAIL_RELAY_MAX_REQUEST_BYTES', 33554432),
-        'max_attachment_bytes'              => (int) env('MAIL_RELAY_MAX_ATTACHMENT_BYTES', 20971520),
-        'max_attachments'                   => (int) env('MAIL_RELAY_MAX_ATTACHMENTS', 25),
-        'max_recipients'                    => (int) env('MAIL_RELAY_MAX_RECIPIENTS', 50),
-        'longos_client_configured'          => strlen($longosRelaySecret)    >= 32,
-        'cloud_mail_client_configured'      => strlen($cloudMailRelaySecret) >= 32,
-        'client_secrets_distinct'           => $longosRelaySecret !== ''
-            && $cloudMailRelaySecret                              !== ''
+        // Non-secret topology overrides saved from the control-site mail page.
+        // app, worker and scheduler share this file through longos-storage.
+        'runtime_settings_path'              => env('MAIL_RELAY_RUNTIME_SETTINGS_PATH', storage_path('app/longos/mail-relay-runtime.json')),
+        'cloudflare_api_base'                => rtrim((string) env('CLOUDFLARE_API_BASE', 'https://api.cloudflare.com/client/v4'), '/'),
+        'cloud_mail_secret'                  => $cloudMailRelaySecret,
+        'max_request_bytes'                  => (int) env('MAIL_RELAY_MAX_REQUEST_BYTES', 33554432),
+        'max_attachment_bytes'               => (int) env('MAIL_RELAY_MAX_ATTACHMENT_BYTES', 20971520),
+        'max_attachments'                    => (int) env('MAIL_RELAY_MAX_ATTACHMENTS', 25),
+        'max_recipients'                     => (int) env('MAIL_RELAY_MAX_RECIPIENTS', 50),
+        'longos_client_configured'           => strlen($longosRelaySecret)    >= 32,
+        'cloud_mail_client_configured'       => strlen($cloudMailRelaySecret) >= 32,
+        'client_secrets_distinct'            => $longosRelaySecret !== ''
+            && $cloudMailRelaySecret                               !== ''
             && ! hash_equals($longosRelaySecret, $cloudMailRelaySecret),
         // An invalid or unsigned legacy MAIL_FROM_ADDRESS must not brick a
         // deployment. The runtime falls back to the signed platform domain;

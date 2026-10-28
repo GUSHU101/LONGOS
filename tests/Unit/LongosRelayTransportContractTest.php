@@ -146,6 +146,25 @@ class LongosRelayTransportContractTest extends TestCase
         self::assertStringContainsString('SensitiveValueRedactor::redact', $mailLog);
     }
 
+    public function test_platform_mail_topology_editor_is_shared_control_only_and_never_accepts_secrets(): void
+    {
+        $runtime    = file_get_contents(dirname(__DIR__, 2) . '/app/Mail/MailRelayRuntimeSettings.php');
+        $controller = file_get_contents(dirname(__DIR__, 2) . '/beike/Admin/Http/Controllers/SettingController.php');
+        $routes     = file_get_contents(dirname(__DIR__, 2) . '/beike/Admin/Routes/admin.php');
+        $view       = file_get_contents(dirname(__DIR__, 2) . '/resources/beike/admin/views/pages/setting/mail.blade.php');
+
+        self::assertStringContainsString("'saas.platform-admin'", $routes);
+        self::assertStringContainsString('canManagePlatformMailRelay', $controller);
+        self::assertStringContainsString('user?->is_root', $controller);
+        self::assertStringContainsString("storage_path('app/longos/mail-relay-runtime.json')", $runtime);
+        self::assertStringContainsString("'mail.mailers.self_hosted.endpoint'", $runtime);
+        self::assertStringContainsString('mail-relay-runtime-form', $view);
+        self::assertStringContainsString('mail_relay[endpoint]', $view);
+        self::assertStringContainsString('mail_relay[public_ips]', $view);
+        self::assertStringNotContainsString('mail_relay[longos_secret]', $view);
+        self::assertStringNotContainsString('mail_relay[cloud_mail_secret]', $view);
+    }
+
     public function test_queued_mail_failures_are_rethrown_for_laravel_retry(): void
     {
         $channel = file_get_contents(dirname(__DIR__, 2) . '/beike/Channels/BkMailChannel.php');

@@ -2,6 +2,7 @@
 
 namespace Beike\Shop\Providers;
 
+use App\Mail\MailRelayRuntimeSettings;
 use App\Mail\MailSenderProfileService;
 use App\Saas\Models\Site;
 use Beike\Libraries\Tax;
@@ -39,6 +40,10 @@ class ShopServiceProvider extends ServiceProvider
                 'app_asset_url' => config('app.asset_url'),
             ]);
         }
+        // Apply the platform-wide topology after capturing the immutable
+        // environment baseline. Every tenant refresh repeats this merge so a
+        // long-lived worker observes control-panel changes between jobs.
+        $this->app->make(MailRelayRuntimeSettings::class)->applyToConfig();
 
         $this->app->singleton('tax', function () {
             return new Tax;
@@ -138,6 +143,7 @@ class ShopServiceProvider extends ServiceProvider
         if (array_key_exists('mail', $baseline)) {
             config(['mail' => $baseline['mail']]);
         }
+        $this->app->make(MailRelayRuntimeSettings::class)->applyToConfig();
         config(['services.mailgun' => $baseline['mailgun'] ?? null]);
         if (array_key_exists('app_asset_url', $baseline)) {
             config(['app.asset_url' => $baseline['app_asset_url']]);

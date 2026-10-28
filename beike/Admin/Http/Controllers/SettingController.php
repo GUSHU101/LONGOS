@@ -14,12 +14,15 @@ namespace Beike\Admin\Http\Controllers;
 
 use App\Mail\CloudflareMailDnsService;
 use App\Mail\MailDiagnosticsService;
+use App\Mail\MailRelayRuntimeSettings;
 use App\Mail\MailSenderProfileService;
+use App\Saas\TenantManager;
 use Beike\Admin\Http\Resources\CustomerGroupDetail;
 use Beike\Admin\Services\MarketingService;
 use Beike\Admin\Services\SettingService;
 use Beike\Admin\Services\SettingsReturnUrl;
 use Beike\Libraries\Weight;
+use Beike\Models\AdminUser;
 use Beike\Models\MailLog;
 use Beike\Repositories\CountryRepo;
 use Beike\Repositories\CustomerGroupRepo;
@@ -38,6 +41,8 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\RateLimiter;
+use InvalidArgumentException;
+use RuntimeException;
 use Throwable;
 
 class SettingController extends Controller
@@ -214,12 +219,54 @@ class SettingController extends Controller
         return view('admin::pages.setting.express', $data);
     }
 
-    public function mailSettings()
+    public function mailSettings(MailRelayRuntimeSettings $runtimeSettings)
     {
-        $data = [];
+        $canManageRelay = $this->canManagePlatformMailRelay();
+        $data           = [
+            'canManageMailRelay' => $canManageRelay,
+            'mailRelayRuntime'   => $canManageRelay ? $runtimeSettings->status() : null,
+        ];
         $data = hook_filter('admin.setting.mail.data', $data);
 
         return view('admin::pages.setting.mail', $data);
+    }
+
+    /** Persist the non-secret, platform-wide mail egress topology. */
+    public function storeMailRelaySettings(
+        Request $request,
+        MailRelayRuntimeSettings $runtimeSettings,
+    ): mixed {
+        abort_unless($this->canManagePlatformMailRelay(), 403);
+
+        $returnUrl = admin_route('settings.mail') . '#mail-relay-topology';
+
+        try {
+            if ($request->string('operation')->lower()->value() === 'reset') {
+                $runtimeSettings->reset();
+                $message = trans('admin/setting.mail_relay_runtime_reset');
+            } else {
+                $input = $request->input('mail_relay');
+                if (! is_array($input)) {
+                    throw new InvalidArgumentException(trans('admin/setting.mail_relay_runtime_invalid'));
+                }
+                $runtimeSettings->save($input);
+                $message = trans('admin/setting.mail_relay_runtime_saved');
+            }
+
+            if (app()->resolved('mail.manager')) {
+                app('mail.manager')->forgetMailers();
+            }
+
+            return redirect($returnUrl)->with('success', $message);
+        } catch (InvalidArgumentException|RuntimeException $exception) {
+            return redirect($returnUrl)->withInput()->with('error', $exception->getMessage());
+        } catch (Throwable $exception) {
+            Log::error('Unable to persist the platform mail relay topology.', [
+                'exception' => $exception::class,
+            ]);
+
+            return redirect($returnUrl)->withInput()->with('error', trans('admin/setting.mail_relay_runtime_save_failed'));
+        }
     }
 
     public function mailDiagnostics(Request $request, MailDiagnosticsService $diagnostics): JsonResponse
@@ -231,6 +278,20 @@ class SettingController extends Controller
         RateLimiter::hit($key, 60);
 
         return json_success(trans('admin/setting.mail_diagnostics_complete'), $diagnostics->diagnose());
+    }
+
+    private function canManagePlatformMailRelay(): bool
+    {
+        $user = auth(AdminUser::AUTH_GUARD)->user();
+        if (! $user?->is_root) {
+            return false;
+        }
+        if (! config('saas.enabled')) {
+            return true;
+        }
+
+        return (bool) data_get(current_site()?->meta, 'control_site', false)
+            && app(TenantManager::class)->isControlHost(request()->getHost());
     }
 
     /** Repair the public outbound-mail DNS and return a fresh health report. */

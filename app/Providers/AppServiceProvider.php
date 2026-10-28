@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Mail\MailRelayRuntimeSettings;
 use App\Services\DeploymentUpgradeService;
 use Beike\Services\QueueService;
 use Illuminate\Queue\Events\JobExceptionOccurred;
@@ -22,6 +23,9 @@ class AppServiceProvider extends ServiceProvider
     public function register()
     {
         $this->app->useLangPath(base_path('lang'));
+        // Capture immutable deployment defaults before tenant providers begin
+        // mutating the shared config repository.
+        $this->app->instance(MailRelayRuntimeSettings::class, new MailRelayRuntimeSettings);
     }
 
     /**
@@ -35,6 +39,10 @@ class AppServiceProvider extends ServiceProvider
             QueueService::recordWorkerHeartbeat((string) $event->queue);
         });
         Queue::before(static function (JobProcessing $event): void {
+            app(MailRelayRuntimeSettings::class)->applyToConfig();
+            if (app()->resolved('mail.manager')) {
+                app('mail.manager')->forgetMailers();
+            }
             $payload = $event->job->payload();
             $timeout = filter_var($payload['timeout'] ?? null, FILTER_VALIDATE_INT);
             $lease   = $timeout === false || $timeout === null

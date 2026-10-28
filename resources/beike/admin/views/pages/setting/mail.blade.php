@@ -44,6 +44,12 @@
         $savedMailEngine = 'self_hosted';
     }
     $dnsSyncAvailable = app(\App\Mail\CloudflareMailDnsService::class)->configured();
+    $relayRuntimeValues = (array) data_get($mailRelayRuntime, 'values', []);
+    $relayForm = old('mail_relay', $relayRuntimeValues);
+    $relayForm = is_array($relayForm) ? $relayForm : $relayRuntimeValues;
+    $relayMode = in_array(data_get($relayForm, 'mode'), ['internal', 'external'], true)
+        ? data_get($relayForm, 'mode')
+        : 'internal';
     $mailPageData = [
         'mailEngine' => $savedMailEngine,
         'testRecipient' => old('mail_test_recipient', $senderProfiles[\App\Mail\MailSenderProfileService::DEFAULT]['address']),
@@ -81,6 +87,178 @@
       {{ session('error') }}
     </div>
   @endif
+  @if($canManageMailRelay && $mailRelayRuntime)
+    <div class="card mb-4" id="mail-relay-topology">
+      <div class="card-header bg-white d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2 py-3">
+        <div>
+          <div class="d-flex align-items-center gap-2">
+            <h5 class="mb-0">{{ __('admin/setting.mail_relay_runtime_title') }}</h5>
+            <span class="badge {{ data_get($mailRelayRuntime, 'source') === 'control_panel' ? 'bg-primary' : (data_get($mailRelayRuntime, 'source') === 'invalid' ? 'bg-danger' : 'bg-secondary') }}">
+              {{ __('admin/setting.mail_relay_runtime_source_' . data_get($mailRelayRuntime, 'source', 'deployment')) }}
+            </span>
+          </div>
+          <div class="text-secondary font-size-12 mt-1">{{ __('admin/setting.mail_relay_runtime_help') }}</div>
+        </div>
+        <a class="btn btn-outline-primary btn-sm" href="#mail-diagnostics" aria-label="{{ __('admin/setting.mail_diagnostics_button') }}">
+          <i class="bi bi-heart-pulse me-1"></i>{{ __('admin/setting.mail_diagnostics_button') }}
+        </a>
+      </div>
+      <div class="card-body">
+        @if(data_get($mailRelayRuntime, 'error'))
+          <div class="alert alert-danger" role="alert">
+            <i class="bi bi-exclamation-octagon me-1"></i>{{ data_get($mailRelayRuntime, 'error') }}
+          </div>
+        @endif
+
+        <div class="row g-3 mb-4" aria-label="{{ __('admin/setting.mail_relay_runtime_steps') }}">
+          <div class="col-md-4">
+            <div class="border rounded h-100 p-3">
+              <div class="text-primary fw-bold mb-1">01 · {{ __('admin/setting.mail_relay_step_topology') }}</div>
+              <div class="text-secondary font-size-12">{{ __('admin/setting.mail_relay_step_topology_help') }}</div>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="border rounded h-100 p-3">
+              <div class="text-primary fw-bold mb-1">02 · {{ __('admin/setting.mail_relay_step_identity') }}</div>
+              <div class="text-secondary font-size-12">{{ __('admin/setting.mail_relay_step_identity_help') }}</div>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="border rounded h-100 p-3">
+              <div class="text-primary fw-bold mb-1">03 · {{ __('admin/setting.mail_relay_step_dns') }}</div>
+              <div class="text-secondary font-size-12">{{ __('admin/setting.mail_relay_step_dns_help') }}</div>
+            </div>
+          </div>
+        </div>
+
+        <form action="{{ admin_route('settings.mail.relay.store') }}" method="POST" id="mail-relay-runtime-form" class="needs-validation" novalidate>
+          @csrf
+          <fieldset class="mb-4">
+            <legend class="form-label fw-bold mb-2">{{ __('admin/setting.mail_relay_mode') }}</legend>
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label class="border rounded p-3 d-flex gap-3 h-100 mail-relay-mode-card" for="mail-relay-mode-internal">
+                  <input class="form-check-input mt-1" type="radio" name="mail_relay[mode]" id="mail-relay-mode-internal" value="internal" @checked($relayMode === 'internal')>
+                  <span>
+                    <span class="fw-bold d-block"><i class="bi bi-box-seam me-1"></i>{{ __('admin/setting.mail_relay_mode_internal') }}</span>
+                    <span class="text-secondary font-size-12">{{ __('admin/setting.mail_relay_mode_internal_help') }}</span>
+                  </span>
+                </label>
+              </div>
+              <div class="col-md-6">
+                <label class="border rounded p-3 d-flex gap-3 h-100 mail-relay-mode-card" for="mail-relay-mode-external">
+                  <input class="form-check-input mt-1" type="radio" name="mail_relay[mode]" id="mail-relay-mode-external" value="external" @checked($relayMode === 'external')>
+                  <span>
+                    <span class="fw-bold d-block"><i class="bi bi-hdd-network me-1"></i>{{ __('admin/setting.mail_relay_mode_external') }}</span>
+                    <span class="text-secondary font-size-12">{{ __('admin/setting.mail_relay_mode_external_help') }}</span>
+                  </span>
+                </label>
+              </div>
+            </div>
+          </fieldset>
+
+          <div id="mail-relay-internal-notice" class="alert alert-light border mb-4 {{ $relayMode === 'internal' ? '' : 'd-none' }}">
+            <i class="bi bi-info-circle me-1"></i>{{ __('admin/setting.mail_relay_internal_locked') }}
+          </div>
+
+          <div id="mail-relay-external-fields" class="border rounded bg-light p-3 mb-4 {{ $relayMode === 'external' ? '' : 'd-none' }}">
+            <label class="form-label fw-bold" for="mail-relay-endpoint">{{ __('admin/setting.mail_relay_endpoint') }}</label>
+            <input class="form-control font-monospace" type="url" id="mail-relay-endpoint" name="mail_relay[endpoint]"
+                   value="{{ data_get($relayForm, 'endpoint', '') }}" placeholder="https://relay-api.example.com" maxlength="2048"
+                   inputmode="url" autocomplete="off" spellcheck="false" aria-describedby="mail-relay-endpoint-help">
+            <div id="mail-relay-endpoint-help" class="form-text">{{ __('admin/setting.mail_relay_endpoint_help') }}</div>
+          </div>
+
+          <div class="row g-3">
+            <div class="col-lg-6">
+              <label class="form-label fw-bold" for="mail-relay-hostname">{{ __('admin/setting.mail_relay_hostname') }}</label>
+              <input class="form-control font-monospace" type="text" id="mail-relay-hostname" name="mail_relay[hostname]"
+                     value="{{ data_get($relayForm, 'hostname', '') }}" placeholder="mailout.example.com" maxlength="253"
+                     required autocomplete="off" spellcheck="false">
+              <div class="form-text">{{ __('admin/setting.mail_relay_hostname_help') }}</div>
+            </div>
+            <div class="col-lg-6">
+              <label class="form-label fw-bold" for="mail-relay-public-ips">{{ __('admin/setting.mail_relay_public_ips') }}</label>
+              <input class="form-control font-monospace" type="text" id="mail-relay-public-ips" name="mail_relay[public_ips]"
+                     value="{{ implode(', ', (array) data_get($relayForm, 'public_ips', [])) }}" placeholder="your-server-public-ip"
+                     autocomplete="off" spellcheck="false" aria-describedby="mail-relay-ptr-preview">
+              <div class="form-text">{{ __('admin/setting.mail_relay_public_ips_help') }}</div>
+            </div>
+            <div class="col-lg-6">
+              <label class="form-label fw-bold" for="mail-relay-domains">{{ __('admin/setting.mail_relay_domains') }}</label>
+              <textarea class="form-control font-monospace" id="mail-relay-domains" name="mail_relay[domains]" rows="2" required
+                        autocomplete="off" spellcheck="false" placeholder="example.com">{{ implode("\n", (array) data_get($relayForm, 'domains', [])) }}</textarea>
+              <div class="form-text">{{ __('admin/setting.mail_relay_domains_help') }}</div>
+            </div>
+            <div class="col-lg-6">
+              <label class="form-label fw-bold" for="mail-relay-allowed-domains">{{ __('admin/setting.mail_relay_allowed_domains') }}</label>
+              <textarea class="form-control font-monospace" id="mail-relay-allowed-domains" name="mail_relay[allowed_sender_domains]" rows="2" required
+                        autocomplete="off" spellcheck="false" placeholder="example.com">{{ implode("\n", (array) data_get($relayForm, 'allowed_sender_domains', [])) }}</textarea>
+              <div class="form-text">{{ __('admin/setting.mail_relay_allowed_domains_help') }}</div>
+            </div>
+            <div class="col-lg-6">
+              <label class="form-label fw-bold" for="mail-relay-platform-domain">{{ __('admin/setting.mail_relay_platform_domain') }}</label>
+              <input class="form-control font-monospace" type="text" id="mail-relay-platform-domain" name="mail_relay[platform_sender_domain]"
+                     value="{{ data_get($relayForm, 'platform_sender_domain', '') }}" placeholder="example.com" maxlength="253"
+                     required autocomplete="off" spellcheck="false">
+              <div class="form-text">{{ __('admin/setting.mail_relay_platform_domain_help') }}</div>
+            </div>
+            <div class="col-lg-6">
+              <label class="form-label fw-bold" for="mail-relay-dkim-selector">{{ __('admin/setting.mail_relay_dkim_selector') }}</label>
+              <input class="form-control font-monospace" type="text" id="mail-relay-dkim-selector" name="mail_relay[dkim_selector]"
+                     value="{{ data_get($relayForm, 'dkim_selector', 'mail2026') }}" placeholder="mail2026" maxlength="63" pattern="[a-z0-9][a-z0-9_-]{0,62}"
+                     required autocomplete="off" spellcheck="false">
+              <div class="form-text">{{ __('admin/setting.mail_relay_dkim_selector_help') }}</div>
+            </div>
+          </div>
+
+          <div id="mail-relay-auto-detect-row" class="form-check form-switch mt-4 {{ $relayMode === 'internal' ? '' : 'd-none' }}">
+            <input type="hidden" name="mail_relay[auto_detect_public_ips]" value="0">
+            <input class="form-check-input" type="checkbox" role="switch" id="mail-relay-auto-detect" name="mail_relay[auto_detect_public_ips]" value="1"
+                   @checked((bool) data_get($relayForm, 'auto_detect_public_ips', true))>
+            <label class="form-check-label fw-bold" for="mail-relay-auto-detect">{{ __('admin/setting.mail_relay_auto_detect') }}</label>
+            <div class="form-text">{{ __('admin/setting.mail_relay_auto_detect_help') }}</div>
+          </div>
+
+          <div class="alert alert-info mt-4 mb-0" role="status">
+            <div class="fw-bold mb-2"><i class="bi bi-arrow-left-right me-1"></i>{{ __('admin/setting.mail_relay_ptr_title') }}</div>
+            <pre id="mail-relay-ptr-preview" class="font-monospace text-break bg-transparent border-0 p-0 mb-0" style="white-space: pre-wrap">—</pre>
+            <div class="font-size-12 mt-2">{{ __('admin/setting.mail_relay_ptr_help') }}</div>
+          </div>
+
+          <details id="mail-relay-node-config" class="border rounded mt-4">
+            <summary class="px-3 py-3 fw-bold" style="cursor: pointer">{{ __('admin/setting.mail_relay_node_config_title') }}</summary>
+            <div class="px-3 pb-3">
+              <div class="text-secondary font-size-12 mb-2">{{ __('admin/setting.mail_relay_node_config_help') }}</div>
+              <pre class="bg-dark text-white rounded p-3 mb-2 text-break" style="white-space: pre-wrap" id="mail-relay-node-config-preview" aria-live="polite"></pre>
+              <button class="btn btn-outline-secondary btn-sm" type="button" id="mail-relay-copy-node-config">
+                <i class="bi bi-clipboard me-1"></i>{{ __('admin/setting.mail_relay_node_config_copy') }}
+              </button>
+            </div>
+          </details>
+
+          <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3 border-top mt-4 pt-4">
+            <div class="font-size-12">
+              <div class="fw-bold mb-1">{{ __('admin/setting.mail_relay_secret_status') }}</div>
+              <span class="badge {{ data_get($mailRelayRuntime, 'secret_status.longos') ? 'bg-success' : 'bg-warning text-dark' }} me-1">LONGOS HMAC</span>
+              <span class="badge {{ data_get($mailRelayRuntime, 'secret_status.cloud_mail') ? 'bg-success' : 'bg-warning text-dark' }} me-1">Cloud Mail HMAC</span>
+              <span class="badge {{ data_get($mailRelayRuntime, 'secret_status.distinct') ? 'bg-success' : 'bg-danger' }}">{{ __('admin/setting.mail_relay_secret_distinct') }}</span>
+              <div class="text-secondary mt-1">{{ __('admin/setting.mail_relay_secret_help') }}</div>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+              <button type="submit" name="operation" value="reset" class="btn btn-outline-secondary" formnovalidate
+                      onclick="return window.confirm('{{ __('admin/setting.mail_relay_runtime_reset_confirm') }}')">
+                {{ __('admin/setting.mail_relay_runtime_reset_button') }}
+              </button>
+              <button type="submit" name="operation" value="save" class="btn btn-primary">
+                <i class="bi bi-check2-circle me-1"></i>{{ __('admin/setting.mail_relay_runtime_save') }}
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  @endif
   <div class="card h-min-600">
     <div class="card-body">
       @hook('admin.setting.mail.content.before')
@@ -90,7 +268,7 @@
 
         @hook('admin.setting.mail.before')
 
-        <div class="border rounded p-3 mb-4" aria-live="polite">
+        <div class="border rounded p-3 mb-4" aria-live="polite" id="mail-diagnostics">
           <div class="d-flex flex-column flex-sm-row align-items-sm-center justify-content-between gap-2">
             <div>
               <div class="fw-bold">{{ __('admin/setting.mail_diagnostics_title') }}</div>
@@ -514,5 +692,134 @@
         },
       },
     });
+
+    @if($canManageMailRelay && $mailRelayRuntime)
+      (() => {
+        const form = document.getElementById('mail-relay-runtime-form');
+        if (!form) return;
+
+        const modeInputs = Array.from(form.querySelectorAll('input[name="mail_relay[mode]"]'));
+        const endpointWrap = document.getElementById('mail-relay-external-fields');
+        const internalNotice = document.getElementById('mail-relay-internal-notice');
+        const endpoint = document.getElementById('mail-relay-endpoint');
+        const publicIps = document.getElementById('mail-relay-public-ips');
+        const hostname = document.getElementById('mail-relay-hostname');
+        const domains = document.getElementById('mail-relay-domains');
+        const allowedDomains = document.getElementById('mail-relay-allowed-domains');
+        const selector = document.getElementById('mail-relay-dkim-selector');
+        const platformDomain = document.getElementById('mail-relay-platform-domain');
+        const autoDetectWrap = document.getElementById('mail-relay-auto-detect-row');
+        const autoDetect = document.getElementById('mail-relay-auto-detect');
+        const ptrPreview = document.getElementById('mail-relay-ptr-preview');
+        const nodeConfigWrap = document.getElementById('mail-relay-node-config');
+        const nodeConfig = document.getElementById('mail-relay-node-config-preview');
+        const copyButton = document.getElementById('mail-relay-copy-node-config');
+        const deploymentDefaults = {!! json_encode(data_get($mailRelayRuntime, 'deployment_values', []), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) !!};
+
+        const list = (value) => value.split(/[\s,]+/).map((item) => item.trim()).filter(Boolean);
+        const selectedMode = () => modeInputs.find((input) => input.checked)?.value || 'internal';
+        const identityInputs = [hostname, domains, allowedDomains, selector, platformDomain];
+        let previousMode = selectedMode();
+        let externalDraft = null;
+
+        const update = () => {
+          const external = selectedMode() === 'external';
+          endpointWrap.classList.toggle('d-none', !external);
+          internalNotice.classList.toggle('d-none', external);
+          autoDetectWrap.classList.toggle('d-none', external);
+          nodeConfigWrap.classList.toggle('d-none', !external);
+          endpoint.required = external;
+          publicIps.required = external;
+          identityInputs.forEach((input) => { input.readOnly = !external; });
+
+          form.querySelectorAll('.mail-relay-mode-card').forEach((card) => {
+            const active = card.querySelector('input')?.checked === true;
+            card.classList.toggle('border-primary', active);
+            card.classList.toggle('bg-light', active);
+          });
+
+          const ips = list(publicIps.value);
+          const mailHost = hostname.value.trim().toLowerCase();
+          ptrPreview.textContent = ips.length && mailHost
+            ? ips.map((ip) => `${ip} → ${mailHost}`).join('\n')
+            : '{{ __('admin/setting.mail_relay_public_ips_help') }}';
+
+          nodeConfig.textContent = [
+            `MAIL_HOSTNAME=${mailHost}`,
+            `MAIL_PUBLIC_IPS=${ips.join(',')}`,
+            `MAIL_DOMAINS=${list(domains.value).join(',')}`,
+            `ALLOWED_SENDER_DOMAINS=${list(allowedDomains.value).join(',')}`,
+            `DKIM_SELECTOR=${selector.value.trim().toLowerCase()}`,
+            'LONGOS_RELAY_SHARED_SECRET=<与主站 SERVICE_PASSWORD_64_MAILRELAY 一致>',
+            'CLOUD_MAIL_RELAY_SHARED_SECRET=<与主站 SERVICE_PASSWORD_64_CLOUDMAIL 一致>',
+          ].join('\n');
+        };
+
+        modeInputs.forEach((input) => input.addEventListener('change', () => {
+          const nextMode = selectedMode();
+          if (previousMode === 'external' && nextMode === 'internal') {
+            externalDraft = {
+              endpoint: endpoint.value,
+              publicIps: publicIps.value,
+              autoDetect: autoDetect.checked,
+              hostname: hostname.value,
+              domains: domains.value,
+              allowedDomains: allowedDomains.value,
+              platformDomain: platformDomain.value,
+              selector: selector.value,
+            };
+            publicIps.value = (deploymentDefaults.public_ips || []).join(', ');
+            autoDetect.checked = deploymentDefaults.auto_detect_public_ips !== false;
+            hostname.value = deploymentDefaults.hostname || '';
+            domains.value = (deploymentDefaults.domains || []).join('\n');
+            allowedDomains.value = (deploymentDefaults.allowed_sender_domains || []).join('\n');
+            platformDomain.value = deploymentDefaults.platform_sender_domain || '';
+            selector.value = deploymentDefaults.dkim_selector || 'mail2026';
+          } else if (previousMode === 'internal' && nextMode === 'external' && externalDraft) {
+            endpoint.value = externalDraft.endpoint;
+            publicIps.value = externalDraft.publicIps;
+            autoDetect.checked = externalDraft.autoDetect;
+            hostname.value = externalDraft.hostname;
+            domains.value = externalDraft.domains;
+            allowedDomains.value = externalDraft.allowedDomains;
+            platformDomain.value = externalDraft.platformDomain;
+            selector.value = externalDraft.selector;
+          }
+          previousMode = nextMode;
+          update();
+        }));
+        [endpoint, publicIps, hostname, domains, allowedDomains, selector, platformDomain]
+          .forEach((input) => input.addEventListener('input', update));
+
+        form.addEventListener('submit', (event) => {
+          if (event.submitter?.value === 'reset') return;
+          if (!form.checkValidity()) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+          form.classList.add('was-validated');
+        });
+
+        copyButton.addEventListener('click', async () => {
+          const value = nodeConfig.textContent || '';
+          try {
+            await navigator.clipboard.writeText(value);
+          } catch (error) {
+            const field = document.createElement('textarea');
+            field.value = value;
+            field.setAttribute('readonly', 'readonly');
+            field.style.position = 'fixed';
+            field.style.opacity = '0';
+            document.body.appendChild(field);
+            field.select();
+            document.execCommand('copy');
+            field.remove();
+          }
+          layer.msg('{{ __('admin/setting.mail_relay_node_config_copy') }}');
+        });
+
+        update();
+      })();
+    @endif
   </script>
 @endpush

@@ -31,7 +31,9 @@ MAIL_RELAY_PUBLIC_URL=https://<DOMAIN>/_longos/mail-relay
 MAIL_FROM_ADDRESS=no-reply@<SAAS_BASE_DOMAIN>
 ```
 
-需要自定义时，在 Coolify 环境变量中设置同名值并 Redeploy。`MAIL_RELAY_DOMAINS` 和 `MAIL_RELAY_ALLOWED_SENDER_DOMAINS` 支持逗号分隔的多个域名；留空时 Laravel 和 Compose 从 `SAAS_BASE_DOMAIN` 推导。首次打开后台邮件设置时，默认、订单、账户、退货/客服和营销五类发件人会按当前租户自动填充。
+需要自定义时，可以在 LONGOS **控制站**后台“系统 → 基础设置 → 邮件设置 → 全平台邮件出口拓扑”直接填写并保存，无需修改租户数据库或手工进入容器。只有控制域名上的根管理员可以看到该卡片；保存的非敏感拓扑写入 app、worker、scheduler 共享的 `longos-storage`，租户切换和队列任务开始前都会重新应用。后台覆盖可一键恢复为 Coolify 环境变量默认值。
+
+页面可配置同机/第二台服务器模式、中继 HTTPS 地址、邮件主机名、出口公网 IP、DKIM 签名域、允许发件域、平台默认域和 DKIM selector，并实时生成 PTR 映射和第二台服务器配置清单。同机模式下，Compose 同时注入应用和 Postfix/OpenDKIM 的身份字段会保持只读，防止网页单方面修改造成两端漂移；仍可覆盖或自动识别出口公网 IP。两条 HMAC 密钥不会进入表单、HTML、租户数据库或共享配置文件，仍必须保留在 Coolify/第二台服务器 Secret 中。`MAIL_RELAY_DOMAINS` 和 `MAIL_RELAY_ALLOWED_SENDER_DOMAINS` 支持逗号、空格或换行分隔；首次打开后台邮件设置时，默认、订单、账户、退货/客服和营销五类发件人会按当前租户自动填充。
 
 第二台服务器专用邮件出口模式使用：
 

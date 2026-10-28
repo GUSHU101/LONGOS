@@ -84,6 +84,7 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringContainsString('LONGOS_AUTO_CONFIGURE_MAIL_DNS: ${LONGOS_AUTO_CONFIGURE_MAIL_DNS:-true}', $compose);
         self::assertStringContainsString('MAIL_RELAY_DNS_RECORDS_PATH: /var/lib/longos-mail-dns', $compose);
         self::assertStringContainsString('MAIL_RELAY_IPS: ${MAIL_RELAY_IPS:-}', $compose);
+        self::assertStringContainsString('MAIL_RELAY_RUNTIME_SETTINGS_PATH: ${MAIL_RELAY_RUNTIME_SETTINGS_PATH:-/var/www/html/storage/app/longos/mail-relay-runtime.json}', $compose);
         self::assertStringContainsString('MAIL_RELAY_AUTO_DETECT_IPS: ${MAIL_RELAY_AUTO_DETECT_IPS:-true}', $compose);
         self::assertStringContainsString('mail-relay-dns:/var/lib/longos-mail-dns:ro', $compose);
         self::assertStringNotContainsString('mail-relay-dkim:/var/lib/dkim:ro', $compose);
