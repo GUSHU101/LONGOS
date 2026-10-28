@@ -50,7 +50,9 @@
   #longos-live-chat .llc-send { align-self: end; display: grid; place-items: center; min-width: 44px; height: 44px; border: 0; border-radius: 11px; color: var(--llc-on-primary); background: var(--llc-primary); cursor: pointer; }
   #longos-live-chat .llc-send:hover:not(:disabled) { background: var(--llc-primary-hover); }
   #longos-live-chat .llc-send:disabled { cursor: wait; opacity: .58; }
+  #longos-live-chat .llc-send.is-sending i { animation: llc-spin .8s linear infinite; }
   #longos-live-chat .llc-sr-only { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+  @keyframes llc-spin { to { transform: rotate(360deg); } }
   @media (max-width: 576px) {
     #longos-live-chat.open { inset: 0 !important; display: block; padding: 0; }
     #longos-live-chat.open .llc-panel { width: 100%; height: 100dvh; max-width: none; margin: 0; border: 0; border-radius: 0; }
@@ -99,6 +101,7 @@
       initFailed: @json(__('LongosLiveChat::chat.init_failed')),
       sendFailed: @json(__('LongosLiveChat::chat.send_failed')),
       loading: @json(__('LongosLiveChat::chat.loading')),
+      sending: @json(__('LongosLiveChat::chat.sending')),
       online: @json(__('LongosLiveChat::chat.operator_online')),
       offline: @json(__('LongosLiveChat::chat.operator_offline')),
       unread: @json(__('LongosLiveChat::chat.unread_replies')),
@@ -121,6 +124,7 @@
     const apiRequest = (options) => $.ajax($.extend({
       headers: {'X-CSRF-TOKEN': csrfToken, 'Accept': 'application/json'},
       cache: false,
+      timeout: 12000,
     }, options));
     const status = (message, error = false) => root.find('.llc-status').text(message || '').toggleClass('error', error);
     const errorMessage = (xhr, fallback) => xhr && xhr.responseJSON && (xhr.responseJSON.message || Object.values(xhr.responseJSON.errors || {}).flat()[0]) || fallback;
@@ -180,6 +184,10 @@
       body.scrollTop(body.prop('scrollHeight') - previousHeight);
     };
     const scrollBottom = () => { const body = root.find('.llc-body'); body.scrollTop(body.prop('scrollHeight')); };
+    const isNearBottom = () => {
+      const body = root.find('.llc-body')[0];
+      return !body || body.scrollHeight - body.scrollTop - body.clientHeight < 96;
+    };
     const updateHistoryButton = () => root.find('.llc-history').toggle(!!hasOlder).prop('disabled', loadingOlder);
     const schedulePolling = () => {
       clearTimeout(timer);
@@ -191,6 +199,7 @@
     const loadMessages = () => {
       if (!conversation || loadingMessages || document.hidden) return;
       const visible = root.hasClass('open');
+      const stickToBottom = isNearBottom();
       loadingMessages = true;
       let hasMore = false;
       apiRequest({url: `${api}/${encodeURIComponent(conversation.id)}/messages`, method: 'GET', dataType: 'json', data: {after: lastMessageId, mark_read: visible ? 1 : 0}})
@@ -198,7 +207,7 @@
           pollFailures = 0;
           updatePresence(response.operator_online);
           const nowVisible = root.hasClass('open');
-          if (appendMessages(response.messages || [], !nowVisible) && nowVisible) scrollBottom();
+          if (appendMessages(response.messages || [], !nowVisible) && nowVisible && stickToBottom) scrollBottom();
           if (nowVisible && !visible) acknowledgeMessages();
           hasMore = !!response.has_more;
         })
@@ -263,11 +272,18 @@
       event.preventDefault();
       const textarea = root.find('.llc-form textarea');
       const message = String(textarea.val() || '').trim();
-      if (!message || !conversation || sending) return;
+      if (!message || sending) return;
+      if (!conversation) {
+        initialize().done(() => root.find('.llc-form').trigger('submit'));
+        return;
+      }
       if (!pendingMessage || pendingMessage.body !== message) pendingMessage = {id: makeClientId(), body: message};
       sending = true;
+      status(labels.sending);
       textarea.prop('disabled', true);
-      root.find('.llc-send').prop('disabled', true);
+      const sendButton = root.find('.llc-send');
+      sendButton.prop('disabled', true).attr('aria-busy', 'true').addClass('is-sending');
+      sendButton.find('i').removeClass('bi-send-fill').addClass('bi-arrow-repeat');
       apiRequest({
         url: `${api}/${encodeURIComponent(conversation.id)}/messages`,
         method: 'POST',
@@ -288,7 +304,8 @@
         .always(() => {
           sending = false;
           textarea.prop('disabled', false);
-          root.find('.llc-send').prop('disabled', false);
+          sendButton.prop('disabled', false).removeAttr('aria-busy').removeClass('is-sending');
+          sendButton.find('i').removeClass('bi-arrow-repeat').addClass('bi-send-fill');
           textarea.trigger('focus');
         });
     });

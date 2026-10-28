@@ -233,14 +233,18 @@ class ChatService
     {
         $sender = $recipient === Message::SENDER_ADMIN ? Message::SENDER_VISITOR : Message::SENDER_ADMIN;
         $ids    = $messages->where('sender_type', $sender)->whereNull('read_at')->pluck('id');
-        $now    = now();
+        if ($ids->isEmpty()) {
+            return;
+        }
 
-        if ($ids->isNotEmpty()) {
-            Message::query()
-                ->where('conversation_id', $conversation->getKey())
-                ->whereIn('id', $ids)
-                ->whereNull('read_at')
-                ->update(['read_at' => $now]);
+        $now     = now();
+        $updated = Message::query()
+            ->where('conversation_id', $conversation->getKey())
+            ->whereIn('id', $ids)
+            ->whereNull('read_at')
+            ->update(['read_at' => $now]);
+        if ($updated === 0) {
+            return;
         }
 
         $field = $recipient === Message::SENDER_ADMIN ? 'admin_last_read_at' : 'visitor_last_read_at';
@@ -255,11 +259,14 @@ class ChatService
             : [Message::SENDER_ADMIN, Message::SENDER_SYSTEM];
         $now = now();
 
-        Message::query()
+        $updated = Message::query()
             ->where('conversation_id', $conversation->getKey())
             ->whereIn('sender_type', $senders)
             ->whereNull('read_at')
             ->update(['read_at' => $now]);
+        if ($updated === 0) {
+            return;
+        }
 
         $field = $recipient === Message::SENDER_ADMIN ? 'admin_last_read_at' : 'visitor_last_read_at';
         Conversation::query()->whereKey($conversation->getKey())->update([$field => $now]);

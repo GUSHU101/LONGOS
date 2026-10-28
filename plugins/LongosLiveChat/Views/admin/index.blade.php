@@ -78,7 +78,7 @@
           <form @submit.prevent="send" class="p-3 pt-2 border-top d-flex gap-2 align-items-end">
             <label class="visually-hidden" for="longos-live-chat-admin-message">{{ __('LongosLiveChat::chat.placeholder') }}</label>
             <textarea id="longos-live-chat-admin-message" v-model="draft" @keydown.enter.exact.prevent="send" class="form-control" rows="2" maxlength="5000" :placeholder="labels.placeholder"></textarea>
-            <button class="btn btn-primary px-4" :disabled="sending || !draft.trim()">@{{ sending ? labels.loading : labels.send }}</button>
+            <button class="btn btn-primary px-4" :disabled="sending || !draft.trim()" :aria-busy="sending ? 'true' : 'false'">@{{ sending ? labels.sending : (pendingMessage && chatError ? labels.retrySend : labels.send) }}</button>
           </form>
         </template>
         <div v-else class="h-100 d-flex flex-column align-items-center justify-content-center text-secondary p-4 text-center"><i class="bi bi-chat-square-text fs-1 mb-2" aria-hidden="true"></i>{{ __('LongosLiveChat::chat.select') }}</div>
@@ -95,10 +95,12 @@
       conversations: [], selected: null, messages: [], draft: '', statusFilter: 'open', search: '', timer: null, presenceTimer: null,
       lastMessageId: 0, oldestMessageId: 0, hasOlder: false, sending: false, changingStatus: false, loadingOlder: false,
       loadingMessages: false, loadingConversations: false, selectionVersion: 0, conversationRequestVersion: 0,
-      messageRequestVersion: 0, listError: '', chatError: '', pendingMessage: null, loadingMore: false,
+      messageRequestVersion: 0, listError: '', chatError: '', pendingMessage: null, loadingMore: false, pollFailures: 0,
       hasMoreConversations: false, nextConversationPage: null,
+      pollMilliseconds: {{ max(3, min(20, (int) plugin_setting('longos_live_chat.poll_seconds', 5))) * 1000 }},
       labels: {
         loading: @json(__('LongosLiveChat::chat.loading')),
+        sending: @json(__('LongosLiveChat::chat.sending')),
         loadOlder: @json(__('LongosLiveChat::chat.load_older')),
         placeholder: @json(__('LongosLiveChat::chat.placeholder')),
         send: @json(__('LongosLiveChat::chat.send')),
@@ -107,43 +109,80 @@
         sendFailed: @json(__('LongosLiveChat::chat.send_failed')),
         reconnecting: @json(__('LongosLiveChat::chat.reconnecting')),
         loadMore: @json(__('LongosLiveChat::chat.load_more')),
+        retrySend: @json(__('LongosLiveChat::chat.retry_send')),
       },
     },
     mounted() {
-      this.loadConversations(true);
+      this._conversationRequest = null;
+      this._messageRequest = null;
+      this.loadConversations(true).always(() => this.schedulePolling());
       this.heartbeat();
       document.addEventListener('visibilitychange', this.handleVisibilityChange);
-      this.timer = window.setInterval(() => {
-        if (document.hidden) return;
-        this.loadConversations(false);
-        if (this.selected) this.loadMessages(false, true);
-      }, {{ max(3, min(20, (int) plugin_setting('longos_live_chat.poll_seconds', 5))) * 1000 }});
       this.presenceTimer = window.setInterval(this.heartbeat, 30000);
     },
-    beforeDestroy() { window.clearInterval(this.timer); window.clearInterval(this.presenceTimer); document.removeEventListener('visibilitychange', this.handleVisibilityChange); },
+    beforeDestroy() {
+      window.clearTimeout(this.timer);
+      window.clearInterval(this.presenceTimer);
+      this._conversationRequest?.abort();
+      this._messageRequest?.abort();
+      document.removeEventListener('visibilitychange', this.handleVisibilityChange);
+    },
     methods: {
       errorMessage(xhr, fallback) { const errors = xhr && xhr.responseJSON && xhr.responseJSON.errors; return xhr && xhr.responseJSON && xhr.responseJSON.message || (errors ? Object.values(errors).flat()[0] : '') || fallback; },
       makeClientId() { return window.crypto && typeof window.crypto.randomUUID === 'function' ? window.crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => { const random = Math.random() * 16 | 0; return (char === 'x' ? random : (random & 0x3 | 0x8)).toString(16); }); },
       statusLabel(status) { return status === 'closed' ? this.labels.closed : this.labels.open; },
+      resolvedRequest() { return $.Deferred().resolve().promise(); },
+      csrfToken() { const meta = document.querySelector('meta[name="csrf-token"]'); return meta ? meta.content : ''; },
+      apiRequest(options) {
+        return $.ajax($.extend({
+          cache: false,
+          timeout: 12000,
+          headers: {'X-CSRF-TOKEN': this.csrfToken(), Accept: 'application/json'},
+        }, options));
+      },
+      schedulePolling(delay = null) {
+        window.clearTimeout(this.timer);
+        if (document.hidden) return;
+        const retryDelay = Math.min(60000, this.pollMilliseconds * Math.pow(2, Math.min(this.pollFailures, 4)));
+        this.timer = window.setTimeout(this.poll, delay === null ? retryDelay : delay);
+      },
+      poll() {
+        if (document.hidden) return;
+        const requests = [this.loadConversations(false)];
+        if (this.selected) requests.push(this.loadMessages(false, true));
+        $.when.apply($, requests)
+          .done(() => { this.pollFailures = 0; })
+          .fail((xhr, status) => { if (status !== 'abort') this.pollFailures += 1; })
+          .always(() => this.schedulePolling());
+      },
       heartbeat() {
         if (document.hidden) return;
-        $.ajax({url: @json(admin_route('longos_live_chat.heartbeat')), method: 'POST', headers: {'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content, Accept: 'application/json'}});
+        this.apiRequest({url: @json(admin_route('longos_live_chat.heartbeat')), method: 'POST'});
       },
       handleVisibilityChange() {
-        if (document.hidden) return;
+        if (document.hidden) { window.clearTimeout(this.timer); return; }
         this.heartbeat();
-        this.loadConversations(false);
-        if (this.selected) this.loadMessages(false, true);
+        this.schedulePolling(0);
       },
       loadConversations(reset = true, append = false) {
-        if (this.loadingConversations) return;
+        if (this.loadingConversations) {
+          if (!reset) return this._conversationRequest || this.resolvedRequest();
+          this._conversationRequest?.abort();
+        }
         const page = append ? this.nextConversationPage : 1;
-        if (!page) return;
+        if (!page) return this.resolvedRequest();
         const version = ++this.conversationRequestVersion;
         this.loadingConversations = true;
         this.loadingMore = append;
         this.listError = '';
-        $.getJSON(@json(admin_route('longos_live_chat.conversations')), {status: this.statusFilter, search: this.search, page})
+        const request = this.apiRequest({
+          url: @json(admin_route('longos_live_chat.conversations')),
+          method: 'GET',
+          dataType: 'json',
+          data: {status: this.statusFilter, search: this.search, page},
+        });
+        this._conversationRequest = request;
+        request
           .done((response) => {
             if (version !== this.conversationRequestVersion) return;
             const incoming = response.conversations || [];
@@ -154,7 +193,9 @@
               this.conversations = incoming;
             } else {
               const incomingIds = new Set(incoming.map((item) => item.id));
-              this.conversations = incoming.concat(this.conversations.filter((item) => !incomingIds.has(item.id)));
+              const retainedLimit = Math.max(50, this.conversations.length);
+              const merged = incoming.concat(this.conversations.filter((item) => !incomingIds.has(item.id)));
+              this.conversations = merged.slice(0, retainedLimit);
             }
             if (append || reset) {
               this.hasMoreConversations = !!response.has_more;
@@ -162,15 +203,23 @@
             }
             if (this.selected) {
               const refreshed = this.conversations.find((item) => item.id === this.selected.id);
-              if (refreshed) this.selected = Object.assign({}, this.selected, refreshed);
+              if (refreshed) {
+                if (!document.hidden) refreshed.unread_count = 0;
+                this.selected = Object.assign({}, this.selected, refreshed);
+              }
               else if (reset) { this.selected = null; this.messages = []; }
             }
           })
-          .fail((xhr) => { if (version === this.conversationRequestVersion) this.listError = this.errorMessage(xhr, this.labels.reconnecting); })
-          .always(() => { if (version === this.conversationRequestVersion) { this.loadingConversations = false; this.loadingMore = false; } });
+          .fail((xhr, status) => { if (status !== 'abort' && version === this.conversationRequestVersion) this.listError = this.errorMessage(xhr, this.labels.reconnecting); })
+          .always(() => {
+            if (version === this.conversationRequestVersion) { this.loadingConversations = false; this.loadingMore = false; }
+            if (this._conversationRequest === request) this._conversationRequest = null;
+          });
+        return request;
       },
       loadMoreConversations() { this.loadConversations(false, true); },
       selectConversation(item) {
+        this._messageRequest?.abort();
         this.selectionVersion += 1;
         this.messageRequestVersion += 1;
         this.loadingMessages = false;
@@ -186,9 +235,16 @@
         this.loadMessages(true, false);
       },
       refreshMessageBounds() {
-        const ids = this.messages.map((item) => Number(item.id) || 0).filter(Boolean);
-        this.lastMessageId = ids.length ? Math.max(...ids) : 0;
-        this.oldestMessageId = ids.length ? Math.min(...ids) : 0;
+        let newest = 0;
+        let oldest = 0;
+        this.messages.forEach((item) => {
+          const id = Number(item.id) || 0;
+          if (!id) return;
+          newest = Math.max(newest, id);
+          oldest = oldest ? Math.min(oldest, id) : id;
+        });
+        this.lastMessageId = newest;
+        this.oldestMessageId = oldest;
       },
       appendIncoming(items) {
         const seen = new Set(this.messages.map((item) => Number(item.id)));
@@ -199,23 +255,41 @@
       },
       messageUrl() { return @json(admin_route('longos_live_chat.messages', ['conversation' => '__id__'])).replace('__id__', encodeURIComponent(this.selected.id)); },
       loadMessages(scroll = true, incremental = false) {
-        if (!this.selected || this.loadingMessages) return;
+        if (!this.selected) return this.resolvedRequest();
+        if (this.loadingMessages) return this._messageRequest || this.resolvedRequest();
         const selectedId = this.selected.id;
         const selectionVersion = this.selectionVersion;
         const requestVersion = ++this.messageRequestVersion;
+        const stickToBottom = this.isNearBottom();
         this.loadingMessages = true;
         this.chatError = '';
-        $.getJSON(this.messageUrl(), {after: incremental ? this.lastMessageId : 0})
+        let hasMore = false;
+        const request = this.apiRequest({
+          url: this.messageUrl(),
+          method: 'GET',
+          dataType: 'json',
+          data: {after: incremental ? this.lastMessageId : 0},
+        });
+        this._messageRequest = request;
+        request
           .done((response) => {
             if (!this.selected || this.selected.id !== selectedId || this.selectionVersion !== selectionVersion || requestVersion !== this.messageRequestVersion) return;
             this.selected = Object.assign({}, this.selected, response.conversation || {});
             const incoming = response.messages || [];
             const added = incremental ? this.appendIncoming(incoming) : (this.messages = incoming, this.refreshMessageBounds(), this.hasOlder = !!response.has_older, incoming.length > 0);
-            if (scroll || added) this.$nextTick(this.scrollBottom);
-            if (response.has_more) this.$nextTick(() => this.loadMessages(false, true));
+            this.selected.unread_count = 0;
+            const listItem = this.conversations.find((item) => item.id === selectedId);
+            if (listItem) listItem.unread_count = 0;
+            if (scroll || (added && stickToBottom)) this.$nextTick(this.scrollBottom);
+            hasMore = !!response.has_more;
           })
-          .fail((xhr) => { if (requestVersion === this.messageRequestVersion) this.chatError = this.errorMessage(xhr, this.labels.reconnecting); })
-          .always(() => { if (requestVersion === this.messageRequestVersion) this.loadingMessages = false; });
+          .fail((xhr, status) => { if (status !== 'abort' && requestVersion === this.messageRequestVersion) this.chatError = this.errorMessage(xhr, this.labels.reconnecting); })
+          .always(() => {
+            if (requestVersion === this.messageRequestVersion) this.loadingMessages = false;
+            if (this._messageRequest === request) this._messageRequest = null;
+            if (hasMore && this.selected && this.selected.id === selectedId) window.setTimeout(() => this.loadMessages(false, true), 0);
+          });
+        return request;
       },
       loadOlder() {
         if (!this.selected || !this.oldestMessageId || this.loadingOlder || this.loadingMessages) return;
@@ -223,7 +297,7 @@
         const previousHeight = this.$refs.messages ? this.$refs.messages.scrollHeight : 0;
         this.loadingOlder = true;
         this.chatError = '';
-        $.getJSON(this.messageUrl(), {before: this.oldestMessageId}).done((response) => {
+        this.apiRequest({url: this.messageUrl(), method: 'GET', dataType: 'json', data: {before: this.oldestMessageId}}).done((response) => {
           if (!this.selected || this.selected.id !== selectedId) return;
           const seen = new Set(this.messages.map((item) => Number(item.id)));
           const older = (response.messages || []).filter((item) => !seen.has(Number(item.id)));
@@ -242,7 +316,7 @@
         const selectionVersion = this.selectionVersion;
         this.sending = true;
         this.chatError = '';
-        $.ajax({url: @json(admin_route('longos_live_chat.messages.store', ['conversation' => '__id__'])).replace('__id__', encodeURIComponent(selectedId)), method: 'POST', data: {message: body, client_message_id: this.pendingMessage.id}, headers: {'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content, Accept: 'application/json'}})
+        this.apiRequest({url: @json(admin_route('longos_live_chat.messages.store', ['conversation' => '__id__'])).replace('__id__', encodeURIComponent(selectedId)), method: 'POST', data: {message: body, client_message_id: this.pendingMessage.id}})
           .done((response) => {
             if (!this.selected || this.selected.id !== selectedId || this.selectionVersion !== selectionVersion) return;
             this.appendIncoming([response.message]);
@@ -250,6 +324,7 @@
             this.pendingMessage = null;
             this.selected.status = 'open';
             this.$nextTick(this.scrollBottom);
+            this.loadConversations(false);
           })
           .fail((xhr) => { this.chatError = this.errorMessage(xhr, this.labels.sendFailed); })
           .always(() => { this.sending = false; });
@@ -259,7 +334,7 @@
         const selectedId = this.selected.id;
         this.changingStatus = true;
         this.chatError = '';
-        $.ajax({url: @json(admin_route('longos_live_chat.close', ['conversation' => '__id__'])).replace('__id__', encodeURIComponent(selectedId)), method: 'POST', headers: {'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content, Accept: 'application/json'}})
+        this.apiRequest({url: @json(admin_route('longos_live_chat.close', ['conversation' => '__id__'])).replace('__id__', encodeURIComponent(selectedId)), method: 'POST'})
           .done((response) => { if (this.selected && this.selected.id === selectedId) { this.selected.status = response.conversation.status; this.loadConversations(true); } })
           .fail((xhr) => { this.chatError = this.errorMessage(xhr, this.labels.reconnecting); })
           .always(() => { this.changingStatus = false; });
@@ -269,10 +344,14 @@
         const selectedId = this.selected.id;
         this.changingStatus = true;
         this.chatError = '';
-        $.ajax({url: @json(admin_route('longos_live_chat.reopen', ['conversation' => '__id__'])).replace('__id__', encodeURIComponent(selectedId)), method: 'POST', headers: {'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content, Accept: 'application/json'}})
+        this.apiRequest({url: @json(admin_route('longos_live_chat.reopen', ['conversation' => '__id__'])).replace('__id__', encodeURIComponent(selectedId)), method: 'POST'})
           .done((response) => { if (this.selected && this.selected.id === selectedId) { this.selected.status = response.conversation.status; this.loadConversations(true); } })
           .fail((xhr) => { this.chatError = this.errorMessage(xhr, this.labels.reconnecting); })
           .always(() => { this.changingStatus = false; });
+      },
+      isNearBottom() {
+        const element = this.$refs.messages;
+        return !element || element.scrollHeight - element.scrollTop - element.clientHeight < 96;
       },
       scrollBottom() { const element = this.$refs.messages; if (element) element.scrollTop = element.scrollHeight; },
       formatTime(value) { return value ? (window.bk?.formatDateTime?.(value) || new Date(value).toLocaleString()) : ''; },

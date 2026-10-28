@@ -27,6 +27,7 @@ class AdminChatController extends Controller
             : Conversation::STATUS_OPEN;
         $search = mb_substr(trim((string) $request->query('search', '')), 0, 100);
         $query  = Conversation::query()
+            ->select(['id', 'public_id', 'visitor_name', 'visitor_email', 'status', 'last_message_at'])
             ->with('latestMessage')
             ->withCount(['messages as unread_count' => function ($query): void {
                 $query->where('sender_type', Message::SENDER_VISITOR)->whereNull('read_at');

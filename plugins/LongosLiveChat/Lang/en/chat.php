@@ -21,6 +21,8 @@ return [
     'invalid_message'  => 'Please enter a valid message.',
     'load_older'       => 'Load earlier messages',
     'loading'          => 'Loading…',
+    'sending'          => 'Sending…',
+    'retry_send'       => 'Retry send',
     'connected'        => 'Connected',
     'operator_online'  => 'Support is online',
     'operator_offline' => 'Support is offline. You can leave a message.',

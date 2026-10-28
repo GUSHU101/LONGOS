@@ -21,6 +21,8 @@ return [
     'invalid_message'  => '请输入有效的消息内容。',
     'load_older'       => '加载更早消息',
     'loading'          => '正在加载…',
+    'sending'          => '正在发送…',
+    'retry_send'       => '重试发送',
     'connected'        => '已连接',
     'operator_online'  => '客服在线',
     'operator_offline' => '客服暂时离线，您可以留言',

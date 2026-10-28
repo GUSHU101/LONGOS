@@ -5,13 +5,16 @@ namespace Tests\Feature;
 use Beike\Shop\Providers\PluginServiceProvider;
 use Closure;
 use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\TestCase;
+use Plugin\LongosLiveChat\Controllers\AdminChatController;
 use Plugin\LongosLiveChat\Models\Conversation;
 use Plugin\LongosLiveChat\Models\Message;
 use Plugin\LongosLiveChat\Services\ChatService;
@@ -154,6 +157,9 @@ class LongosLiveChatServiceTest extends TestCase
         self::assertTrue($latest['has_older']);
         self::assertSame(['Message 4', 'Message 5', 'Message 6'], $latest['messages']->pluck('body')->all());
 
+        $service->markDelivered($conversation, new Collection, Message::SENDER_ADMIN);
+        self::assertNull($conversation->refresh()->admin_last_read_at);
+
         $service->markDelivered($conversation, $latest['messages'], Message::SENDER_ADMIN);
         self::assertSame(3, Message::query()->whereNotNull('read_at')->count());
         self::assertSame(3, Message::query()->whereNull('read_at')->count());
@@ -179,6 +185,23 @@ class LongosLiveChatServiceTest extends TestCase
         $service->touchAdminPresence(9);
         self::assertTrue($service->adminOnline());
         self::assertSame(64, strlen($service->cacheScope()));
+    }
+
+    public function test_admin_conversation_feed_returns_a_bounded_preview_and_unread_count(): void
+    {
+        $service      = new ChatService;
+        $initialized  = $service->initialize('', null, '');
+        $conversation = $initialized['conversation'];
+        $service->sendVisitor($conversation, 'A new support request', 'Visitor', 'visitor@example.com', null, (string) Str::uuid());
+
+        $response = (new AdminChatController($service))->conversations(
+            Request::create('/live-chat/conversations', 'GET', ['status' => Conversation::STATUS_OPEN]),
+        )->getData(true);
+
+        self::assertCount(1, $response['conversations']);
+        self::assertSame('A new support request', $response['conversations'][0]['preview']);
+        self::assertSame(1, $response['conversations'][0]['unread_count']);
+        self::assertFalse($response['has_more']);
     }
 
     public function test_retention_command_only_prunes_expired_closed_conversations(): void

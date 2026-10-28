@@ -25,6 +25,8 @@ class LongosLiveChatHardeningTest extends TestCase
         self::assertStringContainsString("'client_message_id' => ['nullable', 'uuid']", $shop);
         self::assertStringContainsString('lockForUpdate()', $service);
         self::assertStringContainsString('firstOrCreate(', $service);
+        self::assertStringContainsString('if ($ids->isEmpty())', $service);
+        self::assertStringContainsString('if ($updated === 0)', $service);
         self::assertStringContainsString('llc_messages_conversation_client_unique', $migration);
         self::assertStringContainsString('llc_conversations_status_closed_index', $lifecycle);
         self::assertStringContainsString("Route::post('{conversation}/read'", $shopRoutes);
@@ -49,6 +51,9 @@ class LongosLiveChatHardeningTest extends TestCase
         self::assertStringContainsString('visibilitychange', $widget);
         self::assertStringContainsString('Math.pow(2', $widget);
         self::assertStringContainsString('backgroundPollMilliseconds', $widget);
+        self::assertStringContainsString('timeout: 12000', $widget);
+        self::assertStringContainsString('status(labels.sending)', $widget);
+        self::assertStringContainsString('isNearBottom', $widget);
         self::assertStringContainsString('class="llc-unread"', $widget);
         self::assertStringNotContainsString('layer?.', $widget);
         self::assertStringContainsString('--llc-primary: #155eef', $widget);
@@ -63,6 +68,12 @@ class LongosLiveChatHardeningTest extends TestCase
         self::assertStringContainsString('loadMoreConversations()', $admin);
         self::assertStringContainsString('heartbeat()', $admin);
         self::assertStringContainsString('reopenConversation()', $admin);
+        self::assertStringContainsString('timeout: 12000', $admin);
+        self::assertStringContainsString('schedulePolling', $admin);
+        self::assertStringContainsString('Math.pow(2, Math.min(this.pollFailures, 4))', $admin);
+        self::assertStringContainsString('this.conversations = merged.slice(0, retainedLimit)', $admin);
+        self::assertStringContainsString('this._messageRequest?.abort()', $admin);
+        self::assertStringContainsString('retrySend', $admin);
     }
 
     public function test_configuration_and_translations_cover_every_runtime_setting(): void
