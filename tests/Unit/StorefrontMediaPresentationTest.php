@@ -6,6 +6,26 @@ use PHPUnit\Framework\TestCase;
 
 class StorefrontMediaPresentationTest extends TestCase
 {
+    public function test_mobile_testimonials_use_a_manual_scroll_snap_carousel(): void
+    {
+        $root       = dirname(__DIR__, 2);
+        $template   = (string) file_get_contents($root . '/themes/default/design/testimonials.blade.php');
+        $styles     = (string) file_get_contents($root . '/resources/beike/shop/default/css/module/module-shopify-sections.scss');
+        $storefront = (string) file_get_contents($root . '/resources/beike/shop/default/js/app.js');
+        $carousel   = (string) file_get_contents($root . '/resources/beike/shop/default/js/testimonials-carousel.js');
+
+        self::assertStringContainsString('data-testimonials-carousel', $template);
+        self::assertStringContainsString('data-testimonials-status', $template);
+        self::assertStringContainsString("__('shop/design.testimonial_position'", $template);
+        self::assertStringContainsString('scroll-snap-type: x mandatory;', $styles);
+        self::assertStringContainsString('flex: 0 0 calc(100%', $styles);
+        self::assertStringContainsString('min-width: 0;', $styles);
+        self::assertStringContainsString("import './testimonials-carousel'", $storefront);
+        self::assertStringContainsString('longos:builder-preview-updated', $carousel);
+        self::assertStringContainsString("'(prefers-reduced-motion: reduce)'", $carousel);
+        self::assertStringNotContainsString('autoplay', $carousel);
+    }
+
     public function test_mobile_slideshows_preserve_the_complete_image(): void
     {
         $root       = dirname(__DIR__, 2);

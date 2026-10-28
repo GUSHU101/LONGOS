@@ -24,6 +24,7 @@ import './order-actions'
 import './campaign-offer'
 import './bootstrap-validation'
 import './slideshow-media'
+import './testimonials-carousel'
 
 $(document).ready(function ($) {
   const analyticsUrl = window.longosStorefrontRoutes?.analyticsVisit;
