@@ -45,6 +45,25 @@ class BrevoConnectionServiceTest extends TestCase
         $service->inspect('invalid-key', 15);
     }
 
+    public function test_it_accepts_an_active_verified_sender_when_the_domain_is_not_authenticated(): void
+    {
+        $service = new BrevoConnectionService($this->client([
+            new Response(200, ['content-type' => 'application/json'], json_encode(['email' => 'owner@example.com'])),
+            new Response(404, ['content-type' => 'application/json'], json_encode(['message' => 'Domain not found'])),
+            new Response(200, ['content-type' => 'application/json'], json_encode([
+                'senders' => [
+                    ['email' => 'other@example.com', 'active' => true],
+                    ['email' => 'shop@example.com', 'active' => true],
+                ],
+            ])),
+        ]));
+
+        $result = $service->inspect('xkeysib-valid', 15, 'shop@example.com');
+
+        self::assertSame('ok', $result['sender_status']);
+        self::assertStringContainsString('shop@example.com', $result['sender_message']);
+    }
+
     /** @param array<int, Response> $responses */
     private function client(array $responses): Client
     {

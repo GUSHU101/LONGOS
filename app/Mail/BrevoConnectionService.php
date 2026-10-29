@@ -87,6 +87,15 @@ class BrevoConnectionService
                 $senderStatus  = 'warning';
                 $senderMessage = "Brevo API 可用，但无法读取发件域 {$domain} 的验证状态。";
             }
+
+            // Brevo also permits a specifically verified sender address even
+            // when the whole domain has not been authenticated. Recognize that
+            // supported setup instead of reporting a false configuration
+            // failure to the administrator.
+            if ($senderStatus !== 'ok' && $this->activeSenderExists($client, $options, $sender, $domain)) {
+                $senderStatus  = 'ok';
+                $senderMessage = "Brevo 已验证发件人 {$sender}；建议继续完成域名认证以提高送达率。";
+            }
         }
 
         return [
@@ -110,6 +119,43 @@ class BrevoConnectionService
         return (string) substr(strrchr($sender, '@') ?: '', 1);
     }
 
+    /** @param array<string, mixed> $options */
+    private function activeSenderExists(ClientInterface $client, array $options, string $sender, string $domain): bool
+    {
+        try {
+            $response = $client->request('GET', self::API_BASE . '/senders', $options + [
+                'query' => ['domain' => $domain],
+            ]);
+            if ($response->getStatusCode() !== 200) {
+                return false;
+            }
+
+            $senders = $this->json($response)['senders'] ?? [];
+            if (! is_array($senders)) {
+                return false;
+            }
+
+            $sender = strtolower($sender);
+
+            foreach ($senders as $candidate) {
+                if (! is_array($candidate)) {
+                    continue;
+                }
+                $email = is_scalar($candidate['email'] ?? null)
+                    ? strtolower(trim((string) $candidate['email']))
+                    : '';
+                if ($email === $sender && ($candidate['active'] ?? false) === true) {
+                    return true;
+                }
+            }
+        } catch (Throwable) {
+            // Domain verification remains the primary readiness signal. The
+            // sender-list fallback is advisory and must not break API checks.
+        }
+
+        return false;
+    }
+
     /** @return array<string, mixed> */
     private function json(ResponseInterface $response): array
     {
@@ -122,7 +168,8 @@ class BrevoConnectionService
     {
         $status  = $response->getStatusCode();
         $payload = $this->json($response);
-        $reason  = trim((string) ($payload['message'] ?? $payload['code'] ?? ''));
+        $value   = $payload['message'] ?? $payload['code'] ?? '';
+        $reason  = is_scalar($value) ? trim((string) $value) : '';
         $reason  = $reason !== '' ? mb_substr(strip_tags($reason), 0, 200) : '服务商拒绝请求';
         $help    = match ($status) {
             401, 403 => '请重新生成 API v3 Key，并检查 Brevo 账户的 IP 安全限制。',

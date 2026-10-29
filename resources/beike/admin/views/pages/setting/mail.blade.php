@@ -52,6 +52,7 @@
         ? data_get($relayForm, 'mode')
         : 'internal';
     $relayNode = (array) data_get($relayForm, 'node', \App\Mail\MailRelayNodeProfile::defaults());
+    $showLegacyRelay = request()->boolean('legacy_mail_relay');
     $mailPageData = [
         'mailEngine' => $savedMailEngine,
         'testRecipient' => old('mail_test_recipient', $senderProfiles[\App\Mail\MailSenderProfileService::DEFAULT]['address']),
@@ -98,7 +99,7 @@
     <x-admin-alert type="warning" msg="{{ session('warning') }}" class="mt-4"/>
   @endif
   <style>
-    .mail-settings-shell { --mail-border: #e4e7ec; --mail-muted: #667085; --mail-soft: #f8fafc; }
+    .mail-settings-shell { --mail-border: #e4e7ec; --mail-muted: #667085; --mail-soft: #f8fafc; --mail-primary-soft: #f4f7ff; }
     .mail-settings-intro { background: linear-gradient(135deg, #f8faff 0%, #fff 72%); border: 1px solid var(--mail-border); }
     .mail-settings-section { border: 1px solid var(--mail-border); border-radius: 12px; padding: 24px; margin-bottom: 24px; background: #fff; }
     .mail-settings-section__head { display: flex; gap: 16px; align-items: flex-start; margin-bottom: 20px; }
@@ -106,6 +107,16 @@
     .mail-settings-section__help { color: var(--mail-muted); font-size: 12px; margin-top: 4px; }
     .mail-settings-provider { background: var(--mail-soft); border: 1px solid var(--mail-border); border-radius: 10px; padding: 20px; }
     .mail-settings-status { min-height: 40px; }
+    .mail-settings-provider-choice { border: 1px solid var(--mail-border); border-radius: 12px; padding: 20px; background: #fff; transition: border-color .18s ease, box-shadow .18s ease, background .18s ease; cursor: pointer; }
+    .mail-settings-provider-choice:hover { border-color: rgba(var(--bs-primary-rgb), .45); }
+    .mail-settings-provider-choice:focus-within { border-color: var(--bs-primary); box-shadow: 0 0 0 3px rgba(var(--bs-primary-rgb), .12); }
+    .mail-settings-provider-choice.is-active { border-color: var(--bs-primary); background: var(--mail-primary-soft); box-shadow: 0 8px 24px rgba(33, 85, 205, .08); }
+    .mail-settings-provider-choice__icon { width: 40px; height: 40px; flex: 0 0 40px; display: inline-grid; place-items: center; border-radius: 10px; color: var(--bs-primary); background: #fff; border: 1px solid rgba(var(--bs-primary-rgb), .18); font-size: 20px; }
+    .mail-settings-benefits { display: flex; flex-wrap: wrap; gap: 8px 16px; color: var(--mail-muted); font-size: 12px; }
+    .mail-settings-benefits span { display: inline-flex; align-items: center; gap: 5px; }
+    .mail-settings-migration { border: 1px solid #f3d19e; background: #fffaf2; border-radius: 12px; }
+    .mail-settings-compatibility > summary { cursor: pointer; list-style: none; }
+    .mail-settings-compatibility > summary::-webkit-details-marker { display: none; }
     .mail-settings-advanced > summary { cursor: pointer; list-style: none; }
     .mail-settings-advanced > summary::-webkit-details-marker { display: none; }
     @media (max-width: 767.98px) {
@@ -113,22 +124,27 @@
       .mail-settings-provider { padding: 16px; }
     }
   </style>
-  @if($canManageMailRelay && $mailRelayRuntime && $savedMailEngine === 'self_hosted')
+  @if($canManageMailRelay && $mailRelayRuntime && $savedMailEngine === 'self_hosted' && $showLegacyRelay)
     <div class="card mb-4" id="mail-relay-topology">
       <div class="card-header bg-white d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2 py-3">
         <div>
           <div class="d-flex align-items-center gap-2">
-            <h5 class="mb-0">{{ __('admin/setting.mail_relay_runtime_title') }}</h5>
+            <h5 class="mb-0">{{ __('admin/setting.mail_legacy_relay_console_title') }}</h5>
             <span class="badge {{ data_get($mailRelayRuntime, 'source') === 'control_panel' ? 'bg-primary' : (data_get($mailRelayRuntime, 'source') === 'invalid' ? 'bg-danger' : 'bg-secondary') }}">
               {{ __('admin/setting.mail_relay_runtime_source_' . data_get($mailRelayRuntime, 'source', 'deployment')) }}
             </span>
           </div>
-          <div class="text-secondary font-size-12 mt-1">{{ __('admin/setting.mail_relay_runtime_help') }}</div>
+          <div class="text-secondary font-size-12 mt-1">{{ __('admin/setting.mail_legacy_relay_console_help') }}</div>
         </div>
-        <button class="btn btn-outline-primary btn-sm" type="button" id="mail-relay-diagnostics-shortcut"
-                aria-controls="mail-diagnostics" aria-label="{{ __('admin/setting.mail_diagnostics_button') }}">
-          <i class="bi bi-heart-pulse me-1"></i>{{ __('admin/setting.mail_diagnostics_button') }}
-        </button>
+        <div class="d-flex flex-wrap gap-2">
+          <a class="btn btn-outline-secondary btn-sm" href="{{ request()->url() }}">
+            <i class="bi bi-arrow-left me-1"></i>{{ __('admin/setting.mail_legacy_relay_close') }}
+          </a>
+          <button class="btn btn-outline-primary btn-sm" type="button" id="mail-relay-diagnostics-shortcut"
+                  aria-controls="mail-diagnostics" aria-label="{{ __('admin/setting.mail_diagnostics_button') }}">
+            <i class="bi bi-heart-pulse me-1"></i>{{ __('admin/setting.mail_diagnostics_button') }}
+          </button>
+        </div>
       </div>
       <div class="card-body">
         @if(data_get($mailRelayRuntime, 'error'))
@@ -397,6 +413,18 @@
               </span>
             </div>
           </div>
+          <div v-if="mail_engine === 'self_hosted'" class="mail-settings-migration d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3 p-3 mt-4" role="status">
+            <div class="d-flex gap-3">
+              <span class="mail-settings-provider-choice__icon"><i class="bi bi-arrow-repeat"></i></span>
+              <div>
+                <div class="fw-bold">{{ __('admin/setting.mail_migration_title') }}</div>
+                <div class="text-secondary font-size-12 mt-1">{{ __('admin/setting.mail_migration_help') }}</div>
+              </div>
+            </div>
+            <button type="button" class="btn btn-outline-primary text-nowrap align-self-start align-self-lg-center" @click="switchToBrevo">
+              <i class="bi bi-cloud-arrow-up me-1"></i>{{ __('admin/setting.mail_migration_action') }}
+            </button>
+          </div>
         </div>
 
         <section class="mail-settings-section" aria-labelledby="mail-provider-title">
@@ -407,27 +435,50 @@
               <div class="mail-settings-section__help">{{ __('admin/setting.mail_provider_help') }}</div>
             </div>
           </div>
-          <div class="row g-3 align-items-start">
-            <div class="col-lg-5">
-              <label class="form-label fw-bold" for="mail-engine">{{ __('admin/setting.mail_engine') }}</label>
-              <select id="mail-engine" name="mail_engine" v-model="mail_engine" class="form-select">
+          <input type="hidden" name="mail_engine" value="{{ $savedMailEngine }}" :value="mail_engine">
+          <label class="mail-settings-provider-choice d-block" :class="{'is-active': mail_engine === 'brevo'}" for="mail-engine-brevo">
+            <span class="d-flex align-items-start gap-3">
+              <input id="mail-engine-brevo" type="radio" value="brevo" v-model="mail_engine" class="form-check-input mt-1">
+              <span class="mail-settings-provider-choice__icon"><i class="bi bi-cloud-check"></i></span>
+              <span class="flex-grow-1">
+                <span class="d-flex flex-column flex-sm-row align-items-sm-center gap-2">
+                  <span class="fw-bold">{{ __('admin/setting.mail_engine_brevo') }}</span>
+                  <span class="badge bg-success align-self-start">{{ __('admin/setting.mail_recommended_badge') }}</span>
+                </span>
+                <span class="d-block text-secondary font-size-12 mt-1">{{ __('admin/setting.brevo_info') }}</span>
+                <span class="mail-settings-benefits mt-3">
+                  <span><i class="bi bi-check-circle text-success"></i>{{ __('admin/setting.mail_benefit_https') }}</span>
+                  <span><i class="bi bi-check-circle text-success"></i>{{ __('admin/setting.mail_benefit_no_server') }}</span>
+                  <span><i class="bi bi-check-circle text-success"></i>{{ __('admin/setting.mail_benefit_receipts') }}</span>
+                </span>
+              </span>
+            </span>
+          </label>
+
+          <details class="mail-settings-compatibility border rounded mt-3" :open="mail_engine !== '' && mail_engine !== 'brevo'">
+            <summary class="d-flex align-items-center justify-content-between gap-3 p-3">
+              <span>
+                <span class="fw-bold">{{ __('admin/setting.mail_engine_advanced_group') }}</span>
+                <span class="d-block text-secondary font-size-12 mt-1">{{ __('admin/setting.mail_provider_advanced_help') }}</span>
+              </span>
+              <i class="bi bi-chevron-down"></i>
+            </summary>
+            <div class="border-top p-3">
+              <label class="form-label fw-bold" for="mail-engine-advanced">{{ __('admin/setting.mail_engine') }}</label>
+              <select id="mail-engine-advanced" v-model="mail_engine" class="form-select">
                 <option value="">{{ __('admin/setting.mail_engine_disabled') }}</option>
-                <option value="brevo">{{ __('admin/setting.mail_engine_brevo') }}</option>
-                <optgroup label="{{ __('admin/setting.mail_engine_advanced_group') }}">
-                  <option value="self_hosted">{{ __('admin/setting.mail_engine_self_hosted') }}</option>
-                  <option value="smtp">SMTP</option>
-                  <option value="sendmail">Sendmail</option>
-                  <option value="mailgun">Mailgun</option>
-                  <option value="sendcloud">SendCloud</option>
-                  <option value="sendgrid">SendGrid</option>
-                  <option value="log">Log</option>
-                </optgroup>
+                <option value="self_hosted">{{ __('admin/setting.mail_engine_self_hosted') }}</option>
+                <option value="smtp">SMTP</option>
+                <option value="sendmail">Sendmail</option>
+                <option value="mailgun">Mailgun</option>
+                <option value="sendcloud">SendCloud</option>
+                <option value="sendgrid">SendGrid</option>
+                <option value="log">Log</option>
               </select>
-              <div class="form-text" v-if="mail_engine === 'brevo'">{{ __('admin/setting.brevo_info') }}</div>
-              <div class="form-text" v-else-if="mail_engine === 'log'">{{ __('admin/setting.mail_log') }}</div>
+              <div class="form-text" v-if="mail_engine === 'log'">{{ __('admin/setting.mail_log') }}</div>
               <div class="form-text" v-else-if="mail_engine === 'self_hosted'">{{ __('admin/setting.self_hosted_deprecated_help') }}</div>
             </div>
-          </div>
+          </details>
           <div v-if="mail_engine === 'brevo'" class="mail-settings-provider mt-4">
             <div class="d-flex flex-column flex-md-row justify-content-between gap-2 mb-4">
               <div>
@@ -458,7 +509,7 @@
               <button type="button" class="btn btn-outline-primary" :disabled="verifyingBrevo" @click="verifyBrevoConnection">
                 <i class="bi bi-plug me-1"></i>@{{ verifyingBrevo ? source.brevoVerifying : source.brevoVerifyButton }}
               </button>
-              <button type="button" class="btn btn-outline-secondary" :disabled="syncingBrevo || !brevoConfigured" @click="syncBrevoWebhook">
+              <button type="button" class="btn btn-outline-secondary" :disabled="syncingBrevo || !brevoConfigured || savedMailEngine !== 'brevo'" @click="syncBrevoWebhook">
                 <i class="bi bi-arrow-repeat me-1"></i>@{{ syncingBrevo ? source.brevoWebhookSyncing : source.brevoWebhookButton }}
               </button>
             </div>
@@ -467,7 +518,8 @@
               <i class="bi me-1" :class="brevoConnection.status === 'success' ? 'bi-check-circle' : (brevoConnection.status === 'warning' ? 'bi-exclamation-triangle' : 'bi-x-circle')"></i>
               @{{ brevoConnection.message }}
             </div>
-            <div v-else class="form-text mt-3">{{ $brevoConfigured ? __('admin/setting.brevo_webhook_help') : __('admin/setting.brevo_webhook_save_first') }}</div>
+            <div v-else-if="savedMailEngine === 'brevo' && brevoConfigured" class="form-text mt-3">{{ __('admin/setting.brevo_webhook_help') }}</div>
+            <div v-else class="form-text mt-3">{{ __('admin/setting.brevo_webhook_save_first') }}</div>
           </div>
         </section>
 
@@ -700,6 +752,9 @@
               <div class="mail-settings-section__help">{{ __('admin/setting.mail_diagnostics_help') }}</div>
             </div>
           </div>
+          <div v-if="hasUnsavedEngineChange" class="alert alert-warning py-2 px-3" role="status">
+            <i class="bi bi-exclamation-triangle me-1"></i>{{ __('admin/setting.mail_save_before_verification') }}
+          </div>
           <div class="border rounded p-3 mb-4" aria-live="polite" id="mail-diagnostics">
             <div class="d-flex flex-column flex-sm-row align-items-sm-center justify-content-between gap-2">
               <div>
@@ -711,7 +766,7 @@
                   <i class="bi bi-magic"></i>
                   @{{ syncingDns ? source.dnsSyncRunning : source.dnsSyncButton }}
                 </button>
-                <button type="button" class="btn btn-outline-primary" :disabled="diagnosing || syncingDns || !mail_engine" @click="runDiagnostics">
+                <button type="button" class="btn btn-outline-primary" :disabled="diagnosing || syncingDns || !mail_engine || hasUnsavedEngineChange" @click="runDiagnostics">
                   <i class="bi bi-heart-pulse"></i>
                   @{{ diagnosing ? source.diagnosticsRunning : source.diagnosticsButton }}
                 </button>
@@ -750,7 +805,7 @@
             <label class="form-label fw-bold" for="mail-test-recipient">{{ __('admin/setting.mail_test_title') }}</label>
             <div class="d-flex flex-column flex-sm-row gap-2 align-items-sm-center">
               <input id="mail-test-recipient" v-model.trim="testRecipient" type="email" class="form-control" :placeholder="source.testRecipientLabel" @keyup.enter.prevent="sendTestMail">
-              <button type="button" class="btn btn-outline-primary text-nowrap" :disabled="testing || !testRecipient || !mail_engine" @click="sendTestMail">
+              <button type="button" class="btn btn-outline-primary text-nowrap" :disabled="testing || !testRecipient || !mail_engine || hasUnsavedEngineChange" @click="sendTestMail">
                 <i class="bi bi-send me-1"></i>@{{ testing ? source.testSendingLabel : source.testButtonLabel }}
               </button>
             </div>
@@ -770,6 +825,17 @@
             <x-admin-form-input name="mail_log_retention_days" type="number" min="1" max="365" required title="{{ __('admin/setting.mail_log_retention_days') }}" value="{{ old('mail_log_retention_days', system_setting('base.mail_log_retention_days', 30)) }}">
               <div class="help-text font-size-12 lh-base">{{ __('admin/setting.mail_log_retention_days_help') }}</div>
             </x-admin-form-input>
+            @if($canManageMailRelay && $mailRelayRuntime && $savedMailEngine === 'self_hosted')
+              <div class="border-top mt-3 pt-3 d-flex flex-column flex-sm-row align-items-sm-center justify-content-between gap-2">
+                <div>
+                  <div class="fw-bold">{{ __('admin/setting.mail_legacy_relay_title') }}</div>
+                  <div class="text-secondary font-size-12 mt-1">{{ __('admin/setting.mail_legacy_relay_help') }}</div>
+                </div>
+                <a class="btn btn-outline-secondary btn-sm text-nowrap" href="{{ request()->fullUrlWithQuery(['legacy_mail_relay' => 1]) }}">
+                  <i class="bi bi-tools me-1"></i>{{ __('admin/setting.mail_legacy_relay_open') }}
+                </a>
+              </div>
+            @endif
           </div>
         </details>
 
@@ -790,6 +856,7 @@
       el: '#form-app',
       data: {
         mail_engine: mailPageData.mailEngine,
+        savedMailEngine: mailPageData.mailEngine,
         testRecipient: mailPageData.testRecipient,
         testing: false,
         diagnosing: false,
@@ -832,7 +899,20 @@
           brevoWebhookSyncing: '{{ __('admin/setting.brevo_webhook_syncing') }}',
         },
       },
+      computed: {
+        hasUnsavedEngineChange() {
+          return this.mail_engine !== this.savedMailEngine;
+        },
+      },
       methods: {
+        switchToBrevo() {
+          this.mail_engine = 'brevo';
+          this.brevoConnection = {status: '', message: ''};
+          this.$nextTick(() => {
+            document.getElementById('brevo-api-key')?.scrollIntoView({behavior: 'smooth', block: 'center'});
+            if (!this.brevoConfigured) document.getElementById('brevo-api-key')?.focus({preventScroll: true});
+          });
+        },
         applySenderDomain(domain) {
           const presets = mailPageData.senderDomainPresets?.[domain] || {};
           Object.entries(presets).forEach(([category, address]) => {
@@ -845,7 +925,7 @@
           layer.msg(mailPageData.labels.senderDomainApplied);
         },
         runDiagnostics() {
-          if (this.diagnosing) return;
+          if (this.diagnosing || this.hasUnsavedEngineChange || !this.mail_engine) return;
           this.diagnosing = true;
           this.diagnosticError = '';
           $.ajax({
@@ -882,7 +962,7 @@
           }).always(() => { this.syncingDns = false; });
         },
         syncBrevoWebhook() {
-          if (!this.brevoConfigured || this.syncingBrevo) return;
+          if (!this.brevoConfigured || this.syncingBrevo || this.savedMailEngine !== 'brevo') return;
           this.syncingBrevo = true;
           $.ajax({
             url: mailPageData.brevoWebhookUrl,
@@ -940,7 +1020,7 @@
           layer.msg(this.source.dnsRecordCopied);
         },
         sendTestMail() {
-          if (!this.testRecipient || this.testing) return;
+          if (!this.testRecipient || this.testing || this.hasUnsavedEngineChange || !this.mail_engine) return;
           this.testing = true;
           $.ajax({
             url: mailPageData.testUrl,
