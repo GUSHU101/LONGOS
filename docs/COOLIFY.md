@@ -131,6 +131,10 @@ Coolify 解析 Compose 后会自动生成 `SERVICE_*` 凭据。只需手动填�
 
 ## 8. 邮件引擎
 
+新部署推荐在 LONGOS 后台选择 **Brevo 事务邮件 API**。主服务器只通过出站 HTTPS 443 调用 Brevo，不需要第二台服务器、出站 TCP 25、PTR/rDNS 或邮件 Tunnel。请先在 Brevo 完成发件域验证，再于“系统 → 邮件设置”保存 API Key、同步投递回执并运行“立即检测”。完整步骤见 [LONGOS 邮件服务](MAIL.md#推荐架构brevo-事务邮件-api)。
+
+下述 Postfix/OpenDKIM 为需要自建出口的高级兼容方案。
+
 Compose 自动启动 Postfix/OpenDKIM 和内部 HMAC API，不开放公共 SMTP 端口。LONGOS、队列和 Cloud Mail 通过私有网络调用它。HMAC API 以非 root 账号运行，不能读取 DKIM 私钥；DKIM 私钥只保存在中继容器专用卷，网站容器也只读挂载可公开的 TXT 值。
 
 部署后在 LONGOS 邮件设置点击“立即检测”，可直接查看和复制各发件域的 DKIM、SPF、DMARC 及明确配置的邮件主机 A/AAAA。PTR/rDNS 由两个独立公共 DoH 解析器交叉验收并显示 DNS RCODE，因此服务商反向区域的 `SERVFAIL/REFUSED` 不会再被误写成普通“无 PTR”；解析结果不做持久缓存。有持久 Cloudflare Token 时，容器启动后会尝试立即同步，调度器每 5 分钟幂等重试；否则 Cloud Mail 工作流从受保护端点读取只含公开值的 DNS 清单，并由 GitHub Runner 直接写入 Cloudflare。Cloudflare Token 不会发送到 LONGOS。自动化只更新 LONGOS selector 的 DKIM，保留现有 DMARC 策略，并把所有 SPF 发信机制安全合并为唯一一条。

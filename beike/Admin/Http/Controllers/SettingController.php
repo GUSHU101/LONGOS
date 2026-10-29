@@ -12,6 +12,8 @@
 
 namespace Beike\Admin\Http\Controllers;
 
+use App\Mail\BrevoSettings;
+use App\Mail\BrevoWebhookManager;
 use App\Mail\CloudflareMailDnsService;
 use App\Mail\MailDiagnosticsService;
 use App\Mail\MailRelayRuntimeSettings;
@@ -457,6 +459,29 @@ class SettingController extends Controller
             $this->markTestMailFailed($data['recipient'], $subject, $body, $engine, $e);
 
             return json_fail($this->mailTestFailureMessage($safeError));
+        }
+    }
+
+    /** Register or update the authenticated transactional-delivery webhook. */
+    public function syncBrevoWebhook(
+        Request $request,
+        BrevoSettings $settings,
+        BrevoWebhookManager $webhooks,
+    ): JsonResponse {
+        if ((string) system_setting('base.mail_engine', '') !== 'brevo' || ! $settings->configured()) {
+            return json_fail(trans('admin/setting.brevo_configure_first'));
+        }
+
+        try {
+            $result = $webhooks->sync(route('longos.brevo.webhook', absolute: true));
+
+            return json_success(trans('admin/setting.brevo_webhook_synced'), $result);
+        } catch (Throwable $exception) {
+            Log::warning('Unable to synchronize the Brevo transactional webhook.', [
+                'exception' => $exception::class,
+            ]);
+
+            return json_fail(MailLog::sanitizeError($exception->getMessage()));
         }
     }
 

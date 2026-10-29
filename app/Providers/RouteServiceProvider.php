@@ -171,6 +171,16 @@ class RouteServiceProvider extends ServiceProvider
             ];
         });
 
+        RateLimiter::for('brevo-webhook', function (Request $request) {
+            $credential = hash('sha256', (string) $request->bearerToken());
+            $host       = strtolower($request->getHost());
+
+            return [
+                Limit::perMinute(600)->by("brevo-webhook:token:{$host}:{$credential}"),
+                Limit::perMinute(1200)->by("brevo-webhook:ip:{$host}:{$request->ip()}"),
+            ];
+        });
+
         RateLimiter::for('integration-token-reveal', function (Request $request) {
             $adminId = Auth::guard(AdminUser::AUTH_GUARD)->id() ?: 'guest';
 

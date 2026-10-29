@@ -2,10 +2,12 @@
 
 namespace Beike\Shop\Providers;
 
+use App\Mail\BrevoSettings;
 use App\Mail\MailRelayRuntimeSettings;
 use App\Mail\MailSenderProfileService;
 use App\Saas\Models\Site;
 use Beike\Libraries\Tax;
+use Beike\Mail\Providers\BrevoServiceProvider;
 use Beike\Mail\Providers\LongosRelayServiceProvider;
 use Beike\Mail\Providers\SendCloudServiceProvider;
 use Beike\Mail\Providers\SendGridServiceProvider;
@@ -51,6 +53,7 @@ class ShopServiceProvider extends ServiceProvider
 
         // 注册邮件服务提供者
         $this->app->register(LongosRelayServiceProvider::class);
+        $this->app->register(BrevoServiceProvider::class);
         $this->app->register(SendCloudServiceProvider::class);
         $this->app->register(SendGridServiceProvider::class);
     }
@@ -254,6 +257,11 @@ class ShopServiceProvider extends ServiceProvider
         } elseif ($mailEngine === 'sendgrid' && ($setting = $this->mailArraySetting('sendgrid'))) {
             $setting['transport'] = 'sendgrid';
             Config::set('mail.mailers.sendgrid', $setting);
+        } elseif ($mailEngine === 'brevo') {
+            $setting              = app(BrevoSettings::class)->runtime();
+            $setting['transport'] = 'brevo';
+            unset($setting['webhook_token']);
+            Config::set('mail.mailers.brevo', $setting);
         }
     }
 
@@ -298,7 +306,7 @@ class ShopServiceProvider extends ServiceProvider
         }
 
         // 检查第三方邮件服务的特殊要求
-        if (in_array($mailEngine, ['sendcloud', 'sendgrid', 'mailgun'])) {
+        if (in_array($mailEngine, ['brevo', 'sendcloud', 'sendgrid', 'mailgun'], true)) {
             $exampleDomains = ['example.com', 'test.com', 'localhost', '127.0.0.1'];
             $domain         = substr(strrchr($storeMail, '@'), 1);
 

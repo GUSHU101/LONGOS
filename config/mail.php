@@ -93,6 +93,12 @@ return [
             'auth_mode'  => null,
         ],
 
+        'brevo' => [
+            'transport' => 'brevo',
+            'api_key'   => env('BREVO_API_KEY'),
+            'timeout'   => (int) env('BREVO_TIMEOUT', 15),
+        ],
+
         // The Docker installer provisions this authenticated relay on the
         // private LONGOS network. Postfix itself only listens on loopback.
         'self_hosted' => [

@@ -44,6 +44,7 @@
         $savedMailEngine = 'self_hosted';
     }
     $dnsSyncAvailable = app(\App\Mail\CloudflareMailDnsService::class)->configured();
+    $brevoConfigured = app(\App\Mail\BrevoSettings::class)->configured();
     $relayRuntimeValues = (array) data_get($mailRelayRuntime, 'values', []);
     $relayForm = old('mail_relay', $relayRuntimeValues);
     $relayForm = is_array($relayForm) ? $relayForm : $relayRuntimeValues;
@@ -57,6 +58,8 @@
         'testUrl' => admin_route('settings.mail.test'),
         'diagnosticsUrl' => admin_route('settings.mail.diagnostics'),
         'dnsSyncUrl' => admin_route('settings.mail.dns-sync'),
+        'brevoWebhookUrl' => admin_route('settings.mail.brevo-webhook'),
+        'brevoConfigured' => $brevoConfigured,
         'dnsSyncAvailable' => $dnsSyncAvailable,
         'senderDomainPresets' => $senderDomainPresets,
         'labels' => [
@@ -88,7 +91,7 @@
       {{ session('error') }}
     </div>
   @endif
-  @if($canManageMailRelay && $mailRelayRuntime)
+  @if($canManageMailRelay && $mailRelayRuntime && $savedMailEngine === 'self_hosted')
     <div class="card mb-4" id="mail-relay-topology">
       <div class="card-header bg-white d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2 py-3">
         <div>
@@ -528,7 +531,38 @@
           <div v-if="mail_engine == 'self_hosted'" class="help-text font-size-12 lh-base">
             {{ __('admin/setting.self_hosted_mail_info', ['hostname' => config('mail.relay.hostname') ?: '-', 'domains' => config('mail.relay.domains') ?: '-']) }}
           </div>
+          <div v-if="mail_engine == 'brevo'" class="help-text font-size-12 lh-base">
+            {{ __('admin/setting.brevo_info') }}
+          </div>
         </x-admin::form.row>
+
+        <div v-if="mail_engine == 'brevo'" class="border rounded bg-light p-3 mb-4">
+          <div class="d-flex align-items-start gap-2 mb-3">
+            <i class="bi bi-shield-check text-success fs-5"></i>
+            <div>
+              <div class="fw-bold">{{ __('admin/setting.brevo_direct_title') }}</div>
+              <div class="text-secondary font-size-12">{{ __('admin/setting.brevo_direct_help') }}</div>
+            </div>
+          </div>
+          <x-admin-form-input name="brevo[api_key]" type="password" title="{{ __('admin/setting.brevo_api_key') }}" value="" autocomplete="new-password">
+            <div class="help-text font-size-12 lh-base">{{ __('admin/setting.mail_secret_keep') }}</div>
+          </x-admin-form-input>
+          <x-admin-form-input name="brevo[timeout]" type="number" min="3" max="60" required title="{{ __('admin/setting.brevo_timeout') }}" value="{{ old('brevo.timeout', system_setting('base.brevo.timeout', 15)) }}">
+            <div class="help-text font-size-12 lh-base">{{ __('admin/setting.brevo_timeout_help') }}</div>
+          </x-admin-form-input>
+          <x-admin::form.row :title="__('admin/setting.brevo_webhook_title')">
+            <button type="button" class="btn btn-outline-primary" :disabled="syncingBrevo || !brevoConfigured" @click="syncBrevoWebhook">
+              <i class="bi bi-arrow-repeat me-1"></i>@{{ syncingBrevo ? source.brevoWebhookSyncing : source.brevoWebhookButton }}
+            </button>
+            <div class="help-text font-size-12 lh-base mt-2">
+              @if($brevoConfigured)
+                {{ __('admin/setting.brevo_webhook_help') }}
+              @else
+                {{ __('admin/setting.brevo_webhook_save_first') }}
+              @endif
+            </div>
+          </x-admin::form.row>
+        </div>
 
         <div v-if="mail_engine == 'smtp'">
           <x-admin-form-input name="smtp[host]" required title="{{ __('admin/setting.smtp_host') }}" value="{{ old('smtp.host', system_setting('base.smtp.host', '')) }}">
@@ -667,6 +701,8 @@
         testing: false,
         diagnosing: false,
         syncingDns: false,
+        syncingBrevo: false,
+        brevoConfigured: mailPageData.brevoConfigured === true,
         dnsSyncAvailable: mailPageData.dnsSyncAvailable === true,
         diagnosticChecks: [],
         dnsRecords: [],
@@ -677,6 +713,7 @@
         source: {
           mailEngines: [
             {name: '{{ __('admin/builder.text_no') }}', code: ''},
+            {name: '{{ __('admin/setting.mail_engine_brevo') }}', code: 'brevo'},
             {name: '{{ __('admin/setting.mail_engine_self_hosted') }}', code: 'self_hosted'},
             {name: 'SMTP', code: 'smtp'},
             {name: 'Sendmail', code: 'sendmail'},
@@ -700,6 +737,8 @@
           dnsModeManaged: '{{ __('admin/setting.mail_dns_record_mode_managed') }}',
           dnsModeMerged: '{{ __('admin/setting.mail_dns_record_mode_merged') }}',
           dnsModeIfMissing: '{{ __('admin/setting.mail_dns_record_mode_if_missing') }}',
+          brevoWebhookButton: '{{ __('admin/setting.brevo_webhook_button') }}',
+          brevoWebhookSyncing: '{{ __('admin/setting.brevo_webhook_syncing') }}',
         },
       },
       methods: {
@@ -750,6 +789,19 @@
           }).fail((xhr) => {
             this.diagnosticError = xhr.responseJSON?.message || mailPageData.labels.dnsSyncFailed;
           }).always(() => { this.syncingDns = false; });
+        },
+        syncBrevoWebhook() {
+          if (!this.brevoConfigured || this.syncingBrevo) return;
+          this.syncingBrevo = true;
+          $.ajax({
+            url: mailPageData.brevoWebhookUrl,
+            method: 'POST',
+            headers: {'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content, Accept: 'application/json'},
+          }).done((response) => {
+            layer.msg(response?.message || this.source.brevoWebhookButton);
+          }).fail((xhr) => {
+            layer.msg(xhr.responseJSON?.message || mailPageData.labels.testFailed);
+          }).always(() => { this.syncingBrevo = false; });
         },
         async copyDnsValue(value) {
           if (!value) return;

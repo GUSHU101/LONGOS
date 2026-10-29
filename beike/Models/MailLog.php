@@ -60,6 +60,14 @@ class MailLog extends Model
 
     public const STATUS_SENT = 'sent';
 
+    public const STATUS_DELIVERED = 'delivered';
+
+    public const STATUS_DEFERRED = 'deferred';
+
+    public const STATUS_BOUNCED = 'bounced';
+
+    public const STATUS_BLOCKED = 'blocked';
+
     public const STATUS_FAILED = 'failed';
 
     /**
@@ -68,10 +76,14 @@ class MailLog extends Model
     public function getStatusTextAttribute(): string
     {
         return match ($this->status) {
-            self::STATUS_PENDING => __('admin/mail_log.status_pending'),
-            self::STATUS_SENT    => __('admin/mail_log.status_sent'),
-            self::STATUS_FAILED  => __('admin/mail_log.status_failed'),
-            default              => __('admin/mail_log.unknown_status')
+            self::STATUS_PENDING   => __('admin/mail_log.status_pending'),
+            self::STATUS_SENT      => __('admin/mail_log.status_sent'),
+            self::STATUS_DELIVERED => __('admin/mail_log.status_delivered'),
+            self::STATUS_DEFERRED  => __('admin/mail_log.status_deferred'),
+            self::STATUS_BOUNCED   => __('admin/mail_log.status_bounced'),
+            self::STATUS_BLOCKED   => __('admin/mail_log.status_blocked'),
+            self::STATUS_FAILED    => __('admin/mail_log.status_failed'),
+            default                => __('admin/mail_log.unknown_status')
         };
     }
 
@@ -81,10 +93,14 @@ class MailLog extends Model
     public function getStatusColorAttribute(): string
     {
         return match ($this->status) {
-            self::STATUS_PENDING => 'warning',
-            self::STATUS_SENT    => 'success',
-            self::STATUS_FAILED  => 'danger',
-            default              => 'secondary'
+            self::STATUS_PENDING   => 'warning',
+            self::STATUS_SENT      => 'success',
+            self::STATUS_DELIVERED => 'success',
+            self::STATUS_DEFERRED  => 'warning',
+            self::STATUS_BOUNCED,
+            self::STATUS_BLOCKED   => 'danger',
+            self::STATUS_FAILED    => 'danger',
+            default                => 'secondary'
         };
     }
 
@@ -118,6 +134,7 @@ class MailLog extends Model
             'mailgun'     => __('admin/mail_log.transport_mailgun'),
             'sendcloud'   => __('admin/mail_log.transport_sendcloud'),
             'sendgrid'    => __('admin/mail_log.transport_sendgrid'),
+            'brevo'       => __('admin/mail_log.transport_brevo'),
             'log'         => __('admin/mail_log.transport_log'),
             'array'       => __('admin/mail_log.transport_array'),
             'ses'         => __('admin/mail_log.transport_ses'),
@@ -226,9 +243,13 @@ class MailLog extends Model
     public static function getStatusOptions(): array
     {
         return [
-            self::STATUS_PENDING => __('admin/mail_log.status_pending'),
-            self::STATUS_SENT    => __('admin/mail_log.status_sent'),
-            self::STATUS_FAILED  => __('admin/mail_log.status_failed'),
+            self::STATUS_PENDING   => __('admin/mail_log.status_pending'),
+            self::STATUS_SENT      => __('admin/mail_log.status_sent'),
+            self::STATUS_DELIVERED => __('admin/mail_log.status_delivered'),
+            self::STATUS_DEFERRED  => __('admin/mail_log.status_deferred'),
+            self::STATUS_BOUNCED   => __('admin/mail_log.status_bounced'),
+            self::STATUS_BLOCKED   => __('admin/mail_log.status_blocked'),
+            self::STATUS_FAILED    => __('admin/mail_log.status_failed'),
         ];
     }
 
@@ -244,6 +265,7 @@ class MailLog extends Model
             'mailgun'     => __('admin/mail_log.transport_mailgun'),
             'sendcloud'   => __('admin/mail_log.transport_sendcloud'),
             'sendgrid'    => __('admin/mail_log.transport_sendgrid'),
+            'brevo'       => __('admin/mail_log.transport_brevo'),
             'log'         => __('admin/mail_log.transport_log'),
             'array'       => __('admin/mail_log.transport_array'),
             'ses'         => __('admin/mail_log.transport_ses'),

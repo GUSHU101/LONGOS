@@ -1,10 +1,32 @@
-# LONGOS 内置邮件服务器
+# LONGOS 邮件服务
+
+## 推荐架构：Brevo 事务邮件 API
+
+对于不能稳定访问出站 TCP 25、不想自行维护 PTR/rDNS 和发信 IP 声誉的部署，推荐让 LONGOS 在主服务器直接调用 Brevo 事务邮件 API。该链路只需出站 HTTPS 443，不需要第二台服务器、Postfix 出网、公网 SMTP 端口或服务器 PTR。
+
+```text
+LONGOS app / worker -> HTTPS 443 -> Brevo -> 收件方
+                              -> 签名投递回执 -> LONGOS 邮件日志
+```
+
+配置步骤：
+
+1. 在 Brevo 的 **Senders & Domains** 添加 LONGOS 的发件域，按 Brevo 页面给出的值发布 DKIM/DMARC，直到域状态为已验证且已认证。
+2. 在 Brevo 创建 API v3 Key。API Key 只粘贴到 LONGOS 后台，不写入 Coolify、GitHub 或文档。
+3. 进入 **系统 → 邮件设置**，选择“Brevo 事务邮件 API（推荐）”，填写已认证域下的默认发件人和 API Key，保存。LONGOS 使用 `APP_KEY` 加密保存 API Key，后台和日志不回显明文。
+4. 重新打开邮件设置，点击“同步 Brevo 回执”。LONGOS 会为当前站点创建带随机 Bearer Token 的事务邮件 Webhook。
+5. 点击“立即检测”；页面应同时显示 API Key、发件域和投递回执通过。再发送测试邮件，邮件日志会从“已提交”更新为“已投递”，或显示延迟、退信、拦截的真实原因。
+6. 完成一封“已投递”的烟雾测试后，可在 Coolify 停止并删除第二台服务器上的 Remote Mail Node 资源。如果 Cloudflare Email Routing 仍用于收信，其 MX/Worker 可保留；它与 Brevo 外发不冲突。
+
+Brevo 模式下，不再使用 `MAIL_RELAY_ENDPOINT`、`MAIL_PUBLIC_IPS`、`MAIL_HOSTNAME`、PTR/rDNS 或第二台服务器的 Tunnel。请不要删除 Brevo 要求的 DNS 记录，也不要继续把自建 Postfix 的 DKIM/SPF 值当作 Brevo 值；以 Brevo 域验证页面为准。
+
+## 高级架构：内置 Postfix/OpenDKIM
 
 LONGOS 的 Coolify Compose 会把 Postfix、OpenDKIM 和 Cloud Mail HTTPS 中继作为网站栈的一部分自动部署。无需另外克隆项目，也无需在服务器上再次执行 `docker compose`。
 
 该能力使用项目唯一支持的 Coolify 部署模式；邮件容器不公开 SMTP 入口，只通过私有 `longos` 网络接受 HMAC 请求。
 
-如果 LONGOS 与 Cloud Mail 所在的主服务器没有可控 PTR/rDNS 或出站 TCP 25，可以只把 Postfix/OpenDKIM 邮件出口节点放到第二台服务器。主站和 Cloud Mail 不需要搬迁；`MAIL_RELAY_ENDPOINT` 指向第二台服务器的 HTTPS HMAC API，LONGOS 会读取其签名的公网 IP 与 DKIM 公钥并按该节点执行 DNS/PTR 验收。第二台服务器部署说明见配套仓库的 `doc/REMOTE_MAIL_NODE.md`。
+只有明确需要自建邮件出口时才建议使用本节。如果 LONGOS 与 Cloud Mail 所在的主服务器没有可控 PTR/rDNS 或出站 TCP 25，优先使用上文 Brevo API；Remote Mail Node 仅作为自建出口的兼容方案。
 
 ## 自动部署行为
 

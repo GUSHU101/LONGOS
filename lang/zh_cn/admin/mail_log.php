@@ -36,9 +36,13 @@ return [
     'last_attempt_at'       => '最后尝试时间',
 
     // 状态
-    'status_pending' => '待发送',
-    'status_sent'    => '传输层已接收',
-    'status_failed'  => '发送失败',
+    'status_pending'   => '待发送',
+    'status_sent'      => '传输层已接收',
+    'status_delivered' => '已投递',
+    'status_deferred'  => '延迟投递',
+    'status_bounced'   => '退信',
+    'status_blocked'   => '被拦截',
+    'status_failed'    => '发送失败',
 
     // 邮件类型
     'type_customer_registration'    => '用户注册',
@@ -58,6 +62,7 @@ return [
     'transport_mailgun'     => 'Mailgun',
     'transport_sendcloud'   => 'SendCloud',
     'transport_sendgrid'    => 'SendGrid',
+    'transport_brevo'       => 'Brevo API',
     'transport_log'         => '日志记录',
     'transport_array'       => '数组存储',
     'transport_ses'         => 'Amazon SES',
@@ -131,6 +136,7 @@ return [
     'get_statistics_success'         => '获取统计数据成功',
     'get_statistics_failed'          => '获取统计数据失败: :error',
     'mail_already_sent'              => '该邮件已经发送成功，无需重新发送',
+    'mail_not_retryable'             => '邮件正在投递或已完成；只有发送失败、退信或被拦截的邮件可重发',
     'resend_not_implemented_message' => '重新发送功能暂未实现，请联系开发人员',
     'resend_failed_message'          => '重新发送失败，请检查邮件配置和发送记录。',
     'resend_rate_limited'            => '操作过于频繁，请稍后再试。',

@@ -36,9 +36,13 @@ return [
     'last_attempt_at'       => 'Last Attempt At',
 
     // Status
-    'status_pending' => 'Pending',
-    'status_sent'    => 'Accepted by transport',
-    'status_failed'  => 'Failed',
+    'status_pending'   => 'Pending',
+    'status_sent'      => 'Accepted by transport',
+    'status_delivered' => 'Delivered',
+    'status_deferred'  => 'Deferred',
+    'status_bounced'   => 'Bounced',
+    'status_blocked'   => 'Blocked',
+    'status_failed'    => 'Failed',
 
     // Mail Types
     'type_customer_registration'    => 'Customer Registration',
@@ -58,6 +62,7 @@ return [
     'transport_mailgun'     => 'Mailgun',
     'transport_sendcloud'   => 'SendCloud',
     'transport_sendgrid'    => 'SendGrid',
+    'transport_brevo'       => 'Brevo API',
     'transport_log'         => 'Log',
     'transport_array'       => 'Array',
     'transport_ses'         => 'Amazon SES',
@@ -131,6 +136,7 @@ return [
     'get_statistics_success'         => 'Get statistics successful',
     'get_statistics_failed'          => 'Get statistics failed: :error',
     'mail_already_sent'              => 'This email has been sent successfully, no need to resend',
+    'mail_not_retryable'             => 'This email is in progress or complete; only failed, bounced, or blocked messages can be resent.',
     'resend_not_implemented_message' => 'Resend function not implemented yet, please contact developer',
     'resend_failed_message'          => 'Resend failed. Check the mail configuration and delivery log.',
     'resend_rate_limited'            => 'Too many resend attempts. Please try again later.',

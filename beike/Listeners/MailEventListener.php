@@ -338,6 +338,9 @@ class MailEventListener
         }
 
         $messageId = $headers->get('X-Longos-Relay-Message-ID')?->getBodyAsString();
+        if (! is_string($messageId) || $messageId === '') {
+            $messageId = $headers->get('X-Longos-Brevo-Message-ID')?->getBodyAsString();
+        }
         if (is_string($messageId)
             && $messageId !== ''
             && strlen($messageId) <= 255

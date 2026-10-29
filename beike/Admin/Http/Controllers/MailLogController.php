@@ -49,9 +49,9 @@ class MailLogController extends Controller
             'mail_type_options' => MailLog::getMailTypeOptions(),
             'transport_options' => MailLog::getTransportOptions(),
             'total_count'       => MailLog::count(),
-            'sent_count'        => MailLog::where('status', MailLog::STATUS_SENT)->count(),
-            'failed_count'      => MailLog::where('status', MailLog::STATUS_FAILED)->count(),
-            'pending_count'     => MailLog::where('status', MailLog::STATUS_PENDING)->count(),
+            'sent_count'        => MailLog::whereIn('status', [MailLog::STATUS_SENT, MailLog::STATUS_DELIVERED])->count(),
+            'failed_count'      => MailLog::whereIn('status', [MailLog::STATUS_FAILED, MailLog::STATUS_BOUNCED, MailLog::STATUS_BLOCKED])->count(),
+            'pending_count'     => MailLog::whereIn('status', [MailLog::STATUS_PENDING, MailLog::STATUS_DEFERRED])->count(),
         ];
 
         return view('admin::pages.mail_logs.index', $data);
@@ -197,9 +197,9 @@ class MailLogController extends Controller
             // 总体统计
             $totalStats = [
                 'total'   => MailLog::count(),
-                'sent'    => MailLog::where('status', MailLog::STATUS_SENT)->count(),
-                'failed'  => MailLog::where('status', MailLog::STATUS_FAILED)->count(),
-                'pending' => MailLog::where('status', MailLog::STATUS_PENDING)->count(),
+                'sent'    => MailLog::whereIn('status', [MailLog::STATUS_SENT, MailLog::STATUS_DELIVERED])->count(),
+                'failed'  => MailLog::whereIn('status', [MailLog::STATUS_FAILED, MailLog::STATUS_BOUNCED, MailLog::STATUS_BLOCKED])->count(),
+                'pending' => MailLog::whereIn('status', [MailLog::STATUS_PENDING, MailLog::STATUS_DEFERRED])->count(),
                 'recent'  => MailLog::where('created_at', '>=', $startDate)->count(),
             ];
 
@@ -220,8 +220,8 @@ class MailLogController extends Controller
      */
     public function resend(MailLog $mailLog): JsonResponse
     {
-        if ($mailLog->status === MailLog::STATUS_SENT) {
-            return json_fail(__('admin/mail_log.mail_already_sent'));
+        if (! in_array($mailLog->status, [MailLog::STATUS_FAILED, MailLog::STATUS_BOUNCED, MailLog::STATUS_BLOCKED], true)) {
+            return json_fail(__('admin/mail_log.mail_not_retryable'));
         }
 
         $rateLimitKey = 'admin-mail-resend:' . request()->ip() . ':' . $mailLog->id;

@@ -334,7 +334,7 @@ class SettingService
         }
 
         $engine         = strtolower(trim((string) $settings['mail_engine']));
-        $allowedEngines = ['', 'self_hosted', 'smtp', 'sendmail', 'mailgun', 'sendcloud', 'sendgrid', 'log'];
+        $allowedEngines = ['', 'brevo', 'self_hosted', 'smtp', 'sendmail', 'mailgun', 'sendcloud', 'sendgrid', 'log'];
         if (! in_array($engine, $allowedEngines, true)) {
             throw new Exception('不支持的邮件引擎。');
         }
@@ -352,6 +352,23 @@ class SettingService
         self::preserveBlankSecret($settings, 'mailgun', 'secret');
         self::preserveBlankSecret($settings, 'sendcloud', 'api_key');
         self::preserveBlankSecret($settings, 'sendgrid', 'api_key');
+
+        if ($engine === 'brevo') {
+            $incoming = isset($settings['brevo']) && is_array($settings['brevo']) ? $settings['brevo'] : [];
+            $existing = system_setting('base.brevo', []);
+            $existing = is_array($existing) ? $existing : [];
+            $timeout  = filter_var($incoming['timeout'] ?? $existing['timeout'] ?? 15, FILTER_VALIDATE_INT, [
+                'options' => ['min_range' => 3, 'max_range' => 60],
+            ]);
+            if ($timeout === false) {
+                throw new Exception('Brevo API 超时时间必须是 3 至 60 秒之间的数字。');
+            }
+            $incoming['timeout'] = $timeout;
+            $settings['brevo']   = app(\App\Mail\BrevoSettings::class)->prepareForStorage($incoming, $existing);
+            if (trim((string) ($settings['brevo']['api_key'] ?? '')) === '') {
+                throw new Exception('Brevo API Key 不能为空。');
+            }
+        }
 
         $legacy = isset($settings['mail_from']) && is_array($settings['mail_from'])
             ? $settings['mail_from']

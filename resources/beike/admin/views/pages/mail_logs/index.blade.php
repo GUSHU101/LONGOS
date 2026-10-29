@@ -200,7 +200,7 @@
                   <span class="badge bg-secondary">{{ $log->transport_text ?? $log->transport }}</span>
                 </td>
                 <td>
-                  <span class="badge bg-{{ $log->status === 'sent' ? 'success' : ($log->status === 'failed' ? 'danger' : 'warning') }}">
+                  <span class="badge bg-{{ $log->status_color }}">
                     {{ $log->status_text ?? $log->status }}
                   </span>
                 </td>
@@ -217,7 +217,7 @@
                        class="btn btn-default" title="{{ __('admin/mail_log.view_detail') }}">
                       <i class="bi bi-eye"></i>
                     </a>
-                    @if($log->status === 'failed' && count((array) $log->attachments) === 0)
+                    @if(in_array($log->status, [\Beike\Models\MailLog::STATUS_FAILED, \Beike\Models\MailLog::STATUS_BOUNCED, \Beike\Models\MailLog::STATUS_BLOCKED], true) && count((array) $log->attachments) === 0)
                       <button type="button" class="btn btn-outline-warning"
                               onclick="resendMail({{ $log->id }})" title="{{ __('admin/mail_log.resend') }}">
                         <i class="bi bi-arrow-clockwise"></i>

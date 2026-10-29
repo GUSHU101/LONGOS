@@ -6,7 +6,7 @@
 
 @section('content')
   @section('page-title-right')
-    @if($mail_log->status === 'failed' && count((array) $mail_log->attachments) === 0)
+    @if(in_array($mail_log->status, [\Beike\Models\MailLog::STATUS_FAILED, \Beike\Models\MailLog::STATUS_BOUNCED, \Beike\Models\MailLog::STATUS_BLOCKED], true) && count((array) $mail_log->attachments) === 0)
       <button type="button" class="btn btn-outline-info" onclick="app.resend()">
         <i class="bi bi-arrow-clockwise"></i> {{ __('admin/mail_log.resend') }}
       </button>
@@ -106,7 +106,7 @@
               </div>
             </div>
           @endif
-          @if($mail_log->status === 'failed' && count((array) $mail_log->attachments) > 0)
+          @if(in_array($mail_log->status, [\Beike\Models\MailLog::STATUS_FAILED, \Beike\Models\MailLog::STATUS_BOUNCED, \Beike\Models\MailLog::STATUS_BLOCKED], true) && count((array) $mail_log->attachments) > 0)
             <div class="alert alert-warning mb-0">
               {{ __('admin/mail_log.resend_attachments_unavailable') }}
             </div>
@@ -215,11 +215,11 @@
                 </div>
               </div>
             @endif
-            @if($mail_log->status === 'failed')
+            @if(in_array($mail_log->status, [\Beike\Models\MailLog::STATUS_FAILED, \Beike\Models\MailLog::STATUS_BOUNCED, \Beike\Models\MailLog::STATUS_BLOCKED], true))
               <div class="timeline-item">
                 <div class="timeline-marker bg-danger"></div>
                 <div class="timeline-content">
-                  <h6 class="timeline-title">发送失败</h6>
+                  <h6 class="timeline-title">{{ $mail_log->status_text }}</h6>
                   <p class="timeline-text">{{ $mail_log->updated_at->format('Y-m-d H:i:s') }}</p>
                 </div>
               </div>
