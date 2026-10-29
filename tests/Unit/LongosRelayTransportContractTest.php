@@ -133,6 +133,9 @@ class LongosRelayTransportContractTest extends TestCase
         self::assertStringContainsString("'application/dns-json'", $ptrResolver);
         self::assertStringContainsString("2       => 'SERVFAIL'", $ptrResolver);
         self::assertStringContainsString("5       => 'REFUSED'", $ptrResolver);
+        self::assertStringContainsString("\$queueDepth > 0 ? 'warning' : 'ok'", $source);
+        self::assertStringContainsString('这些邮件尚未完成公网投递', $source);
+        self::assertStringContainsString('不代表收件方已经接收', file_get_contents(dirname(__DIR__, 2) . '/lang/zh_cn/admin/setting.php'));
     }
 
     public function test_admin_mail_test_returns_only_a_sanitized_failure_reason(): void

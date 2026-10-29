@@ -132,14 +132,20 @@ class MailDiagnosticsService
                     $queueDepth = filter_var($payload['queueDepth'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
                     $queueLimit = filter_var($payload['queueLimit'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
                     if ($queueDepth !== false && $queueLimit !== false) {
-                        $queueRatio  = $queueDepth / $queueLimit;
-                        $queueStatus = $queueDepth > $queueLimit ? 'error' : ($queueRatio >= 0.8 ? 'warning' : 'ok');
+                        // A healthy Postfix process only proves that the node can
+                        // accept mail. Any queued message is still awaiting its
+                        // recipient MX and must not be presented as delivered.
+                        $queueStatus = $queueDepth > $queueLimit ? 'error' : ($queueDepth > 0 ? 'warning' : 'ok');
+                        $queueHelp   = match ($queueStatus) {
+                            'error'   => '队列已超过安全上限，中继节点应停止接收新任务并立即处理积压。',
+                            'warning' => '这些邮件尚未完成公网投递；若数分钟后仍未归零，请检查节点出站 TCP 25、Postfix 日志和收件方拒收原因。',
+                            default   => '当前没有等待投递的邮件。',
+                        };
                         $this->add(
                             $checks,
                             'relay_queue',
                             $queueStatus,
-                            "Postfix 队列当前 {$queueDepth} 封，安全上限 {$queueLimit} 封。"
-                                . ($queueStatus === 'warning' ? '队列接近上限，请检查对方拒收或延迟日志。' : ''),
+                            "Postfix 队列当前 {$queueDepth} 封，安全上限 {$queueLimit} 封。{$queueHelp}",
                         );
                     }
 

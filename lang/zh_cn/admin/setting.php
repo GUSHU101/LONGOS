@@ -92,7 +92,7 @@ return [
     'mail_test_invalid_from'                       => '发件邮箱无效，请先保存有效的发件邮箱。',
     'mail_test_subject'                            => ':store 邮件配置测试',
     'mail_test_body'                               => '这是一封来自 :store 的测试邮件。发送时间：:time。若您收到此邮件，说明当前邮件配置可正常发送。',
-    'mail_test_sent'                               => '测试邮件已发送，请检查收件箱和垃圾邮件箱。',
+    'mail_test_sent'                               => '测试邮件已被传输层接收并进入投递流程，不代表收件方已经接收。若未收到，请运行连通性检测并检查 Postfix 队列、出站 TCP 25 和垃圾邮件箱。',
     'mail_test_logged'                             => '测试邮件已写入应用日志；日志模式不会投递到收件箱。',
     'mail_test_failed'                             => '测试邮件发送失败，请检查邮件配置和邮件日志。',
     'mail_test_failed_with_reason'                 => '测试邮件发送失败：:error',
