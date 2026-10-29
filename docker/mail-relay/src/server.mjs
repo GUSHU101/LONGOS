@@ -18,6 +18,16 @@ import {spawnSync} from 'node:child_process';
 import nodemailer from 'nodemailer';
 import {verifySignedRequest} from './security.mjs';
 
+function postfixResolverFilesReady() {
+  try {
+    const live = readFileSync('/etc/resolv.conf', 'utf8').trim();
+    const chroot = readFileSync('/var/spool/postfix/etc/resolv.conf', 'utf8').trim();
+    return live !== '' && live === chroot;
+  } catch {
+    return false;
+  }
+}
+
 function positiveInt(value, fallback, field = 'value', maximum = Number.MAX_SAFE_INTEGER) {
   const raw = String(value ?? '').trim();
   if (raw === '') return fallback;
@@ -478,6 +488,7 @@ function relayHealth(force = false) {
   // supervises it; here verify the master process plus the user-facing queue.
   const postfix = spawnSync('pgrep', ['-x', 'master'], {stdio: 'ignore', timeout: 3000});
   const opendkim = spawnSync('pgrep', ['-x', 'opendkim'], {stdio: 'ignore', timeout: 3000});
+  const dns = spawnSync('getent', ['ahostsv4', 'example.com'], {stdio: 'ignore', timeout: 3000});
   const queue = spawnSync('postqueue', ['-j'], {encoding: 'utf8', timeout: 5000, maxBuffer: 4 * 1024 * 1024});
   const queueDepth = queue.status === 0
     ? String(queue.stdout || '').split('\n').filter(line => line.trim() !== '').length
@@ -485,6 +496,7 @@ function relayHealth(force = false) {
   const components = {
     postfix: postfix.status === 0,
     opendkim: opendkim.status === 0,
+    dns: dns.status === 0 && postfixResolverFilesReady(),
     queue: queue.status === 0 && queueDepth <= maxQueueMessages,
     receiptStore: receiptCapacityAvailable() && receiptStoreHealthy && storeWritable,
   };

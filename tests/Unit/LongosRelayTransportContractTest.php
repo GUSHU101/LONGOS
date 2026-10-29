@@ -54,6 +54,8 @@ class LongosRelayTransportContractTest extends TestCase
         self::assertStringNotContainsString('eval ', $entrypoint);
         self::assertStringContainsString("sed 's/^[[:space:]]*//; s/[[:space:]]*$//'", $entrypoint);
         self::assertStringContainsString('MAIL_DOMAINS must contain at least one valid signing domain', $entrypoint);
+        self::assertStringContainsString('postfix_chroot_etc', $entrypoint);
+        self::assertStringContainsString('cp -L "$postfix_runtime_source"', $entrypoint);
         self::assertStringContainsString('ALLOWED_SENDER_DOMAINS must contain at least one valid signing domain', $entrypoint);
         self::assertStringContainsString('[a-zA-Z0-9_-]{0,62}', $entrypoint);
         self::assertStringContainsString('dkim_value=', $entrypoint);
@@ -116,6 +118,8 @@ class LongosRelayTransportContractTest extends TestCase
         self::assertStringContainsString('Previous delivery status is uncertain', $source);
         self::assertStringContainsString("spawnSync('pgrep', ['-x', 'opendkim']", $source);
         self::assertStringContainsString("spawnSync('postqueue', ['-j']", $source);
+        self::assertStringContainsString('postfixResolverFilesReady()', $source);
+        self::assertStringContainsString("spawnSync('getent', ['ahostsv4', 'example.com']", $source);
         self::assertStringContainsString('mail-relay-state:/var/lib/mail-relay-state', file_get_contents(dirname(__DIR__, 2) . '/docker-compose.yml'));
     }
 

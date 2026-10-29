@@ -111,6 +111,7 @@ class MailDiagnosticsService
                     ->map(static fn (mixed $name): string => match ((string) $name) {
                         'postfix'      => 'Postfix',
                         'opendkim'     => 'OpenDKIM',
+                        'dns'          => 'Postfix DNS',
                         'queue'        => '邮件队列',
                         'receiptStore' => '去重回执存储',
                         default        => (string) $name,

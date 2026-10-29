@@ -265,6 +265,21 @@ postconf -e "milter_protocol = 6"
 postconf -e "non_smtpd_milters = inet:127.0.0.1:8891"
 postconf -e "smtpd_milters = inet:127.0.0.1:8891"
 
+# Postfix delivery processes are chrooted into the persistent queue volume.
+# Refresh their resolver/runtime files from Docker's live network namespace on
+# every start so a volume never keeps the image builder's stale DNS settings.
+postfix_queue_directory="$(postconf -h queue_directory)"
+postfix_chroot_etc="$postfix_queue_directory/etc"
+mkdir -p "$postfix_chroot_etc"
+for postfix_runtime_file in resolv.conf hosts nsswitch.conf services; do
+  postfix_runtime_source="/etc/$postfix_runtime_file"
+  [ -r "$postfix_runtime_source" ] || continue
+  postfix_runtime_temp="$postfix_chroot_etc/$postfix_runtime_file.tmp.$$"
+  cp -L "$postfix_runtime_source" "$postfix_runtime_temp"
+  chmod 0644 "$postfix_runtime_temp"
+  mv -f "$postfix_runtime_temp" "$postfix_chroot_etc/$postfix_runtime_file"
+done
+
 opendkim -x /etc/opendkim.conf
 postfix check
 postfix start
