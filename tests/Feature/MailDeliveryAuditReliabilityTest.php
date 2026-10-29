@@ -45,6 +45,8 @@ class MailDeliveryAuditReliabilityTest extends TestCase
             '2025_07_22_095733_add_transport_to_mail_logs_table.php',
             '2026_10_15_020000_harden_mail_delivery_audit.php',
             '2026_10_22_000000_add_relay_receipts_to_mail_logs.php',
+            '2026_10_29_150000_expand_mail_delivery_statuses.php',
+            '2026_10_29_160000_repair_sqlite_mail_delivery_status_constraint.php',
         ] as $migration) {
             (require base_path('database/migrations/' . $migration))->up();
         }
@@ -90,6 +92,59 @@ class MailDeliveryAuditReliabilityTest extends TestCase
         self::assertNull($mailLog->error_message);
         self::assertSame('delivery:tenant-7:order-12', $mailLog->relay_submission_id);
         self::assertSame('<delivery.12@example.com>', $mailLog->transport_message_id);
+    }
+
+    public function test_stream_bodies_and_attachments_are_audited_without_consuming_them(): void
+    {
+        $html       = fopen('php://temp', 'w+b');
+        $attachment = fopen('php://temp', 'w+b');
+        fwrite($html, '<p>Streamed order update</p>');
+        fwrite($attachment, 'invoice-data');
+        fseek($html, 4);
+        fseek($attachment, 2);
+
+        try {
+            $email = (new Email)
+                ->from('orders@example.com')
+                ->to('buyer@example.net')
+                ->subject('Stream audit')
+                ->html($html)
+                ->attach($attachment, 'invoice.txt', 'text/plain');
+            $email->getHeaders()->addTextHeader('X-Longos-Delivery-Id', 'delivery:stream-audit');
+
+            (new MailEventListener)->handleMessageSending(new MessageSending($email));
+
+            $log = MailLog::query()->sole();
+            self::assertSame('<p>Streamed order update</p>', $log->content);
+            self::assertSame('invoice.txt', $log->attachments[0]['name']);
+            self::assertSame(strlen('invoice-data'), $log->attachments[0]['size']);
+            self::assertSame(4, ftell($html));
+        } finally {
+            fclose($html);
+            fclose($attachment);
+        }
+    }
+
+    public function test_local_sent_event_does_not_downgrade_an_earlier_provider_receipt(): void
+    {
+        $listener = new MailEventListener;
+        $email    = $this->email('delivery:provider-first');
+        $listener->handleMessageSending(new MessageSending($email));
+
+        $log = MailLog::query()->sole();
+        $log->update([
+            'status'  => MailLog::STATUS_DELIVERED,
+            'headers' => ['_brevo' => ['event' => 'delivered', 'event_at' => 100]],
+        ]);
+
+        $email->getHeaders()->addTextHeader('X-Longos-Brevo-Message-ID', 'brevo-provider-first');
+        $sent = new LaravelSentMessage(new SymfonySentMessage($email, Envelope::create($email)));
+        $listener->handleMessageSent(new MessageSent($sent));
+
+        $log->refresh();
+        self::assertSame(MailLog::STATUS_DELIVERED, $log->status);
+        self::assertSame('brevo-provider-first', $log->transport_message_id);
+        self::assertNotNull($log->sent_at);
     }
 
     public function test_retention_marks_abandoned_attempts_failed_and_prunes_only_expired_terminal_logs(): void

@@ -97,7 +97,8 @@ class BrevoWebhookManager
 
     private function providerError(int $status, mixed $body): string
     {
-        $reason = is_array($body) ? trim((string) ($body['message'] ?? $body['code'] ?? '')) : '';
+        $value  = is_array($body) ? ($body['message'] ?? $body['code'] ?? '') : '';
+        $reason = is_scalar($value) ? trim((string) $value) : '';
         $reason = $reason !== '' ? mb_substr($reason, 0, 300) : '服务商拒绝请求';
 
         return "Brevo 回执配置失败 [{$status}]: {$reason}";

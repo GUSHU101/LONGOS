@@ -367,13 +367,32 @@ class SettingController extends Controller
             return redirect($returnUrl)->withInput()->with('error', $e->getMessage());
         }
 
+        $mailWarning = null;
+        if (($settings['mail_engine'] ?? null) === 'brevo') {
+            try {
+                app(BrevoWebhookManager::class)->sync(
+                    tenant_operational_named_route('longos.brevo.webhook'),
+                );
+            } catch (Throwable $exception) {
+                $reason = MailLog::sanitizeError($exception->getMessage());
+                Log::warning('Brevo settings were saved but webhook auto-sync failed.', [
+                    'exception' => $exception::class,
+                ]);
+                $mailWarning = trans('admin/setting.brevo_webhook_auto_sync_warning', [
+                    'reason' => $reason,
+                ]);
+            }
+        }
+
         $newAdminName = $settings['admin_name'] ?? $oldAdminName;
 
         if (! empty($settings['admin_name'])) {
             $returnUrl = SettingsReturnUrl::replaceAdminPrefix($returnUrl, $oldAdminName, $newAdminName);
         }
 
-        return redirect($returnUrl)->with('success', trans('common.updated_success'));
+        $redirect = redirect($returnUrl)->with('success', trans('common.updated_success'));
+
+        return $mailWarning === null ? $redirect : $redirect->with('warning', $mailWarning);
     }
 
     /**
@@ -474,7 +493,7 @@ class SettingController extends Controller
         }
 
         try {
-            $result = $webhooks->sync(route('longos.brevo.webhook', absolute: true));
+            $result = $webhooks->sync(tenant_operational_named_route('longos.brevo.webhook'));
 
             return json_success(trans('admin/setting.brevo_webhook_synced'), $result);
         } catch (Throwable $exception) {

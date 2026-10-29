@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\Mime\Email;
+use Throwable;
 
 class MailEventListener
 {
@@ -96,7 +97,7 @@ class MailEventListener
             $message->getHeaders()->remove('X-Mail-Log-ID');
             $message->getHeaders()->addTextHeader('X-Mail-Log-ID', (string) $mailLog->id);
 
-        } catch (\Exception $e) {
+        } catch (Throwable $e) {
             Log::error('邮件发送前记录失败。', [
                 'exception' => $e::class,
             ]);
@@ -122,14 +123,28 @@ class MailEventListener
 
             if ($mailLog) {
                 $receipt = $this->relayReceipt($message);
-                $mailLog->update([
-                    'status'        => MailLog::STATUS_SENT,
-                    'error_message' => null,
-                    'sent_at'       => now(),
-                ] + $receipt);
+                $updates = $receipt;
+
+                // Brevo can publish a delivery webhook before Laravel's
+                // MessageSent listener runs. Never downgrade a stronger
+                // provider result such as delivered, deferred or bounced to
+                // the weaker local meaning of "provider accepted".
+                if (in_array((string) $mailLog->status, [MailLog::STATUS_PENDING, MailLog::STATUS_FAILED], true)) {
+                    $updates += [
+                        'status'        => MailLog::STATUS_SENT,
+                        'error_message' => null,
+                        'sent_at'       => now(),
+                    ];
+                } elseif (! $mailLog->sent_at) {
+                    $updates['sent_at'] = now();
+                }
+
+                if ($updates !== []) {
+                    $mailLog->update($updates);
+                }
             }
 
-        } catch (\Exception $e) {
+        } catch (Throwable $e) {
             Log::error('邮件发送后记录更新失败。', [
                 'exception' => $e::class,
             ]);
@@ -149,7 +164,7 @@ class MailEventListener
                 'event_class' => is_object($event) ? $event::class : gettype($event),
             ]);
 
-        } catch (\Exception $e) {
+        } catch (Throwable $e) {
             Log::error('邮件发送失败记录处理失败。', [
                 'exception' => $e::class,
             ]);
@@ -198,7 +213,7 @@ class MailEventListener
             if ($message instanceof Email) {
                 $htmlBody        = $message->getHtmlBody();
                 $textBody        = $message->getTextBody();
-                $data['content'] = $htmlBody ?: $textBody ?: '';
+                $data['content'] = $this->bodyToString($htmlBody ?: $textBody ?: '');
             }
 
             // 获取头信息
@@ -239,14 +254,14 @@ class MailEventListener
                 foreach ($message->getAttachments() as $attachment) {
                     $attachments[] = [
                         'name' => $attachment->getFilename(),
-                        'size' => strlen($attachment->getBody()),
+                        'size' => $this->bodySize($attachment->getBody()),
                         'type' => $attachment->getMediaType(),
                     ];
                 }
             }
             $data['attachments'] = $attachments;
 
-        } catch (\Exception $e) {
+        } catch (Throwable $e) {
             Log::error('提取邮件数据失败。', ['exception' => $e::class]);
         }
 
@@ -312,7 +327,7 @@ class MailEventListener
             // 如果没有明确的传输方式配置，返回驱动名称
             return $defaultMailer;
 
-        } catch (\Exception $e) {
+        } catch (Throwable $e) {
             Log::error('获取邮件传输方式失败。', ['exception' => $e::class]);
 
             return 'unknown';
@@ -324,6 +339,48 @@ class MailEventListener
         $sqlState = (string) ($exception->errorInfo[0] ?? '');
 
         return in_array($sqlState, ['23000', '23505'], true);
+    }
+
+    /**
+     * Symfony MIME bodies may be strings or seekable streams. Reading an
+     * audit copy must not consume the stream before the transport sends it.
+     */
+    private function bodyToString(mixed $body): string
+    {
+        if (is_string($body)) {
+            return $body;
+        }
+        if (! is_resource($body)) {
+            return $body instanceof \Stringable ? (string) $body : '';
+        }
+
+        $position = ftell($body);
+        $metadata = stream_get_meta_data($body);
+        if (($metadata['seekable'] ?? false) === true) {
+            rewind($body);
+        }
+
+        $content = stream_get_contents($body);
+        if (($metadata['seekable'] ?? false) === true && $position !== false) {
+            fseek($body, $position);
+        }
+
+        return is_string($content) ? $content : '';
+    }
+
+    private function bodySize(mixed $body): int
+    {
+        if (is_string($body)) {
+            return strlen($body);
+        }
+        if (is_resource($body)) {
+            $stat = fstat($body);
+            if (is_array($stat) && isset($stat['size']) && is_int($stat['size']) && $stat['size'] >= 0) {
+                return $stat['size'];
+            }
+        }
+
+        return strlen($this->bodyToString($body));
     }
 
     /** @return array<string, string> */

@@ -124,7 +124,11 @@ class BkMailChannel extends MailChannel
             if ($mailData['delivery_id'] !== '') {
                 $existing = MailLog::query()->where('delivery_id', $mailData['delivery_id'])->first();
                 if ($existing) {
-                    if (! in_array($existing->status, [MailLog::STATUS_SENT, MailLog::STATUS_DELIVERED], true)) {
+                    // A provider webhook may have already supplied a more
+                    // precise outcome while this queue attempt was unwinding.
+                    // Preserve sent/delivered as well as deferred, bounced and
+                    // blocked instead of flattening them back to "failed".
+                    if (in_array($existing->status, [MailLog::STATUS_PENDING, MailLog::STATUS_FAILED], true)) {
                         $existing->update([
                             'status'          => MailLog::STATUS_FAILED,
                             'error_message'   => MailLog::sanitizeError($errorMessage),

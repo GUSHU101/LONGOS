@@ -131,7 +131,7 @@ Coolify 解析 Compose 后会自动生成 `SERVICE_*` 凭据。只需手动填�
 
 ## 8. 邮件引擎
 
-新部署推荐在 LONGOS 后台选择 **Brevo 事务邮件 API**。主服务器只通过出站 HTTPS 443 调用 Brevo，不需要第二台服务器、出站 TCP 25、PTR/rDNS 或邮件 Tunnel。请先在 Brevo 完成发件域验证，再于“系统 → 邮件设置”保存 API Key、同步投递回执并运行“立即检测”。完整步骤见 [LONGOS 邮件服务](MAIL.md#推荐架构brevo-事务邮件-api)。
+新部署推荐在 LONGOS 后台选择 **Brevo 事务邮件 API**。主服务器只通过出站 HTTPS 443 调用 Brevo，不需要第二台服务器、出站 TCP 25、PTR/rDNS 或邮件 Tunnel。请先在 Brevo 完成发件域验证，再于“系统 → 邮件设置”保存 API Key；LONGOS 会自动同步投递回执，然后运行“立即检测”。完整步骤见 [LONGOS 邮件服务](MAIL.md#推荐架构brevo-事务邮件-api)。
 
 下述 Postfix/OpenDKIM 为需要自建出口的高级兼容方案。
 

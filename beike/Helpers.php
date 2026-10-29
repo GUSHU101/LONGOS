@@ -353,7 +353,15 @@ function shop_route($route, $params = [], $isLang = true): string
  */
 function tenant_operational_route(string $route, array $params = []): string
 {
-    $routeName = 'shop.' . $route;
+    return tenant_operational_named_route('shop.' . $route, $params);
+}
+
+/**
+ * Generate a callback on the tenant's stable platform domain. Storefront
+ * custom domains can be replaced while a provider still holds the URL.
+ */
+function tenant_operational_named_route(string $routeName, array $params = []): string
+{
     $relative  = route($routeName, $params, false);
     $site      = current_site();
 

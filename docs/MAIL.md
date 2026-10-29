@@ -14,8 +14,8 @@ LONGOS app / worker -> HTTPS 443 -> Brevo -> 收件方
 1. 在 Brevo 的 **Senders & Domains** 添加 LONGOS 的发件域，按 Brevo 页面给出的值发布 DKIM/DMARC，直到域状态为已验证且已认证。
 2. 在 Brevo 创建 API v3 Key。API Key 只粘贴到 LONGOS 后台，不写入 Coolify、GitHub 或文档。
 3. 进入 **系统 → 邮件设置**，选择“Brevo 事务邮件 API（推荐）”，填写已认证域下的默认发件人和 API Key，保存。LONGOS 使用 `APP_KEY` 加密保存 API Key，后台和日志不回显明文。
-4. 重新打开邮件设置，点击“同步 Brevo 回执”。LONGOS 会为当前站点创建带随机 Bearer Token 的事务邮件 Webhook。
-5. 点击“立即检测”；页面应同时显示 API Key、发件域和投递回执通过。再发送测试邮件，邮件日志会从“已提交”更新为“已投递”，或显示延迟、退信、拦截的真实原因。
+4. 保存成功后，LONGOS 会为当前租户的稳定平台域自动创建或更新事务邮件 Webhook，并使用随机 Bearer Token 保护回执入口。若服务商短暂不可用，设置仍会保存并显示明确警告，修复后可点击“同步 Brevo 回执”重试。
+5. 点击“立即检测”；页面应同时显示 API Key、发件域和投递回执通过。再发送测试邮件，邮件日志会从“已提交”更新为“已投递”，或显示延迟、无效地址、退信、拦截的真实原因。回执重试或乱序到达不会把更强的最终状态回退为“已提交”。
 6. 完成一封“已投递”的烟雾测试后，可在 Coolify 停止并删除第二台服务器上的 Remote Mail Node 资源。如果 Cloudflare Email Routing 仍用于收信，其 MX/Worker 可保留；它与 Brevo 外发不冲突。`longos-cloud-mail` 仍使用原有 LONGOS URL 和集成令牌，网页发信会由 LONGOS 自动转为 Brevo API，无需把 Worker 连到新的 SMTP 服务器。
 
 Brevo 模式下，不再使用 `MAIL_RELAY_ENDPOINT`、`MAIL_PUBLIC_IPS`、`MAIL_HOSTNAME`、PTR/rDNS 或第二台服务器的 Tunnel。请不要删除 Brevo 要求的 DNS 记录，也不要继续把自建 Postfix 的 DKIM/SPF 值当作 Brevo 值；以 Brevo 域验证页面为准。

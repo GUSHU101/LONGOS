@@ -112,7 +112,15 @@ class MailDiagnosticsService
 
             $webhookResponse = $client->get('/v3/webhooks', ['query' => ['type' => 'transactional', 'sort' => 'desc']]);
             $webhookPayload  = json_decode((string) $webhookResponse->getBody(), true);
-            $expectedUrl     = route('longos.brevo.webhook', absolute: true);
+            if ($webhookResponse->getStatusCode() !== 200 || ! is_array($webhookPayload)) {
+                $status = $webhookResponse->getStatusCode();
+                $value  = is_array($webhookPayload) ? ($webhookPayload['message'] ?? $webhookPayload['code'] ?? '') : '';
+                $reason = is_scalar($value) ? trim((string) $value) : '';
+                $reason = $reason !== '' ? mb_substr(strip_tags($reason), 0, 200) : '服务商拒绝请求';
+
+                throw new \RuntimeException("Brevo 回执查询失败 [{$status}]：{$reason}");
+            }
+            $expectedUrl     = tenant_operational_named_route('longos.brevo.webhook');
             $webhook         = collect($webhookPayload['webhooks'] ?? [])->first(
                 static fn (mixed $item): bool => is_array($item) && hash_equals((string) ($item['url'] ?? ''), $expectedUrl),
             );

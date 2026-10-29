@@ -187,6 +187,7 @@ class LongosRelayTransportContractTest extends TestCase
 
         self::assertStringContainsString('catch (\\Throwable $e)', $channel);
         self::assertStringContainsString('throw $e;', $channel);
+        self::assertStringContainsString('in_array($existing->status, [MailLog::STATUS_PENDING, MailLog::STATUS_FAILED]', $channel);
         self::assertStringNotContainsString('// 不抛出异常，静默失败', $channel);
         self::assertStringContainsString('public int $tries = 5;', $trait);
         self::assertStringContainsString('public array $backoff = [30, 120, 300, 900];', $trait);

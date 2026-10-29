@@ -94,6 +94,9 @@
       {{ session('error') }}
     </div>
   @endif
+  @if (session('warning'))
+    <x-admin-alert type="warning" msg="{{ session('warning') }}" class="mt-4"/>
+  @endif
   <style>
     .mail-settings-shell { --mail-border: #e4e7ec; --mail-muted: #667085; --mail-soft: #f8fafc; }
     .mail-settings-intro { background: linear-gradient(135deg, #f8faff 0%, #fff 72%); border: 1px solid var(--mail-border); }
