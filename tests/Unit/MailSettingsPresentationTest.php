@@ -20,6 +20,8 @@ class MailSettingsPresentationTest extends TestCase
         self::assertStringContainsString('mail-notification-matrix', $view);
         self::assertStringContainsString('mail-action-grid', $view);
         self::assertStringContainsString('mail-save-dock', $view);
+        self::assertStringContainsString('testResult.status_text', $view);
+        self::assertStringContainsString('testResult.log_url', $view);
         self::assertStringContainsString('id="mail-engine-brevo"', $view);
         self::assertStringContainsString('name="mail_engine" value="{{ $savedMailEngine }}" :value="mail_engine"', $view);
         self::assertStringContainsString('@click="switchToBrevo"', $view);

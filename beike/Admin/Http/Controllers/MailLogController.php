@@ -18,6 +18,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
 use Throwable;
 
@@ -254,9 +255,13 @@ class MailLogController extends Controller
             ? $loggedCategory
             : MailSenderProfileService::categoryForMailType($mailLog->mail_type);
         $senderProfile  = app(MailSenderProfileService::class)->resolve($senderCategory);
+        // Each manual resend is a new intentional delivery. Queue retries of
+        // that delivery reuse this ID, while a later operator-initiated resend
+        // receives a fresh ID and is not suppressed by Brevo idempotency.
+        $deliveryId = 'resend:' . $mailLog->id . ':' . Str::uuid();
 
         try {
-            Mail::html($content, function ($message) use ($mailLog, $recipient, $subject, $senderCategory, $senderProfile): void {
+            Mail::html($content, function ($message) use ($mailLog, $recipient, $subject, $senderCategory, $senderProfile, $deliveryId): void {
                 $message->to($recipient, $mailLog->to_name ?: null)
                     ->from($senderProfile['address'], $senderProfile['name'] ?: null)
                     ->subject($subject);
@@ -268,10 +273,18 @@ class MailLogController extends Controller
                 $headers->addTextHeader('X-BK-Mail-Type', (string) ($mailLog->mail_type ?: 'other'));
                 $headers->addTextHeader('X-BK-Mail-Resend-Of', (string) $mailLog->id);
                 $headers->addTextHeader('X-Longos-Sender-Category', $senderCategory);
-                $headers->addTextHeader('X-Longos-Delivery-Id', 'resend:' . $mailLog->id);
+                $headers->addTextHeader('X-Longos-Delivery-Id', $deliveryId);
             });
 
-            return json_success(__('admin/mail_log.resend_success'));
+            $retryLog = MailLog::query()->where('delivery_id', $deliveryId)->latest('id')->first();
+
+            return json_success(__('admin/mail_log.resend_success'), [
+                'delivery_id' => $deliveryId,
+                'status'      => $retryLog?->status ?: MailLog::STATUS_SENT,
+                'log_url'     => $retryLog
+                    ? admin_route('mail_logs.show', ['mailLog' => $retryLog->id])
+                    : admin_route('mail_logs.index'),
+            ]);
         } catch (Throwable $e) {
             $safeError = MailLog::sanitizeError($e->getMessage());
             Log::warning('Admin mail log resend failed.', [
@@ -285,7 +298,7 @@ class MailLogController extends Controller
             // fall back to a new record if the event could not be persisted.
             try {
                 $updated = MailLog::query()
-                    ->where('delivery_id', 'resend:' . $mailLog->id)
+                    ->where('delivery_id', $deliveryId)
                     ->where('status', MailLog::STATUS_PENDING)
                     ->limit(1)
                     ->update([
@@ -299,7 +312,7 @@ class MailLogController extends Controller
                 }
 
                 MailLog::query()->create([
-                    'delivery_id'     => 'resend:' . $mailLog->id,
+                    'delivery_id'     => $deliveryId,
                     'to_email'        => $recipient,
                     'to_name'         => $mailLog->to_name,
                     'from_email'      => (string) config('mail.from.address', ''),

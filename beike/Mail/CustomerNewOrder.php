@@ -42,9 +42,14 @@ class CustomerNewOrder extends Mailable implements ShouldQueue
      */
     public function build()
     {
-        $orderLocale = $this->order->locale;
+        $orderLocale = $this->order->locale ?: config('app.locale');
         App::setLocale($orderLocale);
 
-        return $this->view('mails.order_new', ['order' => $this->order]);
+        return $this
+            ->subject(__('mail.subject_payment_pending', ['number' => $this->order->number]))
+            ->view('mails.order_new', ['order' => $this->order])
+            ->withSymfonyMessage(static function ($message): void {
+                $message->getHeaders()->addTextHeader('X-BK-Mail-Type', 'payment_pending');
+            });
     }
 }

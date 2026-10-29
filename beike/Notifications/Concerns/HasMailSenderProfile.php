@@ -50,7 +50,18 @@ trait HasMailSenderProfile
             return null;
         }
 
-        return $this->deliveryIdForRecipients([strtolower(trim($recipient))]);
+        return $this->mailDeliveryIdForAddress($recipient);
+    }
+
+    /** Resolve the stable ID against the mailable's actual recipient. */
+    public function mailDeliveryIdForAddress(string $recipient): ?string
+    {
+        $recipient = strtolower(trim($recipient));
+        if (! filter_var($recipient, FILTER_VALIDATE_EMAIL)) {
+            return null;
+        }
+
+        return $this->deliveryIdForRecipients([$recipient]);
     }
 
     /** @param array<int, string> $recipients */

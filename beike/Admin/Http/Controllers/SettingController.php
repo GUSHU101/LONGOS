@@ -44,6 +44,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Str;
 use InvalidArgumentException;
 use RuntimeException;
 use Throwable;
@@ -449,11 +450,12 @@ class SettingController extends Controller
             }
         }
 
-        $subject = trans('admin/setting.mail_test_subject', ['store' => site_brand_name()]);
-        $body    = trans('admin/setting.mail_test_body', ['store' => site_brand_name(), 'time' => now()->toDateTimeString()]);
+        $subject    = trans('admin/setting.mail_test_subject', ['store' => site_brand_name()]);
+        $body       = trans('admin/setting.mail_test_body', ['store' => site_brand_name(), 'time' => now()->toDateTimeString()]);
+        $deliveryId = 'test:' . Str::uuid();
 
         try {
-            Mail::raw($body, function ($message) use ($data, $subject, $sender): void {
+            Mail::raw($body, function ($message) use ($data, $subject, $sender, $deliveryId): void {
                 $message->from($sender['address'], $sender['name'] ?: null)
                     ->to($data['recipient'])
                     ->subject($subject);
@@ -465,9 +467,22 @@ class SettingController extends Controller
                     'X-Longos-Sender-Category',
                     MailSenderProfileService::DEFAULT,
                 );
+                $message->getSymfonyMessage()->getHeaders()->addTextHeader('X-Longos-Delivery-Id', $deliveryId);
             });
 
-            return json_success(trans($engine === 'log' ? 'admin/setting.mail_test_logged' : 'admin/setting.mail_test_sent'));
+            $mailLog = MailLog::query()->where('delivery_id', $deliveryId)->latest('id')->first();
+
+            return json_success(
+                trans($engine === 'log' ? 'admin/setting.mail_test_logged' : 'admin/setting.mail_test_sent'),
+                [
+                    'delivery_id' => $deliveryId,
+                    'status'      => $mailLog?->status ?: MailLog::STATUS_SENT,
+                    'status_text' => $mailLog?->status_text ?: trans('admin/mail_log.status_sent'),
+                    'log_url'     => $mailLog
+                        ? admin_route('mail_logs.show', ['mailLog' => $mailLog->id])
+                        : admin_route('mail_logs.index'),
+                ],
+            );
         } catch (Throwable $e) {
             $safeError = $this->redactMailTestError($e->getMessage());
             Log::warning('Admin mail configuration test failed.', [
@@ -476,7 +491,7 @@ class SettingController extends Controller
                 'exception' => $e::class,
                 'reason'    => $safeError,
             ]);
-            $this->markTestMailFailed($data['recipient'], $subject, $body, $engine, $e);
+            $this->markTestMailFailed($deliveryId, $data['recipient'], $subject, $body, $engine, $e);
 
             return json_fail($this->mailTestFailureMessage($safeError));
         }
@@ -537,17 +552,20 @@ class SettingController extends Controller
      * A synchronous test message is already recorded by MailEventListener.
      * Mark that pending row as failed instead of creating a second audit row.
      */
-    private function markTestMailFailed(string $recipient, string $subject, string $body, string $engine, Throwable $exception): void
-    {
+    private function markTestMailFailed(
+        string $deliveryId,
+        string $recipient,
+        string $subject,
+        string $body,
+        string $engine,
+        Throwable $exception,
+    ): void {
         $error = $this->redactMailTestError($exception->getMessage());
 
         try {
             $mailLog = MailLog::query()
-                ->where('to_email', $recipient)
-                ->where('subject', $subject)
-                ->where('mail_type', 'system_test')
+                ->where('delivery_id', $deliveryId)
                 ->where('status', MailLog::STATUS_PENDING)
-                ->where('created_at', '>=', now()->subMinute())
                 ->latest('id')
                 ->first();
 
@@ -562,7 +580,7 @@ class SettingController extends Controller
 
             // Logging must never hide a delivery failure if an event listener
             // is unavailable (for example during a rolling deployment).
-            $this->recordTestMail($recipient, $subject, $body, $engine, MailLog::STATUS_FAILED, $error);
+            $this->recordTestMail($deliveryId, $recipient, $subject, $body, $engine, MailLog::STATUS_FAILED, $error);
         } catch (Throwable $logException) {
             Log::warning('Unable to mark failed mail configuration test.', ['exception' => $logException::class]);
         }
@@ -584,22 +602,32 @@ class SettingController extends Controller
         ]);
     }
 
-    private function recordTestMail(string $recipient, string $subject, string $body, string $engine, string $status, ?string $error = null): void
-    {
+    private function recordTestMail(
+        string $deliveryId,
+        string $recipient,
+        string $subject,
+        string $body,
+        string $engine,
+        string $status,
+        ?string $error = null,
+    ): void {
         try {
             MailLog::query()->create([
-                'to_email'      => $recipient,
-                'from_email'    => (string) config('mail.from.address', ''),
-                'from_name'     => (string) config('mail.from.name', ''),
-                'subject'       => $subject,
-                'content'       => $body,
-                'mail_type'     => 'system_test',
-                'transport'     => $engine,
-                'status'        => $status,
-                'error_message' => $error ? mb_substr($error, 0, 1000) : null,
-                'headers'       => [],
-                'attachments'   => [],
-                'sent_at'       => $status === MailLog::STATUS_SENT ? now() : null,
+                'delivery_id'     => $deliveryId,
+                'to_email'        => $recipient,
+                'from_email'      => (string) config('mail.from.address', ''),
+                'from_name'       => (string) config('mail.from.name', ''),
+                'subject'         => $subject,
+                'content'         => $body,
+                'mail_type'       => 'system_test',
+                'transport'       => $engine,
+                'status'          => $status,
+                'attempts'        => 1,
+                'error_message'   => $error ? mb_substr($error, 0, 1000) : null,
+                'headers'         => [],
+                'attachments'     => [],
+                'sent_at'         => $status === MailLog::STATUS_SENT ? now() : null,
+                'last_attempt_at' => now(),
             ]);
         } catch (Throwable $e) {
             Log::warning('Unable to record mail configuration test.', ['exception' => $e::class]);

@@ -47,8 +47,8 @@ class BrevoTransportTest extends TestCase
         self::assertSame('<p>Order confirmed</p>', $payload['htmlContent']);
         self::assertArrayNotHasKey('textContent', $payload);
         self::assertSame('delivery_id:order:123|mail_type:order_new', $payload['headers']['X-Mailin-custom']);
-        self::assertArrayNotHasKey('IdempotencyKey', $payload['headers']);
-        self::assertMatchesRegularExpression('/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/', $request->getHeaderLine('idempotencyKey'));
+        self::assertMatchesRegularExpression('/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/', $payload['headers']['IdempotencyKey']);
+        self::assertSame('', $request->getHeaderLine('idempotencyKey'));
         self::assertSame(['order_new'], $payload['tags']);
         self::assertSame('brevo-message-id', $sentMessage?->getOriginalMessage()->getHeaders()->get('X-Longos-Brevo-Message-ID')?->getBodyAsString());
         fclose($html);

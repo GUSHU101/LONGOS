@@ -923,6 +923,12 @@
               <i class="bi bi-send me-1"></i>@{{ testing ? source.testSendingLabel : source.testButtonLabel }}
             </button>
             <div class="help-text font-size-12 lh-base mt-3">{{ __('admin/setting.mail_test_info') }}</div>
+            <div v-if="testResult" class="alert alert-info py-2 px-3 mt-3 mb-0" role="status">
+              <div class="d-flex flex-column flex-sm-row align-items-sm-center justify-content-between gap-2">
+                <span><i class="bi bi-hourglass-split me-1"></i>{{ __('admin/setting.mail_test_current_status') }}：@{{ testResult.status_text }}</span>
+                <a v-if="testResult.log_url" class="alert-link text-nowrap" :href="testResult.log_url">{{ __('admin/setting.mail_test_view_log') }} <i class="bi bi-arrow-right"></i></a>
+              </div>
+            </div>
             <div v-if="savedMailEngine === 'brevo'" class="d-flex align-items-start gap-2 mt-3 pt-3 border-top text-secondary font-size-12">
               <i class="bi bi-info-circle mt-1"></i><span>{{ __('admin/setting.mail_test_delivery_help') }}</span>
             </div>
@@ -989,6 +995,7 @@
         verifyingBrevo: false,
         brevoConfigured: mailPageData.brevoConfigured === true,
         brevoConnection: {status: '', message: ''},
+        testResult: null,
         dnsSyncAvailable: mailPageData.dnsSyncAvailable === true,
         diagnosticChecks: [],
         dnsRecords: [],
@@ -1173,14 +1180,17 @@
         sendTestMail() {
           if (!this.testRecipient || this.testing || this.hasUnsavedEngineChange || !this.mail_engine) return;
           this.testing = true;
+          this.testResult = null;
           $.ajax({
             url: mailPageData.testUrl,
             method: 'POST',
             data: {recipient: this.testRecipient},
             headers: {'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content, Accept: 'application/json'},
           }).done((response) => {
+            this.testResult = response?.data || null;
             layer.msg(response.message || mailPageData.labels.testSent);
           }).fail((xhr) => {
+            this.testResult = null;
             layer.msg(xhr.responseJSON?.message || mailPageData.labels.testFailed);
           }).always(() => { this.testing = false; });
         },

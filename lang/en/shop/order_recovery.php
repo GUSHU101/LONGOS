@@ -21,4 +21,9 @@ return [
     'rebuild_notice'        => 'Restoring will cancel the original unpaid order, release its reserved inventory, and rebuild the available items in checkout.',
     'suppressed'            => 'Further reminders for this order have been disabled.',
     'email_security_note'   => 'This private link expires automatically. On the secure page you can also disable further reminders for this order.',
+    'email_preheader'       => 'Order #:number is still saved at :total. Restore the available items and finish securely.',
+    'saved_order_badge'     => 'Saved for you',
+    'items'                 => 'Items',
+    'saved_items'           => 'Items from your order',
+    'stock_notice'          => 'Availability can change. The secure recovery page will restore only items that are still in stock.',
 ];

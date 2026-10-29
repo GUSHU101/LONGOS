@@ -158,6 +158,8 @@ return [
     'mail_test_info'                               => 'Save the configuration first. The test bypasses the queue and its result is recorded in mail logs.',
     'mail_test_card_help'                          => 'Send a real test email to a specified mailbox.',
     'mail_test_delivery_help'                      => 'Provider acceptance does not mean inbox delivery. Check the mail log for the final Brevo delivery receipt.',
+    'mail_test_current_status'                     => 'Current recorded status',
+    'mail_test_view_log'                           => 'View delivery details',
     'mail_test_configure_first'                    => 'Save and enable a mail engine first.',
     'mail_test_rate_limited'                       => 'Too many test messages. Try again in one minute.',
     'mail_test_invalid_from'                       => 'The sender address is invalid. Save a valid sender address first.',

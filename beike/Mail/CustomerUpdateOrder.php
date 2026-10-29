@@ -13,6 +13,7 @@
 namespace Beike\Mail;
 
 use Beike\Models\Order;
+use Beike\Services\StateMachineService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
@@ -45,9 +46,31 @@ class CustomerUpdateOrder extends Mailable implements ShouldQueue
      */
     public function build()
     {
-        $orderLocale = $this->order->locale;
+        $orderLocale = $this->order->locale ?: config('app.locale');
         App::setLocale($orderLocale);
 
-        return $this->view('mails.order_update', ['order' => $this->order, 'from_code' => $this->fromCode]);
+        $subjectKey = match ((string) $this->order->status) {
+            StateMachineService::PAID      => 'mail.subject_order_paid',
+            StateMachineService::SHIPPED   => 'mail.subject_order_shipped',
+            StateMachineService::COMPLETED => 'mail.subject_order_completed',
+            StateMachineService::CANCELLED => 'mail.subject_order_cancelled',
+            StateMachineService::REFUNDING => 'mail.subject_order_refunding',
+            default                        => 'mail.subject_order_updated',
+        };
+        $mailType = match ((string) $this->order->status) {
+            StateMachineService::PAID      => 'order_paid',
+            StateMachineService::SHIPPED   => 'order_shipped',
+            StateMachineService::COMPLETED => 'order_completed',
+            StateMachineService::CANCELLED => 'order_cancelled',
+            StateMachineService::REFUNDING => 'order_refunding',
+            default                        => 'order_update',
+        };
+
+        return $this
+            ->subject(__($subjectKey, ['number' => $this->order->number]))
+            ->view('mails.order_update', ['order' => $this->order, 'from_code' => $this->fromCode])
+            ->withSymfonyMessage(static function ($message) use ($mailType): void {
+                $message->getHeaders()->addTextHeader('X-BK-Mail-Type', $mailType);
+            });
     }
 }

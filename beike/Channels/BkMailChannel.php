@@ -63,13 +63,25 @@ class BkMailChannel extends MailChannel
         try {
             $deliveryId = $this->deliveryIdFromNotification($notifiable, $notification);
             if ($deliveryId !== '') {
-                return MailLog::query()
+                $mailLog = MailLog::query()
                     ->where('delivery_id', $deliveryId)
                     ->where('status', MailLog::STATUS_PENDING)
                     ->first();
+                if ($mailLog) {
+                    return $mailLog;
+                }
             }
 
             $mailData = $this->extractMailDataFromNotification($notifiable, $notification);
+            if ($mailData['delivery_id'] !== '') {
+                $mailLog = MailLog::query()
+                    ->where('delivery_id', $mailData['delivery_id'])
+                    ->where('status', MailLog::STATUS_PENDING)
+                    ->first();
+                if ($mailLog) {
+                    return $mailLog;
+                }
+            }
 
             // 查找最近创建的相同收件人和主题的 pending 记录
             $query = MailLog::where('status', MailLog::STATUS_PENDING)
@@ -189,11 +201,30 @@ class BkMailChannel extends MailChannel
             $message = $notification->toMail($notifiable);
 
             if ($message) {
-                // 获取发件人信息
-                $from               = $message->from     ?? config('mail.from.address');
-                $fromName           = $message->fromName ?? config('mail.from.name');
-                $data['from_email'] = is_array($from) ? $from[0] : $from;
-                $data['from_name']  = is_array($fromName) ? $fromName[0] : $fromName;
+                $recipient = $this->firstMailableRecipient((array) ($message->to ?? []));
+                if ($recipient['address'] !== '') {
+                    $data['to_email'] = $recipient['address'];
+                    $data['to_name']  = $recipient['name'];
+                    if (method_exists($notification, 'mailDeliveryIdForAddress')) {
+                        $actualDeliveryId = $notification->mailDeliveryIdForAddress($recipient['address']);
+                        if (is_string($actualDeliveryId)
+                            && preg_match('/^[a-zA-Z0-9._:-]{1,128}$/', $actualDeliveryId)) {
+                            $data['delivery_id'] = $actualDeliveryId;
+                        }
+                    }
+                }
+
+                // Mailable stores addresses as
+                // [['address' => '...', 'name' => '...']]. Persist only the
+                // scalar values so a delivery failure cannot also break its
+                // own audit record with an array-to-string conversion.
+                $sender             = $this->firstMailableRecipient((array) ($message->from ?? []));
+                $data['from_email'] = $sender['address'] !== ''
+                    ? $sender['address']
+                    : strtolower(trim((string) config('mail.from.address', '')));
+                $data['from_name'] = $sender['name'] !== ''
+                    ? $sender['name']
+                    : trim((string) config('mail.from.name', ''));
 
                 // 获取主题
                 $data['subject'] = $message->subject ?? '';
@@ -211,6 +242,29 @@ class BkMailChannel extends MailChannel
         }
 
         return $data;
+    }
+
+    /** @return array{address: string, name: string} */
+    private function firstMailableRecipient(array $recipients): array
+    {
+        $recipient = reset($recipients);
+        if (is_array($recipient)) {
+            return [
+                'address' => strtolower(trim((string) ($recipient['address'] ?? ''))),
+                'name'    => trim((string) ($recipient['name'] ?? '')),
+            ];
+        }
+        if (is_string($recipient) && filter_var($recipient, FILTER_VALIDATE_EMAIL)) {
+            return ['address' => strtolower($recipient), 'name' => ''];
+        }
+
+        // Associative legacy shape: ['address@example.com' => 'Name'].
+        $address = array_key_first($recipients);
+        if (is_string($address) && filter_var($address, FILTER_VALIDATE_EMAIL)) {
+            return ['address' => strtolower($address), 'name' => trim((string) $recipients[$address])];
+        }
+
+        return ['address' => '', 'name' => ''];
     }
 
     /**

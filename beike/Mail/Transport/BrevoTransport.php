@@ -52,16 +52,6 @@ class BrevoTransport extends AbstractTransport
                 'api-key'      => $this->apiKey,
                 'content-type' => 'application/json',
             ];
-            $deliveryId = $this->header($email, 'X-Longos-Delivery-ID');
-            $from       = $email->getFrom()[0] ?? null;
-            if ($deliveryId !== '' && $from instanceof Address) {
-                // This is an API request header, not an email header inside
-                // the JSON payload. Brevo uses it to suppress a retry whose
-                // original success response was lost.
-                $requestHeaders['idempotencyKey'] = $this->idempotencyKey(
-                    $deliveryId . '|' . strtolower($from->getAddress()),
-                );
-            }
             $response   = $this->client->request('POST', self::ENDPOINT, [
                 'http_errors'     => false,
                 'allow_redirects' => false,
@@ -167,6 +157,15 @@ class BrevoTransport extends AbstractTransport
         if ($custom !== []) {
             $payload['headers']                    = [];
             $payload['headers']['X-Mailin-custom'] = implode('|', $custom);
+        }
+        if ($deliveryId !== '') {
+            // Brevo defines IdempotencyKey as a transactional-message header
+            // inside the JSON payload, not as an HTTP request header. Reuse a
+            // deterministic UUID for queue retries of the same logical mail.
+            $payload['headers'] ??= [];
+            $payload['headers']['IdempotencyKey'] = $this->idempotencyKey(
+                $deliveryId . '|' . strtolower($from->getAddress()),
+            );
         }
         $tags = array_values(array_filter(array_map([$this, 'tag'], [$mailType, $category])));
         if ($tags !== []) {

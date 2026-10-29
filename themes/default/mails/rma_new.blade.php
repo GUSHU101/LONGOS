@@ -1,122 +1,108 @@
 @extends('layout.mail')
 
+@php
+  $primary = site_brand_style()['primary_color'];
+  $orderProduct = $rma->orderProduct ?: \Beike\Repositories\OrderProductRepo::find($rma->order_product_id);
+  $reasonNames = $rma->reason?->name ? json_decode((string) $rma->reason->name, true) : [];
+  $reasonNames = is_array($reasonNames) ? $reasonNames : [];
+  $reason = $reasonNames[app()->getLocale()] ?? $reasonNames['en'] ?? (string) collect($reasonNames)->first();
+  $returnUrl = shop_route('account.rma.show', ['id' => $rma->id]);
+@endphp
+
+@section('title', __('mail.subject_return_received', ['number' => $rma->order?->number]))
+@section('preheader', __('mail.return_preheader', ['product' => $orderProduct?->name ?: $rma->product_name]))
+
 @section('content')
   <tbody>
-    <tr style="font-weight:300">
-      <td style="width:3.2%;max-width:30px;"></td>
-      <td style="max-width:480px;text-align:left;">
-        <h1 style="font-size: 20px; line-height: 36px; margin: 0px 0px 22px;">
-          {{ __('mail.rma_success') }}
+    <tr>
+      <td>
+        <span style="display:inline-block;padding:6px 10px;border-radius:999px;background:#eff8ff;color:#175cd3;font-size:12px;line-height:16px;font-weight:700;letter-spacing:.02em;">
+          {{ __('mail.return_received_badge') }}
+        </span>
+        <h1 style="margin:16px 0 10px;font-size:30px;line-height:38px;letter-spacing:-.02em;color:#172033;">
+          {{ __('mail.return_heading') }}
         </h1>
-        <p style="font-size:14px;color:#333; line-height:24px; margin:0;">
-          {{ __('mail.customer_name', ['name' => $rma->customer_name]) }}！
-        </p>
-        <p style="line-height: 24px; margin: 6px 0px 10px; overflow-wrap: break-word; word-break: break-all;">
-          <span style="color: rgb(51, 51, 51); font-size: 14px;">{{ __('mail.rma_success') }}
-            <span style="font-weight: bold;">{{ __('mail.not_oneself') }}</span>
-          </span>
+        <p style="margin:0 0 22px;font-size:15px;line-height:25px;color:#475467;">
+          {{ __('mail.return_intro', ['name' => $rma->name ?: __('mail.customer_fallback')]) }}
         </p>
 
-        <table style="width:100%;font-weight:300;margin-top:10px; margin-bottom:10px;border-collapse:collapse;border:1px solid #eee;">
-          <thead>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:separate;background:#f8fafc;border:1px solid #e4e7ec;border-radius:12px;">
+          <tr>
+            <td style="padding:16px 18px;">
+              <table role="presentation" class="mail-stack" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:collapse;">
+                <tr>
+                  <td style="width:34%;vertical-align:top;">
+                    <div style="font-size:11px;line-height:16px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#98a2b3;">{{ __('mail.return_reference') }}</div>
+                    <div style="margin-top:4px;font-size:14px;line-height:20px;font-weight:700;color:#172033;">#{{ $rma->id }}</div>
+                  </td>
+                  <td style="width:33%;padding-left:14px;vertical-align:top;">
+                    <div style="font-size:11px;line-height:16px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#98a2b3;">{{ __('mail.return_type') }}</div>
+                    <div style="margin-top:4px;font-size:14px;line-height:20px;font-weight:700;color:#172033;">{{ $rma->type_format }}</div>
+                  </td>
+                  <td style="width:33%;padding-left:14px;vertical-align:top;">
+                    <div style="font-size:11px;line-height:16px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#98a2b3;">{{ __('mail.return_status') }}</div>
+                    <div style="margin-top:4px;font-size:14px;line-height:20px;font-weight:700;color:#172033;">{{ $rma->status_format }}</div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+
+        @if ($orderProduct)
+          <h2 style="margin:26px 0 10px;font-size:16px;line-height:24px;color:#172033;">{{ __('mail.return_item_heading') }}</h2>
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:separate;border:1px solid #e4e7ec;border-radius:12px;">
             <tr>
-              <td style="font-size:13px;padding: 7px 6px;border: 1px solid #eee;background-color: #f8f9fa;">{{ __('shop/account/rma_form.service_type') }}</td>
-              <td style="font-size:13px;padding: 7px 6px;border: 1px solid #eee;background-color: #f8f9fa;">{{ __('shop/account/rma_form.return_quantity') }}</td>
-              <td style="font-size:13px;padding: 7px 6px;border: 1px solid #eee;background-color: #f8f9fa;">{{ __('common.status') }}</td>
-              <td style="font-size:13px;padding: 7px 6px;border: 1px solid #eee;background-color: #f8f9fa;">{{ __('shop/account/rma_form.unpacked') }}</td>
-              <td style="font-size:13px;padding: 7px 6px;border: 1px solid #eee;background-color: #f8f9fa;">{{ __('shop/account/rma.creation_time') }}</td>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td style="padding:7px;font-size:13px;border: 1px solid #eee;">{{ $rma['type_format']}}</td>
-              <td style="padding:7px;font-size:13px;border: 1px solid #eee;">{{ $rma['quantity'] }}</td>
-              <td style="padding:7px;font-size:13px;border: 1px solid #eee;">{{ $rma['status_format'] }}</td>
-              <td style="padding:7px;font-size:13px;border: 1px solid #eee;">
-                @if ($rma['opened'])
-                {{ __('common.yes') }}
-                @else
-                {{ __('common.no') }}
+              <td style="width:82px;padding:14px;vertical-align:middle;">
+                <img class="mail-product-image" src="{{ image_resize($orderProduct->image, 144, 144) }}" width="64" height="64" alt="{{ $orderProduct->name }}" style="display:block;width:64px;height:64px;border:0;border-radius:10px;object-fit:cover;background:#f2f4f7;">
+              </td>
+              <td style="padding:14px 14px 14px 0;vertical-align:middle;">
+                <div style="font-size:14px;line-height:20px;font-weight:700;color:#172033;">{{ $orderProduct->name }}</div>
+                <div style="margin-top:4px;font-size:13px;line-height:19px;color:#667085;">{{ __('mail.return_quantity', ['quantity' => $rma->quantity]) }}</div>
+                @if ($reason !== '')
+                  <div style="margin-top:4px;font-size:13px;line-height:19px;color:#667085;">{{ __('mail.return_reason', ['reason' => $reason]) }}</div>
                 @endif
               </td>
-              <td style="padding:7px;font-size:13px;border: 1px solid #eee;">{{ $rma['created_at'] }}</td>
             </tr>
-          </tbody>
+          </table>
+        @endif
+
+        @if (trim((string) ($rma['comment'] ?? '')) !== '')
+          <h2 style="margin:26px 0 10px;font-size:16px;line-height:24px;color:#172033;">{{ __('mail.return_comment_heading') }}</h2>
+          <div style="padding:14px 16px;border:1px solid #e4e7ec;border-radius:10px;background:#f8fafc;font-size:13px;line-height:21px;color:#475467;">
+            {!! nl2br(e((string) ($rma['comment'] ?? ''))) !!}
+          </div>
+        @endif
+
+        <h2 style="margin:26px 0 10px;font-size:16px;line-height:24px;color:#172033;">{{ __('mail.return_next_heading') }}</h2>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:collapse;">
+          <tr>
+            <td style="width:28px;padding:6px 0;vertical-align:top;"><span style="display:block;width:22px;height:22px;border-radius:999px;background:{{ $primary }};color:#fff;text-align:center;font-size:12px;line-height:22px;font-weight:800;">1</span></td>
+            <td style="padding:6px 0 6px 8px;font-size:13px;line-height:21px;color:#475467;"><strong style="color:#172033;">{{ __('mail.return_step_review') }}</strong><br>{{ __('mail.return_step_review_detail') }}</td>
+          </tr>
+          <tr>
+            <td style="width:28px;padding:6px 0;vertical-align:top;"><span style="display:block;width:22px;height:22px;border-radius:999px;background:#e4e7ec;color:#475467;text-align:center;font-size:12px;line-height:22px;font-weight:800;">2</span></td>
+            <td style="padding:6px 0 6px 8px;font-size:13px;line-height:21px;color:#475467;"><strong style="color:#172033;">{{ __('mail.return_step_instructions') }}</strong><br>{{ __('mail.return_step_instructions_detail') }}</td>
+          </tr>
+          <tr>
+            <td style="width:28px;padding:6px 0;vertical-align:top;"><span style="display:block;width:22px;height:22px;border-radius:999px;background:#e4e7ec;color:#475467;text-align:center;font-size:12px;line-height:22px;font-weight:800;">3</span></td>
+            <td style="padding:6px 0 6px 8px;font-size:13px;line-height:21px;color:#475467;"><strong style="color:#172033;">{{ __('mail.return_step_resolution') }}</strong><br>{{ __('mail.return_step_resolution_detail') }}</td>
+          </tr>
         </table>
 
-        <p style="font-size:14px;color:#333; line-height:24px; margin:0;">
-          {{ __('mail.rma_product') }}
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:collapse;margin-top:26px;">
+          <tr>
+            <td align="center">
+              <a class="mail-button" href="{{ $returnUrl }}" style="display:inline-block;min-width:240px;padding:14px 22px;border-radius:10px;background:{{ $primary }};color:#ffffff;text-align:center;text-decoration:none;font-size:15px;line-height:20px;font-weight:800;">
+                {{ __('mail.view_return_status') }}
+              </a>
+            </td>
+          </tr>
+        </table>
+        <p style="margin:18px 0 0;font-size:12px;line-height:19px;color:#98a2b3;text-align:center;">
+          {{ __('mail.return_account_note') }}
         </p>
-
-        @php
-            $orderProduct = \Beike\Repositories\OrderProductRepo::find($rma['order_product_id']);
-        @endphp
-        <table style="width:100%;font-weight:300;margin-top:10px; margin-bottom:20px;border-collapse:collapse;border:1px solid #eee;">
-          <tbody>
-            <tr>
-              <td style="border: 1px solid #eee;padding:4px; background-color: #f8f9fa;font-size:13px;padding: 7px;width: 100%">
-                <div style="display: flex; align-items: center;">
-                  <div style="width: 70px; height: 70px; flex: 0 0 70px; overflow: hidden;">
-                    <img src="{{ image_resize($orderProduct->image, 200, 200) }}" style="max-width: 100%; height: 100%; object-fit: cover;">
-                  </div>
-                  <div style="margin-left: 10px;">
-                    <div style="margin-bottom: 10px; font-size: 12px;">{{ $orderProduct->name }}</div>
-                    <div>{{ $orderProduct->price }} x {{ $orderProduct->quantity }}</div>
-                  </div>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-
-        <table style="width:100%;font-weight:300;margin-top:10px; margin-bottom:10px;border-collapse:collapse;border:1px solid #eee;">
-          <tbody>
-            <tr>
-              <td style="border: 1px solid #eee;padding:4px; background-color: #f8f9fa;font-size:13px;padding: 7px;width: 30%">{{ __('shop/account/rma_form.return_reason') }}</td>
-              <td style="border: 1px solid #eee;padding:4px;font-size:13px;padding: 7px">
-                @php
-                  if ($rma['reason']) {
-                      $reason = json_decode($rma['reason']['name'], true)[locale()] ?? '';
-                  } else {
-                      $reason = '';
-                  }
-                @endphp
-                {{ $reason }}
-              </td>
-            </tr>
-            <tr>
-              <td style="border: 1px solid #eee;padding:4px; background-color: #f8f9fa;font-size:13px;padding: 7px;width: 30%">{{ __('common.image') }}</td>
-              <td style="border: 1px solid #eee;padding:4px;font-size:13px;padding: 7px">
-                @if ($rma['images'] && count($rma['images']) > 0)
-                <div style="display: flex; flex-wrap: wrap; align-items: center;">
-                  @foreach ($rma['images'] as $image)
-                    <a style="display: block; width: 60px; height: 60px; margin-right: 2px; margin-bottom: 2px; border: 1px solid #eee; border-radius: 4px; position: relative; display: flex; align-items: center; justify-content: center;" target="_blank" rel="noopener noreferrer" href="{{ image_origin($image) }}" data-toggle="tooltip" title="{{ __('common.quick_view') }}"><img src="{{ image_resize($image, 200, 200) }}" style="width: 100%; max-height: 100%;" alt="{{ __('common.image') }}"></a>
-                  @endforeach
-                </div>
-              @else
-                <div>{{ __('admin/builder.text_no') }}</div>
-              @endif
-              </td>
-            </tr>
-            <tr>
-              <td style="border: 1px solid #eee;padding:4px; background-color: #f8f9fa;font-size:13px;padding: 7px;width: 30%">{{ __('shop/account/rma_form.remark') }}</td>
-              <td style="border: 1px solid #eee;padding:4px;font-size:13px;padding: 7px">{!! nl2br(e((string) ($rma['comment'] ?? ''))) !!}</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <dl style="font-size: 14px; color: rgb(51, 51, 51); line-height: 18px;">
-          <dd style="margin: 0px 0px 6px; padding: 0px; font-size: 12px; line-height: 22px;">
-            <p style="font-size: 14px; line-height: 26px; word-wrap: break-word; word-break: break-all; margin-top: 32px;">
-              {{ __('mail.sincerely') }}
-              <br>
-              <strong>{{ site_brand_name() }} {{ __('mail.team') }}</strong>
-            </p>
-          </dd>
-        </dl>
-
       </td>
-      <td style="width:3.2%;max-width:30px;"></td>
     </tr>
   </tbody>
 @endsection

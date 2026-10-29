@@ -17,6 +17,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\App;
 
 class CustomerNewRma extends Mailable implements ShouldQueue
 {
@@ -41,6 +42,13 @@ class CustomerNewRma extends Mailable implements ShouldQueue
      */
     public function build()
     {
-        return $this->view('mails.rma_new', ['rma' => $this->rma]);
+        App::setLocale($this->rma->order?->locale ?: config('app.locale'));
+
+        return $this
+            ->subject(__('mail.subject_return_received', ['number' => $this->rma->order?->number]))
+            ->view('mails.rma_new', ['rma' => $this->rma])
+            ->withSymfonyMessage(static function ($message): void {
+                $message->getHeaders()->addTextHeader('X-BK-Mail-Type', 'rma_new');
+            });
     }
 }

@@ -17,6 +17,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\App;
 
 class CustomerRegistration extends Mailable implements ShouldQueue
 {
@@ -41,6 +42,13 @@ class CustomerRegistration extends Mailable implements ShouldQueue
      */
     public function build()
     {
-        return $this->view('mails.registration', ['customer' => $this->customer]);
+        App::setLocale($this->customer->locale ?: config('app.locale'));
+
+        return $this
+            ->subject(__('mail.subject_registration', ['store' => site_brand_name()]))
+            ->view('mails.registration', ['customer' => $this->customer])
+            ->withSymfonyMessage(static function ($message): void {
+                $message->getHeaders()->addTextHeader('X-BK-Mail-Type', 'customer_registration');
+            });
     }
 }

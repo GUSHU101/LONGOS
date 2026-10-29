@@ -1,95 +1,88 @@
 @extends('layout.mail')
 
+@php
+  $primary = site_brand_style()['primary_color'];
+  $paymentUrl = order_payment_url($order, true);
+  $orderUrl = order_access_url($order);
+  $itemCount = $order->orderProducts->sum('quantity');
+@endphp
+
+@section('title', __('mail.subject_payment_pending', ['number' => $order->number]))
+@section('preheader', __('mail.payment_pending_preheader', ['number' => $order->number, 'total' => $order->total_format]))
+
 @section('content')
   <tbody>
-    <tr style="font-weight:300">
-      <td style="width:3.2%;max-width:30px;"></td>
-      <td style="max-width:480px;text-align:left;">
-        <h1 style="font-size: 20px; line-height: 36px; margin: 0px 0px 22px;">
-          {{ __('mail.order_success') }}
+    <tr>
+      <td>
+        <span style="display:inline-block;padding:6px 10px;border-radius:999px;background:#fff7ed;color:#c2410c;font-size:12px;line-height:16px;font-weight:700;letter-spacing:.02em;">
+          {{ __('mail.payment_pending_badge') }}
+        </span>
+        <h1 style="margin:16px 0 10px;font-size:30px;line-height:38px;letter-spacing:-.02em;color:#172033;">
+          {{ __('mail.payment_pending_heading') }}
         </h1>
-        <p style="font-size:14px;color:#333; line-height:24px; margin:0;">
-          {{ __('mail.customer_name', ['name' => $order->customer_name]) }}！
+        <p style="margin:0 0 22px;font-size:15px;line-height:25px;color:#475467;">
+          {{ __('mail.payment_pending_intro', ['name' => $order->customer_name ?: __('mail.customer_fallback')]) }}
         </p>
-        <p style="line-height: 24px; margin: 6px 0px 0px; overflow-wrap: break-word; word-break: break-all;">
-          <span style="color: rgb(51, 51, 51); font-size: 14px;">{{ __('mail.order_success') }}
-            <span style="font-weight: bold;">{{ __('mail.not_oneself') }}</span>
-          </span>
-        </p>
-        <p style="font-size: 13px;font-weight:bold;margin-bottom:6px;color: #333;">{{ __('shop/account/order_info.order_details') }}：</p>
-        <table style="width:100%;font-weight:300;margin-top:10px; margin-bottom:10px;border-collapse:collapse;">
-          <thead>
+
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:separate;background:#f8fafc;border:1px solid #e4e7ec;border-radius:12px;">
+          <tr>
+            <td style="padding:18px 20px;">
+              <table role="presentation" class="mail-stack" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:collapse;">
+                <tr>
+                  <td style="width:50%;vertical-align:top;">
+                    <div style="font-size:11px;line-height:16px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#98a2b3;">{{ __('mail.order_number_label') }}</div>
+                    <div style="margin-top:4px;font-size:15px;line-height:22px;font-weight:700;color:#172033;">#{{ $order->number }}</div>
+                  </td>
+                  <td style="width:50%;padding-left:18px;vertical-align:top;">
+                    <div style="font-size:11px;line-height:16px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#98a2b3;">{{ __('mail.order_total_label') }}</div>
+                    <div style="margin-top:4px;font-size:18px;line-height:22px;font-weight:800;color:#172033;">{{ $order->total_format }}</div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+
+        <h2 style="margin:26px 0 12px;font-size:16px;line-height:24px;color:#172033;">
+          {{ trans_choice('mail.items_reserved', $itemCount, ['count' => $itemCount]) }}
+        </h2>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:collapse;">
+          @foreach ($order->orderProducts->take(3) as $product)
             <tr>
-              <td style="font-size:13px;padding: 7px 6px;background-color: #f8f9fa;border: 1px solid #eee;">{{ __('shop/account/order_info.order_number') }}</td>
-              <td style="font-size:13px;padding: 7px 6px;background-color: #f8f9fa;border: 1px solid #eee;">{{ __('shop/account/order_info.order_date') }}</td>
-              <td style="font-size:13px;padding: 7px 6px;background-color: #f8f9fa;border: 1px solid #eee;">{{ __('shop/account/order_info.state') }}</td>
-              <td style="font-size:13px;padding: 7px 6px;background-color: #f8f9fa;border: 1px solid #eee;">{{ __('shop/account/order_info.order_amount') }}</td>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td style="padding:7px;font-size:13px;border: 1px solid #eee;">{{ $order->number }}</td>
-              <td style="padding:7px;font-size:13px;border: 1px solid #eee;">{{ $order->created_at }}</td>
-              <td style="padding:7px;font-size:13px;border: 1px solid #eee;">
-                {{ $order->status_format }}
+              <td style="width:72px;padding:10px 0;border-top:1px solid #edf0f4;vertical-align:middle;">
+                <img class="mail-product-image" src="{{ image_resize($product->image, 144, 144) }}" width="64" height="64" alt="{{ $product->name }}" style="display:block;width:64px;height:64px;border:0;border-radius:10px;object-fit:cover;background:#f2f4f7;">
               </td>
-              <td style="padding:7px;font-size:13px;border: 1px solid #eee;">{{ currency_format($order->total, $order->currency_code, $order->currency_value) }}</td>
+              <td style="padding:10px 12px;border-top:1px solid #edf0f4;vertical-align:middle;">
+                <div style="font-size:14px;line-height:20px;font-weight:700;color:#172033;">{{ $product->name }}</div>
+                <div style="margin-top:4px;font-size:13px;line-height:18px;color:#667085;">{{ __('mail.quantity_price', ['quantity' => $product->quantity, 'price' => currency_format($product->price, $order->currency_code, $order->currency_value)]) }}</div>
+              </td>
             </tr>
-          </tbody>
+          @endforeach
+        </table>
+        @if ($order->orderProducts->count() > 3)
+          <p style="margin:8px 0 0;font-size:12px;line-height:18px;color:#667085;">
+            {{ __('mail.more_items', ['count' => $order->orderProducts->count() - 3]) }}
+          </p>
+        @endif
+
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:collapse;margin-top:26px;">
+          <tr>
+            <td align="center">
+              <a class="mail-button" href="{{ $paymentUrl }}" style="display:inline-block;min-width:240px;padding:14px 22px;border-radius:10px;background:{{ $primary }};color:#ffffff;text-align:center;text-decoration:none;font-size:15px;line-height:20px;font-weight:800;">
+                {{ __('mail.complete_payment') }}
+              </a>
+            </td>
+          </tr>
         </table>
 
-        <p style="font-size: 13px;font-weight:bold;margin-bottom:6px;color: #333;">{{ __('shop/account/order_info.order_items') }}：</p>
-        <table style="width:100%;font-weight:300;margin-top:10px; margin-bottom:10px;border-collapse:collapse; ">
-          <thead>
-            <tr>
-              <td style="font-size:13px;border: 1px solid #eee; background-color: #f8f9fa;padding: 7px 4px;width: 80px;text-align:center">{{ __('product.image') }}</td>
-              <td style="font-size:13px;border: 1px solid #eee; background-color: #f8f9fa;padding: 7px 4px">{{ __('product.name') }}</td>
-              <td style="font-size:13px;border: 1px solid #eee; background-color: #f8f9fa;padding: 7px 4px">{{ __('order.product_quantity') }}</td>
-              <td style="font-size:13px;border: 1px solid #eee; background-color: #f8f9fa;padding: 7px 4px">{{ __('product.price') }}</td>
-            </tr>
-          </thead>
-          <tbody>
-            @foreach ($order->orderProducts as $product)
-            <tr>
-              <td style="border: 1px solid #eee;padding:4px;text-align:center"><img style="width: 60px; height: 60px;" src="{{ image_origin($product->image) }}"></td>
-              <td style="font-size:12px; border: 1px solid #eee; width: 50%;padding:4px;">{{ $product->name }}</td>
-              <td style="border: 1px solid #eee;padding:4px;font-size: 13px;">{{ $product->quantity }}</td>
-              <td style="border: 1px solid #eee;padding:4px;font-size: 13px;">{{ currency_format($product->price, $order->currency_code, $order->currency_value) }}</td>
-            </tr>
-            @endforeach
-          </tbody>
-        </table>
-
-        <p style="font-size: 13px;font-weight:bold;margin-bottom:6px;color: #333;">{{ __('shop/account/order_info.order_total') }}：</p>
-        <table style="width:100%;font-weight:300;margin-top:10px; margin-bottom:10px;border-collapse:collapse;border:1px solid #eee;">
-          <tbody>
-            @foreach ($order->orderTotals as $total)
-              <tr>
-                <td style="border: 1px solid #eee;padding:4px; background-color: #f8f9fa;font-size:13px;padding: 7px;width: 30%">{{ $total->title }}</td>
-                <td style="border: 1px solid #eee;padding:4px;font-size:13px;padding: 7px"><strong>{{ currency_format($total->value, $order->currency_code, $order->currency_value) }}</strong></td>
-              </tr>
-            @endforeach
-          </tbody>
-        </table>
-
-        <p style="font-size: 14px; color: rgb(51, 51, 51); line-height: 24px; margin: 6px 0px 0px; word-wrap: break-word; word-break: break-all;">
-          <a href="{{ order_access_url($order) }}" title="" style="font-size: 16px; line-height: 45px; display: block; background-color: #fd560f; color: rgb(255, 255, 255); text-align: center; text-decoration: none; margin-top: 20px; border-radius: 3px;">
-            {{ __('shop/account/order_success.view_order') }}
-          </a>
+        <p style="margin:18px 0 0;font-size:13px;line-height:21px;color:#667085;text-align:center;">
+          {{ __('mail.payment_link_note') }}
+          <a href="{{ $orderUrl }}" style="color:{{ $primary }};text-decoration:underline;">{{ __('mail.view_saved_order') }}</a>
         </p>
-
-        <dl style="font-size: 14px; color: rgb(51, 51, 51); line-height: 18px;">
-          <dd style="margin: 0px 0px 6px; padding: 0px; font-size: 12px; line-height: 22px;">
-            <p style="font-size: 14px; line-height: 26px; word-wrap: break-word; word-break: break-all; margin-top: 32px;">
-              {{ __('mail.sincerely') }}
-              <br>
-              <strong>{{ site_brand_name() }} {{ __('mail.team') }}</strong>
-            </p>
-          </dd>
-        </dl>
-
+        <p style="margin:24px 0 0;padding-top:20px;border-top:1px solid #edf0f4;font-size:12px;line-height:19px;color:#98a2b3;">
+          {{ __('mail.payment_pending_security') }}
+        </p>
       </td>
-      <td style="width:3.2%;max-width:30px;"></td>
     </tr>
   </tbody>
 @endsection

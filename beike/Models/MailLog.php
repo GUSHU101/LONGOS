@@ -110,15 +110,21 @@ class MailLog extends Model
     public function getMailTypeTextAttribute(): string
     {
         return match ($this->mail_type) {
-            'customer_registration'    => __('admin/mail_log.type_customer_registration'),
-            'customer_forgotten'       => __('admin/mail_log.type_customer_forgotten'),
-            'order_new'                => __('admin/mail_log.type_order_new'),
-            'order_update'             => __('admin/mail_log.type_order_update'),
-            'rma_new'                  => __('admin/mail_log.type_rma_new'),
-            'admin_forgotten'          => __('admin/mail_log.type_admin_forgotten'),
-            'system_test'              => __('admin/mail_log.type_system_test'),
-            'abandoned_order_recovery' => __('admin/mail_log.type_abandoned_order_recovery'),
-            default                    => $this->mail_type ?: __('admin/mail_log.unknown_type')
+            'customer_registration'     => __('admin/mail_log.type_customer_registration'),
+            'customer_forgotten'        => __('admin/mail_log.type_customer_forgotten'),
+            'payment_pending'           => __('admin/mail_log.type_payment_pending'),
+            'order_paid'                => __('admin/mail_log.type_order_paid'),
+            'order_shipped'             => __('admin/mail_log.type_order_shipped'),
+            'order_completed'           => __('admin/mail_log.type_order_completed'),
+            'order_cancelled'           => __('admin/mail_log.type_order_cancelled'),
+            'order_refunding'           => __('admin/mail_log.type_order_refunding'),
+            'order_new'                 => __('admin/mail_log.type_order_new'),
+            'order_update'              => __('admin/mail_log.type_order_update'),
+            'rma_new'                   => __('admin/mail_log.type_rma_new'),
+            'admin_forgotten'           => __('admin/mail_log.type_admin_forgotten'),
+            'system_test'               => __('admin/mail_log.type_system_test'),
+            'abandoned_order_recovery'  => __('admin/mail_log.type_abandoned_order_recovery'),
+            default                     => $this->mail_type ?: __('admin/mail_log.unknown_type')
         };
     }
 
@@ -226,14 +232,20 @@ class MailLog extends Model
     public static function getMailTypeOptions(): array
     {
         return [
-            'customer_registration'    => __('admin/mail_log.type_customer_registration'),
-            'customer_forgotten'       => __('admin/mail_log.type_customer_forgotten'),
-            'order_new'                => __('admin/mail_log.type_order_new'),
-            'order_update'             => __('admin/mail_log.type_order_update'),
-            'rma_new'                  => __('admin/mail_log.type_rma_new'),
-            'admin_forgotten'          => __('admin/mail_log.type_admin_forgotten'),
-            'system_test'              => __('admin/mail_log.type_system_test'),
-            'abandoned_order_recovery' => __('admin/mail_log.type_abandoned_order_recovery'),
+            'customer_registration'     => __('admin/mail_log.type_customer_registration'),
+            'customer_forgotten'        => __('admin/mail_log.type_customer_forgotten'),
+            'payment_pending'           => __('admin/mail_log.type_payment_pending'),
+            'order_paid'                => __('admin/mail_log.type_order_paid'),
+            'order_shipped'             => __('admin/mail_log.type_order_shipped'),
+            'order_completed'           => __('admin/mail_log.type_order_completed'),
+            'order_cancelled'           => __('admin/mail_log.type_order_cancelled'),
+            'order_refunding'           => __('admin/mail_log.type_order_refunding'),
+            'order_new'                 => __('admin/mail_log.type_order_new'),
+            'order_update'              => __('admin/mail_log.type_order_update'),
+            'rma_new'                   => __('admin/mail_log.type_rma_new'),
+            'admin_forgotten'           => __('admin/mail_log.type_admin_forgotten'),
+            'system_test'               => __('admin/mail_log.type_system_test'),
+            'abandoned_order_recovery'  => __('admin/mail_log.type_abandoned_order_recovery'),
         ];
     }
 

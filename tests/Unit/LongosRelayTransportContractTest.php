@@ -193,6 +193,8 @@ class LongosRelayTransportContractTest extends TestCase
         self::assertStringContainsString('public array $backoff = [30, 120, 300, 900];', $trait);
         self::assertStringContainsString('$mailDeliveryId', $trait);
         self::assertStringContainsString('hash(\'sha256\', implode(\',\', $recipients))', $trait);
+        self::assertStringContainsString('$this->firstMailableRecipient((array) ($message->from ?? []))', $channel);
+        self::assertStringContainsString("config('mail.from.address', '')", $channel);
     }
 
     public function test_delivery_id_survives_queue_serialization(): void
@@ -203,6 +205,20 @@ class LongosRelayTransportContractTest extends TestCase
 
         self::assertNotEmpty($deliveryId);
         self::assertSame($deliveryId, $restored->deliveryId());
+    }
+
+    public function test_delivery_id_can_follow_the_mailable_actual_recipient(): void
+    {
+        $notification = new MailDeliveryIdProbe;
+
+        $customerId = $notification->mailDeliveryIdForAddress('customer@example.com');
+        $operatorId = $notification->mailDeliveryIdForAddress('operator@example.com');
+
+        self::assertNotNull($customerId);
+        self::assertNotNull($operatorId);
+        self::assertNotSame($customerId, $operatorId);
+        self::assertSame($operatorId, $notification->mailDeliveryIdForAddress(' OPERATOR@example.com '));
+        self::assertNull($notification->mailDeliveryIdForAddress('not-an-email'));
     }
 
     private function mailRelayServiceBlock(string $compose): string

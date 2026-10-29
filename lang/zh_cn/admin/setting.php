@@ -156,6 +156,8 @@ return [
     'mail_test_info'                               => '请先保存配置。测试邮件会绕过队列立即发送，结果会记录在邮件日志中。',
     'mail_test_card_help'                          => '向指定邮箱发送一封真实测试邮件。',
     'mail_test_delivery_help'                      => '“服务商已接收”不等于“收件箱已收到”，最终结果请到邮件日志查看 Brevo 投递回执。',
+    'mail_test_current_status'                     => '当前记录状态',
+    'mail_test_view_log'                           => '查看投递详情',
     'mail_test_configure_first'                    => '请先保存并启用邮件引擎。',
     'mail_test_rate_limited'                       => '测试发送过于频繁，请一分钟后再试。',
     'mail_test_invalid_from'                       => '发件邮箱无效，请先保存有效的发件邮箱。',

@@ -21,4 +21,9 @@ return [
     'rebuild_notice'        => '恢复操作会取消原未支付订单、释放其预留库存，并在结账页重新建立仍有库存的商品。',
     'suppressed'            => '已关闭此订单后续的召回提醒。',
     'email_security_note'   => '此私密链接会自动过期；您也可以在安全页面中关闭此订单后续的召回提醒。',
+    'email_preheader'       => '订单 #:number 仍为您保留，金额 :total；可恢复有库存的商品并安全完成结账。',
+    'saved_order_badge'     => '已为您保存',
+    'items'                 => '商品数量',
+    'saved_items'           => '订单中的商品',
+    'stock_notice'          => '库存可能发生变化，安全恢复页面只会恢复当前仍有库存的商品。',
 ];

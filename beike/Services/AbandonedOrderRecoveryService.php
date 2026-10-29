@@ -44,11 +44,11 @@ class AbandonedOrderRecoveryService
             'cooldown_hours'   => 48,
             'max_attempts'     => 3,
             'link_days'        => 14,
-            'subject'          => '{store_name}: complete order {order_number}',
-            'heading'          => 'Your order is waiting for you',
-            'message'          => "Hello {customer_name},\n\nWe saved the items from order {order_number}. You can restore them to your cart and finish checkout securely.",
-            'button_label'     => 'Restore my order',
-            'discount_message' => 'Use discount code {discount_code} when you return to checkout.',
+            'subject'          => '{store_name}: your saved order {order_number}',
+            'heading'          => 'Your order is still saved',
+            'message'          => "Hi {customer_name},\n\nYou left before completing payment. We kept the available items from order {order_number} together so you can return without starting over.",
+            'button_label'     => 'Return to secure checkout',
+            'discount_message' => 'A recovery offer is ready for you. Use code {discount_code} at checkout.',
         ];
     }
 
