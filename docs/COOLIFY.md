@@ -135,7 +135,7 @@ Coolify 解析 Compose 后会自动生成 `SERVICE_*` 凭据。只需手动填�
 
 下述 Postfix/OpenDKIM 为需要自建出口的高级兼容方案。
 
-Compose 自动启动 Postfix/OpenDKIM 和内部 HMAC API，不开放公共 SMTP 端口。LONGOS、队列和 Cloud Mail 通过私有网络调用它。HMAC API 以非 root 账号运行，不能读取 DKIM 私钥；DKIM 私钥只保存在中继容器专用卷，网站容器也只读挂载可公开的 TXT 值。
+默认 Compose 不构建也不启动 Postfix/OpenDKIM。只有在 Coolify 显式设置 `COMPOSE_PROFILES=self-hosted-mail` 和 `LONGOS_MAIL_RELAY_ENABLED=true` 后，才会启动内部 HMAC API，且仍不开放公共 SMTP 端口。LONGOS、队列和 Cloud Mail 通过私有网络调用它。HMAC API 以非 root 账号运行，不能读取 DKIM 私钥；DKIM 私钥只保存在中继容器专用卷，网站容器也只读挂载可公开的 TXT 值。
 
 部署后在 LONGOS 邮件设置点击“立即检测”，可直接查看和复制各发件域的 DKIM、SPF、DMARC 及明确配置的邮件主机 A/AAAA。PTR/rDNS 由两个独立公共 DoH 解析器交叉验收并显示 DNS RCODE，因此服务商反向区域的 `SERVFAIL/REFUSED` 不会再被误写成普通“无 PTR”；解析结果不做持久缓存。有持久 Cloudflare Token 时，容器启动后会尝试立即同步，调度器每 5 分钟幂等重试；否则 Cloud Mail 工作流从受保护端点读取只含公开值的 DNS 清单，并由 GitHub Runner 直接写入 Cloudflare。Cloudflare Token 不会发送到 LONGOS。自动化只更新 LONGOS selector 的 DKIM，保留现有 DMARC 策略，并把所有 SPF 发信机制安全合并为唯一一条。
 
@@ -199,7 +199,7 @@ Coolify 会分别生成 build-time 和 runtime 环境文件。当管理员邮箱
 
 ### 构建阶段报 `frontend grpc server closed unexpectedly`
 
-这不是 Dockerfile 第 1 行的语法错误，而是 BuildKit 前端进程在构建期间意外退出。旧版 Compose 把同一份应用 `build` 继承给 app、worker 和 scheduler，Compose v2 会并行执行三个完整的 PHP/Composer/Node 构建，可能触发内存压力或 BuildKit 前端异常。新版只由 app 构建一次资源专属的 `longos-runtime` 镜像，worker 与 scheduler 直接复用；更新到包含该修复的最新 `main` 后 Redeploy。若日志中已经只剩 app 和 mail-relay 两个 `Building` 项仍出现同样错误，再检查服务器可用内存、磁盘空间与 Docker daemon 日志并重启 Docker/BuildKit；无需删除 LONGOS 数据卷。
+这不是 Dockerfile 第 1 行的语法错误，而是 BuildKit 前端进程在构建期间意外退出。旧版 Compose 把同一份应用 `build` 继承给 app、worker 和 scheduler，Compose v2 会并行执行三个完整的 PHP/Composer/Node 构建，可能触发内存压力或 BuildKit 前端异常。新版只由 app 构建一次资源专属的 `longos-runtime` 镜像，worker 与 scheduler 直接复用；更新到包含该修复的最新 `main` 后 Redeploy。默认日志中只应出现 app 这一个仓库构建项；只有显式启用 `self-hosted-mail` profile 才会额外构建 mail-relay。若仍出现同样错误，再检查服务器可用内存、磁盘空间与 Docker daemon 日志并重启 Docker/BuildKit；无需删除 LONGOS 数据卷。
 
 ### 启动阶段报 `docker/mail-relay not found`
 

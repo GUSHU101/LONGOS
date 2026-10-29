@@ -20,9 +20,11 @@ LONGOS app / worker -> HTTPS 443 -> Brevo -> 收件方
 
 Brevo 模式下，不再使用 `MAIL_RELAY_ENDPOINT`、`MAIL_PUBLIC_IPS`、`MAIL_HOSTNAME`、PTR/rDNS 或第二台服务器的 Tunnel。请不要删除 Brevo 要求的 DNS 记录，也不要继续把自建 Postfix 的 DKIM/SPF 值当作 Brevo 值；以 Brevo 域验证页面为准。
 
+生产 Compose 已将 Postfix/OpenDKIM 收入可选的 `self-hosted-mail` profile。普通 Coolify 部署不会构建或启动该容器，也不会再因邮件容器异常影响 LONGOS 网站状态。只有明确继续使用自建 SMTP 的旧部署，才同时设置 `COMPOSE_PROFILES=self-hosted-mail` 和 `LONGOS_MAIL_RELAY_ENABLED=true`。
+
 ## 高级架构：内置 Postfix/OpenDKIM
 
-LONGOS 的 Coolify Compose 会把 Postfix、OpenDKIM 和 Cloud Mail HTTPS 中继作为网站栈的一部分自动部署。无需另外克隆项目，也无需在服务器上再次执行 `docker compose`。
+LONGOS 保留 Postfix、OpenDKIM 和 Cloud Mail HTTPS 中继的兼容能力，但只在启用 `self-hosted-mail` profile 时部署。无需另外克隆项目，也无需在服务器上再次执行 `docker compose`。
 
 该能力使用项目唯一支持的 Coolify 部署模式；邮件容器不公开 SMTP 入口，只通过私有 `longos` 网络接受 HMAC 请求。
 
@@ -30,7 +32,7 @@ LONGOS 的 Coolify Compose 会把 Postfix、OpenDKIM 和 Cloud Mail HTTPS 中继
 
 ## 自动部署行为
 
-点击 Coolify Deploy 后，Compose 会自动：
+仅在启用 `self-hosted-mail` profile 后，点击 Coolify Deploy，Compose 才会：
 
 1. 通过 Coolify `SERVICE_PASSWORD_64_*` 生成两条独立中继共享密钥；
 2. 构建并启动 `mail-relay` 容器；

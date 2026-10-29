@@ -45,12 +45,60 @@ class BrevoTransportTest extends TestCase
         self::assertSame('orders@example.com', $payload['sender']['email']);
         self::assertSame('customer@example.net', $payload['to'][0]['email']);
         self::assertSame('<p>Order confirmed</p>', $payload['htmlContent']);
-        self::assertSame('Order confirmed', $payload['textContent']);
+        self::assertArrayNotHasKey('textContent', $payload);
         self::assertSame('delivery_id:order:123|mail_type:order_new', $payload['headers']['X-Mailin-custom']);
-        self::assertMatchesRegularExpression('/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/', $payload['headers']['IdempotencyKey']);
+        self::assertArrayNotHasKey('IdempotencyKey', $payload['headers']);
+        self::assertMatchesRegularExpression('/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/', $request->getHeaderLine('idempotencyKey'));
         self::assertSame(['order_new'], $payload['tags']);
         self::assertSame('brevo-message-id', $sentMessage?->getOriginalMessage()->getHeaders()->get('X-Longos-Brevo-Message-ID')?->getBodyAsString());
         fclose($html);
+    }
+
+    public function test_it_uses_plain_text_when_html_is_not_available(): void
+    {
+        $history = [];
+        $stack   = HandlerStack::create(new MockHandler([
+            new Response(201, ['content-type' => 'application/json'], json_encode(['messageId' => '<plain-message-id>'])),
+        ]));
+        $stack->push(Middleware::history($history));
+        $transport = new BrevoTransport('api-key', 15, new Client(['handler' => $stack]));
+        $email     = (new Email)
+            ->from('orders@example.com')
+            ->to('customer@example.net')
+            ->subject('Plain message')
+            ->text('Plain message body');
+
+        $transport->send($email);
+
+        $payload = json_decode((string) $history[0]['request']->getBody(), true, flags: JSON_THROW_ON_ERROR);
+        self::assertSame('Plain message body', $payload['textContent']);
+        self::assertArrayNotHasKey('htmlContent', $payload);
+    }
+
+    public function test_it_reads_stream_attachments_without_serializing_the_resource_identifier(): void
+    {
+        $history = [];
+        $stack   = HandlerStack::create(new MockHandler([
+            new Response(201, ['content-type' => 'application/json'], json_encode(['messageId' => '<attachment-message-id>'])),
+        ]));
+        $stack->push(Middleware::history($history));
+        $transport  = new BrevoTransport('api-key', 15, new Client(['handler' => $stack]));
+        $attachment = fopen('php://memory', 'r+');
+        fwrite($attachment, 'invoice-content');
+        rewind($attachment);
+        $email = (new Email)
+            ->from('orders@example.com')
+            ->to('customer@example.net')
+            ->subject('Invoice')
+            ->text('Your invoice')
+            ->attach($attachment, 'invoice.txt', 'text/plain');
+
+        $transport->send($email);
+
+        $payload = json_decode((string) $history[0]['request']->getBody(), true, flags: JSON_THROW_ON_ERROR);
+        self::assertSame(base64_encode('invoice-content'), $payload['attachment'][0]['content']);
+        self::assertSame('invoice.txt', $payload['attachment'][0]['name']);
+        fclose($attachment);
     }
 
     public function test_it_surfaces_a_sanitized_provider_error(): void

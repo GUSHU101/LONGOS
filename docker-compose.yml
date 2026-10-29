@@ -64,11 +64,14 @@ x-app-environment: &app-environment
   # Optional DNS automation. Keep the token in Coolify's secret environment
   # store; never commit it to .env or the repository.
   CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
-  LONGOS_AUTO_CONFIGURE_MAIL_DNS: ${LONGOS_AUTO_CONFIGURE_MAIL_DNS:-true}
-  LONGOS_MAIL_RELAY_ENABLED: "true"
-  MAIL_MAILER: self_hosted
-  # Default to the bundled relay. To keep LONGOS + Cloud Mail on this server
-  # while using a second VPS as the SMTP egress/PTR owner, set an HTTPS URL.
+  LONGOS_AUTO_CONFIGURE_MAIL_DNS: ${LONGOS_AUTO_CONFIGURE_MAIL_DNS:-false}
+  # Brevo is configured per tenant in the LONGOS control panel. Keep the
+  # deployment fallback non-delivering until an administrator saves a real
+  # provider, and do not start Postfix/OpenDKIM on ordinary installations.
+  LONGOS_MAIL_RELAY_ENABLED: ${LONGOS_MAIL_RELAY_ENABLED:-false}
+  MAIL_MAILER: ${MAIL_MAILER:-log}
+  # Compatibility-only relay settings. To deliberately run the bundled SMTP
+  # engine, enable COMPOSE_PROFILES=self-hosted-mail and the relay flag.
   MAIL_RELAY_ENDPOINT: ${MAIL_RELAY_ENDPOINT:-http://mail-relay:3000}
   MAIL_RELAY_RUNTIME_SETTINGS_PATH: ${MAIL_RELAY_RUNTIME_SETTINGS_PATH:-/var/www/html/storage/app/longos/mail-relay-runtime.json}
   MAIL_RELAY_HOSTNAME: ${MAIL_RELAY_HOSTNAME:-mailout.${SAAS_BASE_DOMAIN}}
@@ -253,6 +256,7 @@ services:
   # Outbound-only Postfix/OpenDKIM engine. Port 25 is never published; only
   # the replay-protected HMAC API is reachable from the private stack network.
   mail-relay:
+    profiles: ["self-hosted-mail"]
     build:
       # Keep every repository-built service on the repository root context.
       # Coolify builds from its temporary Git artifact, then starts the Raw

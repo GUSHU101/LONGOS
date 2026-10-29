@@ -3,6 +3,7 @@
 namespace App\Mail;
 
 use GuzzleHttp\Client;
+use GuzzleHttp\ClientInterface;
 use RuntimeException;
 
 class BrevoWebhookManager
@@ -18,10 +19,12 @@ class BrevoWebhookManager
         'blocked',
         'invalid',
         'spam',
-        'error',
     ];
 
-    public function __construct(private readonly BrevoSettings $settings) {}
+    public function __construct(
+        private readonly BrevoSettings $settings,
+        private readonly ?ClientInterface $client = null,
+    ) {}
 
     /** @return array{id:int,created:bool,url:string} */
     public function sync(string $url): array
@@ -35,7 +38,7 @@ class BrevoWebhookManager
             throw new RuntimeException('请先保存 Brevo API Key。');
         }
 
-        $client = new Client([
+        $client = $this->client ?? new Client([
             'base_uri'        => self::API_BASE,
             'connect_timeout' => 8,
             'timeout'         => $runtime['timeout'],

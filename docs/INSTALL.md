@@ -21,7 +21,7 @@ LONGOS app (Nginx + PHP-FPM :80)
         ├─ MySQL 8.4
         ├─ queue worker
         ├─ scheduler
-        └─ Postfix/OpenDKIM mail relay
+        └─ Optional Postfix/OpenDKIM profile (disabled by default)
 ```
 
 首次部署只需在 Coolify 设置三个业务值：`DOMAIN`、`SAAS_BASE_DOMAIN`、`ADMIN_EMAIL`。应用密钥、数据库密码、管理员初始密码、Caddy 代理令牌和邮件 HMAC 密钥由 Coolify 生成并在后续部署中保持不变。

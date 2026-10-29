@@ -47,15 +47,26 @@ class BrevoTransport extends AbstractTransport
         }
 
         try {
+            $requestHeaders = [
+                'accept'       => 'application/json',
+                'api-key'      => $this->apiKey,
+                'content-type' => 'application/json',
+            ];
+            $deliveryId = $this->header($email, 'X-Longos-Delivery-ID');
+            $from       = $email->getFrom()[0] ?? null;
+            if ($deliveryId !== '' && $from instanceof Address) {
+                // This is an API request header, not an email header inside
+                // the JSON payload. Brevo uses it to suppress a retry whose
+                // original success response was lost.
+                $requestHeaders['idempotencyKey'] = $this->idempotencyKey(
+                    $deliveryId . '|' . strtolower($from->getAddress()),
+                );
+            }
             $response   = $this->client->request('POST', self::ENDPOINT, [
                 'http_errors'     => false,
                 'allow_redirects' => false,
-                'headers'         => [
-                    'accept'       => 'application/json',
-                    'api-key'      => $this->apiKey,
-                    'content-type' => 'application/json',
-                ],
-                'json' => $this->payload($email),
+                'headers'         => $requestHeaders,
+                'json'            => $this->payload($email),
             ]);
             $statusCode = $response->getStatusCode();
             $body       = json_decode((string) $response->getBody(), true);
@@ -123,10 +134,12 @@ class BrevoTransport extends AbstractTransport
 
         $html = $this->body($email->getHtmlBody());
         $text = $this->body($email->getTextBody());
+        // Brevo's transactional endpoint accepts one inline body variant per
+        // request. Laravel Markdown messages commonly contain both variants;
+        // prefer HTML and retain text as the fallback for plain messages.
         if ($html !== '') {
             $payload['htmlContent'] = $html;
-        }
-        if ($text !== '') {
+        } elseif ($text !== '') {
             $payload['textContent'] = $text;
         }
         if (! isset($payload['htmlContent']) && ! isset($payload['textContent'])) {
@@ -136,7 +149,7 @@ class BrevoTransport extends AbstractTransport
         $attachments = [];
         foreach ($email->getAttachments() as $attachment) {
             $attachments[] = [
-                'content' => base64_encode((string) $attachment->getBody()),
+                'content' => base64_encode($this->body($attachment->getBody())),
                 'name'    => $attachment->getFilename() ?: 'attachment',
             ];
         }
@@ -151,16 +164,9 @@ class BrevoTransport extends AbstractTransport
             $deliveryId !== '' ? 'delivery_id:' . $deliveryId : '',
             $mailType   !== '' ? 'mail_type:' . $mailType : '',
         ]);
-        if ($custom !== [] || $deliveryId !== '') {
-            $payload['headers'] = [];
-            if ($custom !== []) {
-                $payload['headers']['X-Mailin-custom'] = implode('|', $custom);
-            }
-            if ($deliveryId !== '') {
-                // Brevo de-duplicates an identical retry for the lifetime of
-                // this key. Derive a stable UUID without exposing order IDs.
-                $payload['headers']['IdempotencyKey'] = $this->idempotencyKey($deliveryId . '|' . strtolower($from->getAddress()));
-            }
+        if ($custom !== []) {
+            $payload['headers']                    = [];
+            $payload['headers']['X-Mailin-custom'] = implode('|', $custom);
         }
         $tags = array_values(array_filter(array_map([$this, 'tag'], [$mailType, $category])));
         if ($tags !== []) {

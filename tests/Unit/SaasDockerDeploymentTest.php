@@ -81,7 +81,9 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringContainsString('CLOUD_MAIL_RELAY_SHARED_SECRET: ${SERVICE_PASSWORD_64_CLOUDMAIL}', $compose);
         self::assertStringContainsString('MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-no-reply@${MAIL_RELAY_PLATFORM_SENDER_DOMAIN:-${SAAS_BASE_DOMAIN}}}', $compose);
         self::assertStringContainsString('CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}', $compose);
-        self::assertStringContainsString('LONGOS_AUTO_CONFIGURE_MAIL_DNS: ${LONGOS_AUTO_CONFIGURE_MAIL_DNS:-true}', $compose);
+        self::assertStringContainsString('LONGOS_AUTO_CONFIGURE_MAIL_DNS: ${LONGOS_AUTO_CONFIGURE_MAIL_DNS:-false}', $compose);
+        self::assertStringContainsString('LONGOS_MAIL_RELAY_ENABLED: ${LONGOS_MAIL_RELAY_ENABLED:-false}', $compose);
+        self::assertStringContainsString('MAIL_MAILER: ${MAIL_MAILER:-log}', $compose);
         self::assertStringContainsString('MAIL_RELAY_DNS_RECORDS_PATH: /var/lib/longos-mail-dns', $compose);
         self::assertStringContainsString('MAIL_RELAY_IPS: ${MAIL_RELAY_IPS:-}', $compose);
         self::assertStringContainsString('MAIL_RELAY_RUNTIME_SETTINGS_PATH: ${MAIL_RELAY_RUNTIME_SETTINGS_PATH:-/var/www/html/storage/app/longos/mail-relay-runtime.json}', $compose);
@@ -212,7 +214,7 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringContainsString('mysql:8.4.11', $compose);
         self::assertStringContainsString('FROM node:22.22.0-bookworm-slim', $relayDockerfile);
         self::assertStringNotContainsString('context: ./', $compose);
-        self::assertMatchesRegularExpression('/mail-relay:\R\s+build:\R(?:\s+#.*\R)*\s+context: \.\R\s+dockerfile: docker\/mail-relay\/Dockerfile/', $compose);
+        self::assertMatchesRegularExpression('/mail-relay:\R\s+profiles: \["self-hosted-mail"\]\R\s+build:\R(?:\s+#.*\R)*\s+context: \.\R\s+dockerfile: docker\/mail-relay\/Dockerfile/', $compose);
         self::assertStringContainsString('COPY docker/mail-relay/package.json docker/mail-relay/package-lock.json ./', $relayDockerfile);
         self::assertStringContainsString('COPY docker/mail-relay/src ./src', $relayDockerfile);
         self::assertStringContainsString('COPY docker/mail-relay/entrypoint.sh ./entrypoint.sh', $relayDockerfile);

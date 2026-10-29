@@ -360,6 +360,7 @@ Route::prefix($adminName)
                 Route::middleware('can:settings_update')->post('settings', [Controllers\SettingController::class, 'store'])->name('settings.store');
                 Route::middleware('can:settings_update')->post('settings/currency/refresh', [Controllers\SettingController::class, 'refreshCurrencyRates'])->name('settings.currency.refresh');
                 Route::middleware('can:settings_update')->post('settings/mail/test', [Controllers\SettingController::class, 'testMail'])->name('settings.mail.test');
+                Route::middleware(['can:settings_update', 'throttle:10,1'])->post('settings/mail/brevo-verify', [Controllers\SettingController::class, 'verifyBrevoConnection'])->name('settings.mail.brevo-verify');
                 Route::middleware(['can:settings_update', 'throttle:5,1'])->post('settings/mail/brevo-webhook', [Controllers\SettingController::class, 'syncBrevoWebhook'])->name('settings.mail.brevo-webhook');
                 Route::middleware('can:settings_index')->post('settings/mail/diagnostics', [Controllers\SettingController::class, 'mailDiagnostics'])->name('settings.mail.diagnostics');
                 Route::middleware('can:settings_update')->post('settings/mail/dns-sync', [Controllers\SettingController::class, 'syncMailDns'])->name('settings.mail.dns-sync');

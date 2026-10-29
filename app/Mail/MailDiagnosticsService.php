@@ -81,45 +81,34 @@ class MailDiagnosticsService
             return;
         }
 
-        $client = new Client([
-            'base_uri'        => 'https://api.brevo.com',
-            'connect_timeout' => 5,
-            'timeout'         => min(15, $runtime['timeout']),
-            'http_errors'     => false,
-            'allow_redirects' => false,
-            'verify'          => true,
-            'headers'         => ['accept' => 'application/json', 'api-key' => $runtime['api_key']],
-        ]);
-
         try {
-            $account = $client->get('/v3/account');
+            $inspection = app(BrevoConnectionService::class)->inspect(
+                $runtime['api_key'],
+                $runtime['timeout'],
+                $sender,
+            );
             $this->add(
                 $checks,
                 'brevo_credentials',
-                $account->getStatusCode() === 200 ? 'ok' : 'error',
-                $account->getStatusCode() === 200
-                    ? 'Brevo API Key 有效，LONGOS 可通过出站 HTTPS 直连事务邮件服务。'
-                    : 'Brevo 拒绝 API Key，请重新生成 API v3 Key 并检查账户的 IP 安全限制。',
+                'ok',
+                'Brevo API Key 有效，LONGOS 可通过出站 HTTPS 直连事务邮件服务。',
             );
-            if ($account->getStatusCode() !== 200) {
-                return;
-            }
+            $this->add(
+                $checks,
+                'brevo_sender_domain',
+                $inspection['sender_status'],
+                $inspection['sender_message'],
+            );
 
-            $domain = strtolower((string) substr(strrchr($sender, '@') ?: '', 1));
-            if ($domain !== '') {
-                $domainResponse = $client->get('/v3/senders/domains/' . rawurlencode($domain));
-                $domainPayload  = json_decode((string) $domainResponse->getBody(), true);
-                $verified       = $domainResponse->getStatusCode() === 200 && (bool) ($domainPayload['verified'] ?? false);
-                $authenticated  = $domainResponse->getStatusCode() === 200 && (bool) ($domainPayload['authenticated'] ?? false);
-                $this->add(
-                    $checks,
-                    'brevo_sender_domain',
-                    $verified && $authenticated ? 'ok' : 'error',
-                    $verified && $authenticated
-                        ? "Brevo 已验证并认证发件域 {$domain}。"
-                        : "Brevo 尚未完成发件域 {$domain} 的验证和认证；请在 Brevo 的 Senders & Domains 中发布其 DKIM/DMARC 记录。",
-                );
-            }
+            $client = new Client([
+                'base_uri'        => 'https://api.brevo.com',
+                'connect_timeout' => 5,
+                'timeout'         => min(15, $runtime['timeout']),
+                'http_errors'     => false,
+                'allow_redirects' => false,
+                'verify'          => true,
+                'headers'         => ['accept' => 'application/json', 'api-key' => $runtime['api_key']],
+            ]);
 
             $webhookResponse = $client->get('/v3/webhooks', ['query' => ['type' => 'transactional', 'sort' => 'desc']]);
             $webhookPayload  = json_decode((string) $webhookResponse->getBody(), true);
@@ -135,8 +124,8 @@ class MailDiagnosticsService
                     ? 'Brevo 投递回执已连接，邮件日志可记录最终投递结果。'
                     : '未找到当前站点的 Brevo 投递回执；请保存设置后点击“同步 Brevo 回执”。',
             );
-        } catch (Throwable) {
-            $this->add($checks, 'brevo_connectivity', 'error', '无法通过 HTTPS 连接 Brevo API，请检查主服务器 DNS、出站 443 和系统时间。');
+        } catch (Throwable $exception) {
+            $this->add($checks, 'brevo_connectivity', 'error', $exception->getMessage());
         }
     }
 

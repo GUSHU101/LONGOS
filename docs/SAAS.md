@@ -38,7 +38,7 @@ SaaS 模式支持两种数据隔离策略，网页安装默认采用无需 root 
 
 新部署固定使用 MySQL `8.4.11` LTS。旧 MySQL 数据必须先完成备份并按官方支持路径验证升级；MySQL 不支持原地降级，回退需要恢复对应备份。
 
-内置邮件引擎与 Web 服务一起部署。Coolify 分别生成 LONGOS 与 Cloud Mail HMAC 密钥，DKIM、Postfix 队列和幂等记录保存在命名卷。中继在调用本地 sendmail 前先持久化 pending 记录；状态不确定的同一 `requestId` 不会自动重复投递。
+默认邮件出口为 Brevo HTTPS API，不部署 Postfix 服务。自建邮件引擎仅作为 `self-hosted-mail` Compose profile 保留；启用后 Coolify 分别生成 LONGOS 与 Cloud Mail HMAC 密钥，DKIM、Postfix 队列和幂等记录保存在命名卷。中继在调用本地 sendmail 前先持久化 pending 记录；状态不确定的同一 `requestId` 不会自动重复投递。
 
 完整操作见 [Coolify + Caddy 部署指南](COOLIFY.md)。
 

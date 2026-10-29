@@ -12,6 +12,7 @@
 
 namespace Beike\Admin\Services;
 
+use App\Mail\BrevoConnectionService;
 use App\Mail\MailSenderProfileService;
 use Beike\Repositories\SettingRepo;
 use Beike\Repositories\StorePolicyRepo;
@@ -339,6 +340,7 @@ class SettingService
             throw new Exception('不支持的邮件引擎。');
         }
         $settings['mail_engine'] = $engine;
+        $brevoApiKeyToVerify     = '';
 
         if (array_key_exists('mail_log_retention_days', $settings)) {
             $retentionDays = filter_var($settings['mail_log_retention_days'], FILTER_VALIDATE_INT);
@@ -354,10 +356,11 @@ class SettingService
         self::preserveBlankSecret($settings, 'sendgrid', 'api_key');
 
         if ($engine === 'brevo') {
-            $incoming = isset($settings['brevo']) && is_array($settings['brevo']) ? $settings['brevo'] : [];
-            $existing = system_setting('base.brevo', []);
-            $existing = is_array($existing) ? $existing : [];
-            $timeout  = filter_var($incoming['timeout'] ?? $existing['timeout'] ?? 15, FILTER_VALIDATE_INT, [
+            $incoming            = isset($settings['brevo']) && is_array($settings['brevo']) ? $settings['brevo'] : [];
+            $brevoApiKeyToVerify = trim((string) ($incoming['api_key'] ?? ''));
+            $existing            = system_setting('base.brevo', []);
+            $existing            = is_array($existing) ? $existing : [];
+            $timeout             = filter_var($incoming['timeout'] ?? $existing['timeout'] ?? 15, FILTER_VALIDATE_INT, [
                 'options' => ['min_range' => 3, 'max_range' => 60],
             ]);
             if ($timeout === false) {
@@ -393,6 +396,17 @@ class SettingService
             if (! filter_var($fromAddress, FILTER_VALIDATE_EMAIL)) {
                 throw new Exception('请先填写有效的发件邮箱，或在基础设置中填写有效的联系邮箱。');
             }
+        }
+
+        // Reject an invalid replacement credential before it becomes the
+        // active production mailer. Blank secret fields intentionally retain
+        // the last verified key and do not create an external request.
+        if ($engine === 'brevo' && $brevoApiKeyToVerify !== '') {
+            app(BrevoConnectionService::class)->inspect(
+                $brevoApiKeyToVerify,
+                (int) $settings['brevo']['timeout'],
+                $fromAddress,
+            );
         }
 
         if ($engine === 'smtp') {

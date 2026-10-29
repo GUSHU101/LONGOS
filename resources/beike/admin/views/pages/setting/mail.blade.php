@@ -58,6 +58,7 @@
         'testUrl' => admin_route('settings.mail.test'),
         'diagnosticsUrl' => admin_route('settings.mail.diagnostics'),
         'dnsSyncUrl' => admin_route('settings.mail.dns-sync'),
+        'brevoVerifyUrl' => admin_route('settings.mail.brevo-verify'),
         'brevoWebhookUrl' => admin_route('settings.mail.brevo-webhook'),
         'brevoConfigured' => $brevoConfigured,
         'dnsSyncAvailable' => $dnsSyncAvailable,
@@ -80,6 +81,8 @@
             'senderDomainApplied' => __('admin/setting.mail_sender_domain_applied'),
             'dnsRecordPending' => __('admin/setting.mail_dns_record_pending'),
             'dnsRecordCopied' => __('admin/setting.mail_dns_record_copied'),
+            'brevoVerifySuccess' => __('admin/setting.brevo_verify_success'),
+            'brevoVerifyFailed' => __('admin/setting.brevo_verify_failed'),
         ],
     ];
   @endphp
@@ -91,6 +94,22 @@
       {{ session('error') }}
     </div>
   @endif
+  <style>
+    .mail-settings-shell { --mail-border: #e4e7ec; --mail-muted: #667085; --mail-soft: #f8fafc; }
+    .mail-settings-intro { background: linear-gradient(135deg, #f8faff 0%, #fff 72%); border: 1px solid var(--mail-border); }
+    .mail-settings-section { border: 1px solid var(--mail-border); border-radius: 12px; padding: 24px; margin-bottom: 24px; background: #fff; }
+    .mail-settings-section__head { display: flex; gap: 16px; align-items: flex-start; margin-bottom: 20px; }
+    .mail-settings-step { width: 32px; height: 32px; border-radius: 50%; flex: 0 0 32px; display: inline-grid; place-items: center; color: #fff; background: var(--bs-primary); font-weight: 700; }
+    .mail-settings-section__help { color: var(--mail-muted); font-size: 12px; margin-top: 4px; }
+    .mail-settings-provider { background: var(--mail-soft); border: 1px solid var(--mail-border); border-radius: 10px; padding: 20px; }
+    .mail-settings-status { min-height: 40px; }
+    .mail-settings-advanced > summary { cursor: pointer; list-style: none; }
+    .mail-settings-advanced > summary::-webkit-details-marker { display: none; }
+    @media (max-width: 767.98px) {
+      .mail-settings-section { padding: 16px; border-radius: 10px; }
+      .mail-settings-provider { padding: 16px; }
+    }
+  </style>
   @if($canManageMailRelay && $mailRelayRuntime && $savedMailEngine === 'self_hosted')
     <div class="card mb-4" id="mail-relay-topology">
       <div class="card-header bg-white d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2 py-3">
@@ -354,7 +373,7 @@
       </div>
     </div>
   @endif
-  <div class="card h-min-600">
+  <div class="card h-min-600 mail-settings-shell">
     <div class="card-body">
       @hook('admin.setting.mail.content.before')
       <form action="{{ admin_route('settings.store') }}" class="needs-validation" novalidate method="POST" id="form-app">
@@ -363,81 +382,106 @@
 
         @hook('admin.setting.mail.before')
 
-        <div class="border rounded p-3 mb-4" aria-live="polite" id="mail-diagnostics">
-          <div class="d-flex flex-column flex-sm-row align-items-sm-center justify-content-between gap-2">
+        <div class="mail-settings-intro rounded p-4 mb-4">
+          <div class="d-flex flex-column flex-lg-row justify-content-between gap-3">
             <div>
-              <div class="fw-bold">{{ __('admin/setting.mail_diagnostics_title') }}</div>
-              <div class="text-secondary font-size-12">{{ __('admin/setting.mail_diagnostics_help') }}</div>
+              <h4 class="mb-1">{{ __('admin/setting.mail_page_title') }}</h4>
+              <div class="text-secondary">{{ __('admin/setting.mail_page_help') }}</div>
             </div>
-            <div class="d-flex flex-wrap gap-2">
-              <button v-if="dnsSyncAvailable" type="button" class="btn btn-primary" :disabled="diagnosing || syncingDns" @click="syncMailDns">
-                <i class="bi bi-magic"></i>
-                @{{ syncingDns ? source.dnsSyncRunning : source.dnsSyncButton }}
-              </button>
-              <button type="button" class="btn btn-outline-primary" :disabled="diagnosing || syncingDns" @click="runDiagnostics">
-                <i class="bi bi-heart-pulse"></i>
-                @{{ diagnosing ? source.diagnosticsRunning : source.diagnosticsButton }}
-              </button>
-            </div>
-          </div>
-          <div v-if="!dnsSyncAvailable" class="alert alert-info py-2 px-3 mb-0 mt-3">
-            <i class="bi bi-shield-check me-1"></i>@{{ source.dnsSyncExternalHelp }}
-          </div>
-          <div v-if="diagnosticChecks.length" class="mt-3 d-grid gap-2">
-            <div v-for="check in diagnosticChecks" :key="check.key" class="alert py-2 px-3 mb-0"
-                 :class="check.status === 'ok' ? 'alert-success' : (check.status === 'warning' ? 'alert-warning' : 'alert-danger')">
-              <i class="bi me-1" :class="check.status === 'ok' ? 'bi-check-circle' : (check.status === 'warning' ? 'bi-exclamation-triangle' : 'bi-x-circle')"></i>
-              @{{ check.message }}
-            </div>
-          </div>
-          <div v-if="dnsSyncMessage" class="alert alert-success py-2 px-3 mb-0 mt-3">
-            <i class="bi bi-check-circle me-1"></i>@{{ dnsSyncMessage }}
-          </div>
-          <div v-for="warning in dnsSyncWarnings" :key="warning" class="alert alert-warning py-2 px-3 mb-0 mt-2">
-            <i class="bi bi-exclamation-triangle me-1"></i>@{{ warning }}
-          </div>
-          <div v-if="diagnosticError" class="alert alert-danger py-2 px-3 mb-0 mt-3">@{{ diagnosticError }}</div>
-          <div v-if="dnsRecords.length" class="mt-4">
-            <div class="fw-bold">{{ __('admin/setting.mail_dns_records_title') }}</div>
-            <div class="text-secondary font-size-12 mb-2">{{ __('admin/setting.mail_dns_records_help') }}</div>
-            <div class="table-responsive border rounded">
-              <table class="table table-sm align-middle mb-0">
-                <thead>
-                  <tr>
-                    <th style="width: 70px">Type</th>
-                    <th>{{ __('admin/setting.mail_dns_record_name') }}</th>
-                    <th>{{ __('admin/setting.mail_dns_record_value') }}</th>
-                    <th style="width: 150px"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="(record, index) in dnsRecords" :key="`${record.type}:${record.name}:${index}`">
-                    <td><span class="badge bg-secondary">@{{ record.type }}</span></td>
-                    <td><code class="user-select-all text-break" v-text="record.name"></code></td>
-                    <td>
-                      <code v-if="record.available" class="user-select-all text-break" v-text="record.value"></code>
-                      <span v-else class="text-warning" v-text="source.dnsRecordPending"></span>
-                      <div class="text-secondary font-size-12">
-                        @{{ record.mode === 'if_missing' ? source.dnsModeIfMissing : (record.mode === 'merged' ? source.dnsModeMerged : source.dnsModeManaged) }}
-                      </div>
-                    </td>
-                    <td class="text-end">
-                      <button type="button" class="btn btn-outline-secondary btn-sm" :disabled="!record.available" @click="copyDnsValue(record.value)">
-                        <i class="bi bi-clipboard"></i> {{ __('admin/setting.mail_dns_record_copy') }}
-                      </button>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+            <div class="d-flex align-items-center gap-2">
+              <span class="badge rounded-pill" :class="mail_engine === 'brevo' ? 'bg-success' : (mail_engine ? 'bg-secondary' : 'bg-warning text-dark')">
+                @{{ mail_engine === 'brevo' ? source.brevoRecommended : (mail_engine ? source.advancedEngine : source.notConfigured) }}
+              </span>
             </div>
           </div>
         </div>
 
-        <x-admin-form-switch name="use_queue" title="{{ __('admin/setting.use_queue') }}" value="{{ old('use_queue', system_setting('base.use_queue', '0')) }}">
-          <div class="help-text font-size-12 lh-base">{{__('admin/setting.use_queue_text')}}https://docs.beikeshop.com/config/queue.html</div>
-        </x-admin-form-switch>
+        <section class="mail-settings-section" aria-labelledby="mail-provider-title">
+          <div class="mail-settings-section__head">
+            <span class="mail-settings-step">1</span>
+            <div>
+              <h5 class="mb-0" id="mail-provider-title">{{ __('admin/setting.mail_provider_title') }}</h5>
+              <div class="mail-settings-section__help">{{ __('admin/setting.mail_provider_help') }}</div>
+            </div>
+          </div>
+          <div class="row g-3 align-items-start">
+            <div class="col-lg-5">
+              <label class="form-label fw-bold" for="mail-engine">{{ __('admin/setting.mail_engine') }}</label>
+              <select id="mail-engine" name="mail_engine" v-model="mail_engine" class="form-select">
+                <option value="">{{ __('admin/setting.mail_engine_disabled') }}</option>
+                <option value="brevo">{{ __('admin/setting.mail_engine_brevo') }}</option>
+                <optgroup label="{{ __('admin/setting.mail_engine_advanced_group') }}">
+                  <option value="self_hosted">{{ __('admin/setting.mail_engine_self_hosted') }}</option>
+                  <option value="smtp">SMTP</option>
+                  <option value="sendmail">Sendmail</option>
+                  <option value="mailgun">Mailgun</option>
+                  <option value="sendcloud">SendCloud</option>
+                  <option value="sendgrid">SendGrid</option>
+                  <option value="log">Log</option>
+                </optgroup>
+              </select>
+              <div class="form-text" v-if="mail_engine === 'brevo'">{{ __('admin/setting.brevo_info') }}</div>
+              <div class="form-text" v-else-if="mail_engine === 'log'">{{ __('admin/setting.mail_log') }}</div>
+              <div class="form-text" v-else-if="mail_engine === 'self_hosted'">{{ __('admin/setting.self_hosted_deprecated_help') }}</div>
+            </div>
+          </div>
+          <div v-if="mail_engine === 'brevo'" class="mail-settings-provider mt-4">
+            <div class="d-flex flex-column flex-md-row justify-content-between gap-2 mb-4">
+              <div>
+                <div class="fw-bold d-flex align-items-center gap-2">
+                  <i class="bi bi-cloud-check text-primary"></i>{{ __('admin/setting.brevo_direct_title') }}
+                </div>
+                <div class="text-secondary font-size-12 mt-1">{{ __('admin/setting.brevo_direct_help') }}</div>
+              </div>
+              <span class="badge align-self-start" :class="brevoConfigured ? 'bg-success' : 'bg-warning text-dark'">
+                @{{ brevoConfigured ? source.credentialSaved : source.credentialMissing }}
+              </span>
+            </div>
+            <div class="row g-3">
+              <div class="col-lg-8">
+                <label class="form-label fw-bold" for="brevo-api-key">{{ __('admin/setting.brevo_api_key') }}</label>
+                <input id="brevo-api-key" name="brevo[api_key]" type="password" class="form-control font-monospace"
+                       autocomplete="new-password" maxlength="512" placeholder="{{ $brevoConfigured ? __('admin/setting.mail_secret_saved_placeholder') : 'xkeysib-...' }}">
+                <div class="form-text">{{ __('admin/setting.mail_secret_keep') }}</div>
+              </div>
+              <div class="col-lg-4">
+                <label class="form-label fw-bold" for="brevo-timeout">{{ __('admin/setting.brevo_timeout') }}</label>
+                <input id="brevo-timeout" name="brevo[timeout]" type="number" class="form-control" min="3" max="60" required
+                       value="{{ old('brevo.timeout', system_setting('base.brevo.timeout', 15)) }}">
+                <div class="form-text">{{ __('admin/setting.brevo_timeout_help') }}</div>
+              </div>
+            </div>
+            <div class="d-flex flex-wrap gap-2 mt-4">
+              <button type="button" class="btn btn-outline-primary" :disabled="verifyingBrevo" @click="verifyBrevoConnection">
+                <i class="bi bi-plug me-1"></i>@{{ verifyingBrevo ? source.brevoVerifying : source.brevoVerifyButton }}
+              </button>
+              <button type="button" class="btn btn-outline-secondary" :disabled="syncingBrevo || !brevoConfigured" @click="syncBrevoWebhook">
+                <i class="bi bi-arrow-repeat me-1"></i>@{{ syncingBrevo ? source.brevoWebhookSyncing : source.brevoWebhookButton }}
+              </button>
+            </div>
+            <div v-if="brevoConnection.message" class="alert py-2 px-3 mt-3 mb-0 mail-settings-status"
+                 :class="brevoConnection.status === 'success' ? 'alert-success' : (brevoConnection.status === 'warning' ? 'alert-warning' : 'alert-danger')">
+              <i class="bi me-1" :class="brevoConnection.status === 'success' ? 'bi-check-circle' : (brevoConnection.status === 'warning' ? 'bi-exclamation-triangle' : 'bi-x-circle')"></i>
+              @{{ brevoConnection.message }}
+            </div>
+            <div v-else class="form-text mt-3">{{ $brevoConfigured ? __('admin/setting.brevo_webhook_help') : __('admin/setting.brevo_webhook_save_first') }}</div>
+          </div>
+        </section>
+
+        <section class="mail-settings-section" aria-labelledby="mail-sender-title">
+          <div class="mail-settings-section__head">
+            <span class="mail-settings-step">2</span>
+            <div>
+              <h5 class="mb-0" id="mail-sender-title">{{ __('admin/setting.mail_identity_title') }}</h5>
+              <div class="mail-settings-section__help">{{ __('admin/setting.mail_sender_profiles_info') }}</div>
+            </div>
+          </div>
         <x-admin::form.row :title="__('admin/setting.mail_sender_profiles')">
           <div class="help-text font-size-12 lh-base mb-2">{{ __('admin/setting.mail_sender_profiles_info') }}</div>
+          <div v-if="mail_engine === 'brevo'" class="alert alert-info py-2 mb-0 font-size-12">
+            <i class="bi bi-info-circle me-1"></i>{{ __('admin/setting.brevo_sender_help') }}
+          </div>
+          <div v-if="mail_engine === 'self_hosted'">
           @if (config('mail.relay.platform_sender_domain'))
             <div class="alert alert-light border py-2 mb-0 font-size-12">
               {{ __('admin/setting.mail_sender_platform_rule', ['domain' => config('mail.relay.platform_sender_domain'), 'suffix' => current_site() && !data_get(current_site()?->meta, 'control_site', false) ? '+' . current_site()?->code : '-']) }}
@@ -455,6 +499,7 @@
               <span>{{ __('admin/setting.mail_sender_no_available_domains') }}</span>
             @endforelse
             <div class="mt-1">{{ __('admin/setting.mail_sender_domain_switch_help') }}</div>
+          </div>
           </div>
         </x-admin::form.row>
 
@@ -523,46 +568,16 @@
             @endforeach
           </div>
         </details>
-        <x-admin::form.row title="{{ __('admin/setting.mail_engine') }}">
-          <select name="mail_engine" v-model="mail_engine" class="form-select wp-200 me-3">
-            <option :value="item.code" v-for="item, index in source.mailEngines" :key="index">@{{ item.name }}</option>
-          </select>
-          <div v-if="mail_engine == 'log'" class="help-text font-size-12 lh-base">{{ __('admin/setting.mail_log') }}</div>
-          <div v-if="mail_engine == 'self_hosted'" class="help-text font-size-12 lh-base">
-            {{ __('admin/setting.self_hosted_mail_info', ['hostname' => config('mail.relay.hostname') ?: '-', 'domains' => config('mail.relay.domains') ?: '-']) }}
-          </div>
-          <div v-if="mail_engine == 'brevo'" class="help-text font-size-12 lh-base">
-            {{ __('admin/setting.brevo_info') }}
-          </div>
-        </x-admin::form.row>
+        </section>
 
-        <div v-if="mail_engine == 'brevo'" class="border rounded bg-light p-3 mb-4">
-          <div class="d-flex align-items-start gap-2 mb-3">
-            <i class="bi bi-shield-check text-success fs-5"></i>
+        <section v-if="mail_engine && !['brevo', 'log', 'self_hosted'].includes(mail_engine)" class="mail-settings-section" aria-labelledby="mail-provider-advanced-title">
+          <div class="mail-settings-section__head">
+            <span class="mail-settings-step"><i class="bi bi-gear"></i></span>
             <div>
-              <div class="fw-bold">{{ __('admin/setting.brevo_direct_title') }}</div>
-              <div class="text-secondary font-size-12">{{ __('admin/setting.brevo_direct_help') }}</div>
+              <h5 class="mb-0" id="mail-provider-advanced-title">{{ __('admin/setting.mail_provider_advanced_title') }}</h5>
+              <div class="mail-settings-section__help">{{ __('admin/setting.mail_provider_advanced_help') }}</div>
             </div>
           </div>
-          <x-admin-form-input name="brevo[api_key]" type="password" title="{{ __('admin/setting.brevo_api_key') }}" value="" autocomplete="new-password">
-            <div class="help-text font-size-12 lh-base">{{ __('admin/setting.mail_secret_keep') }}</div>
-          </x-admin-form-input>
-          <x-admin-form-input name="brevo[timeout]" type="number" min="3" max="60" required title="{{ __('admin/setting.brevo_timeout') }}" value="{{ old('brevo.timeout', system_setting('base.brevo.timeout', 15)) }}">
-            <div class="help-text font-size-12 lh-base">{{ __('admin/setting.brevo_timeout_help') }}</div>
-          </x-admin-form-input>
-          <x-admin::form.row :title="__('admin/setting.brevo_webhook_title')">
-            <button type="button" class="btn btn-outline-primary" :disabled="syncingBrevo || !brevoConfigured" @click="syncBrevoWebhook">
-              <i class="bi bi-arrow-repeat me-1"></i>@{{ syncingBrevo ? source.brevoWebhookSyncing : source.brevoWebhookButton }}
-            </button>
-            <div class="help-text font-size-12 lh-base mt-2">
-              @if($brevoConfigured)
-                {{ __('admin/setting.brevo_webhook_help') }}
-              @else
-                {{ __('admin/setting.brevo_webhook_save_first') }}
-              @endif
-            </div>
-          </x-admin::form.row>
-        </div>
 
         <div v-if="mail_engine == 'smtp'">
           <x-admin-form-input name="smtp[host]" required title="{{ __('admin/setting.smtp_host') }}" value="{{ old('smtp.host', system_setting('base.smtp.host', '')) }}">
@@ -625,8 +640,16 @@
             <div class="help-text font-size-12 lh-base">{{ __('admin/setting.sendgrid_endpoint_info') }}</div>
           </x-admin-form-input>
         </div>
+        </section>
 
-        <div v-if="mail_engine != ''">
+        <section v-if="mail_engine != ''" class="mail-settings-section" aria-labelledby="mail-notifications-title">
+          <div class="mail-settings-section__head">
+            <span class="mail-settings-step">3</span>
+            <div>
+              <h5 class="mb-0" id="mail-notifications-title">{{ __('admin/setting.mail_notifications_title') }}</h5>
+              <div class="mail-settings-section__help">{{ __('admin/setting.mail_notifications_help') }}</div>
+            </div>
+          </div>
           <x-admin::form.row :title="__('admin/setting.email_send_admin')">
             <div class="input-group wp-400">
               <input name="mail_alert[]" type="hidden" value="">
@@ -662,27 +685,94 @@
             </div>
             <div class="help-text lh-base smtp-qq-hint d-none">{{ __('admin/setting.smtp_qq_hint') }}</div>
           </x-admin::form.row>
-        </div>
+        </section>
 
         @hook('admin.setting.mail.after')
 
-        <x-admin::form.row :title="__('admin/setting.mail_test_title')">
-          <div class="d-flex flex-column flex-sm-row gap-2 align-items-sm-center">
-            <input v-model.trim="testRecipient" type="email" class="form-control wp-400" :placeholder="source.testRecipientLabel" @keyup.enter.prevent="sendTestMail">
-            <button type="button" class="btn btn-outline-primary" :disabled="testing || !testRecipient" @click="sendTestMail">
-              <i class="bi bi-send"></i>@{{ testing ? source.testSendingLabel : source.testButtonLabel }}
-            </button>
+        <section class="mail-settings-section" aria-labelledby="mail-verification-title">
+          <div class="mail-settings-section__head">
+            <span class="mail-settings-step">4</span>
+            <div>
+              <h5 class="mb-0" id="mail-verification-title">{{ __('admin/setting.mail_verification_title') }}</h5>
+              <div class="mail-settings-section__help">{{ __('admin/setting.mail_diagnostics_help') }}</div>
+            </div>
           </div>
-          <div class="help-text font-size-12 lh-base mt-2">{{ __('admin/setting.mail_test_info') }}</div>
-        </x-admin::form.row>
+          <div class="border rounded p-3 mb-4" aria-live="polite" id="mail-diagnostics">
+            <div class="d-flex flex-column flex-sm-row align-items-sm-center justify-content-between gap-2">
+              <div>
+                <div class="fw-bold">{{ __('admin/setting.mail_diagnostics_title') }}</div>
+                <div class="text-secondary font-size-12">{{ __('admin/setting.mail_diagnostics_help') }}</div>
+              </div>
+              <div class="d-flex flex-wrap gap-2">
+                <button v-if="dnsSyncAvailable && mail_engine === 'self_hosted'" type="button" class="btn btn-outline-primary" :disabled="diagnosing || syncingDns" @click="syncMailDns">
+                  <i class="bi bi-magic"></i>
+                  @{{ syncingDns ? source.dnsSyncRunning : source.dnsSyncButton }}
+                </button>
+                <button type="button" class="btn btn-outline-primary" :disabled="diagnosing || syncingDns || !mail_engine" @click="runDiagnostics">
+                  <i class="bi bi-heart-pulse"></i>
+                  @{{ diagnosing ? source.diagnosticsRunning : source.diagnosticsButton }}
+                </button>
+              </div>
+            </div>
+            <div v-if="diagnosticChecks.length" class="mt-3 d-grid gap-2">
+              <div v-for="check in diagnosticChecks" :key="check.key" class="alert py-2 px-3 mb-0"
+                   :class="check.status === 'ok' ? 'alert-success' : (check.status === 'warning' ? 'alert-warning' : 'alert-danger')">
+                <i class="bi me-1" :class="check.status === 'ok' ? 'bi-check-circle' : (check.status === 'warning' ? 'bi-exclamation-triangle' : 'bi-x-circle')"></i>
+                @{{ check.message }}
+              </div>
+            </div>
+            <div v-if="dnsSyncMessage" class="alert alert-success py-2 px-3 mb-0 mt-3"><i class="bi bi-check-circle me-1"></i>@{{ dnsSyncMessage }}</div>
+            <div v-for="warning in dnsSyncWarnings" :key="warning" class="alert alert-warning py-2 px-3 mb-0 mt-2"><i class="bi bi-exclamation-triangle me-1"></i>@{{ warning }}</div>
+            <div v-if="diagnosticError" class="alert alert-danger py-2 px-3 mb-0 mt-3">@{{ diagnosticError }}</div>
+            <div v-if="dnsRecords.length && mail_engine === 'self_hosted'" class="mt-4">
+              <div class="fw-bold">{{ __('admin/setting.mail_dns_records_title') }}</div>
+              <div class="text-secondary font-size-12 mb-2">{{ __('admin/setting.mail_dns_records_help') }}</div>
+              <div class="table-responsive border rounded">
+                <table class="table table-sm align-middle mb-0">
+                  <thead><tr><th style="width: 70px">Type</th><th>{{ __('admin/setting.mail_dns_record_name') }}</th><th>{{ __('admin/setting.mail_dns_record_value') }}</th><th style="width: 150px"></th></tr></thead>
+                  <tbody>
+                    <tr v-for="(record, index) in dnsRecords" :key="`${record.type}:${record.name}:${index}`">
+                      <td><span class="badge bg-secondary">@{{ record.type }}</span></td>
+                      <td><code class="user-select-all text-break" v-text="record.name"></code></td>
+                      <td><code v-if="record.available" class="user-select-all text-break" v-text="record.value"></code><span v-else class="text-warning" v-text="source.dnsRecordPending"></span></td>
+                      <td class="text-end"><button type="button" class="btn btn-outline-secondary btn-sm" :disabled="!record.available" @click="copyDnsValue(record.value)"><i class="bi bi-clipboard"></i> {{ __('admin/setting.mail_dns_record_copy') }}</button></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
 
-        <x-admin-form-input name="mail_log_retention_days" type="number" min="1" max="365" required title="{{ __('admin/setting.mail_log_retention_days') }}" value="{{ old('mail_log_retention_days', system_setting('base.mail_log_retention_days', 30)) }}">
-          <div class="help-text font-size-12 lh-base">{{ __('admin/setting.mail_log_retention_days_help') }}</div>
-        </x-admin-form-input>
+          <div>
+            <label class="form-label fw-bold" for="mail-test-recipient">{{ __('admin/setting.mail_test_title') }}</label>
+            <div class="d-flex flex-column flex-sm-row gap-2 align-items-sm-center">
+              <input id="mail-test-recipient" v-model.trim="testRecipient" type="email" class="form-control" :placeholder="source.testRecipientLabel" @keyup.enter.prevent="sendTestMail">
+              <button type="button" class="btn btn-outline-primary text-nowrap" :disabled="testing || !testRecipient || !mail_engine" @click="sendTestMail">
+                <i class="bi bi-send me-1"></i>@{{ testing ? source.testSendingLabel : source.testButtonLabel }}
+              </button>
+            </div>
+            <div class="help-text font-size-12 lh-base mt-2">{{ __('admin/setting.mail_test_info') }}</div>
+          </div>
+        </section>
 
-        <x-admin::form.row title="">
-          <button type="submit" class="btn btn-primary d-none mt-4">{{ __('common.submit') }}</button>
-        </x-admin::form.row>
+        <details class="mail-settings-section mail-settings-advanced">
+          <summary class="d-flex align-items-center justify-content-between gap-3">
+            <span><span class="fw-bold">{{ __('admin/setting.mail_advanced_title') }}</span><span class="d-block text-secondary font-size-12 mt-1">{{ __('admin/setting.mail_advanced_help') }}</span></span>
+            <i class="bi bi-chevron-down"></i>
+          </summary>
+          <div class="border-top mt-3 pt-3">
+            <x-admin-form-switch name="use_queue" title="{{ __('admin/setting.use_queue') }}" value="{{ old('use_queue', system_setting('base.use_queue', '0')) }}">
+              <div class="help-text font-size-12 lh-base">{{__('admin/setting.use_queue_text')}}https://docs.beikeshop.com/config/queue.html</div>
+            </x-admin-form-switch>
+            <x-admin-form-input name="mail_log_retention_days" type="number" min="1" max="365" required title="{{ __('admin/setting.mail_log_retention_days') }}" value="{{ old('mail_log_retention_days', system_setting('base.mail_log_retention_days', 30)) }}">
+              <div class="help-text font-size-12 lh-base">{{ __('admin/setting.mail_log_retention_days_help') }}</div>
+            </x-admin-form-input>
+          </div>
+        </details>
+
+        <div class="d-flex justify-content-end border-top pt-4">
+          <button type="submit" class="btn btn-primary px-4"><i class="bi bi-check2-circle me-1"></i>{{ __('admin/setting.mail_save_button') }}</button>
+        </div>
       </form>
       @hook('admin.setting.mail.content.after')
     </div>
@@ -702,7 +792,9 @@
         diagnosing: false,
         syncingDns: false,
         syncingBrevo: false,
+        verifyingBrevo: false,
         brevoConfigured: mailPageData.brevoConfigured === true,
+        brevoConnection: {status: '', message: ''},
         dnsSyncAvailable: mailPageData.dnsSyncAvailable === true,
         diagnosticChecks: [],
         dnsRecords: [],
@@ -711,17 +803,13 @@
         dnsSyncWarnings: [],
 
         source: {
-          mailEngines: [
-            {name: '{{ __('admin/builder.text_no') }}', code: ''},
-            {name: '{{ __('admin/setting.mail_engine_brevo') }}', code: 'brevo'},
-            {name: '{{ __('admin/setting.mail_engine_self_hosted') }}', code: 'self_hosted'},
-            {name: 'SMTP', code: 'smtp'},
-            {name: 'Sendmail', code: 'sendmail'},
-            {name: 'Mailgun', code: 'mailgun'},
-            {name: 'SendCloud', code: 'sendcloud'},
-            {name: 'SendGrid', code: 'sendgrid'},
-            {name: 'Log', code: 'log'},
-          ],
+          brevoRecommended: '{{ __('admin/setting.mail_status_brevo') }}',
+          advancedEngine: '{{ __('admin/setting.mail_status_advanced') }}',
+          notConfigured: '{{ __('admin/setting.mail_status_disabled') }}',
+          credentialSaved: '{{ __('admin/setting.brevo_credential_saved') }}',
+          credentialMissing: '{{ __('admin/setting.brevo_credential_missing') }}',
+          brevoVerifyButton: '{{ __('admin/setting.brevo_verify_button') }}',
+          brevoVerifying: '{{ __('admin/setting.brevo_verifying') }}',
           testRecipientLabel: mailPageData.labels.testRecipient,
           testButtonLabel: mailPageData.labels.testButton,
           testSendingLabel: mailPageData.labels.testSending,
@@ -798,10 +886,38 @@
             method: 'POST',
             headers: {'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content, Accept: 'application/json'},
           }).done((response) => {
+            this.brevoConnection = {status: 'success', message: response?.message || this.source.brevoWebhookButton};
             layer.msg(response?.message || this.source.brevoWebhookButton);
           }).fail((xhr) => {
-            layer.msg(xhr.responseJSON?.message || mailPageData.labels.testFailed);
+            const message = xhr.responseJSON?.message || mailPageData.labels.testFailed;
+            this.brevoConnection = {status: 'error', message};
+            layer.msg(message);
           }).always(() => { this.syncingBrevo = false; });
+        },
+        verifyBrevoConnection() {
+          if (this.verifyingBrevo) return;
+          const apiKey = this.$el.querySelector('[name="brevo[api_key]"]')?.value || '';
+          const timeout = this.$el.querySelector('[name="brevo[timeout]"]')?.value || 15;
+          const sender = this.$el.querySelector('[name="mail_senders[{{ $defaultSenderCategory }}][address]"]')?.value || '';
+          if (!apiKey && !this.brevoConfigured) {
+            this.brevoConnection = {status: 'error', message: '{{ __('admin/setting.brevo_api_key_required') }}'};
+            return;
+          }
+          this.verifyingBrevo = true;
+          this.brevoConnection = {status: '', message: ''};
+          $.ajax({
+            url: mailPageData.brevoVerifyUrl,
+            method: 'POST',
+            data: {api_key: apiKey, timeout, sender},
+            headers: {'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content, Accept: 'application/json'},
+          }).done((response) => {
+            const payload = response?.data?.data || response?.data || {};
+            const status = payload.sender_status === 'ok' ? 'success' : 'warning';
+            const message = [response?.message || mailPageData.labels.brevoVerifySuccess, payload.sender_message || ''].filter(Boolean).join(' ');
+            this.brevoConnection = {status, message};
+          }).fail((xhr) => {
+            this.brevoConnection = {status: 'error', message: xhr.responseJSON?.message || mailPageData.labels.brevoVerifyFailed};
+          }).always(() => { this.verifyingBrevo = false; });
         },
         async copyDnsValue(value) {
           if (!value) return;

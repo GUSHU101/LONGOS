@@ -12,6 +12,7 @@
 
 namespace Beike\Admin\Http\Controllers;
 
+use App\Mail\BrevoConnectionService;
 use App\Mail\BrevoSettings;
 use App\Mail\BrevoWebhookManager;
 use App\Mail\CloudflareMailDnsService;
@@ -481,6 +482,34 @@ class SettingController extends Controller
                 'exception' => $exception::class,
             ]);
 
+            return json_fail(MailLog::sanitizeError($exception->getMessage()));
+        }
+    }
+
+    /** Verify a saved or newly entered key without sending an email. */
+    public function verifyBrevoConnection(
+        Request $request,
+        BrevoSettings $settings,
+        BrevoConnectionService $connection,
+    ): JsonResponse {
+        $data = $request->validate([
+            'api_key' => ['nullable', 'string', 'max:512'],
+            'timeout' => ['nullable', 'integer', 'between:3,60'],
+            'sender'  => ['nullable', 'email:rfc', 'max:255'],
+        ]);
+
+        try {
+            $runtime = $settings->runtime();
+            $apiKey  = trim((string) ($data['api_key'] ?? '')) ?: $runtime['api_key'];
+            $timeout = (int) ($data['timeout'] ?? $runtime['timeout']);
+            $sender  = trim((string) ($data['sender'] ?? ''));
+            if ($sender === '') {
+                $sender = app(MailSenderProfileService::class)->resolve(MailSenderProfileService::DEFAULT)['address'];
+            }
+            $result = $connection->inspect($apiKey, $timeout, $sender);
+
+            return json_success(trans('admin/setting.brevo_verify_success'), $result);
+        } catch (Throwable $exception) {
             return json_fail(MailLog::sanitizeError($exception->getMessage()));
         }
     }
