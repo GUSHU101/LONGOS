@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Http\Controllers\CloudMailRelayController;
+use App\Mail\CloudMailBrevoGateway;
 use App\Mail\CloudMailTenantResolver;
 use App\Mail\MailSenderProfileService;
 use App\Saas\Models\Domain;
@@ -303,6 +304,59 @@ class CloudMailIntegrationTokenTest extends TestCase
             ['HTTP_AUTHORIZATION' => 'Bearer ' . $plain],
         );
         self::assertSame(200, (new CloudMailRelayController)->health($health, $this->tenantResolver())->getStatusCode());
+    }
+
+    public function test_gateway_keeps_the_cloud_mail_contract_when_brevo_is_active(): void
+    {
+        $issued = AdminUserTokenRepo::issue(
+            1,
+            'Cloud Mail Brevo gateway',
+            [AdminUserTokenRepo::ABILITY_CLOUD_MAIL_SEND, AdminUserTokenRepo::ABILITY_CLOUD_MAIL_HEALTH],
+            now()->addDay(),
+        );
+        $gateway = new class extends CloudMailBrevoGateway
+        {
+            public array $payload = [];
+
+            public function __construct() {}
+
+            public function send(array $payload): array
+            {
+                $this->payload = $payload;
+
+                return ['accepted' => true, 'messageId' => 'brevo-message', 'provider' => 'brevo'];
+            }
+
+            public function health(): array
+            {
+                return ['status' => 'ok', 'provider' => 'brevo'];
+            }
+        };
+        $this->app->instance(CloudMailBrevoGateway::class, $gateway);
+        config(['mail.default' => 'brevo']);
+        Http::fake();
+
+        $controller = new CloudMailRelayController;
+        $response   = $controller->send(
+            $this->sendRequest($issued['plain_text_token'], 'orders@mail.example.com', 'https://admin.example.com/_longos/mail-relay/v1/send'),
+            new MailSenderProfileService,
+            $this->tenantResolver(),
+        );
+
+        self::assertSame(202, $response->getStatusCode());
+        self::assertSame('brevo', $response->getData(true)['provider']);
+        self::assertSame('cloud-mail', data_get($gateway->payload, 'senderContext.source'));
+        self::assertSame('compose', data_get($gateway->payload, 'senderContext.category'));
+
+        $healthRequest = Request::create(
+            'https://admin.example.com/_longos/mail-relay/health',
+            'GET',
+            server: ['HTTP_AUTHORIZATION' => 'Bearer ' . $issued['plain_text_token']],
+        );
+        $health = $controller->health($healthRequest, $this->tenantResolver());
+        self::assertSame(200, $health->getStatusCode());
+        self::assertSame('brevo', $health->getData(true)['provider']);
+        Http::assertNothingSent();
     }
 
     public function test_reveal_endpoint_is_owner_scoped_and_never_cacheable(): void

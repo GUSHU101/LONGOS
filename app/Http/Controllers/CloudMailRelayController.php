@@ -3,10 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Mail\CloudflareMailDnsService;
+use App\Mail\CloudMailBrevoGateway;
 use App\Mail\CloudMailTenantResolver;
 use App\Mail\Exceptions\MailSenderAuthorizationException;
 use App\Mail\MailSenderProfileService;
 use Beike\Models\AdminUserToken;
+use Beike\Models\MailLog;
 use Beike\Repositories\AdminUserTokenRepo;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
@@ -82,6 +84,31 @@ class CloudMailRelayController extends Controller
             return $this->error('Request body is too large after sender context normalization.', Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
         }
 
+        if ($this->usesBrevo()) {
+            try {
+                $result = app(CloudMailBrevoGateway::class)->send($payload);
+
+                return response()->json($result, Response::HTTP_ACCEPTED, [
+                    'Cache-Control'          => 'no-store',
+                    'X-Content-Type-Options' => 'nosniff',
+                ]);
+            } catch (\InvalidArgumentException $exception) {
+                return $this->error(MailLog::sanitizeError($exception->getMessage()), Response::HTTP_BAD_REQUEST);
+            } catch (Throwable $exception) {
+                $deliveryId = trim((string) ($payload['requestId'] ?? ''));
+                if (preg_match('/^[a-zA-Z0-9._:-]{1,128}$/D', $deliveryId) === 1) {
+                    MailLog::query()->where('delivery_id', $deliveryId)->latest('id')->first()?->update([
+                        'status'          => MailLog::STATUS_FAILED,
+                        'error_message'   => MailLog::sanitizeError($exception->getMessage()),
+                        'last_attempt_at' => now(),
+                    ]);
+                }
+                report($exception);
+
+                return $this->error('Brevo did not accept the Cloud Mail message.', Response::HTTP_BAD_GATEWAY);
+            }
+        }
+
         return $this->forward('POST', 'v1/send', $encoded);
     }
 
@@ -93,6 +120,18 @@ class CloudMailRelayController extends Controller
 
         if (! $this->authenticate($request, AdminUserTokenRepo::ABILITY_CLOUD_MAIL_HEALTH)) {
             return $this->error('Invalid or expired integration token.', Response::HTTP_UNAUTHORIZED);
+        }
+
+        if ($this->usesBrevo()) {
+            try {
+                return response()->json(
+                    app(CloudMailBrevoGateway::class)->health(),
+                    Response::HTTP_OK,
+                    ['Cache-Control' => 'no-store', 'X-Content-Type-Options' => 'nosniff'],
+                );
+            } catch (Throwable) {
+                return $this->error('Brevo mail delivery is unavailable.', Response::HTTP_SERVICE_UNAVAILABLE);
+            }
         }
 
         return $this->forward('GET', 'health', '');
@@ -200,6 +239,11 @@ class CloudMailRelayController extends Controller
         }
 
         return $scheme === 'https' || ($scheme === 'http' && in_array($host, ['mail-relay', '127.0.0.1', 'localhost'], true));
+    }
+
+    private function usesBrevo(): bool
+    {
+        return strtolower(trim((string) config('mail.default', ''))) === 'brevo';
     }
 
     private function error(string $message, int $status): JsonResponse

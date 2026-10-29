@@ -16,7 +16,7 @@ LONGOS app / worker -> HTTPS 443 -> Brevo -> 收件方
 3. 进入 **系统 → 邮件设置**，选择“Brevo 事务邮件 API（推荐）”，填写已认证域下的默认发件人和 API Key，保存。LONGOS 使用 `APP_KEY` 加密保存 API Key，后台和日志不回显明文。
 4. 重新打开邮件设置，点击“同步 Brevo 回执”。LONGOS 会为当前站点创建带随机 Bearer Token 的事务邮件 Webhook。
 5. 点击“立即检测”；页面应同时显示 API Key、发件域和投递回执通过。再发送测试邮件，邮件日志会从“已提交”更新为“已投递”，或显示延迟、退信、拦截的真实原因。
-6. 完成一封“已投递”的烟雾测试后，可在 Coolify 停止并删除第二台服务器上的 Remote Mail Node 资源。如果 Cloudflare Email Routing 仍用于收信，其 MX/Worker 可保留；它与 Brevo 外发不冲突。
+6. 完成一封“已投递”的烟雾测试后，可在 Coolify 停止并删除第二台服务器上的 Remote Mail Node 资源。如果 Cloudflare Email Routing 仍用于收信，其 MX/Worker 可保留；它与 Brevo 外发不冲突。`longos-cloud-mail` 仍使用原有 LONGOS URL 和集成令牌，网页发信会由 LONGOS 自动转为 Brevo API，无需把 Worker 连到新的 SMTP 服务器。
 
 Brevo 模式下，不再使用 `MAIL_RELAY_ENDPOINT`、`MAIL_PUBLIC_IPS`、`MAIL_HOSTNAME`、PTR/rDNS 或第二台服务器的 Tunnel。请不要删除 Brevo 要求的 DNS 记录，也不要继续把自建 Postfix 的 DKIM/SPF 值当作 Brevo 值；以 Brevo 域验证页面为准。
 
@@ -117,7 +117,7 @@ Cloud Mail 的部署工作流会自动把令牌写入 Worker Secret；后台保�
 
 表格只展示公开 DNS 值，不显示任何私钥或 Token。完成后使用“发送测试邮件”验证真实投递链路。后台的“已发送”准确含义是“邮件已被当前传输层或 Postfix 队列接受”，最终是否进入收件箱仍取决于公网 25 端口、PTR、DNS 身份、目标服务商策略和 IP 信誉。测试提交失败时，管理员页面会显示经过统一脱敏和长度限制的直接原因，完整的脱敏结果仍保存在邮件日志中；Token、密码、签名和带凭据 URL 不会回显。
 
-Cloud Mail 的“测试连接”会携带已创建的集成令牌调用主站 `/_longos/mail-relay/health`。返回健康状态才表示应用网关、中继和 Postfix 当前可用；接口不会泄露队列内容、地址或密钥。
+Cloud Mail 的“测试连接”会携带已创建的集成令牌调用主站 `/_longos/mail-relay/health`。Brevo 模式会从主服务器实时验证 Brevo API；内置模式则检查中继与 Postfix。接口不会泄露队列内容、地址或密钥。
 
 ## 租户和分类发件身份
 
@@ -178,7 +178,7 @@ _dmarc.example.com   TXT   "v=DMARC1; p=none; rua=mailto:dmarc@example.com"
 ## 安全边界
 
 - SMTP 端口不映射、不对其他容器开放；Postfix 仅监听中继容器 loopback；
-- Cloud Mail 公网请求使用可撤销的 Bearer 集成令牌，按 `cloud-mail:send` / `cloud-mail:health` 最小权限鉴权；LONGOS 网关验证租户发件域后，再使用 HMAC-SHA256、时钟窗口和一次性 nonce 访问私有中继；
+- Cloud Mail 公网请求使用可撤销的 Bearer 集成令牌，按 `cloud-mail:send` / `cloud-mail:health` 最小权限鉴权；LONGOS 网关先验证租户发件域、收件人、正文和附件限制。Brevo 模式直接使用加密的 API Key 投递；内置模式才使用 HMAC-SHA256、时钟窗口和一次性 nonce 访问私有中继；
 - 对发件域、租户身份、单个发件人速率、附件大小和 To/Cc/Bcc 总人数进行限制；
 - 队列通知的中继失败会最多尝试 5 次并延迟重试，同一通知使用稳定投递 ID，避免“已接收但响应丢失”导致重复邮件；
 - 已接收投递的去重回执默认最长保留 24 小时，并保存在独立 Docker 持久卷中；网站或邮件容器重启后仍会复用回执。活跃回执达到 10 万条上限时会失败关闭地暂停新投递，不会提前删除去重记录而造成重复发信；
