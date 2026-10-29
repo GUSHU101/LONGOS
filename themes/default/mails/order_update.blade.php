@@ -23,6 +23,7 @@
 
 @section('title', __('mail.subject_order_' . $status, ['number' => $order->number]))
 @section('preheader', __('mail.order_preheader_' . $status, ['number' => $order->number]))
+@section('mail_category', __('mail.order_badge_' . $status))
 
 @section('content')
   <tbody>

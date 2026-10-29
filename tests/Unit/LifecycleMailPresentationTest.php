@@ -15,6 +15,11 @@ class LifecycleMailPresentationTest extends TestCase
         self::assertStringContainsString('site_brand_style()', $layout);
         self::assertStringContainsString("@yield('preheader'", $layout);
         self::assertStringContainsString('@media only screen and (max-width: 640px)', $layout);
+        self::assertStringContainsString('class="mail-header-logo"', $layout);
+        self::assertStringContainsString('max-width:190px', $layout);
+        self::assertStringContainsString('class="mail-header-banner"', $layout);
+        self::assertStringContainsString("@yield('mail_category'", $layout);
+        self::assertStringContainsString("__('mail.header_caption')", $layout);
         self::assertStringNotContainsString('min-width:320px', $layout);
         self::assertStringNotContainsString('#fd560f', strtolower($layout));
     }
@@ -29,6 +34,7 @@ class LifecycleMailPresentationTest extends TestCase
         self::assertStringContainsString('order_payment_url($order, true)', $pending);
         self::assertStringContainsString('order_access_url($order)', $pending);
         self::assertStringContainsString('payment_pending_heading', $pending);
+        self::assertStringContainsString("@section('mail_category'", $pending);
         self::assertStringContainsString("'X-BK-Mail-Type', 'payment_pending'", $newMail);
 
         self::assertStringContainsString('StateMachineService::PAID', $updateMail);
@@ -37,6 +43,7 @@ class LifecycleMailPresentationTest extends TestCase
         self::assertStringContainsString('ShipmentService::trackingUrl', $updated);
         self::assertStringContainsString('\\Beike\\Services\\ShipmentService::trackingUrl', $updated);
         self::assertStringContainsString('track_delivery', $updated);
+        self::assertStringContainsString("@section('mail_category'", $updated);
         self::assertStringContainsString('tracking_available_after_dispatch', $updated);
     }
 
@@ -48,16 +55,19 @@ class LifecycleMailPresentationTest extends TestCase
 
         self::assertStringContainsString("shop_route('home.index')", $registration);
         self::assertStringContainsString('account_benefits_heading', $registration);
+        self::assertStringContainsString("@section('mail_category'", $registration);
         self::assertSame(1, substr_count($registration, 'class="mail-button"'));
 
         self::assertStringContainsString("shop_route('account.rma.show'", $return);
         self::assertStringContainsString('\\Beike\\Repositories\\OrderProductRepo::find', $return);
         self::assertStringContainsString('return_next_heading', $return);
+        self::assertStringContainsString("@section('mail_category'", $return);
         self::assertSame(1, substr_count($return, 'class="mail-button"'));
 
         self::assertStringContainsString('orderProducts->take(3)', $recovery);
         self::assertStringContainsString('nl2br(e($template[\'message\']))', $recovery);
         self::assertStringContainsString('$recoveryUrl', $recovery);
+        self::assertStringContainsString("@section('mail_category'", $recovery);
         self::assertSame(1, substr_count($recovery, 'class="mail-button"'));
     }
 

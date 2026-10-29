@@ -13,6 +13,7 @@
 return [
     // 统一生命周期邮件
     'transactional_email'             => '账户通知',
+    'header_caption'                  => '订单、物流与账户进展，在同一处安全掌握。',
     'footer_sent_by'                  => '此邮件由 :store 发送，用于协助您管理账户与订单。',
     'visit_store'                     => '访问商城',
     'contact_support'                 => '联系客服',

@@ -7,6 +7,7 @@
 
 @section('title', __('mail.subject_registration', ['store' => $storeName]))
 @section('preheader', __('mail.registration_preheader', ['store' => $storeName]))
+@section('mail_category', __('mail.account_ready_badge'))
 
 @section('content')
   <tbody>

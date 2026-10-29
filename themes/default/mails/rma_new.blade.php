@@ -11,6 +11,7 @@
 
 @section('title', __('mail.subject_return_received', ['number' => $rma->order?->number]))
 @section('preheader', __('mail.return_preheader', ['product' => $orderProduct?->name ?: $rma->product_name]))
+@section('mail_category', __('mail.return_received_badge'))
 
 @section('content')
   <tbody>

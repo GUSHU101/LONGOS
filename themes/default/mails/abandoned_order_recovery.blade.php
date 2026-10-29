@@ -7,6 +7,7 @@
 
 @section('title', $template['subject'])
 @section('preheader', __('shop/order_recovery.email_preheader', ['number' => $order->number, 'total' => $order->total_format]))
+@section('mail_category', __('shop/order_recovery.saved_order_badge'))
 
 @section('content')
   <tbody>

@@ -13,6 +13,7 @@
 return [
     // Shared lifecycle email system
     'transactional_email'             => 'Account notification',
+    'header_caption'                  => 'Secure order, delivery and account updates in one clear place.',
     'footer_sent_by'                  => 'Sent by :store to help you manage your account and orders.',
     'visit_store'                     => 'Visit store',
     'contact_support'                 => 'Contact support',

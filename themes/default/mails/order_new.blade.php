@@ -9,6 +9,7 @@
 
 @section('title', __('mail.subject_payment_pending', ['number' => $order->number]))
 @section('preheader', __('mail.payment_pending_preheader', ['number' => $order->number, 'total' => $order->total_format]))
+@section('mail_category', __('mail.payment_pending_badge'))
 
 @section('content')
   <tbody>
