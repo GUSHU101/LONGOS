@@ -15,6 +15,11 @@ class MailSettingsPresentationTest extends TestCase
         self::assertStringContainsString("\$savedMailEngine === 'self_hosted' && \$showLegacyRelay", $view);
         self::assertStringNotContainsString("\$savedMailEngine === 'self_hosted')\n    <div class=\"card mb-4\" id=\"mail-relay-topology\"", $view);
         self::assertStringContainsString('mail-settings-provider-choice', $view);
+        self::assertStringContainsString('mail-workspace-hero', $view);
+        self::assertStringContainsString('mail-setup-nav', $view);
+        self::assertStringContainsString('mail-notification-matrix', $view);
+        self::assertStringContainsString('mail-action-grid', $view);
+        self::assertStringContainsString('mail-save-dock', $view);
         self::assertStringContainsString('id="mail-engine-brevo"', $view);
         self::assertStringContainsString('name="mail_engine" value="{{ $savedMailEngine }}" :value="mail_engine"', $view);
         self::assertStringContainsString('@click="switchToBrevo"', $view);
@@ -43,6 +48,11 @@ class MailSettingsPresentationTest extends TestCase
             foreach ([
                 'mail_migration_title',
                 'mail_migration_action',
+                'mail_workspace_title',
+                'mail_setup_nav_label',
+                'mail_notification_event',
+                'mail_test_delivery_help',
+                'mail_save_dock_title',
                 'mail_save_before_verification',
                 'mail_legacy_relay_open',
                 'mail_legacy_relay_console_title',

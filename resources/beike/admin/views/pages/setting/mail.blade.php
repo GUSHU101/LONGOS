@@ -99,29 +99,90 @@
     <x-admin-alert type="warning" msg="{{ session('warning') }}" class="mt-4"/>
   @endif
   <style>
-    .mail-settings-shell { --mail-border: #e4e7ec; --mail-muted: #667085; --mail-soft: #f8fafc; --mail-primary-soft: #f4f7ff; }
-    .mail-settings-intro { background: linear-gradient(135deg, #f8faff 0%, #fff 72%); border: 1px solid var(--mail-border); }
-    .mail-settings-section { border: 1px solid var(--mail-border); border-radius: 12px; padding: 24px; margin-bottom: 24px; background: #fff; }
-    .mail-settings-section__head { display: flex; gap: 16px; align-items: flex-start; margin-bottom: 20px; }
-    .mail-settings-step { width: 32px; height: 32px; border-radius: 50%; flex: 0 0 32px; display: inline-grid; place-items: center; color: #fff; background: var(--bs-primary); font-weight: 700; }
-    .mail-settings-section__help { color: var(--mail-muted); font-size: 12px; margin-top: 4px; }
-    .mail-settings-provider { background: var(--mail-soft); border: 1px solid var(--mail-border); border-radius: 10px; padding: 20px; }
+    .mail-settings-shell {
+      --mail-color-primary: #2458d3;
+      --mail-color-primary-strong: #173f9f;
+      --mail-color-primary-soft: #f1f5ff;
+      --mail-color-text: #172033;
+      --mail-color-muted: #667085;
+      --mail-color-border: #e4e8f0;
+      --mail-color-surface: #fff;
+      --mail-color-canvas: #f7f8fb;
+      --mail-radius-sm: 10px;
+      --mail-radius-md: 16px;
+      --mail-shadow: 0 12px 32px rgba(24, 39, 75, .07);
+      color: var(--mail-color-text);
+      background: var(--mail-color-canvas);
+      border: 0;
+      box-shadow: none;
+    }
+    .mail-settings-shell > .card-body { padding: 0; }
+    .mail-workspace-hero { position: relative; overflow: hidden; padding: 32px; color: #fff; background: linear-gradient(125deg, #15254c 0%, #244fb7 64%, #3e73ed 100%); border-radius: var(--mail-radius-md); box-shadow: var(--mail-shadow); }
+    .mail-workspace-hero::after { position: absolute; right: -84px; bottom: -116px; width: 280px; height: 280px; content: ''; border: 48px solid rgba(255,255,255,.07); border-radius: 50%; pointer-events: none; }
+    .mail-workspace-hero__eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .11em; text-transform: uppercase; opacity: .72; }
+    .mail-workspace-hero__title { margin: 8px 0; font-size: clamp(24px, 3vw, 34px); font-weight: 700; letter-spacing: -.025em; }
+    .mail-workspace-hero__copy { max-width: 720px; margin: 0; color: rgba(255,255,255,.78); line-height: 1.7; }
+    .mail-workspace-status { position: relative; z-index: 1; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .mail-workspace-status__pill { display: inline-flex; gap: 7px; align-items: center; min-height: 32px; padding: 6px 12px; color: #fff; font-size: 12px; font-weight: 600; background: rgba(9,22,55,.28); border: 1px solid rgba(255,255,255,.18); border-radius: 999px; backdrop-filter: blur(8px); }
+    .mail-workspace-status__dot { width: 7px; height: 7px; background: #ffbf47; border-radius: 50%; box-shadow: 0 0 0 3px rgba(255,191,71,.16); }
+    .mail-workspace-status__dot.is-ready { background: #5ee2a0; box-shadow: 0 0 0 3px rgba(94,226,160,.18); }
+    .mail-setup-nav { position: sticky; z-index: 8; top: 72px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 8px; margin: 16px 0 24px; background: rgba(255,255,255,.94); border: 1px solid var(--mail-color-border); border-radius: 14px; box-shadow: 0 8px 24px rgba(24,39,75,.06); backdrop-filter: blur(10px); }
+    .mail-setup-nav__item { display: flex; gap: 10px; align-items: center; min-width: 0; padding: 10px 12px; color: var(--mail-color-muted); text-decoration: none; border-radius: var(--mail-radius-sm); transition: color .18s ease, background .18s ease; }
+    .mail-setup-nav__item:hover, .mail-setup-nav__item:focus-visible { color: var(--mail-color-primary); background: var(--mail-color-primary-soft); outline: none; }
+    .mail-setup-nav__item.is-active { color: var(--mail-color-primary); background: var(--mail-color-primary-soft); }
+    .mail-setup-nav__number { display: inline-grid; width: 28px; height: 28px; flex: 0 0 28px; place-items: center; color: var(--mail-color-primary); font-size: 11px; font-weight: 800; background: var(--mail-color-primary-soft); border-radius: 8px; }
+    .mail-setup-nav__label { overflow: hidden; font-size: 12px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+    .mail-settings-section { scroll-margin-top: 92px; padding: 28px; margin-bottom: 24px; background: var(--mail-color-surface); border: 1px solid var(--mail-color-border); border-radius: var(--mail-radius-md); box-shadow: 0 5px 18px rgba(24,39,75,.035); }
+    .mail-settings-section__head { display: flex; gap: 14px; align-items: flex-start; padding-bottom: 20px; margin-bottom: 24px; border-bottom: 1px solid var(--mail-color-border); }
+    .mail-settings-section__head h5 { color: var(--mail-color-text); font-size: 18px; font-weight: 700; letter-spacing: -.015em; }
+    .mail-settings-step { display: inline-grid; width: 34px; height: 34px; flex: 0 0 34px; place-items: center; color: var(--mail-color-primary); font-size: 12px; font-weight: 800; background: var(--mail-color-primary-soft); border-radius: var(--mail-radius-sm); }
+    .mail-settings-section__help { margin-top: 5px; color: var(--mail-color-muted); font-size: 12px; line-height: 1.6; }
+    .mail-settings-provider { padding: 24px; background: var(--mail-color-canvas); border: 1px solid var(--mail-color-border); border-radius: 14px; }
     .mail-settings-status { min-height: 40px; }
-    .mail-settings-provider-choice { border: 1px solid var(--mail-border); border-radius: 12px; padding: 20px; background: #fff; transition: border-color .18s ease, box-shadow .18s ease, background .18s ease; cursor: pointer; }
-    .mail-settings-provider-choice:hover { border-color: rgba(var(--bs-primary-rgb), .45); }
-    .mail-settings-provider-choice:focus-within { border-color: var(--bs-primary); box-shadow: 0 0 0 3px rgba(var(--bs-primary-rgb), .12); }
-    .mail-settings-provider-choice.is-active { border-color: var(--bs-primary); background: var(--mail-primary-soft); box-shadow: 0 8px 24px rgba(33, 85, 205, .08); }
-    .mail-settings-provider-choice__icon { width: 40px; height: 40px; flex: 0 0 40px; display: inline-grid; place-items: center; border-radius: 10px; color: var(--bs-primary); background: #fff; border: 1px solid rgba(var(--bs-primary-rgb), .18); font-size: 20px; }
-    .mail-settings-benefits { display: flex; flex-wrap: wrap; gap: 8px 16px; color: var(--mail-muted); font-size: 12px; }
-    .mail-settings-benefits span { display: inline-flex; align-items: center; gap: 5px; }
-    .mail-settings-migration { border: 1px solid #f3d19e; background: #fffaf2; border-radius: 12px; }
-    .mail-settings-compatibility > summary { cursor: pointer; list-style: none; }
-    .mail-settings-compatibility > summary::-webkit-details-marker { display: none; }
-    .mail-settings-advanced > summary { cursor: pointer; list-style: none; }
-    .mail-settings-advanced > summary::-webkit-details-marker { display: none; }
+    .mail-settings-provider-choice { display: block; padding: 24px; background: #fff; border: 1px solid var(--mail-color-border); border-radius: 14px; cursor: pointer; transition: border-color .18s ease, box-shadow .18s ease, background .18s ease; }
+    .mail-settings-provider-choice:hover { border-color: rgba(36,88,211,.45); }
+    .mail-settings-provider-choice:focus-within { border-color: var(--mail-color-primary); box-shadow: 0 0 0 3px rgba(36,88,211,.12); }
+    .mail-settings-provider-choice.is-active { background: var(--mail-color-primary-soft); border-color: var(--mail-color-primary); box-shadow: 0 10px 28px rgba(36,88,211,.09); }
+    .mail-settings-provider-choice__icon { display: inline-grid; width: 44px; height: 44px; flex: 0 0 44px; place-items: center; color: var(--mail-color-primary); font-size: 21px; background: #fff; border: 1px solid rgba(36,88,211,.18); border-radius: 12px; }
+    .mail-settings-benefits { display: flex; flex-wrap: wrap; gap: 8px 18px; color: var(--mail-color-muted); font-size: 12px; }
+    .mail-settings-benefits span { display: inline-flex; gap: 5px; align-items: center; }
+    .mail-settings-migration { color: var(--mail-color-text); background: #fff9ed; border: 1px solid #f3d19e; border-radius: 12px; }
+    .mail-settings-compatibility, .mail-settings-advanced { overflow: hidden; background: #fbfcfe; border: 1px solid var(--mail-color-border) !important; border-radius: 12px !important; }
+    .mail-settings-compatibility > summary, .mail-settings-advanced > summary { cursor: pointer; list-style: none; }
+    .mail-settings-compatibility > summary::-webkit-details-marker, .mail-settings-advanced > summary::-webkit-details-marker { display: none; }
+    .mail-identity-card { padding: 20px; background: var(--mail-color-canvas); border: 1px solid var(--mail-color-border); border-radius: 14px; }
+    .mail-fields-grid { display: grid; grid-template-columns: 1.25fr 1fr 1fr; gap: 16px; }
+    .mail-field label { margin-bottom: 7px; font-size: 12px; font-weight: 700; }
+    .mail-field .form-control { min-height: 42px; background: #fff; }
+    .mail-identity-overrides > summary { padding: 16px 18px; cursor: pointer; list-style: none; }
+    .mail-identity-overrides > summary::-webkit-details-marker { display: none; }
+    .mail-notification-matrix { overflow: hidden; border: 1px solid var(--mail-color-border); border-radius: 14px; }
+    .mail-notification-row { display: grid; grid-template-columns: minmax(220px, 1fr) 150px 150px; align-items: center; min-height: 72px; padding: 0 20px; border-top: 1px solid var(--mail-color-border); }
+    .mail-notification-row:first-child { border-top: 0; }
+    .mail-notification-row.is-head { min-height: 44px; color: var(--mail-color-muted); font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; background: var(--mail-color-canvas); }
+    .mail-notification-event { display: flex; gap: 12px; align-items: center; }
+    .mail-notification-event__icon { display: inline-grid; width: 36px; height: 36px; flex: 0 0 36px; place-items: center; color: var(--mail-color-primary); background: var(--mail-color-primary-soft); border-radius: 10px; }
+    .mail-notification-toggle { display: flex; justify-content: center; }
+    .mail-action-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(280px, .7fr); gap: 16px; }
+    .mail-action-card { height: 100%; padding: 20px; background: var(--mail-color-canvas); border: 1px solid var(--mail-color-border); border-radius: 14px; }
+    .mail-action-card__icon { display: inline-grid; width: 38px; height: 38px; place-items: center; color: var(--mail-color-primary); background: var(--mail-color-primary-soft); border-radius: 10px; }
+    .mail-save-dock { position: sticky; z-index: 7; bottom: 12px; display: flex; gap: 16px; align-items: center; justify-content: space-between; padding: 14px 16px; margin-top: 24px; background: rgba(255,255,255,.96); border: 1px solid var(--mail-color-border); border-radius: 14px; box-shadow: 0 14px 36px rgba(24,39,75,.14); backdrop-filter: blur(12px); }
+    @media (max-width: 991.98px) {
+      .mail-setup-nav { position: static; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .mail-fields-grid, .mail-action-grid { grid-template-columns: 1fr; }
+    }
     @media (max-width: 767.98px) {
-      .mail-settings-section { padding: 16px; border-radius: 10px; }
+      .mail-workspace-hero { padding: 24px 20px; border-radius: 12px; }
+      .mail-setup-nav { grid-template-columns: 1fr 1fr; }
+      .mail-setup-nav__item { padding: 8px; }
+      .mail-setup-nav__label { font-size: 11px; }
+      .mail-settings-section { padding: 20px 16px; border-radius: 12px; }
       .mail-settings-provider { padding: 16px; }
+      .mail-notification-row { grid-template-columns: 1fr 70px 70px; padding: 0 12px; }
+      .mail-notification-row.is-head > :first-child { font-size: 0; }
+      .mail-notification-event__copy small { display: none; }
+      .mail-save-dock { bottom: 8px; }
+      .mail-save-dock__copy { display: none; }
     }
   </style>
   @if($canManageMailRelay && $mailRelayRuntime && $savedMailEngine === 'self_hosted' && $showLegacyRelay)
@@ -401,16 +462,27 @@
 
         @hook('admin.setting.mail.before')
 
-        <div class="mail-settings-intro rounded p-4 mb-4">
-          <div class="d-flex flex-column flex-lg-row justify-content-between gap-3">
-            <div>
-              <h4 class="mb-1">{{ __('admin/setting.mail_page_title') }}</h4>
-              <div class="text-secondary">{{ __('admin/setting.mail_page_help') }}</div>
-            </div>
-            <div class="d-flex align-items-center gap-2">
-              <span class="badge rounded-pill" :class="mail_engine === 'brevo' ? 'bg-success' : (mail_engine ? 'bg-secondary' : 'bg-warning text-dark')">
-                @{{ mail_engine === 'brevo' ? source.brevoRecommended : (mail_engine ? source.advancedEngine : source.notConfigured) }}
-              </span>
+        <header class="mail-workspace-hero">
+          <div class="position-relative" style="z-index: 1">
+            <div class="mail-workspace-hero__eyebrow">{{ __('admin/setting.mail_workspace_eyebrow') }}</div>
+            <div class="d-flex flex-column flex-lg-row align-items-lg-end justify-content-between gap-4">
+              <div>
+                <h3 class="mail-workspace-hero__title">{{ __('admin/setting.mail_workspace_title') }}</h3>
+                <p class="mail-workspace-hero__copy">{{ __('admin/setting.mail_workspace_subtitle') }}</p>
+              </div>
+              <div class="mail-workspace-status" aria-live="polite">
+                <span class="mail-workspace-status__pill">
+                  <span class="mail-workspace-status__dot" :class="{'is-ready': mail_engine === 'brevo'}"></span>
+                  @{{ mail_engine === 'brevo' ? source.brevoRecommended : (mail_engine ? source.advancedEngine : source.notConfigured) }}
+                </span>
+                <span class="mail-workspace-status__pill">
+                  <i class="bi" :class="brevoConfigured ? 'bi-shield-check' : 'bi-shield-exclamation'"></i>
+                  @{{ brevoConfigured ? source.credentialSaved : source.credentialMissing }}
+                </span>
+                <span class="mail-workspace-status__pill" v-if="hasUnsavedChanges">
+                  <i class="bi bi-pencil-square"></i>@{{ source.unsavedChanges }}
+                </span>
+              </div>
             </div>
           </div>
           <div v-if="mail_engine === 'self_hosted'" class="mail-settings-migration d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3 p-3 mt-4" role="status">
@@ -425,9 +497,24 @@
               <i class="bi bi-cloud-arrow-up me-1"></i>{{ __('admin/setting.mail_migration_action') }}
             </button>
           </div>
-        </div>
+        </header>
 
-        <section class="mail-settings-section" aria-labelledby="mail-provider-title">
+        <nav class="mail-setup-nav" aria-label="{{ __('admin/setting.mail_setup_nav_label') }}">
+          <a class="mail-setup-nav__item" :class="{'is-active': activeSection === 'mail-service'}" href="#mail-service" @click="activeSection = 'mail-service'">
+            <span class="mail-setup-nav__number">01</span><span class="mail-setup-nav__label">{{ __('admin/setting.mail_provider_title') }}</span>
+          </a>
+          <a class="mail-setup-nav__item" :class="{'is-active': activeSection === 'mail-identity'}" href="#mail-identity" @click="activeSection = 'mail-identity'">
+            <span class="mail-setup-nav__number">02</span><span class="mail-setup-nav__label">{{ __('admin/setting.mail_identity_title') }}</span>
+          </a>
+          <a class="mail-setup-nav__item" :class="{'is-active': activeSection === 'mail-notifications'}" href="#mail-notifications" @click="activeSection = 'mail-notifications'">
+            <span class="mail-setup-nav__number">03</span><span class="mail-setup-nav__label">{{ __('admin/setting.mail_notifications_title') }}</span>
+          </a>
+          <a class="mail-setup-nav__item" :class="{'is-active': activeSection === 'mail-verification'}" href="#mail-verification" @click="activeSection = 'mail-verification'">
+            <span class="mail-setup-nav__number">04</span><span class="mail-setup-nav__label">{{ __('admin/setting.mail_verification_title') }}</span>
+          </a>
+        </nav>
+
+        <section class="mail-settings-section" id="mail-service" aria-labelledby="mail-provider-title">
           <div class="mail-settings-section__head">
             <span class="mail-settings-step">1</span>
             <div>
@@ -523,7 +610,7 @@
           </div>
         </section>
 
-        <section class="mail-settings-section" aria-labelledby="mail-sender-title">
+        <section class="mail-settings-section" id="mail-identity" aria-labelledby="mail-sender-title">
           <div class="mail-settings-section__head">
             <span class="mail-settings-step">2</span>
             <div>
@@ -531,12 +618,10 @@
               <div class="mail-settings-section__help">{{ __('admin/setting.mail_sender_profiles_info') }}</div>
             </div>
           </div>
-        <x-admin::form.row :title="__('admin/setting.mail_sender_profiles')">
-          <div class="help-text font-size-12 lh-base mb-2">{{ __('admin/setting.mail_sender_profiles_info') }}</div>
-          <div v-if="mail_engine === 'brevo'" class="alert alert-info py-2 mb-0 font-size-12">
-            <i class="bi bi-info-circle me-1"></i>{{ __('admin/setting.brevo_sender_help') }}
-          </div>
-          <div v-if="mail_engine === 'self_hosted'">
+        <div v-if="mail_engine === 'brevo'" class="alert alert-primary border-0 py-3 px-3 mb-3 font-size-12">
+          <i class="bi bi-patch-check me-1"></i>{{ __('admin/setting.brevo_sender_help') }}
+        </div>
+        <div v-if="mail_engine === 'self_hosted'">
           @if (config('mail.relay.platform_sender_domain'))
             <div class="alert alert-light border py-2 mb-0 font-size-12">
               {{ __('admin/setting.mail_sender_platform_rule', ['domain' => config('mail.relay.platform_sender_domain'), 'suffix' => current_site() && !data_get(current_site()?->meta, 'control_site', false) ? '+' . current_site()?->code : '-']) }}
@@ -555,8 +640,7 @@
             @endforelse
             <div class="mt-1">{{ __('admin/setting.mail_sender_domain_switch_help') }}</div>
           </div>
-          </div>
-        </x-admin::form.row>
+        </div>
 
         @foreach([$defaultSenderCategory => $senderCategories[$defaultSenderCategory]] as $senderCategory => $senderLabelKey)
           @php
@@ -566,33 +650,51 @@
             $senderSuggestion = $senderCategorySuggestions[0] ?? '';
             $senderSuggestionListId = 'mail-sender-suggestions-' . $senderCategory;
           @endphp
-          <div class="border rounded mb-3 pt-2">
-            <div class="px-3 pb-1 fw-bold">{{ $senderTitle }}</div>
-            <x-admin-form-input name="mail_senders[{{ $senderCategory }}][address]" type="email" title="{{ __('admin/setting.mail_sender_address') }}" value="{{ old('mail_senders.' . $senderCategory . '.address', $senderProfile['address']) }}" placeholder="{{ $senderSuggestion }}" list="{{ $senderSuggestionListId }}" autocomplete="email">
-              <div class="help-text font-size-12 lh-base">
-                {{ $senderCategory === \App\Mail\MailSenderProfileService::DEFAULT ? __('admin/setting.mail_sender_default_required') : __('admin/setting.mail_sender_inherit') }}
-                @if($senderSuggestion) {{ __('admin/setting.mail_sender_suggestion', ['address' => $senderSuggestion]) }} @endif
+          <div class="mail-identity-card mb-3">
+            <div class="d-flex align-items-center gap-2 mb-3">
+              <span class="mail-action-card__icon"><i class="bi bi-person-badge"></i></span>
+              <div>
+                <div class="fw-bold">{{ $senderTitle }}</div>
+                <div class="text-secondary font-size-12">{{ __('admin/setting.mail_identity_default_help') }}</div>
               </div>
-            </x-admin-form-input>
+            </div>
+            <div class="mail-fields-grid">
+              <div class="mail-field">
+                <label for="mail-sender-{{ $senderCategory }}-address">{{ __('admin/setting.mail_sender_address') }}</label>
+                <input id="mail-sender-{{ $senderCategory }}-address" class="form-control" name="mail_senders[{{ $senderCategory }}][address]" type="email"
+                       value="{{ old('mail_senders.' . $senderCategory . '.address', $senderProfile['address']) }}" placeholder="{{ $senderSuggestion }}"
+                       list="{{ $senderSuggestionListId }}" autocomplete="email" :required="mail_engine !== ''">
+                <div class="form-text">{{ __('admin/setting.mail_sender_default_required') }}</div>
+              </div>
+              <div class="mail-field">
+                <label for="mail-sender-{{ $senderCategory }}-name">{{ __('admin/setting.mail_sender_name') }}</label>
+                <input id="mail-sender-{{ $senderCategory }}-name" class="form-control" name="mail_senders[{{ $senderCategory }}][name]" type="text"
+                       value="{{ old('mail_senders.' . $senderCategory . '.name', $senderProfile['name']) }}" autocomplete="organization">
+              </div>
+              <div class="mail-field">
+                <label for="mail-sender-{{ $senderCategory }}-reply">{{ __('admin/setting.mail_sender_reply_to') }}</label>
+                <input id="mail-sender-{{ $senderCategory }}-reply" class="form-control" name="mail_senders[{{ $senderCategory }}][reply_to]" type="email"
+                       value="{{ old('mail_senders.' . $senderCategory . '.reply_to', $senderProfile['reply_to']) }}" autocomplete="email">
+                <div class="form-text">{{ __('admin/setting.mail_sender_reply_to_info') }}</div>
+              </div>
+            </div>
             <datalist id="{{ $senderSuggestionListId }}">
               @foreach($senderCategorySuggestions as $suggestedAddress)
                 <option value="{{ $suggestedAddress }}"></option>
               @endforeach
             </datalist>
-            <x-admin-form-input name="mail_senders[{{ $senderCategory }}][name]" title="{{ __('admin/setting.mail_sender_name') }}" value="{{ old('mail_senders.' . $senderCategory . '.name', $senderProfile['name']) }}">
-            </x-admin-form-input>
-            <x-admin-form-input name="mail_senders[{{ $senderCategory }}][reply_to]" type="email" title="{{ __('admin/setting.mail_sender_reply_to') }}" value="{{ old('mail_senders.' . $senderCategory . '.reply_to', $senderProfile['reply_to']) }}">
-              <div class="help-text font-size-12 lh-base">{{ __('admin/setting.mail_sender_reply_to_info') }}</div>
-            </x-admin-form-input>
           </div>
         @endforeach
 
-        <details class="border rounded mb-4" @if($advancedSendersCustomized) open @endif>
-          <summary class="px-3 py-3 fw-bold" style="cursor: pointer">
-            {{ __('admin/setting.mail_sender_advanced') }}
-            <span class="d-block fw-normal text-secondary font-size-12 mt-1">{{ __('admin/setting.mail_sender_advanced_info') }}</span>
+        <details class="mail-identity-overrides border rounded mb-0" @if($advancedSendersCustomized) open @endif>
+          <summary class="d-flex align-items-center justify-content-between gap-3 fw-bold">
+            <span>
+              {{ __('admin/setting.mail_sender_advanced') }}
+              <span class="d-block fw-normal text-secondary font-size-12 mt-1">{{ __('admin/setting.mail_sender_advanced_info') }}</span>
+            </span>
+            <i class="bi bi-chevron-down"></i>
           </summary>
-          <div class="px-3 pb-1">
+          <div class="px-3 pb-1 pt-3 border-top">
             @foreach($advancedSenderCategories as $senderCategory => $senderLabelKey)
               @php
                 $senderProfile = $senderProfiles[$senderCategory];
@@ -601,7 +703,7 @@
                 $senderSuggestion = $senderCategorySuggestions[0] ?? '';
                 $senderSuggestionListId = 'mail-sender-suggestions-' . $senderCategory;
               @endphp
-              <div class="border rounded mb-3 pt-2">
+              <div class="mail-identity-card mb-3 pt-2">
                 <div class="px-3 pb-1 fw-bold">{{ $senderTitle }}</div>
                 <x-admin-form-input name="mail_senders[{{ $senderCategory }}][address]" type="email" title="{{ __('admin/setting.mail_sender_address') }}" value="{{ old('mail_senders.' . $senderCategory . '.address', $senderProfile['address']) }}" placeholder="{{ $senderSuggestion }}" list="{{ $senderSuggestionListId }}" autocomplete="email">
                   <div class="help-text font-size-12 lh-base">
@@ -697,7 +799,7 @@
         </div>
         </section>
 
-        <section v-if="mail_engine != ''" class="mail-settings-section" aria-labelledby="mail-notifications-title">
+        <section v-if="mail_engine != ''" class="mail-settings-section" id="mail-notifications" aria-labelledby="mail-notifications-title">
           <div class="mail-settings-section__head">
             <span class="mail-settings-step">3</span>
             <div>
@@ -705,46 +807,49 @@
               <div class="mail-settings-section__help">{{ __('admin/setting.mail_notifications_help') }}</div>
             </div>
           </div>
-          <x-admin::form.row :title="__('admin/setting.email_send_admin')">
-            <div class="input-group wp-400">
-              <input name="mail_alert[]" type="hidden" value="">
-              <div class="form-check mt-2 me-3">
-                <input class="form-check-input" type="checkbox" id="check-input-register" name="mail_alert[]" value="register" {{ in_array('register', old('mail_alert', system_setting('base.mail_alert', []))) ? 'checked' : '' }}>
-                <label class="form-check-label" for="check-input-register">{{ __('admin/setting.email_type_register') }}</label>
-              </div>
-              <div class="form-check mt-2 me-3">
-                <input class="form-check-input" type="checkbox" id="check-input-order" name="mail_alert[]" value="order" {{ in_array('order', old('mail_alert', system_setting('base.mail_alert', []))) ? 'checked' : '' }}>
-                <label class="form-check-label" for="check-input-order">{{ __('admin/setting.email_type_order') }}</label>
-              </div>
-              <div class="form-check mt-2 me-3">
-                <input class="form-check-input" type="checkbox" id="check-input-return" name="mail_alert[]" value="return" {{ in_array('return', old('mail_alert', system_setting('base.mail_alert', []))) ? 'checked' : '' }}>
-                <label class="form-check-label" for="check-input-return">{{ __('admin/setting.email_type_return') }}</label>
-              </div>
+          @php
+            $notificationEvents = [
+                'register' => ['icon' => 'bi-person-plus', 'label' => __('admin/setting.email_type_register'), 'help' => __('admin/setting.mail_notification_register_help')],
+                'order' => ['icon' => 'bi-bag-check', 'label' => __('admin/setting.email_type_order'), 'help' => __('admin/setting.mail_notification_order_help')],
+                'return' => ['icon' => 'bi-arrow-return-left', 'label' => __('admin/setting.email_type_return'), 'help' => __('admin/setting.mail_notification_return_help')],
+            ];
+            $adminNotifications = old('mail_alert', system_setting('base.mail_alert', []));
+            $customerNotifications = old('mail_customer', system_setting('base.mail_customer', []));
+          @endphp
+          <input name="mail_alert[]" type="hidden" value="">
+          <input name="mail_customer[]" type="hidden" value="">
+          <div class="mail-notification-matrix">
+            <div class="mail-notification-row is-head" aria-hidden="true">
+              <span>{{ __('admin/setting.mail_notification_event') }}</span>
+              <span class="text-center">{{ __('admin/setting.email_send_admin') }}</span>
+              <span class="text-center">{{ __('admin/setting.email_send_customer') }}</span>
             </div>
-          </x-admin::form.row>
-          <x-admin::form.row :title="__('admin/setting.email_send_customer')">
-            <input name="mail_customer[]" type="hidden" value="">
-            <div class="input-group wp-400">
-              <div class="form-check mt-2 me-3">
-                <input class="form-check-input" type="checkbox" id="check-input-customer-register" name="mail_customer[]" value="register" {{ in_array('register', old('mail_customer', system_setting('base.mail_customer', []))) ? 'checked' : '' }}>
-                <label class="form-check-label" for="check-input-customer-register">{{ __('admin/setting.email_type_register') }}</label>
+            @foreach($notificationEvents as $event => $definition)
+              <div class="mail-notification-row">
+                <div class="mail-notification-event">
+                  <span class="mail-notification-event__icon"><i class="bi {{ $definition['icon'] }}"></i></span>
+                  <span class="mail-notification-event__copy">
+                    <span class="d-block fw-bold">{{ $definition['label'] }}</span>
+                    <small class="text-secondary">{{ $definition['help'] }}</small>
+                  </span>
+                </div>
+                <div class="mail-notification-toggle form-check form-switch">
+                  <input class="form-check-input" type="checkbox" role="switch" id="mail-admin-{{ $event }}" name="mail_alert[]" value="{{ $event }}"
+                         aria-label="{{ __('admin/setting.email_send_admin') }} · {{ $definition['label'] }}" @checked(in_array($event, $adminNotifications, true))>
+                </div>
+                <div class="mail-notification-toggle form-check form-switch">
+                  <input class="form-check-input" type="checkbox" role="switch" id="mail-customer-{{ $event }}" name="mail_customer[]" value="{{ $event }}"
+                         aria-label="{{ __('admin/setting.email_send_customer') }} · {{ $definition['label'] }}" @checked(in_array($event, $customerNotifications, true))>
+                </div>
               </div>
-              <div class="form-check mt-2 me-3">
-                <input class="form-check-input" type="checkbox" id="check-input-customer-order" name="mail_customer[]" value="order" {{ in_array('order', old('mail_customer', system_setting('base.mail_customer', []))) ? 'checked' : '' }}>
-                <label class="form-check-label" for="check-input-customer-order">{{ __('admin/setting.email_type_order') }}</label>
-              </div>
-              <div class="form-check mt-2 me-3">
-                <input class="form-check-input" type="checkbox" id="check-input-customer-return" name="mail_customer[]" value="return" {{ in_array('return', old('mail_customer', system_setting('base.mail_customer', []))) ? 'checked' : '' }}>
-                <label class="form-check-label" for="check-input-customer-return">{{ __('admin/setting.email_type_return') }}</label>
-              </div>
-            </div>
-            <div class="help-text lh-base smtp-qq-hint d-none">{{ __('admin/setting.smtp_qq_hint') }}</div>
-          </x-admin::form.row>
+            @endforeach
+          </div>
+          <div class="help-text lh-base smtp-qq-hint d-none mt-2">{{ __('admin/setting.smtp_qq_hint') }}</div>
         </section>
 
         @hook('admin.setting.mail.after')
 
-        <section class="mail-settings-section" aria-labelledby="mail-verification-title">
+        <section class="mail-settings-section" id="mail-verification" aria-labelledby="mail-verification-title">
           <div class="mail-settings-section__head">
             <span class="mail-settings-step">4</span>
             <div>
@@ -755,11 +860,15 @@
           <div v-if="hasUnsavedEngineChange" class="alert alert-warning py-2 px-3" role="status">
             <i class="bi bi-exclamation-triangle me-1"></i>{{ __('admin/setting.mail_save_before_verification') }}
           </div>
-          <div class="border rounded p-3 mb-4" aria-live="polite" id="mail-diagnostics">
+          <div class="mail-action-grid">
+          <div class="mail-action-card" aria-live="polite" id="mail-diagnostics">
             <div class="d-flex flex-column flex-sm-row align-items-sm-center justify-content-between gap-2">
-              <div>
-                <div class="fw-bold">{{ __('admin/setting.mail_diagnostics_title') }}</div>
-                <div class="text-secondary font-size-12">{{ __('admin/setting.mail_diagnostics_help') }}</div>
+              <div class="d-flex align-items-center gap-3">
+                <span class="mail-action-card__icon"><i class="bi bi-heart-pulse"></i></span>
+                <div>
+                  <div class="fw-bold">{{ __('admin/setting.mail_diagnostics_title') }}</div>
+                  <div class="text-secondary font-size-12">{{ __('admin/setting.mail_diagnostics_help') }}</div>
+                </div>
               </div>
               <div class="d-flex flex-wrap gap-2">
                 <button v-if="dnsSyncAvailable && mail_engine === 'self_hosted'" type="button" class="btn btn-outline-primary" :disabled="diagnosing || syncingDns" @click="syncMailDns">
@@ -801,15 +910,23 @@
             </div>
           </div>
 
-          <div>
-            <label class="form-label fw-bold" for="mail-test-recipient">{{ __('admin/setting.mail_test_title') }}</label>
-            <div class="d-flex flex-column flex-sm-row gap-2 align-items-sm-center">
-              <input id="mail-test-recipient" v-model.trim="testRecipient" type="email" class="form-control" :placeholder="source.testRecipientLabel" @keyup.enter.prevent="sendTestMail">
-              <button type="button" class="btn btn-outline-primary text-nowrap" :disabled="testing || !testRecipient || !mail_engine || hasUnsavedEngineChange" @click="sendTestMail">
-                <i class="bi bi-send me-1"></i>@{{ testing ? source.testSendingLabel : source.testButtonLabel }}
-              </button>
+          <div class="mail-action-card">
+            <div class="d-flex align-items-center gap-3 mb-3">
+              <span class="mail-action-card__icon"><i class="bi bi-send-check"></i></span>
+              <div>
+                <label class="form-label fw-bold mb-0" for="mail-test-recipient">{{ __('admin/setting.mail_test_title') }}</label>
+                <div class="text-secondary font-size-12">{{ __('admin/setting.mail_test_card_help') }}</div>
+              </div>
             </div>
-            <div class="help-text font-size-12 lh-base mt-2">{{ __('admin/setting.mail_test_info') }}</div>
+            <input id="mail-test-recipient" v-model.trim="testRecipient" type="email" class="form-control mb-2" :placeholder="source.testRecipientLabel" @keyup.enter.prevent="sendTestMail">
+            <button type="button" class="btn btn-primary w-100" :disabled="testing || !testRecipient || !mail_engine || hasUnsavedEngineChange" @click="sendTestMail">
+              <i class="bi bi-send me-1"></i>@{{ testing ? source.testSendingLabel : source.testButtonLabel }}
+            </button>
+            <div class="help-text font-size-12 lh-base mt-3">{{ __('admin/setting.mail_test_info') }}</div>
+            <div v-if="savedMailEngine === 'brevo'" class="d-flex align-items-start gap-2 mt-3 pt-3 border-top text-secondary font-size-12">
+              <i class="bi bi-info-circle mt-1"></i><span>{{ __('admin/setting.mail_test_delivery_help') }}</span>
+            </div>
+          </div>
           </div>
         </section>
 
@@ -839,7 +956,11 @@
           </div>
         </details>
 
-        <div class="d-flex justify-content-end border-top pt-4">
+        <div class="mail-save-dock">
+          <div class="mail-save-dock__copy">
+            <div class="fw-bold">{{ __('admin/setting.mail_save_dock_title') }}</div>
+            <div class="text-secondary font-size-12">{{ __('admin/setting.mail_save_dock_help') }}</div>
+          </div>
           <button type="submit" class="btn btn-primary px-4"><i class="bi bi-check2-circle me-1"></i>{{ __('admin/setting.mail_save_button') }}</button>
         </div>
       </form>
@@ -857,6 +978,9 @@
       data: {
         mail_engine: mailPageData.mailEngine,
         savedMailEngine: mailPageData.mailEngine,
+        activeSection: 'mail-service',
+        formDirty: false,
+        sectionObserver: null,
         testRecipient: mailPageData.testRecipient,
         testing: false,
         diagnosing: false,
@@ -878,6 +1002,7 @@
           notConfigured: '{{ __('admin/setting.mail_status_disabled') }}',
           credentialSaved: '{{ __('admin/setting.brevo_credential_saved') }}',
           credentialMissing: '{{ __('admin/setting.brevo_credential_missing') }}',
+          unsavedChanges: '{{ __('admin/setting.mail_unsaved_changes') }}',
           brevoVerifyButton: '{{ __('admin/setting.brevo_verify_button') }}',
           brevoVerifying: '{{ __('admin/setting.brevo_verifying') }}',
           testRecipientLabel: mailPageData.labels.testRecipient,
@@ -903,6 +1028,32 @@
         hasUnsavedEngineChange() {
           return this.mail_engine !== this.savedMailEngine;
         },
+        hasUnsavedChanges() {
+          return this.hasUnsavedEngineChange || this.formDirty;
+        },
+      },
+      mounted() {
+        const markDirty = (event) => {
+          if (event.target instanceof Element && event.target.closest('form') === this.$el) this.formDirty = true;
+        };
+        this.$el.addEventListener('input', markDirty);
+        this.$el.addEventListener('change', markDirty);
+
+        if ('IntersectionObserver' in window) {
+          this.sectionObserver = new IntersectionObserver((entries) => {
+            const visible = entries
+              .filter((entry) => entry.isIntersecting)
+              .sort((left, right) => right.intersectionRatio - left.intersectionRatio)[0];
+            if (visible?.target?.id) this.activeSection = visible.target.id;
+          }, {rootMargin: '-18% 0px -62% 0px', threshold: [0, .15, .45]});
+          ['mail-service', 'mail-identity', 'mail-notifications', 'mail-verification']
+            .map((id) => document.getElementById(id))
+            .filter(Boolean)
+            .forEach((section) => this.sectionObserver.observe(section));
+        }
+      },
+      beforeDestroy() {
+        this.sectionObserver?.disconnect();
       },
       methods: {
         switchToBrevo() {
