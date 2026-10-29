@@ -17,7 +17,7 @@ use Throwable;
  */
 final class MailRelayRuntimeSettings
 {
-    private const SCHEMA = 1;
+    private const SCHEMA = 2;
 
     private const MAX_FILE_BYTES = 65536;
 
@@ -68,6 +68,7 @@ final class MailRelayRuntimeSettings
         return [
             'values'            => $values,
             'deployment_values' => $this->environment,
+            'node_environment'  => MailRelayNodeProfile::environmentLines($values),
             'source'            => $this->lastError !== null ? 'invalid' : ($persisted ? 'control_panel' : 'deployment'),
             'updated_at'        => is_int($updatedAt) ? date(DATE_ATOM, $updatedAt) : null,
             'error'             => $this->lastError,
@@ -170,8 +171,9 @@ final class MailRelayRuntimeSettings
                 throw new RuntimeException('共享邮件出口配置大小无效。');
             }
             $payload = json_decode((string) file_get_contents($path), true, 32, JSON_THROW_ON_ERROR);
+            $schema  = is_array($payload) ? (int) ($payload['schema'] ?? 0) : 0;
             if (! is_array($payload)
-                || (int) ($payload['schema'] ?? 0) !== self::SCHEMA
+                || ! in_array($schema, [1, self::SCHEMA], true)
                 || ! is_array($payload['values'] ?? null)) {
                 throw new RuntimeException('共享邮件出口配置版本无效。');
             }
@@ -264,6 +266,9 @@ final class MailRelayRuntimeSettings
             'allowed_sender_domains'     => $allowed,
             'platform_sender_domain'     => $platform,
             'dkim_selector'              => $selector,
+            'node'                       => MailRelayNodeProfile::normalize(
+                is_array($values['node'] ?? null) ? $values['node'] : [],
+            ),
         ];
     }
 
@@ -283,6 +288,7 @@ final class MailRelayRuntimeSettings
             'allowed_sender_domains'     => config('mail.relay.allowed_sender_domains', []),
             'platform_sender_domain'     => config('mail.relay.platform_sender_domain'),
             'dkim_selector'              => config('mail.relay.dkim_selector', 'mail2026'),
+            'node'                       => MailRelayNodeProfile::defaults(),
         ];
     }
 

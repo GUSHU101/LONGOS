@@ -2,6 +2,7 @@
 
 namespace Tests\Unit;
 
+use App\Mail\MailRelayNodeProfile;
 use App\Mail\MailRelayRuntimeSettings;
 use Illuminate\Config\Repository;
 use Illuminate\Container\Container;
@@ -43,6 +44,7 @@ class MailRelayRuntimeSettingsTest extends TestCase
             'allowed_sender_domains'     => ['example.com'],
             'platform_sender_domain'     => 'example.com',
             'dkim_selector'              => 'mail2026',
+            'node'                       => MailRelayNodeProfile::defaults(),
         ];
         config([
             'mail.relay.longos_client_configured'     => true,
@@ -74,6 +76,8 @@ class MailRelayRuntimeSettingsTest extends TestCase
         self::assertSame('external', $saved['mode']);
         self::assertSame(['8.8.8.8', '1.1.1.1'], $saved['public_ips']);
         self::assertFalse($saved['auto_detect_public_ips']);
+        self::assertSame(8788, $saved['node']['relay_http_port']);
+        self::assertSame('cloudflare/cloudflared:2026.10.5', $saved['node']['cloudflared_image']);
         self::assertSame('https://relay-api.example.net', config('mail.mailers.self_hosted.endpoint'));
         self::assertSame(['example.com', 'mail.brand.test'], config('mail.relay.allowed_sender_domains'));
 
@@ -96,6 +100,9 @@ class MailRelayRuntimeSettingsTest extends TestCase
             ['endpoint'               => 'https://relay-api.example.net:8788'],
             ['public_ips'             => '10.0.0.8'],
             ['allowed_sender_domains' => "example.com\nunsigned.example.net"],
+            ['node'                   => ['relay_http_port' => 443]],
+            ['node'                   => ['cloudflared_image' => 'cloudflare/cloudflared:latest']],
+            ['node'                   => ['relay_memory_limit' => '128m', 'relay_memory_reservation' => '256m']],
         ] as $override) {
             try {
                 $service->save(array_replace($this->externalInput(), $override));
@@ -148,6 +155,23 @@ class MailRelayRuntimeSettingsTest extends TestCase
         self::assertSame($this->environment, $service->current());
         self::assertSame('invalid', $service->status()['source']);
         self::assertNotNull($service->status()['error']);
+    }
+
+    public function test_it_migrates_schema_one_profiles_and_renders_a_secret_free_node_environment(): void
+    {
+        file_put_contents($this->path, json_encode([
+            'schema' => 1,
+            'values' => $this->externalInput(),
+        ], JSON_THROW_ON_ERROR));
+
+        $service = new MailRelayRuntimeSettings($this->path, $this->environment);
+        $status  = $service->status();
+
+        self::assertSame('control_panel', $status['source']);
+        self::assertSame('ipv4', $status['values']['node']['inet_protocols']);
+        self::assertContains('MAIL_NODE_PROFILE_VERSION=1', $status['node_environment']);
+        self::assertContains('RELAY_HTTP_PORT=8788', $status['node_environment']);
+        self::assertStringNotContainsString('SECRET', implode("\n", $status['node_environment']));
     }
 
     /** @return array<string, mixed> */

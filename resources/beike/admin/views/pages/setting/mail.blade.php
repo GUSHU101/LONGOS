@@ -50,6 +50,7 @@
     $relayMode = in_array(data_get($relayForm, 'mode'), ['internal', 'external'], true)
         ? data_get($relayForm, 'mode')
         : 'internal';
+    $relayNode = (array) data_get($relayForm, 'node', \App\Mail\MailRelayNodeProfile::defaults());
     $mailPageData = [
         'mailEngine' => $savedMailEngine,
         'testRecipient' => old('mail_test_recipient', $senderProfiles[\App\Mail\MailSenderProfileService::DEFAULT]['address']),
@@ -226,14 +227,104 @@
             <div class="font-size-12 mt-2">{{ __('admin/setting.mail_relay_ptr_help') }}</div>
           </div>
 
-          <details id="mail-relay-node-config" class="border rounded mt-4">
+          <details id="mail-relay-node-config" class="border rounded mt-4" @if($relayMode === 'external') open @endif>
             <summary class="px-3 py-3 fw-bold" style="cursor: pointer">{{ __('admin/setting.mail_relay_node_config_title') }}</summary>
             <div class="px-3 pb-3">
-              <div class="text-secondary font-size-12 mb-2">{{ __('admin/setting.mail_relay_node_config_help') }}</div>
-              <pre class="bg-dark text-white rounded p-3 mb-2 text-break" style="white-space: pre-wrap" id="mail-relay-node-config-preview" aria-live="polite"></pre>
-              <button class="btn btn-outline-secondary btn-sm" type="button" id="mail-relay-copy-node-config">
-                <i class="bi bi-clipboard me-1"></i>{{ __('admin/setting.mail_relay_node_config_copy') }}
-              </button>
+              <div class="text-secondary font-size-12 mb-3">{{ __('admin/setting.mail_relay_node_config_help') }}</div>
+
+              <div class="row g-3">
+                <div class="col-md-4">
+                  <label class="form-label fw-bold" for="mail-relay-node-inet-protocols">{{ __('admin/setting.mail_relay_node_inet_protocols') }}</label>
+                  <select class="form-select" id="mail-relay-node-inet-protocols" name="mail_relay[node][inet_protocols]">
+                    @foreach(['ipv4', 'ipv6', 'all'] as $protocol)
+                      <option value="{{ $protocol }}" @selected(data_get($relayNode, 'inet_protocols', 'ipv4') === $protocol)>{{ $protocol }}</option>
+                    @endforeach
+                  </select>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label fw-bold" for="mail-relay-node-http-port">{{ __('admin/setting.mail_relay_node_http_port') }}</label>
+                  <input class="form-control font-monospace" type="number" min="1024" max="65535" id="mail-relay-node-http-port"
+                         name="mail_relay[node][relay_http_port]" value="{{ data_get($relayNode, 'relay_http_port', 8788) }}" required>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label fw-bold" for="mail-relay-node-volume-prefix">{{ __('admin/setting.mail_relay_node_volume_prefix') }}</label>
+                  <input class="form-control font-monospace" type="text" maxlength="63" pattern="[a-z0-9][a-z0-9-]{0,62}"
+                         id="mail-relay-node-volume-prefix" name="mail_relay[node][volume_prefix]"
+                         value="{{ data_get($relayNode, 'volume_prefix', 'longos-remote-mail') }}" required autocomplete="off" spellcheck="false">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label fw-bold" for="mail-relay-node-tunnel-protocol">{{ __('admin/setting.mail_relay_node_tunnel_protocol') }}</label>
+                  <select class="form-select" id="mail-relay-node-tunnel-protocol" name="mail_relay[node][tunnel_protocol]">
+                    @foreach(['auto', 'quic', 'http2'] as $protocol)
+                      <option value="{{ $protocol }}" @selected(data_get($relayNode, 'tunnel_protocol', 'auto') === $protocol)>{{ $protocol }}</option>
+                    @endforeach
+                  </select>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label fw-bold" for="mail-relay-node-tunnel-log-level">{{ __('admin/setting.mail_relay_node_tunnel_log_level') }}</label>
+                  <select class="form-select" id="mail-relay-node-tunnel-log-level" name="mail_relay[node][tunnel_log_level]">
+                    @foreach(['debug', 'info', 'warn', 'error', 'fatal'] as $level)
+                      <option value="{{ $level }}" @selected(data_get($relayNode, 'tunnel_log_level', 'info') === $level)>{{ $level }}</option>
+                    @endforeach
+                  </select>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label fw-bold" for="mail-relay-node-metrics-address">{{ __('admin/setting.mail_relay_node_metrics_address') }}</label>
+                  <input class="form-control font-monospace" type="text" id="mail-relay-node-metrics-address"
+                         name="mail_relay[node][tunnel_metrics_address]" value="{{ data_get($relayNode, 'tunnel_metrics_address', '127.0.0.1:20246') }}"
+                         pattern="127\.0\.0\.1:[0-9]{4,5}" required autocomplete="off" spellcheck="false">
+                </div>
+                <div class="col-12">
+                  <label class="form-label fw-bold" for="mail-relay-node-cloudflared-image">{{ __('admin/setting.mail_relay_node_cloudflared_image') }}</label>
+                  <input class="form-control font-monospace" type="text" id="mail-relay-node-cloudflared-image"
+                         name="mail_relay[node][cloudflared_image]" value="{{ data_get($relayNode, 'cloudflared_image', 'cloudflare/cloudflared:2026.10.5') }}"
+                         pattern="cloudflare/cloudflared:[0-9][a-zA-Z0-9._-]{0,63}" required autocomplete="off" spellcheck="false">
+                  <div class="form-text">{{ __('admin/setting.mail_relay_node_network_help') }}</div>
+                </div>
+              </div>
+
+              <div class="border-top mt-4 pt-3">
+                <div class="fw-bold mb-1">{{ __('admin/setting.mail_relay_node_resources') }}</div>
+                <div class="text-secondary font-size-12 mb-3">{{ __('admin/setting.mail_relay_node_resources_help') }}</div>
+                <div class="row g-3">
+                  @foreach([
+                    ['relay_memory_limit', 'mail-relay-node-relay-memory-limit', 'mail_relay_node_relay_memory_limit', '768m'],
+                    ['relay_memory_reservation', 'mail-relay-node-relay-memory-reservation', 'mail_relay_node_relay_memory_reservation', '256m'],
+                    ['relay_pids_limit', 'mail-relay-node-relay-pids-limit', 'mail_relay_node_relay_pids_limit', 256],
+                    ['tunnel_memory_limit', 'mail-relay-node-tunnel-memory-limit', 'mail_relay_node_tunnel_memory_limit', '256m'],
+                    ['tunnel_memory_reservation', 'mail-relay-node-tunnel-memory-reservation', 'mail_relay_node_tunnel_memory_reservation', '64m'],
+                    ['tunnel_pids_limit', 'mail-relay-node-tunnel-pids-limit', 'mail_relay_node_tunnel_pids_limit', 128],
+                  ] as [$field, $id, $label, $default])
+                    @php
+                      $isPidsLimit = str_ends_with($field, 'pids_limit');
+                    @endphp
+                    <div class="col-md-4">
+                      <label class="form-label" for="{{ $id }}">{{ __('admin/setting.' . $label) }}</label>
+                      <input class="form-control font-monospace" type="{{ $isPidsLimit ? 'number' : 'text' }}" id="{{ $id }}" name="mail_relay[node][{{ $field }}]"
+                             value="{{ data_get($relayNode, $field, $default) }}" required autocomplete="off" spellcheck="false"
+                             @if($isPidsLimit) min="32" max="4096" @else pattern="[1-9][0-9]{0,5}[kKmMgG]" maxlength="7" @endif>
+                    </div>
+                  @endforeach
+                </div>
+              </div>
+
+              <div class="border-top mt-4 pt-3">
+                <div class="fw-bold mb-1">{{ __('admin/setting.mail_relay_node_public_config') }}</div>
+                <div class="text-secondary font-size-12 mb-2">{{ __('admin/setting.mail_relay_node_public_config_help') }}</div>
+                <pre class="bg-dark text-white rounded p-3 mb-3 text-break" style="white-space: pre-wrap" id="mail-relay-node-config-preview" aria-live="polite"></pre>
+                <div class="alert alert-warning py-2 font-size-12">
+                  <i class="bi bi-shield-lock me-1"></i>{{ __('admin/setting.mail_relay_node_secret_names') }}
+                  <code class="d-block mt-1">LONGOS_RELAY_SHARED_SECRET · CLOUD_MAIL_RELAY_SHARED_SECRET · TUNNEL_TOKEN</code>
+                </div>
+                <div class="d-flex flex-wrap gap-2">
+                  <button class="btn btn-outline-secondary btn-sm" type="button" id="mail-relay-copy-node-config">
+                    <i class="bi bi-clipboard me-1"></i>{{ __('admin/setting.mail_relay_node_config_copy') }}
+                  </button>
+                  <button class="btn btn-outline-secondary btn-sm" type="button" id="mail-relay-download-node-config">
+                    <i class="bi bi-download me-1"></i>{{ __('admin/setting.mail_relay_node_config_download') }}
+                  </button>
+                </div>
+              </div>
             </div>
           </details>
 
@@ -714,13 +805,40 @@
         const nodeConfigWrap = document.getElementById('mail-relay-node-config');
         const nodeConfig = document.getElementById('mail-relay-node-config-preview');
         const copyButton = document.getElementById('mail-relay-copy-node-config');
+        const downloadButton = document.getElementById('mail-relay-download-node-config');
+        const nodeProfileVersion = {{ \App\Mail\MailRelayNodeProfile::VERSION }};
+        const nodeProfileInputs = {
+          INET_PROTOCOLS: document.getElementById('mail-relay-node-inet-protocols'),
+          RELAY_HTTP_PORT: document.getElementById('mail-relay-node-http-port'),
+          MAIL_NODE_VOLUME_PREFIX: document.getElementById('mail-relay-node-volume-prefix'),
+          TUNNEL_PROTOCOL: document.getElementById('mail-relay-node-tunnel-protocol'),
+          TUNNEL_LOG_LEVEL: document.getElementById('mail-relay-node-tunnel-log-level'),
+          TUNNEL_METRICS_ADDRESS: document.getElementById('mail-relay-node-metrics-address'),
+          CLOUDFLARED_IMAGE: document.getElementById('mail-relay-node-cloudflared-image'),
+          RELAY_MEMORY_LIMIT: document.getElementById('mail-relay-node-relay-memory-limit'),
+          RELAY_MEMORY_RESERVATION: document.getElementById('mail-relay-node-relay-memory-reservation'),
+          RELAY_PIDS_LIMIT: document.getElementById('mail-relay-node-relay-pids-limit'),
+          TUNNEL_MEMORY_LIMIT: document.getElementById('mail-relay-node-tunnel-memory-limit'),
+          TUNNEL_MEMORY_RESERVATION: document.getElementById('mail-relay-node-tunnel-memory-reservation'),
+          TUNNEL_PIDS_LIMIT: document.getElementById('mail-relay-node-tunnel-pids-limit'),
+        };
         const deploymentDefaults = {!! json_encode(data_get($mailRelayRuntime, 'deployment_values', []), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) !!};
 
         const list = (value) => value.split(/[\s,]+/).map((item) => item.trim()).filter(Boolean);
         const selectedMode = () => modeInputs.find((input) => input.checked)?.value || 'internal';
         const identityInputs = [hostname, domains, allowedDomains, selector, platformDomain];
+        const exportInputs = [endpoint, publicIps, ...identityInputs, ...Object.values(nodeProfileInputs)];
         let previousMode = selectedMode();
         let externalDraft = null;
+
+        const canExport = () => {
+          const invalid = exportInputs.find((input) => !input.checkValidity());
+          if (!invalid) return true;
+          form.classList.add('was-validated');
+          invalid.reportValidity();
+          invalid.focus();
+          return false;
+        };
 
         const update = () => {
           const external = selectedMode() === 'external';
@@ -745,13 +863,13 @@
             : '{{ __('admin/setting.mail_relay_public_ips_help') }}';
 
           nodeConfig.textContent = [
+            `MAIL_NODE_PROFILE_VERSION=${nodeProfileVersion}`,
             `MAIL_HOSTNAME=${mailHost}`,
             `MAIL_PUBLIC_IPS=${ips.join(',')}`,
             `MAIL_DOMAINS=${list(domains.value).join(',')}`,
             `ALLOWED_SENDER_DOMAINS=${list(allowedDomains.value).join(',')}`,
             `DKIM_SELECTOR=${selector.value.trim().toLowerCase()}`,
-            'LONGOS_RELAY_SHARED_SECRET=<与主站 SERVICE_PASSWORD_64_MAILRELAY 一致>',
-            'CLOUD_MAIL_RELAY_SHARED_SECRET=<与主站 SERVICE_PASSWORD_64_CLOUDMAIL 一致>',
+            ...Object.entries(nodeProfileInputs).map(([name, input]) => `${name}=${input.value.trim()}`),
           ].join('\n');
         };
 
@@ -788,8 +906,9 @@
           previousMode = nextMode;
           update();
         }));
-        [endpoint, publicIps, hostname, domains, allowedDomains, selector, platformDomain]
+        [endpoint, publicIps, hostname, domains, allowedDomains, selector, platformDomain, ...Object.values(nodeProfileInputs)]
           .forEach((input) => input.addEventListener('input', update));
+        Object.values(nodeProfileInputs).forEach((input) => input.addEventListener('change', update));
 
         form.addEventListener('submit', (event) => {
           if (event.submitter?.value === 'reset') return;
@@ -801,6 +920,7 @@
         });
 
         copyButton.addEventListener('click', async () => {
+          if (!canExport()) return;
           const value = nodeConfig.textContent || '';
           try {
             await navigator.clipboard.writeText(value);
@@ -815,7 +935,21 @@
             document.execCommand('copy');
             field.remove();
           }
-          layer.msg('{{ __('admin/setting.mail_relay_node_config_copy') }}');
+          layer.msg('{{ __('admin/setting.mail_relay_node_config_copied') }}');
+        });
+
+        downloadButton.addEventListener('click', () => {
+          if (!canExport()) return;
+          const blob = new Blob([`${nodeConfig.textContent || ''}\n`], {type: 'text/plain;charset=utf-8'});
+          const link = document.createElement('a');
+          const url = URL.createObjectURL(blob);
+          link.href = url;
+          link.download = `${hostname.value.trim().toLowerCase() || 'longos'}-mail-node.env`;
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          URL.revokeObjectURL(url);
+          layer.msg('{{ __('admin/setting.mail_relay_node_config_downloaded') }}');
         });
 
         update();
