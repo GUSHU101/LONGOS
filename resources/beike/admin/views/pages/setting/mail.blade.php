@@ -100,9 +100,10 @@
           </div>
           <div class="text-secondary font-size-12 mt-1">{{ __('admin/setting.mail_relay_runtime_help') }}</div>
         </div>
-        <a class="btn btn-outline-primary btn-sm" href="#mail-diagnostics" aria-label="{{ __('admin/setting.mail_diagnostics_button') }}">
+        <button class="btn btn-outline-primary btn-sm" type="button" id="mail-relay-diagnostics-shortcut"
+                aria-controls="mail-diagnostics" aria-label="{{ __('admin/setting.mail_diagnostics_button') }}">
           <i class="bi bi-heart-pulse me-1"></i>{{ __('admin/setting.mail_diagnostics_button') }}
-        </a>
+        </button>
       </div>
       <div class="card-body">
         @if(data_get($mailRelayRuntime, 'error'))
@@ -783,6 +784,14 @@
         },
       },
     });
+
+    const diagnosticsShortcut = document.getElementById('mail-relay-diagnostics-shortcut');
+    if (diagnosticsShortcut) {
+      diagnosticsShortcut.addEventListener('click', () => {
+        document.getElementById('mail-diagnostics')?.scrollIntoView({behavior: 'smooth', block: 'start'});
+        app.runDiagnostics();
+      });
+    }
 
     @if($canManageMailRelay && $mailRelayRuntime)
       (() => {

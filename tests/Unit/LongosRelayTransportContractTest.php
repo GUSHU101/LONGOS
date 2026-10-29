@@ -164,6 +164,9 @@ class LongosRelayTransportContractTest extends TestCase
         self::assertStringContainsString('mail_relay[node][relay_http_port]', $view);
         self::assertStringContainsString('MailRelayNodeProfile::VERSION', $view);
         self::assertStringContainsString('mail-relay-download-node-config', $view);
+        self::assertStringContainsString('id="mail-relay-diagnostics-shortcut"', $view);
+        self::assertStringContainsString('app.runDiagnostics();', $view);
+        self::assertStringNotContainsString('href="#mail-diagnostics"', $view);
         self::assertStringNotContainsString('SERVICE_PASSWORD_64_MAILRELAY', $view);
         self::assertStringNotContainsString('SERVICE_PASSWORD_64_CLOUDMAIL', $view);
         self::assertStringNotContainsString('mail_relay[longos_secret]', $view);
