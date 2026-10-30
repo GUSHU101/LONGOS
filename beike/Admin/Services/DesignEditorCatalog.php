@@ -378,11 +378,12 @@ class DesignEditorCatalog
                 $make['columns_mobile']  = 2;
                 $make['show_view_all']   = true;
             } elseif ($code === 'icons') {
-                $make['images']          = [['image' => '', 'image_alt' => $text(''), 'text' => $text('服务保障'), 'sub_text' => $text('填写权益说明'), 'link' => ['type' => 'custom', 'value' => '', 'new_window' => false]]];
-                $make['columns_desktop'] = 4;
-                $make['columns_tablet']  = 2;
-                $make['columns_mobile']  = 2;
-                $make['style_variant']   = 'minimal';
+                $make['images']              = [['image' => '', 'image_alt' => $text(''), 'text' => $text('服务保障'), 'sub_text' => $text('填写权益说明'), 'link' => ['type' => 'custom', 'value' => '', 'new_window' => false]]];
+                $make['columns_desktop']     = 4;
+                $make['columns_tablet']      = 2;
+                $make['mobile_columns_mode'] = 'auto';
+                $make['columns_mobile']      = 3;
+                $make['style_variant']       = 'minimal';
             } elseif ($code === 'page') {
                 $make['items']           = [];
                 $make['columns_desktop'] = 4;

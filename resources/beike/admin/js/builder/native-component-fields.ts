@@ -39,6 +39,7 @@ const itemArray = (label: string, arrayFields: Record<string, unknown>, max = 12
 export const nativeFieldVisibility = (code: string, props: Record<string, unknown>): Record<string, boolean> => {
   if (["img_text_slideshow", "img_text_slideshow_2"].includes(code)) return { autoplay_delay: props.autoplay === true };
   if (code === "campaign_offer") return { ends_at: props.timer_mode === "fixed" };
+  if (code === "icons") return { columns_mobile: props.mobile_columns_mode === "fixed" };
   return {};
 };
 
@@ -88,7 +89,14 @@ export const nativeComponentFields = (code: string, renderers: NativeFieldRender
   if (code === "tab_product") return { ...commerceGrid, tabs: itemArray("商品标签页", { title: text("标签名称"), products: productList("选择商品") }, 8, { title: localizedDefault("New tab", "新标签"), products: [] }) };
   if (code === "product") return { ...commerceGrid, products: productList("展示商品") };
   if (code === "brand") return { ...commerceGrid, show_view_all: yesNo("显示全部品牌入口"), brands: brandList("展示品牌") };
-  if (code === "icons") return { ...commerceGrid, style_variant: select("展示样式", [["minimal", "简洁图标"], ["cards", "卡片式"]]), images: itemArray("图标与权益", imageItemFields, 10, { image: "", image_alt: localizedDefault("", ""), text: localizedDefault("New benefit", "新权益"), sub_text: localizedDefault("", ""), link: { type: "custom", value: "", new_window: false } }, ["text", "sub_text"]) };
+  if (code === "icons") return {
+    columns_desktop: commerceGrid.columns_desktop,
+    columns_tablet: commerceGrid.columns_tablet,
+    mobile_columns_mode: select("移动端排列", [["auto", "自动适配（推荐）"], ["fixed", "自定义列数"]]),
+    columns_mobile: { type: "number", label: "移动端列数（自定义模式）", min: 1, max: 4 },
+    style_variant: select("展示样式", [["minimal", "简洁图标"], ["cards", "卡片式"]]),
+    images: itemArray("图标与权益", imageItemFields, 10, { image: "", image_alt: localizedDefault("", ""), text: localizedDefault("New benefit", "新权益"), sub_text: localizedDefault("", ""), link: { type: "custom", value: "", new_window: false } }, ["text", "sub_text"]),
+  };
   if (code === "page") return { ...commerceGrid, show_view_all: yesNo("显示全部内容入口"), items: pageList("展示内容页") };
   if (["latest_products", "bestseller"].includes(code)) return {
     limit: { type: "number", label: "展示数量", min: 1, max: 24 },

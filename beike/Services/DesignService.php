@@ -1897,7 +1897,7 @@ class DesignService
     {
         $content['title']           = self::localizedValue($content['title'] ?? '');
         $content['sub_title']       = self::localizedValue($content['sub_title'] ?? '');
-        $content                    = self::normalizeResponsiveColumns($content);
+        $content                    = self::normalizeIconColumns($content);
         $content['style_variant']   = in_array($content['style_variant'] ?? '', ['minimal', 'cards'], true) ? $content['style_variant'] : 'minimal';
 
         if (! is_array($content['images'] ?? null) || empty($content['images'])) {
@@ -2246,13 +2246,14 @@ class DesignService
         // Keep layout controls canonical at the durable-data boundary as well
         // as during rendering. Imports, plugin writes and Advanced JSON can
         // otherwise persist values that the visual controls could never emit.
-        if (in_array($code, ['tab_product', 'product', 'brand', 'icons', 'page'], true)) {
+        if (in_array($code, ['tab_product', 'product', 'brand', 'page'], true)) {
             $content = self::normalizeResponsiveColumns($content, 'columns_desktop', 4, 5, $code === 'page' ? 2 : 3, $code === 'page' ? 1 : 2);
         }
         if (in_array($code, ['brand', 'page'], true)) {
             $content['show_view_all'] = self::normalizeBoolean($content['show_view_all'] ?? true, true);
         }
         if ($code === 'icons') {
+            $content                  = self::normalizeIconColumns($content);
             $content['style_variant'] = in_array($content['style_variant'] ?? '', ['minimal', 'cards'], true)
                 ? $content['style_variant']
                 : 'minimal';
@@ -2310,6 +2311,20 @@ class DesignService
         })));
 
         return array_slice($ids, 0, max(1, $limit));
+    }
+
+    /** Icons may be much denser than product or editorial cards on phones. */
+    private static function normalizeIconColumns(array $content): array
+    {
+        $requestedMobile = min(4, max(1, (int) ($content['columns_mobile'] ?? 3)));
+        $content         = self::normalizeResponsiveColumns($content);
+
+        $content['mobile_columns_mode'] = in_array($content['mobile_columns_mode'] ?? '', ['auto', 'fixed'], true)
+            ? $content['mobile_columns_mode']
+            : 'auto';
+        $content['columns_mobile'] = min($content['columns_desktop'], $requestedMobile);
+
+        return $content;
     }
 
     /**

@@ -3,6 +3,10 @@
   $visibleIconItems = $iconItems->filter(fn ($image) => !empty($image['image']) || !empty($image['text']) || !empty($image['sub_text']));
   $hasIcons = $visibleIconItems->isNotEmpty();
   $imageOnly = $hasIcons && $visibleIconItems->every(fn ($image) => empty($image['text']) && empty($image['sub_text']));
+  $mobileColumnsMode = ($content['mobile_columns_mode'] ?? 'auto') === 'fixed' ? 'fixed' : 'auto';
+  $mobileGridClass = $mobileColumnsMode === 'auto'
+    ? 'builder-section-grid--mobile-auto'
+    : 'builder-section-grid--mobile-' . max(1, min(4, (int) ($content['columns_mobile'] ?? 3)));
 @endphp
 @if($design || $hasIcons)
 <section class="module-item {{ $design ? 'module-item-design' : ''}}" id="module-{{ $module_id }}" @if(!empty($content['title'])) aria-labelledby="module-heading-{{ $module_id }}" @endif @include('design.partials.section_style')>
@@ -14,7 +18,7 @@
     <div class="module-sub-title">{{ $content['sub_title'] }}</div>
     @endif
     <div class="{{ $content['module_size'] ?? 'container-fluid' }}">
-      <div class="builder-section-grid builder-section-grid--desktop-{{ $content['columns_desktop'] ?? 4 }} builder-section-grid--tablet-{{ $content['columns_tablet'] ?? 2 }} builder-section-grid--mobile-{{ $content['columns_mobile'] ?? 2 }}">
+      <div class="builder-section-grid builder-section-grid--desktop-{{ $content['columns_desktop'] ?? 4 }} builder-section-grid--tablet-{{ $content['columns_tablet'] ?? 2 }} {{ $mobileGridClass }}">
         @foreach ($content['images'] as $image)
         <div class="module-icons__item">
           @if (!empty($image['url']))<a href="{{ $image['url'] }}" class="text-decoration-none" @if(!empty($image['new_window'])) target="_blank" rel="noopener noreferrer" @endif>@else<div>@endif

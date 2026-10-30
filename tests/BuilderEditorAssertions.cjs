@@ -21,7 +21,7 @@ test('native functional modules expose their required controls and preserve tran
   const required = {
     img_text_slideshow: ['images', 'autoplay', 'scroll_text'], img_text_slideshow_2: ['images', 'autoplay', 'scroll_text'],
     tab_product: ['columns_desktop', 'columns_tablet', 'columns_mobile', 'tabs'], product: ['columns_desktop', 'columns_tablet', 'columns_mobile', 'products'],
-    brand: ['columns_desktop', 'columns_tablet', 'columns_mobile', 'show_view_all', 'brands'], icons: ['columns_desktop', 'columns_tablet', 'columns_mobile', 'style_variant', 'images'], page: ['columns_desktop', 'columns_tablet', 'columns_mobile', 'show_view_all', 'items'],
+    brand: ['columns_desktop', 'columns_tablet', 'columns_mobile', 'show_view_all', 'brands'], icons: ['columns_desktop', 'columns_tablet', 'mobile_columns_mode', 'columns_mobile', 'style_variant', 'images'], page: ['columns_desktop', 'columns_tablet', 'columns_mobile', 'show_view_all', 'items'],
     latest_products: ['limit', 'layout', 'columns_desktop', 'columns_tablet', 'columns_mobile'], bestseller: ['limit', 'layout', 'columns_desktop', 'columns_tablet', 'columns_mobile'],
     promo_bar: ['link'], trust_cards: ['columns', 'columns_tablet', 'columns_mobile', 'style_variant', 'items'], testimonials: ['columns', 'columns_tablet', 'columns_mobile', 'style_variant', 'items'], campaign_offer: ['offers', 'timer_mode', 'ends_at'],
     payment_trust: ['benefits', 'payments'], story_block: ['image', 'link'], feature_grid: ['items', 'columns', 'columns_tablet', 'columns_mobile', 'image_ratio', 'card_style'], faq: ['items', 'style_variant', 'open_first'], rich_text: ['text'], social_proof: ['items'], custom_code: ['html', 'css', 'settings'],
@@ -45,6 +45,10 @@ test('native functional modules expose their required controls and preserve tran
   const slideshowFields = nativeComponentFields('img_text_slideshow_2', renderers);
   assert.match(slideshowFields.images.arrayFields.mobile_image.label, /完整显示/);
   assert.equal(slideshowFields.images.defaultItemProps.mobile_image, '');
+  const iconFields = nativeComponentFields('icons', renderers);
+  assert.equal(iconFields.columns_mobile.max, 4);
+  assert.deepEqual(nativeFieldVisibility('icons', { mobile_columns_mode: 'auto' }), { columns_mobile: false });
+  assert.deepEqual(nativeFieldVisibility('icons', { mobile_columns_mode: 'fixed' }), { columns_mobile: true });
   const translated = writeLocalized({ en: 'Title', zh_cn: '标题' }, 'zh_cn', '新标题');
   assert.deepEqual(translated, { en: 'Title', zh_cn: '新标题' });
   assert.equal(readLocalized(translated, 'en'), 'Title');

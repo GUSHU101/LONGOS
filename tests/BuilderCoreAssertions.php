@@ -118,7 +118,7 @@ $verify(count($boundedNativeData['modules'][1]['content']['tabs']) === 8 && coun
 $normalizedNativeLayouts = DesignService::handleRequestModules(['modules' => [
     ['code' => 'product', 'content' => ['columns_desktop' => 99, 'columns_mobile' => 0]],
     ['code' => 'page', 'content' => ['columns_desktop' => 1, 'columns_mobile' => 9, 'show_view_all' => 'false']],
-    ['code' => 'icons', 'content' => ['style_variant' => 'scripted']],
+    ['code' => 'icons', 'content' => ['columns_desktop' => 4, 'columns_tablet' => 2, 'mobile_columns_mode' => 'fixed', 'columns_mobile' => 4, 'style_variant' => 'scripted']],
     ['code' => 'faq', 'content' => ['style_variant' => 'unknown', 'open_first' => '0']],
     ['code' => 'trust_cards', 'content' => ['columns' => 99, 'style_variant' => 'unknown']],
     ['code' => 'testimonials', 'content' => ['columns' => 0, 'style_variant' => 'soft']],
@@ -127,7 +127,7 @@ $normalizedNativeLayouts = DesignService::handleRequestModules(['modules' => [
 $nativeLayouts = array_column($normalizedNativeLayouts['modules'], 'content', 'code');
 $verify($nativeLayouts['product']['columns_desktop'] === 5 && $nativeLayouts['product']['columns_tablet'] === 3 && $nativeLayouts['product']['columns_mobile'] === 1, 'Product grid controls were not bounded at the durable-data boundary.');
 $verify($nativeLayouts['page']['columns_desktop'] === 2 && $nativeLayouts['page']['columns_tablet'] === 2 && $nativeLayouts['page']['columns_mobile'] === 2 && $nativeLayouts['page']['show_view_all'] === false, 'Page grid or view-all controls were not normalized.');
-$verify($nativeLayouts['icons']['style_variant'] === 'minimal', 'Icon presentation variant was not normalized.');
+$verify($nativeLayouts['icons']['style_variant'] === 'minimal' && $nativeLayouts['icons']['mobile_columns_mode'] === 'fixed' && $nativeLayouts['icons']['columns_mobile'] === 4, 'Icon presentation or independent mobile-density controls were not normalized.');
 $verify($nativeLayouts['faq']['style_variant'] === 'divided' && $nativeLayouts['faq']['open_first'] === false, 'FAQ presentation controls were not normalized.');
 $verify($nativeLayouts['trust_cards']['columns'] === 4 && $nativeLayouts['trust_cards']['columns_tablet'] === 2 && $nativeLayouts['trust_cards']['columns_mobile'] === 1 && $nativeLayouts['trust_cards']['style_variant'] === 'soft', 'Trust-card presentation controls were not normalized.');
 $verify($nativeLayouts['testimonials']['columns'] === 2 && $nativeLayouts['testimonials']['columns_tablet'] === 2 && $nativeLayouts['testimonials']['columns_mobile'] === 1 && $nativeLayouts['testimonials']['style_variant'] === 'soft', 'Testimonial presentation controls were not normalized.');
@@ -355,8 +355,9 @@ $invalidCampaign = DesignService::handleModuleContent('campaign_offer', ['timer_
 $verify($invalidCampaign['ends_at'] === '', 'Invalid fixed campaign time survived storefront normalization.');
 $promoLink = DesignService::handleModuleContent('promo_bar', ['button_text' => '查看活动', 'link' => ['type' => 'custom', 'value' => '/campaign', 'new_window' => true]]);
 $slideLink = DesignService::handleModuleContent('img_text_slideshow', ['images' => [['image' => '/image/catalog/slide.jpg', 'link' => ['type' => 'custom', 'value' => '/campaign', 'new_window' => true]]]]);
-$iconLink  = DesignService::handleModuleContent('icons', ['images' => [['image' => '/image/catalog/icon.svg', 'link' => ['type' => 'custom', 'value' => '/campaign', 'new_window' => true]]]]);
+$iconLink  = DesignService::handleModuleContent('icons', ['mobile_columns_mode' => 'fixed', 'columns_mobile' => 4, 'images' => [['image' => '/image/catalog/icon.svg', 'link' => ['type' => 'custom', 'value' => '/campaign', 'new_window' => true]]]]);
 $verify(($promoLink['new_window'] ?? false) === true && ($slideLink['images'][0]['link']['new_window'] ?? false) === true && ($iconLink['images'][0]['new_window'] ?? false) === true, 'Configured Builder links must retain their new-window behavior through storefront normalization.');
+$verify(($iconLink['mobile_columns_mode'] ?? null) === 'fixed' && ($iconLink['columns_mobile'] ?? null) === 4, 'Icon mobile density was lost during storefront normalization.');
 $viewFile           = static fn (string $view): string => dirname(__DIR__) . '/themes/default/' . str_replace('.', '/', $view) . '.blade.php';
 $nativeCatalog      = DesignEditorCatalog::core();
 $missingNativeViews = array_filter($nativeCatalog, static fn (array $item): bool => ! is_file($viewFile($item['view_path'])));
@@ -371,6 +372,7 @@ $verify(($catalogByCode['payment_trust']['available_on'] ?? null) === ['product'
 $verify(($catalogByCode['payment_trust']['max_instances'] ?? null) === 1 && ($catalogByCode['img_text_slideshow']['max_instances'] ?? null) === 6, 'Native module instance constraints are missing.');
 $nativeDefaults = array_column($nativeCatalog, 'make', 'code');
 $verify(isset($nativeDefaults['img_text_slideshow']['images'][0]['link'], $nativeDefaults['img_text_slideshow']['scroll_text']) && array_key_exists('mobile_image', $nativeDefaults['img_text_slideshow']['images'][0]) && ($nativeDefaults['img_text_slideshow']['autoplay'] ?? null) === false && ($nativeDefaults['img_text_slideshow']['autoplay_delay'] ?? null) === 5000 && isset($nativeDefaults['tab_product']['tabs'][0]['products']) && array_key_exists('products', $nativeDefaults['product']) && array_key_exists('brands', $nativeDefaults['brand']) && isset($nativeDefaults['icons']['images'][0]['link']) && array_key_exists('items', $nativeDefaults['page']), 'Native Builder modules must retain their renderer-specific default payloads rather than share a generic section shape.');
+$verify(($nativeDefaults['icons']['mobile_columns_mode'] ?? null) === 'auto' && ($nativeDefaults['icons']['columns_mobile'] ?? null) === 3, 'New icon modules must default to adaptive mobile density.');
 $verify(($nativeDefaults['promo_bar']['title']['en'] ?? null) === 'Limited-time offer', 'Native Builder defaults must use the storefront language instead of copying Chinese text into English content.');
 $pageRepoSource = (string) file_get_contents(dirname(__DIR__) . '/beike/Admin/Repositories/PageRepo.php');
 $verify(str_contains($pageRepoSource, 'array_unique(array_filter(array_map') && str_contains($pageRepoSource, 'FIELD({$column}') && str_contains($pageRepoSource, 'CASE {$caseWhen}'), 'Manually selected content pages must retain the merchant-defined Builder order on MySQL and PostgreSQL.');

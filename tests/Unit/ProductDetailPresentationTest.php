@@ -185,14 +185,18 @@ class ProductDetailPresentationTest extends TestCase
     {
         $root          = dirname(__DIR__, 2);
         $icons         = (string) file_get_contents($root . '/themes/default/design/icons.blade.php');
+        $iconStyles    = (string) file_get_contents($root . '/resources/beike/shop/default/css/module/module-icons.scss');
         $productStyles = (string) file_get_contents($root . '/resources/beike/shop/default/css/product-detail-rebuild.scss');
 
         self::assertStringContainsString('$imageOnly = $hasIcons && $visibleIconItems->every', $icons);
         self::assertStringContainsString("{{ \$imageOnly ? 'module-icons--image-only' : '' }}", $icons);
+        self::assertStringContainsString('builder-section-grid--mobile-auto', $icons);
+        self::assertStringContainsString("'builder-section-grid--mobile-' . max(1, min(4", $icons);
         self::assertStringContainsString('.product-marketing-modules > .builder-responsive-module', $productStyles);
         self::assertStringContainsString('margin-block: 0;', $productStyles);
         self::assertStringContainsString('.module-icons--image-only', $productStyles);
-        self::assertStringContainsString('grid-template-columns: repeat(auto-fit, minmax(4.75rem, 1fr));', $productStyles);
+        self::assertStringContainsString('grid-template-columns: repeat(auto-fit, minmax(4.75rem, 1fr));', $iconStyles);
+        self::assertStringContainsString('grid-template-columns: repeat(4, minmax(0, 1fr));', $iconStyles);
         self::assertStringContainsString('width: clamp(3rem, 15vw, 3.5rem);', $productStyles);
     }
 
