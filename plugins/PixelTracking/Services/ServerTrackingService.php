@@ -25,6 +25,7 @@ class ServerTrackingService
         'ViewContent'          => 'ViewContent',
         'AddToCart'            => 'AddToCart',
         'InitiateCheckout'     => 'InitiateCheckout',
+        'AddPaymentInfo'       => 'AddPaymentInfo',
         'Purchase'             => 'Purchase',
         'Search'               => 'Search',
         'CompleteRegistration' => 'CompleteRegistration',
@@ -35,6 +36,7 @@ class ServerTrackingService
         'ViewContent'          => 'ViewContent',
         'AddToCart'            => 'AddToCart',
         'InitiateCheckout'     => 'InitiateCheckout',
+        'AddPaymentInfo'       => 'AddPaymentInfo',
         'Purchase'             => 'CompletePayment',
         'Search'               => 'Search',
         'CompleteRegistration' => 'CompleteRegistration',
@@ -45,6 +47,7 @@ class ServerTrackingService
         'ViewContent'          => 'VIEW_CONTENT',
         'AddToCart'            => 'ADD_CART',
         'InitiateCheckout'     => 'START_CHECKOUT',
+        'AddPaymentInfo'       => 'ADD_BILLING',
         'Purchase'             => 'PURCHASE',
         'Search'               => 'SEARCH',
         'CompleteRegistration' => 'SIGN_UP',
@@ -213,7 +216,10 @@ class ServerTrackingService
             'content_ids'  => array_column($contents, 'id'),
             'contents'     => $contents,
             'content_type' => 'product',
-            'order_id'     => (string) $order->number,
+            // Snapchat can also deduplicate purchases by transaction/order ID.
+            // Namespace it as well so shared pixels never merge same-numbered
+            // orders from different storefronts.
+            'order_id'     => TrackingEventId::make('order', (string) $order->number),
         ];
 
         $attribution = array_merge(
@@ -241,7 +247,7 @@ class ServerTrackingService
 
         return [
             'event_name' => 'Purchase',
-            'event_id'   => 'purchase_' . $order->id,
+            'event_id'   => TrackingEventId::make('purchase', (string) $order->id),
             'event_time' => time(),
             'properties' => $properties,
             'context'    => $this->normalizeContext($context),
@@ -305,7 +311,7 @@ class ServerTrackingService
 
         $prepared = $this->prepareBrowserEvent([
             'event_name' => 'CompleteRegistration',
-            'event_id'   => 'registration_' . (string) $customer->id,
+            'event_id'   => TrackingEventId::make('registration', (string) $customer->id),
             'url'        => $request->fullUrl(),
             'properties' => [],
         ], $request);

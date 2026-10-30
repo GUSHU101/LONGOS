@@ -78,6 +78,10 @@
 
           <section class="pixel-section">
             <div class="pixel-section-head"><div><h5>Meta / Facebook</h5><p>填写像素 ID；如需服务器端转化，再填写 Conversions API 访问令牌。每个渠道最多 10 个。</p></div><button type="button" class="btn btn-outline-primary btn-sm" @click="addMeta" :disabled="metaProfiles.length >= maxProfiles"><i class="bi bi-plus-lg me-1"></i>添加 Meta 像素</button></div>
+            <div class="pixel-guidance" role="note">
+              <strong>去重与多站点说明</strong>
+              <span>测试事件中同时出现“浏览器”和“服务器”两行是正常现象；两行事件 ID 相同才会组成去重对。多个网站可以共用同一像素，LONGOS 会按安装与租户隔离事件 ID、投递锁和健康记录，并保留各自来源 URL。共用像素仍会汇总到同一个数据集；若需要完全独立的受众与广告优化，请为每个网站使用不同像素。</span>
+            </div>
             <div v-if="!metaProfiles.length" class="pixel-empty">尚未添加 Meta 像素。点击右上角按钮即可开始。</div>
             <div class="pixel-profile" v-for="(profile, index) in metaProfiles" :key="profile.uid">
               <div class="d-flex align-items-center justify-content-between mb-3"><div><strong>Meta 像素 @{{ index + 1 }}</strong><span v-if="profileHealth('meta', profile.pixel_id)" class="pixel-health ms-2" :class="profileHealth('meta', profile.pixel_id).success ? 'is-success' : 'is-error'">@{{ profileHealth('meta', profile.pixel_id).success ? '最近发送成功' : '最近发送失败' }}</span></div><button type="button" class="btn btn-sm btn-link text-danger" @click="metaProfiles.splice(index, 1)">删除</button></div>
@@ -139,6 +143,7 @@
     .pixel-section-head { display:flex; justify-content:space-between; gap:16px; align-items:flex-start; padding-bottom:16px; margin-bottom:16px; border-bottom:1px solid #eef1f5; } .pixel-section h5 { margin:0 0 5px; font-size:15px; } .pixel-section p { margin:0; color:#667085; font-size:13px; }
     .pixel-switch { display:flex; min-height:76px; gap:12px; align-items:flex-start; padding:15px; border:1px solid #e7ecf3; border-radius:12px; cursor:pointer; background:#fbfcfe; } .pixel-switch input { margin-top:4px; } .pixel-switch strong,.pixel-switch small { display:block; } .pixel-switch small { margin-top:4px; color:#667085; font-size:12px; line-height:1.45; }
     .pixel-profile { margin-top:12px; padding:18px; border:1px solid #dce5f2; border-radius:12px; background:#fbfdff; } .pixel-empty { padding:18px; color:#667085; border:1px dashed #cbd5e1; border-radius:12px; text-align:center; }
+    .pixel-guidance { display:grid; gap:4px; margin:0 0 14px; padding:12px 14px; border:1px solid #cfe0f5; border-radius:10px; background:#f5f9ff; color:#344054; font-size:12px; line-height:1.6; } .pixel-guidance strong { color:#175cd3; font-size:12px; }
     .pixel-health { display:inline-flex; padding:3px 8px; border-radius:999px; font-size:11px; font-weight:600; } .pixel-health.is-success { color:#08783e; background:#dcfce7; } .pixel-health.is-error { color:#b42318; background:#fee4e2; } .pixel-health-detail { padding:10px 12px; border-radius:8px; background:#f2f4f7; color:#475467; font-size:12px; overflow-wrap:anywhere; }
     @media (max-width:767.98px) { .pixel-overview { grid-template-columns:repeat(2,minmax(0,1fr)); } } @media (max-width:575.98px) { .pixel-section-head { flex-direction:column; } }
   </style>

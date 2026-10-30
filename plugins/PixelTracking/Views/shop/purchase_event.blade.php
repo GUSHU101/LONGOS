@@ -19,7 +19,7 @@
     content_ids: @json(array_column($trackingContents, 'id')),
     contents: @json($trackingContents),
     content_type: 'product',
-    order_id: @json($order->number)
-  }, @json('purchase_' . $order->id));
+    order_id: @json(\Plugin\PixelTracking\Services\TrackingEventId::make('order', (string) $order->number))
+  }, @json(\Plugin\PixelTracking\Services\TrackingEventId::make('purchase', (string) $order->id)));
 </script>
 @endif

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Saas\Models\Site;
 use Beike\Models\Order;
 use Beike\Models\OrderProduct;
 use Illuminate\Contracts\Console\Kernel;
@@ -18,6 +19,7 @@ use Plugin\PixelTracking\Jobs\SendTrackingEvent;
 use Plugin\PixelTracking\Middleware\Shop\CaptureAttribution;
 use Plugin\PixelTracking\Services\PixelProfiles;
 use Plugin\PixelTracking\Services\ServerTrackingService;
+use Plugin\PixelTracking\Services\TrackingEventId;
 use Plugin\PixelTracking\Services\TrackingHealth;
 
 class PixelTrackingDeliveryTest extends TestCase
@@ -122,6 +124,34 @@ class PixelTrackingDeliveryTest extends TestCase
         Http::assertSentCount(3);
     }
 
+    public function test_add_payment_info_uses_one_shared_id_and_provider_specific_standard_events(): void
+    {
+        Http::fake([
+            'graph.facebook.com/*'      => Http::response(['events_received' => 1], 200),
+            'business-api.tiktok.com/*' => Http::response(['code' => 0, 'message' => 'OK'], 200),
+            'tr.snapchat.com/*'         => Http::response(['status' => 'VALID'], 200),
+        ]);
+
+        $prepared               = $this->preparedEvent();
+        $prepared['event_name'] = 'AddPaymentInfo';
+        $prepared['event_id']   = 'payment_checkout_shared_1';
+
+        $service = new ServerTrackingService;
+        $service->trackPreparedBrowserEvent($prepared);
+        $service->trackPreparedBrowserEvent($prepared);
+
+        Http::assertSentCount(3);
+        Http::assertSent(static fn (Request $request): bool => str_contains($request->url(), 'graph.facebook.com/')
+            && $request['data'][0]['event_name'] === 'AddPaymentInfo'
+            && $request['data'][0]['event_id']   === 'payment_checkout_shared_1');
+        Http::assertSent(static fn (Request $request): bool => str_contains($request->url(), 'business-api.tiktok.com/')
+            && $request['data'][0]['event']    === 'AddPaymentInfo'
+            && $request['data'][0]['event_id'] === 'payment_checkout_shared_1');
+        Http::assertSent(static fn (Request $request): bool => str_contains($request->url(), 'tr.snapchat.com/')
+            && $request['data'][0]['event_name'] === 'ADD_BILLING'
+            && $request['data'][0]['event_id']   === 'payment_checkout_shared_1');
+    }
+
     public function test_snapchat_purchase_uses_v3_order_deduplication_and_hashed_matching(): void
     {
         Config::set('bk.plugin.pixel_tracking.meta_pixels', '[]');
@@ -178,6 +208,34 @@ class PixelTrackingDeliveryTest extends TestCase
         self::assertSame(0, $health['meta:counter-profile']['consecutive_failures']);
         self::assertNotNull($health['meta:counter-profile']['last_success_at']);
         self::assertNotNull($health['meta:counter-profile']['last_failure_at']);
+    }
+
+    public function test_shared_pixel_ids_and_health_are_isolated_between_sites(): void
+    {
+        $containerKey = (string) config('multitenancy.current_tenant_container_key');
+        $siteA        = new Site(['uuid' => '019site-a-uuid', 'code' => 'site-a']);
+        $siteB        = new Site(['uuid' => '019site-b-uuid', 'code' => 'site-b']);
+
+        try {
+            app()->instance($containerKey, $siteA);
+            $siteAEventId = TrackingEventId::make('purchase', '1001');
+            TrackingHealth::record('meta', 'shared-pixel', 'Purchase', $siteAEventId, true, 200);
+
+            app()->instance($containerKey, $siteB);
+            $siteBEventId = TrackingEventId::make('purchase', '1001');
+            self::assertNotSame($siteAEventId, $siteBEventId);
+            self::assertNull(TrackingHealth::forProfiles([['pixel_id' => 'shared-pixel']], [])['meta:shared-pixel']);
+
+            TrackingHealth::record('meta', 'shared-pixel', 'Purchase', $siteBEventId, false, 400, 'site B failure');
+            self::assertFalse(TrackingHealth::forProfiles([['pixel_id' => 'shared-pixel']], [])['meta:shared-pixel']['success']);
+
+            app()->instance($containerKey, $siteA);
+            $siteAHealth = TrackingHealth::forProfiles([['pixel_id' => 'shared-pixel']], [])['meta:shared-pixel'];
+            self::assertTrue($siteAHealth['success']);
+            self::assertSame($siteAEventId, $siteAHealth['event_id']);
+        } finally {
+            app()->forgetInstance($containerKey);
+        }
     }
 
     public function test_consent_mode_does_not_store_campaign_or_browser_ids_before_opt_in(): void
@@ -391,6 +449,7 @@ class PixelTrackingDeliveryTest extends TestCase
         self::assertSame('ttp-cookie', $prepared['context']['ttp']);
         self::assertSame('snap-cookie', $prepared['context']['scid']);
         self::assertSame('CNY', $prepared['properties']['currency']);
+        self::assertSame(TrackingEventId::make('order', 'ORDER-1001'), $prepared['properties']['order_id']);
         self::assertSame(36.0, $prepared['properties']['contents'][0]['item_price']);
         self::assertSame(72.0, $prepared['properties']['value']);
 

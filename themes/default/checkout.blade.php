@@ -7,6 +7,29 @@
 @php
   $checkoutPaymentUrlTemplate = shop_route('orders.pay', ['number' => '__ORDER_NUMBER__']);
   $checkoutTotalFormat = data_get($totals, (count($totals) - 1) . '.amount_format', '');
+  $checkoutTrackingContents = collect($carts['carts'] ?? [])->map(static function ($cart) {
+    $contentId = (string) ($cart['product_id'] ?? $cart['sku_id'] ?? '');
+    if ($contentId === '') {
+      return null;
+    }
+
+    return [
+      'id' => $contentId,
+      'quantity' => max(1, (int) ($cart['quantity'] ?? 1)),
+      'item_price' => max(0, (float) ($cart['price_converted'] ?? 0)),
+    ];
+  })->filter()->values()->all();
+  $checkoutTrackingValue = max(0, (float) data_get($totals, (count($totals) - 1) . '.amount_converted', 0));
+  $checkoutTrackingCurrency = strtoupper((string) data_get($totals, (count($totals) - 1) . '.currency_code', current_currency_code()));
+  $checkoutTrackingScope = collect($carts['carts'] ?? [])->map(static fn ($cart) => [
+    (string) ($cart['cart_id'] ?? ''),
+    (string) ($cart['product_id'] ?? $cart['sku_id'] ?? ''),
+    max(1, (int) ($cart['quantity'] ?? 1)),
+  ])->values()->all();
+  $checkoutPaymentEventId = \Plugin\PixelTracking\Services\TrackingEventId::make('payment', hash('sha256', json_encode([
+    'cart' => $checkoutTrackingScope,
+    'currency' => $checkoutTrackingCurrency,
+  ], JSON_THROW_ON_ERROR)));
   $checkoutPaymentBrandLabels = [
     'paypal' => 'PayPal', 'visa' => 'Visa', 'mastercard' => 'Mastercard', 'amex' => 'American Express',
     'discover' => 'Discover', 'jcb' => 'JCB', 'diners' => 'Diners Club', 'unionpay' => 'UnionPay',
@@ -503,6 +526,16 @@
     ]) !!};
     const checkoutPaymentBrandLabels = {!! \Illuminate\Support\Js::from($checkoutPaymentBrandLabels) !!};
     const checkoutPaymentBrandsLabel = {!! \Illuminate\Support\Js::from(__('shop/checkout.accepted_payment_methods')) !!};
+    const checkoutPaymentTracking = {
+      event_id: {!! \Illuminate\Support\Js::from($checkoutPaymentEventId) !!},
+      properties: {
+        value: {!! \Illuminate\Support\Js::from($checkoutTrackingValue) !!},
+        currency: {!! \Illuminate\Support\Js::from($checkoutTrackingCurrency) !!},
+        content_ids: {!! \Illuminate\Support\Js::from(array_column($checkoutTrackingContents, 'id')) !!},
+        contents: {!! \Illuminate\Support\Js::from($checkoutTrackingContents) !!},
+        content_type: 'product',
+      },
+    };
     window.longosCheckoutPaymentHandlers = window.longosCheckoutPaymentHandlers || {};
     let isSubmittingOrder = false;
     let confirmedOrderRecoveryUrl = '';
@@ -524,6 +557,16 @@
       summary.hidden = false;
       announceCheckout(text);
       summary.focus({preventScroll: false});
+    };
+    const announcePaymentInformationAdded = (paymentMethodCode) => {
+      if (!paymentMethodCode || !checkoutPaymentTracking.event_id) return;
+      window.dispatchEvent(new CustomEvent('longos:checkout-payment-information-added', {
+        detail: {
+          event_id: checkoutPaymentTracking.event_id,
+          payment_method_code: String(paymentMethodCode),
+          properties: {...checkoutPaymentTracking.properties},
+        },
+      }));
     };
     const checkoutErrorMessage = (error, fallback) => {
       const responseMessage = error?.response?.data?.message || error?.responseJSON?.message || error?.checkoutMessage;
@@ -593,7 +636,12 @@
         const key = $(this).hasClass('delivery-option__selector') ? 'shipping_method_code' : 'payment_method_code';
         const value = $(this).data('value');
         const extra = key === 'shipping_method_code' ? {shipping_quote_data: collectShippingQuoteData(value)} : {};
-        updateCheckout(key, value, undefined, extra);
+        updateCheckout(
+          key,
+          value,
+          key === 'payment_method_code' ? () => announcePaymentInformationAdded(value) : undefined,
+          extra,
+        );
       });
 
       $(document).on('change', '#shipping-methods-wrap [data-shipping-quote-fields] input, #shipping-methods-wrap [data-shipping-quote-fields] select, #shipping-methods-wrap [data-shipping-quote-fields] textarea', function () {
@@ -668,6 +716,8 @@
           }
         }
 
+        announcePaymentInformationAdded(selectedPaymentCode);
+
         const data = {
           checkout_token: {!! \Illuminate\Support\Js::from($checkout_confirm_token ?? '') !!},
         }
@@ -727,6 +777,7 @@
         const code = $(this).data('express-payment');
         $button.prop('disabled', true).attr('aria-busy', 'true');
         updateCheckout('payment_method_code', code, () => {
+          announcePaymentInformationAdded(code);
           const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
           document.querySelector('#payment-methods-wrap')?.scrollIntoView({behavior: reducedMotion ? 'auto' : 'smooth', block: 'center'});
         }).finally(() => $button.prop('disabled', false).removeAttr('aria-busy'));
@@ -842,6 +893,10 @@
       totals = Array.isArray(totals) ? totals : [];
       $('.checkout-totals').html(totals.map((item, index) => `<div class="summary-row ${index === totals.length - 1 ? 'total' : ''}"><span>${escapeCheckoutText(item.title)}</span><span>${escapeCheckoutText(item.amount_format)}</span></div>`).join(''));
       const finalTotal = totals.length ? escapeCheckoutText(totals[totals.length - 1].amount_format) : '';
+      const finalValue = Number(totals.length ? totals[totals.length - 1].amount_converted : NaN);
+      const finalCurrency = String(totals.length ? totals[totals.length - 1].currency_code || '' : '').toUpperCase();
+      if (Number.isFinite(finalValue) && finalValue >= 0) checkoutPaymentTracking.properties.value = finalValue;
+      if (/^[A-Z]{3}$/.test(finalCurrency)) checkoutPaymentTracking.properties.currency = finalCurrency;
       $('.mobile-checkout-total').html(finalTotal);
       $('.checkout-submit-total').html(finalTotal);
     }

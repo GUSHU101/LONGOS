@@ -51,7 +51,7 @@
 
     const snapchatEventNames = {
       PageView: 'PAGE_VIEW', ViewContent: 'VIEW_CONTENT', AddToCart: 'ADD_CART',
-      InitiateCheckout: 'START_CHECKOUT', Purchase: 'PURCHASE', Search: 'SEARCH',
+      InitiateCheckout: 'START_CHECKOUT', AddPaymentInfo: 'ADD_BILLING', Purchase: 'PURCHASE', Search: 'SEARCH',
       CompleteRegistration: 'SIGN_UP',
     };
     const snapchatProperties = (properties, eventId) => {
@@ -150,6 +150,17 @@
           properties.currency = String(tracking.currency || config.currency).toUpperCase();
         }
         emit('AddToCart', properties);
+      });
+
+      window.addEventListener('longos:checkout-payment-information-added', (event) => {
+        const detail = event.detail || {};
+        const eventId = String(detail.event_id || '');
+        if (!/^[A-Za-z0-9_-]{1,128}$/.test(eventId)) return;
+
+        const properties = detail.properties && typeof detail.properties === 'object'
+          ? detail.properties
+          : {};
+        emit('AddPaymentInfo', properties, eventId);
       });
     };
 

@@ -116,8 +116,11 @@ class PixelTrackingHardeningTest extends TestCase
         self::assertStringContainsString('itemPrice * quantity', $tracker);
         self::assertStringContainsString("config.serverTracking && name !== 'Purchase'", $tracker);
         self::assertStringContainsString("emit('InitiateCheckout')", $tracker);
+        self::assertStringContainsString("emit('AddPaymentInfo', properties, eventId)", $tracker);
+        self::assertStringContainsString("window.addEventListener('longos:checkout-payment-information-added'", $tracker);
         self::assertStringContainsString("emit('Search'", $tracker);
-        self::assertStringContainsString("'purchase_' . \$order->id", $purchase);
+        self::assertStringContainsString("TrackingEventId::make('purchase'", $purchase);
+        self::assertStringContainsString("TrackingEventId::make('order'", $purchase);
         self::assertStringContainsString('contents: @json($trackingContents)', $purchase);
     }
 
@@ -133,6 +136,8 @@ class PixelTrackingHardeningTest extends TestCase
         self::assertStringContainsString('(int) $providerCode === 0', $service);
         self::assertStringContainsString("'PageView'             => 'PAGE_VIEW'", $service);
         self::assertStringContainsString("'Purchase'             => 'PURCHASE'", $service);
+        self::assertStringContainsString("'AddPaymentInfo'       => 'AddPaymentInfo'", $service);
+        self::assertStringContainsString("'AddPaymentInfo'       => 'ADD_BILLING'", $service);
         self::assertStringContainsString("'action_source'    => 'WEB'", $service);
         self::assertStringContainsString('https://tr.snapchat.com/v3/', $service);
         self::assertStringContainsString("'sc_click_id'", $service);
@@ -145,7 +150,23 @@ class PixelTrackingHardeningTest extends TestCase
         self::assertStringContainsString('TrackingHealth::record(', $service);
         self::assertStringContainsString('PixelEventDispatcher::dispatch(', $controller);
         self::assertStringContainsString('], 202)', $controller);
+        self::assertStringContainsString('InitiateCheckout,AddPaymentInfo,Search', $controller);
         self::assertStringNotContainsString('Search,CompleteRegistration', $controller);
+
+        $checkout = (string) file_get_contents($root . '/themes/default/checkout.blade.php');
+        self::assertStringContainsString("TrackingEventId::make('payment'", $checkout);
+        self::assertStringContainsString("new CustomEvent('longos:checkout-payment-information-added'", $checkout);
+        self::assertStringContainsString('announcePaymentInformationAdded(selectedPaymentCode)', $checkout);
+
+        $eventIds = (string) file_get_contents($root . '/plugins/PixelTracking/Services/TrackingEventId.php');
+        self::assertStringContainsString('current_site()', $eventIds);
+        self::assertStringContainsString('$site?->uuid', $eventIds);
+        self::assertStringContainsString("config('app.key'", $eventIds);
+        self::assertStringContainsString('TrackingEventId::siteNamespace()', (string) file_get_contents($root . '/plugins/PixelTracking/Services/TrackingHealth.php'));
+
+        $configView = (string) file_get_contents($root . '/plugins/PixelTracking/Views/admin/config.blade.php');
+        self::assertStringContainsString('多个网站可以共用同一像素', $configView);
+        self::assertStringContainsString('两行事件 ID 相同才会组成去重对', $configView);
 
         $profiles = (string) file_get_contents($root . '/plugins/PixelTracking/Services/PixelProfiles.php');
         self::assertStringContainsString("ENCRYPTED_TOKEN_PREFIX = 'enc:v1:'", $profiles);

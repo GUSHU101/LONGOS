@@ -19,7 +19,7 @@ class TrackingController
             // Purchase and registration are emitted by authoritative domain
             // hooks only. Accepting either from a browser would allow forged
             // conversions to pollute the advertising data.
-            'event_name'                       => ['required', 'string', 'in:PageView,ViewContent,AddToCart,InitiateCheckout,Search'],
+            'event_name'                       => ['required', 'string', 'in:PageView,ViewContent,AddToCart,InitiateCheckout,AddPaymentInfo,Search'],
             'event_id'                         => ['required', 'string', 'max:128', 'regex:/^[A-Za-z0-9_-]+$/'],
             'url'                              => ['required', 'url', 'max:2048'],
             'properties'                       => ['nullable', 'array'],

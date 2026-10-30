@@ -33,6 +33,7 @@
 - `ViewContent`：商品详情页
 - `AddToCart`：购物车新增请求成功（失败的 HTTP 请求不会计入）
 - `InitiateCheckout`：访问结账链接
+- `AddPaymentInfo`：用户选定付款方式或提交有效结账信息（浏览器与服务端共用稳定事件 ID）
 - `Purchase`：支付状态变为 `paid`（服务器端）及成功页（浏览器端）
 - `Search`：带搜索关键词的搜索结果页
 - `CompleteRegistration`：客户账号真实创建后（仅由服务端账号钩子发送）
@@ -40,7 +41,7 @@
 ## 服务端与隐私
 
 - 服务端事件会附带访问 IP、User-Agent、页面 URL、UTM、Meta/TikTok/Snapchat 点击标识及渠道所需的事件数据。Snapchat 会按 CAPI v3 规范发送 `sc_click_id`、`sc_cookie1`、`content_ids`、`contents`、`value`、`currency` 和 `order_id`。
-- 浏览器像素与服务端使用相同去重 ID。Snap Pixel 使用 `client_dedup_id`，Snapchat CAPI 使用 `event_id`；购买事件还会对应 Pixel `transaction_id` 与 CAPI `order_id`。服务端成功投递后还会在应用端保留 72 小时去重标记，阻止支付回调或请求重试造成重复 API 投递。
+- 浏览器像素与服务端使用相同去重 ID。Snap Pixel 使用 `client_dedup_id`，Snapchat CAPI 使用 `event_id`；购买事件还会对应 Pixel `transaction_id` 与 CAPI `order_id`。稳定事件 ID 包含应用安装与租户 UUID 的单向命名空间，多个网站共用同一像素时不会因为订单或购物车自增 ID 相同而误去重。服务端成功投递后还会在应用端保留 72 小时去重标记，阻止支付回调或请求重试造成重复 API 投递。事件仍携带当前店铺 URL，便于在共享数据集中按网站识别来源。
 - 公开浏览器端点只接受浏览、加购、结账和搜索事件；购买与注册只能由 LONGOS 的真实订单/账号钩子产生。
 - “高级匹配”关闭时，不会提交客户邮箱或电话；开启时，插件仅发送 SHA-256 规范化哈希值。
 - 浏览器像素开关与服务端追踪开关彼此独立：可关闭前端脚本而继续发送订单等权威服务端事件。关闭插件或服务端追踪后，尚未执行的队列事件会在处理时停止发送。

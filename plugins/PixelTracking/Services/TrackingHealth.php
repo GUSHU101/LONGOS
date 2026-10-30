@@ -74,7 +74,7 @@ final class TrackingHealth
 
     private static function key(string $channel, string $profileId): string
     {
-        return 'pixel_tracking:health:' . $channel . ':' . hash('sha256', $profileId);
+        return 'pixel_tracking:health:' . TrackingEventId::siteNamespace() . ':' . $channel . ':' . hash('sha256', $profileId);
     }
 
     private static function safeMessage(?string $message): ?string
