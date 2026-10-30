@@ -379,25 +379,24 @@
           @hookwrapper('shop.product.description')
           <div class="product-information-shell {{ $iframeClass }}">
             <section class="product-description product-mb-block" aria-label="{{ __('shop/products.product_information') }}">
-              <div class="nav nav-tabs nav-overflow justify-content-start" role="tablist" aria-label="{{ __('shop/products.product_information') }}">
-                @hook('shop.product.description.tabs.before')
-                <button class="nav-link active" id="product-description-tab" data-bs-toggle="tab" data-bs-target="#product-description" type="button" role="tab" aria-controls="product-description" aria-selected="true">
-                  {{ __('shop/products.product_details') }}
-                </button>
-                @if ($product['attributes'])
-                  <button class="nav-link" id="product-attributes-tab" data-bs-toggle="tab" data-bs-target="#product-attributes" type="button" role="tab" aria-controls="product-attributes" aria-selected="false">
-                    {{ __('admin/attribute.index') }}
-                  </button>
-                @endif
-                @hook('product.tab.after.link')
-              </div>
-              <div class="tab-content">
-                @hook('shop.product.description.tabs.content.before')
-                <div class="tab-pane fade show active" id="product-description" role="tabpanel" aria-labelledby="product-description-tab" tabindex="0">
+              @hook('shop.product.description.tabs.before')
+              <details class="product-information-disclosure product-information-disclosure--description" name="product-information">
+                <summary>
+                  <span class="product-information-disclosure__title">{{ __('shop/products.product_details') }}</span>
+                  <i class="bi bi-chevron-down product-information-disclosure__icon" aria-hidden="true"></i>
+                </summary>
+                <div class="product-information-disclosure__panel" id="product-description">
+                  @hook('shop.product.description.tabs.content.before')
                   <div class="rich-text-editor-content">{!! $product['description'] !!}</div>
                 </div>
-                @if ($product['attributes'])
-                  <div class="tab-pane fade" id="product-attributes" role="tabpanel" aria-labelledby="product-attributes-tab" tabindex="0">
+              </details>
+              @if ($product['attributes'])
+                <details class="product-information-disclosure product-information-disclosure--attributes" name="product-information">
+                  <summary>
+                    <span class="product-information-disclosure__title">{{ __('admin/attribute.index') }}</span>
+                    <i class="bi bi-chevron-down product-information-disclosure__icon" aria-hidden="true"></i>
+                  </summary>
+                  <div class="product-information-disclosure__panel" id="product-attributes">
                     <div class="table-responsive">
                       <table class="table attribute-table">
                         @foreach ($product['attributes'] as $group)
@@ -418,7 +417,10 @@
                       </table>
                     </div>
                   </div>
-                @endif
+                </details>
+              @endif
+              <div class="product-information-extensions">
+                @hook('product.tab.after.link')
                 @hook('product.tab.after.pane')
               </div>
             </section>

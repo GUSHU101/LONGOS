@@ -669,54 +669,84 @@ body.page-product .product-payment-methods .is-mastercard i:last-child { backgro
 
 body.page-product .product-marketing-modules { margin-top: 1rem; }
 
-/* Product details sit in the right-hand buying narrative, matching the
- * reference storefront instead of breaking into a detached full-width card. */
+/* Product information stays compact until requested. Native disclosure
+ * elements avoid a script dependency and retain keyboard/screen-reader state. */
 body.page-product .product-information-shell { margin: 1.75rem 0 0; max-width: none; }
 
 body.page-product .product-description {
   background: transparent;
   border: 0;
+  border-top: 1px solid var(--pdp-line);
   border-radius: 0;
   margin: 0;
   padding: 0;
 }
 
-body.page-product .product-description .nav-tabs {
+body.page-product .product-information-disclosure {
   border-bottom: 1px solid var(--pdp-line);
-  flex-wrap: nowrap;
-  gap: 1.4rem;
-  margin: 0;
-  overflow-x: auto;
-}
-
-body.page-product .product-description .nav-tabs .nav-link {
-  background: transparent;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  border-radius: 0 !important;
-  color: var(--pdp-muted);
-  flex: 0 0 auto;
-  font-size: .9375rem !important;
-  font-weight: 620 !important;
-  margin: 0;
-  min-height: 3rem;
-  padding: .25rem 0;
-}
-
-body.page-product .product-description .nav-tabs .nav-link:is(.active, :hover) {
-  border-bottom-color: var(--pdp-ink);
   color: var(--pdp-ink);
 }
 
-body.page-product .product-description .nav-tabs .nav-link::before { display: none !important; }
+body.page-product .product-information-disclosure > summary {
+  align-items: center;
+  background: transparent;
+  color: var(--pdp-ink);
+  cursor: pointer;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  list-style: none;
+  margin: 0;
+  min-height: 3.75rem;
+  padding: .75rem 0;
+  -webkit-tap-highlight-color: transparent;
+}
 
-body.page-product .product-description .tab-content {
+body.page-product .product-information-disclosure > summary::-webkit-details-marker { display: none; }
+body.page-product .product-information-disclosure > summary::marker { content: ''; }
+
+body.page-product .product-information-disclosure > summary:hover .product-information-disclosure__title {
+  color: var(--commerce-primary, #155eef);
+}
+
+body.page-product .product-information-disclosure > summary:focus-visible {
+  border-radius: .35rem;
+  outline: 3px solid var(--commerce-primary, #155eef);
+  outline-offset: 3px;
+}
+
+body.page-product .product-information-disclosure__title {
+  color: inherit;
+  font-size: .9375rem;
+  font-weight: 700;
+  letter-spacing: -.01em;
+  line-height: 1.35;
+}
+
+body.page-product .product-information-disclosure__icon {
+  color: var(--pdp-muted);
+  flex: 0 0 auto;
+  font-size: 1rem;
+  transition: transform .2s ease;
+}
+
+body.page-product .product-information-disclosure[open] > summary .product-information-disclosure__icon {
+  transform: rotate(180deg);
+}
+
+body.page-product .product-information-disclosure__panel {
   color: var(--pdp-body);
   font-size: 1rem;
   line-height: 1.8;
   margin: 0;
   max-width: none;
-  padding: 1.35rem 0 0;
+  padding: .25rem 0 1.5rem;
+}
+
+body.page-product .product-information-extensions:empty { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  body.page-product .product-information-disclosure__icon { transition: none; }
 }
 
 body.page-product .product-description .rich-text-editor-content {

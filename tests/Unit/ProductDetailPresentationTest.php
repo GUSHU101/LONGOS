@@ -55,7 +55,12 @@ class ProductDetailPresentationTest extends TestCase
         self::assertStringContainsString("\$footer_content['bottom']['enabled_payments']", $paymentTrust);
         self::assertStringContainsString('$visiblePaymentMarks', $paymentTrust);
         self::assertStringNotContainsString('<li class="is-paypal" aria-label="PayPal">PayPal</li>', $product);
-        self::assertStringContainsString('role="tablist"', $product);
+        self::assertStringContainsString('<details class="product-information-disclosure product-information-disclosure--description" name="product-information">', $product);
+        self::assertStringContainsString('product-information-disclosure--attributes" name="product-information"', $product);
+        self::assertStringContainsString('<summary>', $product);
+        self::assertStringContainsString('product-information-disclosure__panel', $product);
+        self::assertStringContainsString('product-information-disclosure__icon" aria-hidden="true"', $product);
+        self::assertStringNotContainsString('role="tablist"', $product);
         self::assertStringContainsString('scope="row"', $product);
 
         foreach ([$detail, $sku] as $resource) {
@@ -99,7 +104,9 @@ class ProductDetailPresentationTest extends TestCase
         self::assertStringContainsString('.pdp-gallery-item__count', $styles);
         self::assertStringContainsString('.pdp-media-dialog__nav', $styles);
         self::assertStringContainsString('font-size: clamp(1.5rem, 1.8vw, 2.125rem) !important;', $styles);
-        self::assertStringContainsString('body.page-product .product-description .tab-content', $styles);
+        self::assertStringContainsString('body.page-product .product-information-disclosure__panel', $styles);
+        self::assertStringContainsString('summary:focus-visible', $styles);
+        self::assertStringContainsString('@media (prefers-reduced-motion: reduce)', $styles);
         self::assertStringContainsString('class="product-assurance-list"', $product);
         self::assertStringContainsString('body.page-product .product-assurance-list > li + li', $styles);
         self::assertStringNotContainsString('product-purchase-assurance__header', $product);
