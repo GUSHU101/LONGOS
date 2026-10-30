@@ -24,6 +24,8 @@ class FooterSupportTrackingTest extends TestCase
         self::assertStringContainsString('policySettingsUrl', $settings);
         self::assertStringContainsString('policySettingsUrl:', $view);
         self::assertStringContainsString('longos-footer__brand-logo', $footer);
+        self::assertStringNotContainsString("__('shop/footer.bottom_note')", $footer);
+        self::assertStringNotContainsString('longos-footer__bottom-note', $footer);
     }
 
     public function test_uploaded_social_icons_keep_their_original_colours(): void

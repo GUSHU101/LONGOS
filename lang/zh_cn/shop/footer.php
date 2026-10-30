@@ -13,7 +13,6 @@ return [
     'accepted_payments'        => '支持的付款方式',
     'no_policies'              => '暂无已发布的政策。',
     'all_rights_reserved'      => '保留所有权利。',
-    'bottom_note'              => '安全购物 · 透明政策',
     'close_contact'            => '关闭联系方式',
     'trade_name'               => '商家名称',
     'legal_entity'             => '法律主体',

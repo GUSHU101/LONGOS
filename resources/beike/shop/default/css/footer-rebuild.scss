@@ -241,16 +241,13 @@ footer.longos-footer .longos-footer__bottom {
   border-top: 1px solid var(--footer-line);
   display: flex;
   gap: 1.5rem;
-  justify-content: space-between;
+  justify-content: flex-start;
   min-height: 5.2rem;
   padding: 1.25rem 0 calc(1.25rem + env(safe-area-inset-bottom));
 }
 
 footer.longos-footer .longos-footer__copyright { color: var(--footer-faint); display: flex; flex-wrap: wrap; font-size: .7rem; gap: .35rem .8rem; line-height: 1.5; }
 footer.longos-footer .longos-footer__copyright :where(p, div) { display: inline; margin: 0; }
-
-footer.longos-footer .longos-footer__bottom-note { align-items: center; color: var(--footer-muted); display: inline-flex; flex: 0 0 auto; font-size: .7rem; gap: .45rem; }
-footer.longos-footer .longos-footer__bottom-note i { color: var(--footer-accent); }
 
 footer.longos-footer :is(a, button):focus-visible,
 .longos-contact :is(a, button):focus-visible { border-radius: .25rem; box-shadow: 0 0 0 3px #84adff; outline: 2px solid #fff; outline-offset: 2px; }

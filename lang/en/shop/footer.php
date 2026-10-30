@@ -13,7 +13,6 @@ return [
     'accepted_payments'        => 'Accepted payment methods',
     'no_policies'              => 'No policies have been published yet.',
     'all_rights_reserved'      => 'All rights reserved.',
-    'bottom_note'              => 'Secure shopping · Transparent policies',
     'close_contact'            => 'Close Contact Us',
     'trade_name'               => 'Trade name',
     'legal_entity'             => 'Legal entity',

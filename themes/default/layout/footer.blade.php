@@ -151,7 +151,6 @@
         <span>&copy; {{ date('Y') }} {{ site_brand_name() }}. {{ __('shop/footer.all_rights_reserved') }}</span>
         @if (!empty($footer_content['bottom']['copyright']))<span>{!! $footer_content['bottom']['copyright'] !!}</span>@endif
       </div>
-      <span class="longos-footer__bottom-note"><i class="bi bi-check2" aria-hidden="true"></i>{{ __('shop/footer.bottom_note') }}</span>
     </div>
   </div>
   @hook('footer.after')
