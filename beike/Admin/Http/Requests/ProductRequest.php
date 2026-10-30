@@ -34,12 +34,18 @@ class ProductRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'descriptions.*.name' => 'required|string|min:3|max:255',
-            'brand_id'            => 'int',
-            'skus.*.sku'          => 'required|string',
-            'skus.*.price'        => 'required|numeric',
-            'skus.*.cost_price'   => 'numeric',
-            'skus.*.quantity'     => 'numeric|max:2000000000',
+            'descriptions'         => ['required', 'array', 'min:1'],
+            'descriptions.*.name'  => 'required|string|min:3|max:255',
+            'brand_id'             => ['nullable', 'integer', 'min:0'],
+            'skus'                 => ['required', 'array', 'min:1'],
+            'skus.*.id'            => ['nullable', 'integer', 'min:1'],
+            'skus.*.sku'           => ['required', 'string', 'max:255', 'distinct:ignore_case'],
+            'skus.*.price'         => ['required', 'numeric', 'min:0'],
+            'skus.*.origin_price'  => ['nullable', 'numeric', 'min:0'],
+            'skus.*.cost_price'    => ['nullable', 'numeric', 'min:0'],
+            'skus.*.quantity'      => ['nullable', 'integer', 'min:0', 'max:2000000000'],
+            'skus.*.weight'        => ['nullable', 'numeric', 'min:0'],
+            'skus.*.images'        => ['nullable', 'array'],
         ];
     }
 

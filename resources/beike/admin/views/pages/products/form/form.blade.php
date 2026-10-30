@@ -13,6 +13,7 @@
 @endpush
 
 @section('head-form-btns', true)
+@section('submit-form', 'app')
 
 @section('content')
   @if (session()->has('success'))
@@ -27,7 +28,7 @@
   @endif
   <form novalidate class="needs-validation"
         action="{{ $product->id ? admin_route('products.update', $product) : admin_route('products.store') }}"
-        method="POST" id="app" v-cloak>
+        method="POST" id="app" v-cloak @submit="prepareNativeSubmit">
     @csrf
     @method($product->id ? 'PUT' : 'POST')
     <input type="hidden" name="_redirect" value="{{ $_redirect }}"/>
@@ -124,6 +125,7 @@
             <div>
               @hookwrapper('admin.product.edit.variable')
               <div v-if="!editing.isVariable">
+                <input type="hidden" name="skus[0][id]" value="{{ old('skus.0.id', $product->skus[0]->id ?? '') }}">
                 <input type="hidden" value="{{ old('skus.0.image', $product->skus[0]->image ?? '') }}"
                         name="skus[0][image]">
                 <div class="row">
@@ -357,6 +359,7 @@
                             </td>
                           </template>
                           <td>
+                            <input type="hidden" :name="'skus[' + skuIndex + '][id]'" :value="sku.id || ''">
                             <div class="product-images d-flex flex-wrap" style="margin-right: -8px">
                               <div v-for="image, index in sku.images" :key="index"
                                     class="product-item wh-40 border d-flex justify-content-center align-items-center me-2 mb-2 position-relative">
@@ -764,36 +767,26 @@
   <script>
     @hook('admin.product.edit.script.before')
 
-    $('.submit-form-edit, .submit-form').on('click', function () {
-      submitBeforeFormat()
-      if (!app.validateSku()) {
-        return layer.msg('{{ __('admin/product.sku_error_repeat') }}', () => {
-        });
-      }
-
+    $('.submit-form-edit, .submit-form').on('click.product-form', function (event) {
+      event.preventDefault();
       if ($(this).hasClass('submit-form-edit')) {
         const action = $(`form#app`).attr('action');
         $(`form#app`).attr('action', bk.updateQueryStringParameter(action, 'action_type', 'stay'));
       }
 
-      setTimeout(() => {
+      const form = document.getElementById('app');
+      if (typeof form.requestSubmit === 'function') {
+        form.requestSubmit();
+      } else {
         $(`form#app`).find('button[type="submit"]')[0].click();
-      }, 0);
-    })
-
-    function submitBeforeFormat() {
-      // 关闭多规格提交 清空 variables
-      if (!app.editing.isVariable) {
-        app.source.variables = [];
       }
-
-      // app.videoSubmitFormat()
-    }
+    })
 
     var app = new Vue({
       el: '#app',
       data: {
         current_language_code: '{{ locale() }}',
+        submitting: false,
         isMove: false,
         isVariableFullEdit: false,
         imagesHandle: {
@@ -966,6 +959,38 @@
       },
 
       methods: {
+        prepareNativeSubmit(event) {
+          if (this.submitting) {
+            event.preventDefault();
+            return;
+          }
+
+          if (!this.validateSku()) {
+            event.preventDefault();
+            layer.msg('{{ __('admin/product.sku_error_repeat') }}');
+            return;
+          }
+
+          if (!this.editing.isVariable) {
+            this.source.variables = [];
+            this.form.variables = [];
+          }
+
+          const variablesInput = event.currentTarget.querySelector('input[name="variables"]');
+          if (variablesInput) {
+            variablesInput.value = JSON.stringify(this.form.variables || []);
+          }
+          if (window.tinymce) {
+            window.tinymce.triggerSave();
+          }
+
+          this.submitting = true;
+          document.querySelectorAll('.submit-form, .submit-form-edit, #app button[type="submit"]').forEach((button) => {
+            button.classList.add('disabled');
+            button.setAttribute('aria-disabled', 'true');
+          });
+        },
+
         showVideo(src) {
           if (this.isYouTubeVideoUrl(src)) {
             window.open(src, '_blank');

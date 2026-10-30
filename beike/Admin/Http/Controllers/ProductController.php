@@ -128,7 +128,11 @@ class ProductController extends Controller
 
             return redirect()->to(url()->previous())->with('success', trans('common.updated_success'));
         } catch (\Throwable $e) {
-            return redirect(url()->previous())->withErrors(['error' => $e->getMessage()]);
+            report($e);
+
+            return redirect(admin_route('products.edit', $product))
+                ->withInput()
+                ->withErrors(['error' => $e->getMessage()]);
         }
     }
 

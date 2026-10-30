@@ -6,6 +6,7 @@ use Beike\Models\Product;
 use Beike\Models\ProductSku;
 use Beike\Services\RichTextSanitizer;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class ProductService
 {
@@ -24,23 +25,17 @@ class ProductService
     protected function createOrUpdate(Product $product, array $data): Product
     {
         $isUpdating = $product->id > 0;
-        foreach ($data['skus'] as $sku) {
-            $productSku = ProductSku::query()->where('sku', $sku['sku'])->first();
-            if ($productSku && $productSku->product_id != $product->id) {
-                throw new \Exception(trans('validation.unique', ['attribute' => 'SKU']));
-            }
-        }
 
         return DB::transaction(function () use ($product, $data, $isUpdating): Product {
             hook_action('admin.service.product.create_or_update.before', ['product' => $product, 'data' => $data]);
 
             $data = hook_filter('admin.service.product.create_or_update.before', ['product' => $product, 'data' => $data]);
-            $data = $data['data'];
+            $data = $this->normalizeData($data['data'] ?? []);
+            $this->assertSkusAvailable($product, $data['skus']);
 
             $data['brand_id']  = (int) ($data['brand_id'] ?? 0);
             $data['position']  = (int) ($data['position'] ?? 0);
             $data['weight']    = (float) ($data['weight'] ?? 0);
-            $data['variables'] = json_decode($data['variables'] ?? '[]');
             $data['shipping']  = (bool) ($data['shipping'] ?? 1);
             $data['video']     = $data['video'] ?? '';
             $product->fill($data);
@@ -48,7 +43,6 @@ class ProductService
             $product->save();
 
             if ($isUpdating) {
-                $product->skus()->delete();
                 $product->descriptions()->delete();
                 $product->attributes()->delete();
             } else {
@@ -68,15 +62,7 @@ class ProductService
 
             $product->attributes()->createMany($data['attributes'] ?? []);
 
-            $skus = [];
-            foreach ($data['skus'] as $index => $sku) {
-                $sku['position']     = $index;
-                $sku['origin_price'] = (float) $sku['origin_price'];
-                $sku['cost_price']   = (float) $sku['cost_price'];
-                $sku['quantity']     = (int) $sku['quantity'];
-                $skus[]              = $sku;
-            }
-            $product->skus()->createMany($skus);
+            $this->syncSkus($product, $data['skus'], $isUpdating);
 
             $product->categories()->sync($data['categories'] ?? []);
             $product->relations()->sync($data['relations'] ?? []);
@@ -87,6 +73,130 @@ class ProductService
 
             return $product;
         });
+    }
+
+    /**
+     * Normalize optional fields from both the admin form and import plugins.
+     */
+    private function normalizeData(array $data): array
+    {
+        $variables = $data['variables'] ?? [];
+        if (is_string($variables)) {
+            $variables = json_decode($variables, true);
+        } elseif (is_object($variables)) {
+            $variables = json_decode(json_encode($variables, JSON_THROW_ON_ERROR), true);
+        }
+        $data['variables'] = is_array($variables) ? $variables : [];
+
+        $data['descriptions'] = array_filter(
+            (array) ($data['descriptions'] ?? []),
+            static fn ($description): bool => is_array($description),
+        );
+        $data['descriptions'] = array_map(static function (array $description): array {
+            return array_merge([
+                'name'             => '',
+                'content'          => '',
+                'meta_title'       => '',
+                'meta_description' => '',
+                'meta_keywords'    => '',
+            ], $description);
+        }, $data['descriptions']);
+
+        $data['skus'] = array_values(array_map(function ($sku, int $index): array {
+            $sku = is_array($sku) ? $sku : [];
+
+            $sku['sku']          = trim((string) ($sku['sku'] ?? ''));
+            $sku['model']        = (string) ($sku['model'] ?? '');
+            $sku['price']        = (float) ($sku['price'] ?? 0);
+            $sku['origin_price'] = (float) ($sku['origin_price'] ?? 0);
+            $sku['cost_price']   = (float) ($sku['cost_price'] ?? 0);
+            $sku['weight']       = (float) ($sku['weight'] ?? 0);
+            $sku['quantity']     = (int) ($sku['quantity'] ?? 0);
+            $sku['position']     = $index;
+            $sku['is_default']   = $index === 0;
+            $sku['active']       = $index === 0 || (bool) ($sku['active'] ?? true);
+            $sku['images']       = $this->normalizeArrayValue($sku['images'] ?? []);
+            $sku['variants']     = $this->normalizeArrayValue($sku['variants'] ?? []);
+
+            return $sku;
+        }, (array) ($data['skus'] ?? []), array_keys((array) ($data['skus'] ?? []))));
+
+        return $data;
+    }
+
+    private function normalizeArrayValue(mixed $value): array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+
+        if (! is_string($value) || trim($value) === '') {
+            return [];
+        }
+
+        $decoded = json_decode($value, true);
+
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    private function assertSkusAvailable(Product $product, array $skus): void
+    {
+        $codes = collect($skus)->pluck('sku')->filter()->values();
+        if ($codes->count() !== count($skus) || $codes->isEmpty()) {
+            throw new \Exception(trans('validation.required', ['attribute' => 'SKU']));
+        }
+
+        if ($codes->count() !== $codes->map(static fn ($sku): string => mb_strtolower($sku))->unique()->count()) {
+            throw new \Exception(trans('validation.distinct', ['attribute' => 'SKU']));
+        }
+
+        $conflict = ProductSku::query()
+            ->whereIn('sku', $codes)
+            ->when($product->exists, fn ($query) => $query->where('product_id', '!=', $product->id))
+            ->exists();
+
+        if ($conflict) {
+            throw new \Exception(trans('validation.unique', ['attribute' => 'SKU']));
+        }
+    }
+
+    /**
+     * Preserve SKU primary keys while editing so carts and integrations do not
+     * lose their product variant identity on every manual save.
+     */
+    private function syncSkus(Product $product, array $skus, bool $isUpdating): void
+    {
+        $existing = $isUpdating
+            ? $product->skus()->lockForUpdate()->get()
+            : collect();
+        $existingById   = $existing->keyBy('id');
+        $existingByCode = $existing->keyBy('sku');
+
+        // Free the unique SKU values first. This also makes swapping two SKU
+        // codes in one edit safe without deleting and recreating the records.
+        foreach ($existing as $current) {
+            $current->forceFill([
+                'sku' => '__longos_edit_' . $current->id . '_' . Str::lower(Str::random(12)),
+            ])->save();
+        }
+
+        $retained = [];
+        foreach ($skus as $sku) {
+            $submittedId = (int) ($sku['id'] ?? 0);
+            $current     = $submittedId > 0 ? $existingById->get($submittedId) : null;
+            $current   ??= $existingByCode->get($sku['sku']);
+            $current   ??= new ProductSku;
+
+            unset($sku['id'], $sku['product_sku_id'], $sku['sku_error']);
+            $current->fill($sku);
+            $current->product_id = $product->id;
+            $current->save();
+            $retained[] = $current->id;
+        }
+
+        if ($isUpdating) {
+            $product->skus()->whereNotIn('id', $retained)->delete();
+        }
     }
 
     /**
