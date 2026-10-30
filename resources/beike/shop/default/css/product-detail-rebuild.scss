@@ -667,7 +667,50 @@ body.page-product .product-payment-methods .is-mastercard i { border-radius: 50%
 body.page-product .product-payment-methods .is-mastercard i:first-child { background: #eb001b; left: .45rem; }
 body.page-product .product-payment-methods .is-mastercard i:last-child { background: #f79e1b; mix-blend-mode: multiply; right: .45rem; }
 
-body.page-product .product-marketing-modules { margin-top: 1rem; }
+body.page-product .product-marketing-modules {
+  margin-top: 1rem;
+}
+
+// Builder sections use generous page-level rhythm by default. Inside the
+// product purchase column they form one compact decision stack, so the stack
+// owns the spacing and child wrappers must not reserve another 64px per side.
+body.page-product .product-marketing-modules > .builder-responsive-module {
+  margin-block: 0;
+}
+
+@media (max-width: 767.98px) {
+  body.page-product .product-marketing-modules {
+    gap: .7rem;
+  }
+
+  // Image-only trust badges can stay compact. Copy-bearing icon modules keep
+  // their merchant-selected columns so titles and descriptions remain legible.
+  body.page-product .product-marketing-modules .module-icons--image-only {
+    padding-block: .2rem;
+
+    .container-fluid {
+      padding-inline: .35rem;
+    }
+
+    .builder-section-grid {
+      align-items: start;
+      gap: .55rem .4rem;
+      grid-template-columns: repeat(auto-fit, minmax(4.75rem, 1fr));
+    }
+
+    .module-icons__item {
+      align-items: center;
+      display: flex;
+      justify-content: center;
+      min-height: 0;
+    }
+
+    .module-icons__item img {
+      margin: 0 !important;
+      width: clamp(3rem, 15vw, 3.5rem);
+    }
+  }
+}
 
 /* Product information stays compact until requested. Native disclosure
  * elements avoid a script dependency and retain keyboard/screen-reader state. */

@@ -181,6 +181,21 @@ class ProductDetailPresentationTest extends TestCase
         self::assertFalse(DesignService::normalizeHeaderSetting([])['header_ads']['active']);
     }
 
+    public function test_product_icon_modules_use_compact_mobile_rhythm_without_cramping_copy(): void
+    {
+        $root          = dirname(__DIR__, 2);
+        $icons         = (string) file_get_contents($root . '/themes/default/design/icons.blade.php');
+        $productStyles = (string) file_get_contents($root . '/resources/beike/shop/default/css/product-detail-rebuild.scss');
+
+        self::assertStringContainsString('$imageOnly = $hasIcons && $visibleIconItems->every', $icons);
+        self::assertStringContainsString("{{ \$imageOnly ? 'module-icons--image-only' : '' }}", $icons);
+        self::assertStringContainsString('.product-marketing-modules > .builder-responsive-module', $productStyles);
+        self::assertStringContainsString('margin-block: 0;', $productStyles);
+        self::assertStringContainsString('.module-icons--image-only', $productStyles);
+        self::assertStringContainsString('grid-template-columns: repeat(auto-fit, minmax(4.75rem, 1fr));', $productStyles);
+        self::assertStringContainsString('width: clamp(3rem, 15vw, 3.5rem);', $productStyles);
+    }
+
     public function test_related_products_use_a_conversion_focused_recommendation_contract(): void
     {
         $root       = dirname(__DIR__, 2);

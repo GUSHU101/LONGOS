@@ -1,9 +1,12 @@
 @php
-  $hasIcons = collect($content['images'] ?? [])->contains(fn ($image) => !empty($image['image']) || !empty($image['text']) || !empty($image['sub_text']));
+  $iconItems = collect($content['images'] ?? [])->filter(fn ($image) => is_array($image));
+  $visibleIconItems = $iconItems->filter(fn ($image) => !empty($image['image']) || !empty($image['text']) || !empty($image['sub_text']));
+  $hasIcons = $visibleIconItems->isNotEmpty();
+  $imageOnly = $hasIcons && $visibleIconItems->every(fn ($image) => empty($image['text']) && empty($image['sub_text']));
 @endphp
 @if($design || $hasIcons)
 <section class="module-item {{ $design ? 'module-item-design' : ''}}" id="module-{{ $module_id }}" @if(!empty($content['title'])) aria-labelledby="module-heading-{{ $module_id }}" @endif @include('design.partials.section_style')>
-  <div class="module-info module-icons module-icons--{{ $content['style_variant'] ?? 'minimal' }}">
+  <div class="module-info module-icons module-icons--{{ $content['style_variant'] ?? 'minimal' }} {{ $imageOnly ? 'module-icons--image-only' : '' }}">
     @if ($content['title'])
     <h2 class="module-title" id="module-heading-{{ $module_id }}">{{ $content['title'] }} <span class="wave-line" aria-hidden="true"></span></h2>
     @endif
