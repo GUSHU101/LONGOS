@@ -8,6 +8,7 @@ use Beike\Admin\Http\Resources\ProductResource;
 use Beike\Admin\Http\Resources\ProductSimple;
 use Beike\Admin\Repositories\TaxClassRepo;
 use Beike\Admin\Services\ProductCategoryAssignmentService;
+use Beike\Admin\Services\ProductFormState;
 use Beike\Admin\Services\ProductService;
 use Beike\Libraries\Weight;
 use Beike\Models\Product;
@@ -91,7 +92,7 @@ class ProductController extends Controller
     public function store(ProductRequest $request)
     {
         try {
-            $requestData = $request->all();
+            $requestData = $request->except('_product_form_complete');
             $actionType  = $requestData['action_type'] ?? '';
             DB::transaction(function () use ($requestData): void {
                 $product = (new ProductService)->create($requestData);
@@ -117,7 +118,7 @@ class ProductController extends Controller
     public function update(ProductRequest $request, Product $product)
     {
         try {
-            $requestData = $request->all();
+            $requestData = $request->except('_product_form_complete');
             DB::transaction(function () use ($product, $requestData): void {
                 $product = (new ProductService)->update($product, $requestData);
                 hook_action('admin.product.update.after', [
@@ -172,6 +173,12 @@ class ProductController extends Controller
         $taxClasses = TaxClassRepo::getList();
         array_unshift($taxClasses, ['title' => trans('admin/builder.text_no'), 'id' => 0]);
 
+        $formState = ProductFormState::make(
+            old('images', $product->images ?? []),
+            old('variables', $product->variables ?? []),
+            old('skus', $product->skus ?? []),
+        );
+
         $data = [
             'product'                   => $product,
             'descriptions'              => $descriptions ?? [],
@@ -182,6 +189,7 @@ class ProductController extends Controller
             'tax_classes'               => $taxClasses,
             'system_currency'           => system_setting('base.currency', 'USD'),
             'system_weight'             => system_setting('base.weight', 'kg'),
+            'form_state'                => $formState,
             'weight_classes'            => collect(Weight::getWeightUnits())->map(fn (string $unit) => [
                 'value' => $unit,
                 'label' => trans('product.' . $unit),

@@ -232,7 +232,7 @@
                               :id="'selectable-variant-' + variantIndex">
                           <div class="title">
                             <div>
-                              <b>@{{ variant.name[current_language_code] }}</b>
+                              <b>@{{ localizedLabel(variant.name) }}</b>
                               <el-link type="primary"
                                         @click="modalVariantOpenButtonClicked(variantIndex, null)">{{ __('common.edit') }}</el-link>
                               <el-link type="danger" class="ms-2"
@@ -270,7 +270,7 @@
                                 <div class="btn-remove" @click="removeSourceVariantValue(variantIndex, value_index)"><i
                                     class="el-icon-error"></i></div>
                                 <div class="name">
-                                  @{{ value.name[current_language_code] }}
+                                  @{{ localizedLabel(value.name) }}
                                   @hook('admin.product.edit.source.variables.name.after')
                                 </div>
                               </div>
@@ -295,10 +295,10 @@
                         <div v-for="(variant, index) in form.variables" :key="index" class="me-2">
                           <select class="form-select me-2" aria-label="Default select example"
                                   v-model="variablesBatch.variables[index]">
-                            <option selected value="">@{{ variant.name[current_language_code] || 'No name' }}</option>
+                            <option selected value="">@{{ localizedLabel(variant.name) }}</option>
                             <option :value="value_index" v-for="value, value_index in variant.values"
                                     :key="index+'-'+value_index">
-                              @{{ value.name[current_language_code]}}
+                              @{{ localizedLabel(value.name) }}
                             </option>
                           </select>
                         </div>
@@ -337,7 +337,7 @@
                       <table class="table table-bordered table-hover table-skus table-no-mb">
                         <thead>
                         <th v-for="(variant, index) in form.variables" :key="'pv-header-' + index">
-                          @{{ variant.name[current_language_code] || 'No name' }}
+                          @{{ localizedLabel(variant.name) }}
                         </th>
                         <th>{{ __('common.image') }}</th>
                         <th class="w-min-100">{{ __('admin/product.model') }}</th>
@@ -355,7 +355,7 @@
                           <template v-for="(variantValueIndex, j) in sku.variants">
                             <td v-if="skuIndex % variantValueRepetitions[j] == 0" :key="'pvv' + skuIndex + '-' + j"
                                 :rowspan="variantValueRepetitions[j]">
-                              <span>@{{ form.variables[j].values[variantValueIndex].name[current_language_code] || 'No name' }}</span>
+                              <span>@{{ variantValueLabel(j, variantValueIndex) }}</span>
                             </td>
                           </template>
                           <td>
@@ -758,6 +758,11 @@
         </el-form-item>
       </el-form>
     </el-dialog>
+
+    {{-- Keep this as the final successful control in the form. If PHP
+         truncates an oversized request, validation rejects it instead of
+         partially overwriting the product. --}}
+    <input type="hidden" name="_product_form_complete" value="1">
   </form>
 
   @hook('admin.product.form.footer')
@@ -767,12 +772,11 @@
   <script>
     @hook('admin.product.edit.script.before')
 
-    $('.submit-form-edit, .submit-form').on('click.product-form', function (event) {
+    $('.submit-form-edit').on('click.product-form', function (event) {
       event.preventDefault();
-      if ($(this).hasClass('submit-form-edit')) {
-        const action = $(`form#app`).attr('action');
-        $(`form#app`).attr('action', bk.updateQueryStringParameter(action, 'action_type', 'stay'));
-      }
+      event.stopPropagation();
+      const action = $(`form#app`).attr('action');
+      $(`form#app`).attr('action', bk.updateQueryStringParameter(action, 'action_type', 'stay'));
 
       const form = document.getElementById('app');
       if (typeof form.requestSubmit === 'function') {
@@ -796,7 +800,7 @@
         form: {
           categories: @json(old('categories', $category_ids) ?? []),
           attributes: @json(old('pickups', $product_attributes) ?? []),
-          images: @json(old('images', $product->images) ?? []),
+          images: @json($form_state['images']),
           video: {
             path: @json(old('video', $product->video ?? '')),
             url: @json(image_origin(old('video', $product->video ?? ''))),
@@ -807,7 +811,7 @@
           sku: @json($product->skus[0]['sku'] ?? ''),
           status: @json($product->skus[0]['status'] ?? false),
           variables: [],
-          skus: @json(old('skus', $product->skus) ?? []),
+          skus: @json($form_state['skus']),
         },
 
         variablesBatch: {
@@ -892,7 +896,8 @@
         },
 
         skuIsEmpty() {
-          return (this.form.skus.length && this.form.skus[0].variants.length) || ''
+          const firstSku = this.form.skus[0];
+          return (firstSku && Array.isArray(firstSku.variants) && firstSku.variants.length) || ''
         },
 
         categoryFormat() {
@@ -913,14 +918,10 @@
       },
 
       beforeMount() {
-        let variables = @json(old('variables', $product->variables) ?? []);
-        // 修复表单提交报错后，编辑好的规格不存在问题，old 返回的规格是字符串，variables 如果是字符串，需要转数组
-        if (typeof variables === 'string') {
-          variables = JSON.parse(variables);
-        }
+        const variables = @json($form_state['variables']);
 
         this.form.variables = variables
-        this.source.variables = variables
+        this.source.variables = JSON.parse(JSON.stringify(variables))
         this.editing.isVariable = variables.length > 0
 
         if (this.form.variables.length) {
@@ -959,6 +960,29 @@
       },
 
       methods: {
+        localizedLabel(names) {
+          if (typeof names === 'string') {
+            return names || 'No name';
+          }
+          if (!names || typeof names !== 'object') {
+            return 'No name';
+          }
+
+          return names[this.current_language_code]
+            || names.en
+            || Object.values(names).find(name => typeof name === 'string' && name.trim())
+            || 'No name';
+        },
+
+        variantValueLabel(variableIndex, valueIndex) {
+          const variable = this.form.variables[variableIndex];
+          const value = variable && Array.isArray(variable.values)
+            ? variable.values[valueIndex]
+            : null;
+
+          return this.localizedLabel(value && value.name);
+        },
+
         prepareNativeSubmit(event) {
           if (this.submitting) {
             event.preventDefault();
@@ -968,6 +992,13 @@
           if (!this.validateSku()) {
             event.preventDefault();
             layer.msg('{{ __('admin/product.sku_error_repeat') }}');
+            return;
+          }
+
+          // The shared Bootstrap listener performs the visual validation
+          // after this Vue handler. Do not lock the editor when that listener
+          // is about to reject an incomplete form.
+          if (!event.currentTarget.checkValidity()) {
             return;
           }
 

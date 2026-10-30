@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use Beike\Admin\Http\Requests\ProductRequest;
+use Beike\Admin\Services\ProductFormState;
 use Beike\Admin\Services\ProductService;
 use Beike\Models\Product;
 use Illuminate\Contracts\Console\Kernel;
@@ -103,9 +104,10 @@ class ProductManualEditingTest extends TestCase
     {
         $request = new ProductRequest;
         $valid   = Validator::make([
-            'brand_id'     => null,
-            'descriptions' => ['en' => ['name' => 'Valid product']],
-            'skus'         => [[
+            '_product_form_complete' => '1',
+            'brand_id'               => null,
+            'descriptions'           => ['en' => ['name' => 'Valid product']],
+            'skus'                   => [[
                 'sku'          => 'ONE',
                 'price'        => 10,
                 'origin_price' => null,
@@ -118,8 +120,9 @@ class ProductManualEditingTest extends TestCase
         self::assertFalse($valid->fails(), json_encode($valid->errors()->toArray()));
 
         $duplicate = Validator::make([
-            'descriptions' => ['en' => ['name' => 'Valid product']],
-            'skus'         => [
+            '_product_form_complete' => '1',
+            'descriptions'           => ['en' => ['name' => 'Valid product']],
+            'skus'                   => [
                 ['sku' => 'Same-SKU', 'price' => 10],
                 ['sku' => 'same-sku', 'price' => 12],
             ],
@@ -137,8 +140,55 @@ class ProductManualEditingTest extends TestCase
         self::assertStringContainsString('@submit="prepareNativeSubmit"', $source);
         self::assertStringContainsString('form.requestSubmit()', $source);
         self::assertStringContainsString('window.tinymce.triggerSave()', $source);
+        self::assertStringContainsString('event.currentTarget.checkValidity()', $source);
+        self::assertStringContainsString('name="_product_form_complete"', $source);
+        self::assertStringContainsString("$('.submit-form-edit').on('click.product-form'", $source);
+        self::assertStringNotContainsString("$('.submit-form-edit, .submit-form').on", $source);
         self::assertStringContainsString("[id]'\" :value=\"sku.id", $source);
         self::assertStringNotContainsString('submitBeforeFormat()', $source);
+
+        $validationSource = file_get_contents(base_path('resources/beike/admin/js/bootstrap-validation.js'));
+        self::assertStringContainsString('event.isDefaultPrevented()', $validationSource);
+    }
+
+    public function test_product_form_state_repairs_legacy_and_nullable_json_shapes(): void
+    {
+        $state = ProductFormState::make(
+            null,
+            json_encode([[
+                'name'   => 'Color',
+                'values' => [['name' => 'Red', 'image' => null]],
+            ]]),
+            [[
+                'product_sku_id' => 42,
+                'variants'       => null,
+                'images'         => '/catalog/red.jpg',
+                'model'          => null,
+                'sku'            => 'LEGACY-RED',
+                'price'          => '12.50',
+                'active'         => true,
+            ]],
+        );
+
+        self::assertSame([], $state['images']);
+        self::assertSame(['en' => 'Color'], $state['variables'][0]['name']);
+        self::assertSame(['en' => 'Red'], $state['variables'][0]['values'][0]['name']);
+        self::assertSame(42, $state['skus'][0]['id']);
+        self::assertSame([], $state['skus'][0]['variants']);
+        self::assertSame(['/catalog/red.jpg'], $state['skus'][0]['images']);
+        self::assertSame('', $state['skus'][0]['model']);
+    }
+
+    public function test_product_request_rejects_a_truncated_form(): void
+    {
+        $request   = new ProductRequest;
+        $validator = Validator::make([
+            'descriptions' => ['en' => ['name' => 'Valid product']],
+            'skus'         => [['sku' => 'ONE', 'price' => 10]],
+        ], $request->rules(), $request->messages());
+
+        self::assertTrue($validator->fails());
+        self::assertArrayHasKey('_product_form_complete', $validator->errors()->toArray());
     }
 
     private function payload(array $sku): array

@@ -75,5 +75,6 @@ return [
     'images_video'           => 'images/video',
     'add_url'                => 'add url',
     'add_url_help'           => 'Only supports YouTube videos and remote video links in MP4 format',
-    'full_edit'              => 'Full screen edit',
+    'full_edit'               => 'Full screen edit',
+    'form_request_incomplete' => 'The product form was too large or incomplete. No changes were saved. Reduce the number of variants or ask the administrator to increase the PHP form limits.',
 ];

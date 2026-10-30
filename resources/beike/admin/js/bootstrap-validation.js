@@ -36,6 +36,13 @@ $(function () {
 
   // 表单保存统一添加加载动画
   $(document).on('submit', 'form', function(event) {
+    // Native/Vue validation runs on the form before this delegated handler.
+    // A rejected submission must remain editable and must not leave an
+    // infinite loading overlay covering the validation feedback.
+    if (event.isDefaultPrevented()) {
+      return;
+    }
+
     if (!$(this).hasClass('no-load')) {
       layer.load(2, { shade: [0.2, '#fff'] });
     }

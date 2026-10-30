@@ -75,5 +75,6 @@ return [
     'images_video'           => '图片/视频',
     'add_url'                => '添加 URL',
     'add_url_help'           => '只支持 YouTube 视频 和 mp4 格式的远程视频链接',
-    'full_edit'              => '全屏编辑',
+    'full_edit'               => '全屏编辑',
+    'form_request_incomplete' => '商品表单过大或传输不完整，本次没有保存任何更改。请减少规格数量，或联系管理员调高 PHP 表单限制。',
 ];
