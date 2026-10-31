@@ -128,8 +128,15 @@ class CheckoutPresentationTest extends TestCase
         self::assertStringContainsString('regionValidationBlocked', $address);
         self::assertStringContainsString('this.messages.countryUnavailable', $address);
         self::assertStringContainsString('zoneCode.split(\'-\').pop()', $address);
-        self::assertStringContainsString('checkoutAddressApp.focusAddressEditor()', $checkout);
-        self::assertStringContainsString('!addressReady', $checkout);
+        self::assertStringContainsString('checkoutAddressApp.saveAddress({focusOnError: true})', $checkout);
+        self::assertStringContainsString('addressReady && (!checkoutHasShipping || !checkoutHasPayment)', $checkout);
+        self::assertStringContainsString('v-if="source.isLogin" class="address-save-button"', $address);
+        self::assertStringContainsString('messages.addressAutoApply', $address);
+        self::assertStringContainsString('validateAddressForm(report = true)', $address);
+        self::assertStringContainsString('@change="maybeCommitGuestAddress"', $address);
+        self::assertStringContainsString('addressIsComplete()', $address);
+        self::assertStringContainsString('revision === this.addressRevision', $address);
+        self::assertStringContainsString('return this.refreshCheckout(payload', $address);
         self::assertStringContainsString('<button type="button" class="payment-header radio-line-item', $checkout);
         self::assertStringNotContainsString('<div class="payment-option radio-line-item', $checkout);
         self::assertStringNotContainsString('id="checkout-comment"', $checkout);

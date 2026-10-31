@@ -6,7 +6,7 @@
 @endphp
 
 <div id="checkout-address-app" v-cloak>
-  <form ref="addressForm" class="checkout-address-form" v-if="!source.isLogin || editorOpen" @submit.prevent="saveAddress" :aria-busy="saving ? 'true' : 'false'" :aria-describedby="formError ? 'checkout-address-error' : null">
+  <form ref="addressForm" class="checkout-address-form" v-if="!source.isLogin || editorOpen" @submit.prevent="saveAddress" @change="maybeCommitGuestAddress" :aria-busy="saving ? 'true' : 'false'" :aria-describedby="formError ? 'checkout-address-error' : null">
     <section class="section checkout-contact-section">
       <div class="section-header">
         <h2 class="section-title">{{ __('shop/checkout.contact_information') }}</h2>
@@ -127,7 +127,11 @@
       </div>
 
       <div class="checkout-address-actions">
-        <button class="address-save-button" type="submit" :disabled="saving || zonesLoading || zonesLoadFailed"><span v-if="saving">@{{ messages.saving }}</span><span v-else>@{{ shippingRequired ? messages.useThisAddress : messages.saveBillingAddress }}</span></button>
+        <button v-if="source.isLogin" class="address-save-button" type="submit" :disabled="saving || zonesLoading || zonesLoadFailed"><span v-if="saving">@{{ messages.saving }}</span><span v-else>@{{ shippingRequired ? messages.useThisAddress : messages.saveBillingAddress }}</span></button>
+        <span v-else class="address-auto-apply" aria-live="polite">
+          <span class="address-auto-apply__icon" aria-hidden="true">&#10003;</span>
+          @{{ saving ? messages.addressApplying : messages.addressAutoApply }}
+        </span>
         <button type="button" class="checkout-login-link" v-if="source.isLogin && source.addresses.length" :disabled="saving" @click="cancelEdit">{{ __('shop/checkout.cancel') }}</button>
         <span id="checkout-address-error" class="text-danger small" role="alert" v-if="formError">@{{ formError }}</span>
       </div>
@@ -195,6 +199,8 @@
     'countryUnavailable' => __('shop/checkout.country_unavailable'),
     'retry' => __('shop/checkout.retry'),
     'saveChanges' => __('shop/checkout.save_address_changes'),
+    'addressAutoApply' => __('shop/checkout.address_auto_apply'),
+    'addressApplying' => __('shop/checkout.address_applying'),
   ]) !!};
 
   var checkoutAddressApp = new Vue({
@@ -224,6 +230,7 @@
       addressLookupLoading: false,
       addressDirty: false,
       addressCommitted: false,
+      addressRevision: 0,
       regionValidationBlocked: false,
       saving: false,
       formError: '',
@@ -350,7 +357,11 @@
             this.syncAddressSubmitState();
           }
           return [];
-        }).finally(() => { if (requestId === this.zoneRequestId) this.zonesLoading = false; });
+        }).finally(() => {
+          if (requestId !== this.zoneRequestId) return;
+          this.zonesLoading = false;
+          this.$nextTick(() => this.maybeCommitGuestAddress());
+        });
       },
       retryZones() {
         this.formError = '';
@@ -371,6 +382,7 @@
       },
       markAddressDirty() {
         this.addressDirty = true;
+        this.addressRevision += 1;
         this.formError = '';
         this.syncAddressSubmitState();
       },
@@ -382,7 +394,7 @@
         this.editorOpen = true;
         this.$nextTick(() => {
           this.$refs.addressForm?.scrollIntoView({behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start'});
-          const target = this.$refs.addressForm?.querySelector(':invalid') || this.$refs.addressForm?.querySelector('.address-save-button');
+          const target = this.$refs.addressForm?.querySelector(':invalid') || this.$refs.addressForm?.querySelector('input, select, .address-save-button');
           target?.focus();
         });
       },
@@ -493,7 +505,10 @@
         if (zone) this.addressForm.zone_id = zone.id;
 
         this.addressLookupMessage = this.messages.addressLookupFilled;
-        this.$nextTick(() => document.getElementById('checkout-address-city')?.focus());
+        this.$nextTick(() => {
+          document.getElementById('checkout-address-city')?.focus();
+          this.maybeCommitGuestAddress();
+        });
       },
       normalizeLookupText(value) {
         return String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
@@ -533,39 +548,75 @@
           if (typeof callback === 'function') callback();
         });
       },
-      saveAddress() {
-        const address = this.addressForm;
+      validateAddressForm(report = true) {
         this.syncFullName();
         this.formError = '';
         if (this.zonesLoading || this.zonesLoadFailed) {
           this.formError = this.messages.unableUpdate;
-          return;
+          return false;
         }
+        const address = this.addressForm;
         if (!address.first_name || !address.last_name || !address.name || !address.country_id || !address.address_1 || !address.city || (this.phoneRequired && !address.phone) || (!this.source.isLogin && !address.email)) {
           this.formError = this.messages.completeDetails;
-          return;
+          if (report) this.$refs.addressForm?.reportValidity();
+          return false;
         }
         if (!this.source.isLogin && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address.email)) {
           this.formError = this.messages.invalidEmail;
-          return;
+          if (report) this.$refs.addressForm?.reportValidity();
+          return false;
         }
-        if (this.source.zones.length && !address.zone_id) { this.formError = this.messages.selectRegion; return; }
+        if (this.source.zones.length && !address.zone_id) {
+          this.formError = this.messages.selectRegion;
+          if (report) this.$refs.addressForm?.reportValidity();
+          return false;
+        }
+
+        return true;
+      },
+      addressIsComplete() {
+        const address = this.addressForm;
+        if (this.zonesLoading || this.zonesLoadFailed) return false;
+        if (!address.first_name || !address.last_name || !address.country_id || !address.address_1 || !address.city) return false;
+        if (this.phoneRequired && !address.phone) return false;
+        if (!this.source.isLogin && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address.email || '')) return false;
+        return !this.source.zones.length || Boolean(address.zone_id);
+      },
+      maybeCommitGuestAddress() {
+        if (this.source.isLogin || this.saving || !this.addressDirty || !this.addressIsComplete()) return;
+        this.saveAddress({focusOnError: false});
+      },
+      saveAddress(options = {}) {
+        if (this.saving) return Promise.resolve(false);
+        if (!this.validateAddressForm(options.focusOnError !== false)) {
+          if (options.focusOnError) {
+            this.focusAddressEditor(this.formError);
+            if (typeof window.showCheckoutError === 'function') window.showCheckoutError(this.formError);
+            layer.msg(this.formError);
+          }
+          return Promise.resolve(false);
+        }
+
+        const address = JSON.parse(JSON.stringify(this.addressForm));
+        const revision = this.addressRevision;
         this.saving = true;
+        this.syncAddressSubmitState();
         if (!this.source.isLogin) {
           const payload = this.shippingRequired
             ? { guest_shipping_address: address, guest_payment_address: address }
             : { guest_payment_address: address };
-          this.refreshCheckout(payload, (res) => {
+          return this.refreshCheckout(payload, (res) => {
             this.source.guest_shipping_address = res.current.guest_shipping_address;
             this.source.guest_payment_address = res.current.guest_payment_address;
-            this.loadAddress(this.shippingRequired ? this.source.guest_shipping_address : this.source.guest_payment_address, true, true);
+            if (revision === this.addressRevision) {
+              this.loadAddress(this.shippingRequired ? this.source.guest_shipping_address : this.source.guest_payment_address, true, true);
+            }
             this.syncAddressSubmitState();
-          });
-          return;
+          }).then((res) => Boolean(res));
         }
         const method = address.id ? 'put' : 'post';
         const url = `${checkoutAccountAddressesUrl}${address.id ? '/' + address.id : ''}`;
-        $http[method](url, address, {hmsg: true, hload: true}).then((res) => {
+        return $http[method](url, address, {hmsg: true, hload: true}).then((res) => {
           const saved = res.data;
           const index = this.source.addresses.findIndex((item) => item.id == saved.id);
           if (index === -1) this.source.addresses.push(saved); else this.$set(this.source.addresses, index, saved);
@@ -577,7 +628,8 @@
         }).catch((error) => {
           this.formError = error?.responseJSON?.message || error?.response?.data?.message || this.messages.unableSave;
           if (typeof window.showCheckoutError === 'function') window.showCheckoutError(this.formError);
-        }).finally(() => { this.saving = false; });
+          return null;
+        }).then((res) => Boolean(res)).finally(() => { this.saving = false; this.syncAddressSubmitState(); });
       },
       refreshCheckout(payload, callback) {
         return enqueueCheckoutUpdate(payload).then((res) => {
@@ -592,6 +644,7 @@
           if (typeof window.clearCheckoutError === 'function') window.clearCheckoutError();
           if (typeof announceCheckout === 'function') announceCheckout(this.messages.checkoutUpdated);
           if (typeof callback === 'function') callback(res);
+          return res;
         }).catch((error) => {
           this.formError = typeof checkoutErrorMessage === 'function'
             ? checkoutErrorMessage(error, this.messages.unableUpdate)
@@ -599,7 +652,8 @@
           if (typeof window.showCheckoutError === 'function') window.showCheckoutError(this.formError);
           else if (typeof announceCheckout === 'function') announceCheckout(this.formError);
           layer.msg(this.formError);
-        }).finally(() => { this.saving = false; });
+          return null;
+        }).finally(() => { this.saving = false; this.syncAddressSubmitState(); });
       },
     },
   });

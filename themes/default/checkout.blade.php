@@ -123,6 +123,8 @@
     .checkout-address-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 12px; margin-top: 4px; }
     .address-save-button { background: #fff; border: 1px solid #111; border-radius: 6px; color: #111; min-height: 44px; padding: 0 16px; }
     .address-save-button:hover { background: #111; color: #fff; }
+    .address-auto-apply { align-items: center; color: #4f5b52; display: inline-flex; font-size: 12px; gap: 7px; }
+    .address-auto-apply__icon { align-items: center; background: #eaf6ed; border-radius: 50%; color: #247a3d; display: inline-flex; font-size: 10px; font-weight: 700; height: 20px; justify-content: center; width: 20px; }
 
     .checkout-saved-addresses { background: #fff; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 18px; overflow: hidden; }
     .checkout-address-row { align-items: stretch; border-bottom: 1px solid #e7e7e7; display: flex; }
@@ -673,9 +675,16 @@
         }
 
         if (!checkoutAddressApp.readyForSubmit) {
-          checkoutAddressApp.focusAddressEditor();
-          showCheckoutError(checkoutAddressApp.messages.saveChanges);
-          layer.msg(checkoutAddressApp.messages.saveChanges);
+          checkoutAddressApp.saveAddress({focusOnError: true}).then((saved) => {
+            if (!saved) return;
+
+            if (!checkoutHasShipping || !checkoutHasPayment) {
+              window.syncCheckoutSubmitState();
+              return;
+            }
+
+            window.setTimeout(() => $('#submit-checkout').trigger('click'), 0);
+          });
           return;
         }
 
@@ -804,7 +813,10 @@
 
     window.syncCheckoutSubmitState = () => {
       const addressReady = !window.checkoutAddressApp || checkoutAddressApp.readyForSubmit;
-      const disabled = isSubmittingOrder || checkoutUpdatePending > 0 || !checkoutHasShipping || !checkoutHasPayment || !addressReady;
+      // An uncommitted address is no longer a separate checkout step. Keep
+      // the primary CTA actionable so it can validate and commit the address
+      // before continuing with the existing order-confirmation flow.
+      const disabled = isSubmittingOrder || checkoutUpdatePending > 0 || (addressReady && (!checkoutHasShipping || !checkoutHasPayment));
       $('[data-submit-checkout]').prop('disabled', disabled);
     };
 
