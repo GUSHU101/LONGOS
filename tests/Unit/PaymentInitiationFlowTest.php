@@ -62,6 +62,10 @@ class PaymentInitiationFlowTest extends TestCase
         self::assertStringContainsString('order_checkout_result_url(', $paypalController);
         self::assertStringContainsString('isProviderBoundReturn(', $paypalController);
         self::assertStringContainsString('order_payment_url(', $paypalController);
+        self::assertStringContainsString('cancelBoundAttempt(', $paypalController);
+        self::assertStringContainsString("'result'       => 'failed'", $paypalController);
+        self::assertStringContainsString('failureReference(', $paypalController);
+        self::assertStringContainsString("unset(\$response['approval_url'], \$response['links'])", $paypalController);
 
         $orderController = (string) file_get_contents($root . '/beike/Shop/Http/Controllers/OrderController.php');
         self::assertStringContainsString('$authorized = false;', $orderController);

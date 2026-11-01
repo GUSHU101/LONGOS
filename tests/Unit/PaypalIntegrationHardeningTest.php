@@ -75,6 +75,30 @@ class PaypalIntegrationHardeningTest extends TestCase
         self::assertTrue($invalid->errors()->has('sandbox_merchant_id'));
     }
 
+    public function test_rest_credentials_reject_placeholders_before_checkout(): void
+    {
+        $validator = $this->validateSettings([
+            'api_mode'          => 'rest',
+            'sandbox_mode'      => '1',
+            'status'            => '1',
+            'sandbox_client_id' => 'your-client-id',
+            'sandbox_secret'    => '***',
+        ]);
+
+        self::assertFalse($validator->errors()->has('sandbox_client_id'));
+        self::assertTrue($validator->errors()->has('sandbox_secret'));
+
+        $valid = $this->validateSettings([
+            'api_mode'          => 'rest',
+            'sandbox_mode'      => '1',
+            'status'            => '1',
+            'sandbox_client_id' => 'AbCdEf0123456789_-',
+            'sandbox_secret'    => 'Secret_0123456789-Value',
+        ]);
+
+        self::assertFalse($valid->fails());
+    }
+
     public function test_payment_flow_keeps_payee_and_local_order_guards(): void
     {
         $root       = dirname(__DIR__, 2);

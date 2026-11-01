@@ -83,10 +83,14 @@ final class PaymentPluginReadiness
                 }
             }
         } else {
-            foreach (["{$environment}_client_id", "{$environment}_secret"] as $field) {
-                if (self::firstValue($settings, [$field]) === '') {
-                    $issues[] = 'PayPal 当前环境缺少配置：' . $field . '。';
-                }
+            $clientId = self::firstValue($settings, ["{$environment}_client_id"]);
+            $secret   = self::firstValue($settings, ["{$environment}_secret"]);
+
+            if (preg_match('/^[A-Za-z0-9_-]{10,512}$/', $clientId) !== 1) {
+                $issues[] = 'PayPal 当前环境的 Client ID 缺失或格式无效。';
+            }
+            if (preg_match('/^[A-Za-z0-9_-]{8,512}$/', $secret) !== 1) {
+                $issues[] = 'PayPal 当前环境的 Secret 缺失或格式无效。';
             }
         }
 

@@ -60,7 +60,10 @@
         body: JSON.stringify({orderNumber: orderNumber})
       }).then(function (response) {
         return response.json().catch(function () { return {}; }).then(function (data) {
-          if (!response.ok) throw new Error(data.message || messages.failed);
+          if (!response.ok) {
+            const detail = [data.message || messages.failed, data.reference || ''].filter(Boolean).join(' · ');
+            throw new Error(detail);
+          }
           return data;
         });
       }).then(function (orderData) {
@@ -102,7 +105,10 @@
           body: JSON.stringify(payload)
         }).then(function (response) {
           return response.json().catch(function () { return {}; }).then(function (data) {
-            if (!response.ok || (data && data.error)) throw new Error(data.message || messages.failed);
+            if (!response.ok || (data && data.error)) {
+              const detail = [data.message || messages.failed, data.reference || ''].filter(Boolean).join(' · ');
+              throw new Error(detail);
+            }
             return data;
           });
         });

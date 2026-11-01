@@ -12,73 +12,147 @@
 
 @section('page-title-back', admin_route('orders.index', http_build_query(request()->query())))
 
+@push('header')
+  <style>
+    .order-detail-page { --order-border: var(--bs-border-color, #e4e7ec); --order-muted: var(--bs-secondary-color, #667085); --order-surface: var(--bs-tertiary-bg, #f8fafc); }
+    .order-detail-page .card { border-color: var(--order-border); box-shadow: 0 1px 2px rgba(16, 24, 40, .035); }
+    .order-detail-page .card-header { align-items: center; background: transparent; display: flex; justify-content: space-between; min-height: 54px; padding: 14px 20px; }
+    .order-detail-page .card-title { font-size: 15px; letter-spacing: .01em; margin: 0; }
+    .order-detail-page .order-identity { align-items: flex-start; display: flex; flex-wrap: wrap; gap: 10px 14px; justify-content: space-between; margin-bottom: 20px; }
+    .order-detail-page .order-number { color: var(--bs-body-color); font-size: clamp(20px, 2vw, 28px); font-weight: 700; letter-spacing: -.025em; line-height: 1.2; overflow-wrap: anywhere; }
+    .order-detail-page .order-number-label { color: var(--order-muted); display: block; font-size: 12px; font-weight: 600; letter-spacing: .04em; margin-bottom: 5px; text-transform: uppercase; }
+    .order-detail-page .order-status-pill, .order-detail-page .payment-state-pill { align-items: center; border: 1px solid transparent; border-radius: 999px; display: inline-flex; font-size: 12px; font-weight: 650; gap: 6px; line-height: 20px; padding: 3px 10px; white-space: nowrap; }
+    .order-detail-page .order-status-pill::before, .order-detail-page .payment-state-pill::before { background: currentColor; border-radius: 50%; content: ''; height: 6px; width: 6px; }
+    .order-detail-page .is-completed { background: #ecfdf3; border-color: #abefc6; color: #067647; }
+    .order-detail-page .is-pending { background: #fffaeb; border-color: #fedf89; color: #b54708; }
+    .order-detail-page .is-failed { background: #fef3f2; border-color: #fecdca; color: #b42318; }
+    .order-detail-page .is-neutral { background: #f2f4f7; border-color: #e4e7ec; color: #475467; }
+    .order-detail-page .order-facts { display: grid; gap: 1px; grid-template-columns: repeat(4, minmax(0, 1fr)); overflow: hidden; border: 1px solid var(--order-border); border-radius: 10px; background: var(--order-border); }
+    .order-detail-page .order-fact { background: var(--bs-body-bg, #fff); min-width: 0; padding: 14px 16px; }
+    .order-detail-page .order-fact-label { color: var(--order-muted); display: block; font-size: 12px; margin-bottom: 6px; }
+    .order-detail-page .order-fact-value { color: var(--bs-body-color); display: block; font-size: 14px; font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
+    .order-detail-page .order-fact-subvalue { color: var(--order-muted); display: block; font-size: 12px; line-height: 1.45; margin-top: 3px; overflow-wrap: anywhere; }
+    .order-detail-page .address-grid { display: grid; gap: 16px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .order-detail-page .address-card { background: var(--order-surface); border: 1px solid var(--order-border); border-radius: 10px; min-width: 0; padding: 18px; }
+    .order-detail-page .address-card__title { align-items: center; display: flex; font-size: 14px; font-weight: 700; gap: 8px; margin-bottom: 14px; }
+    .order-detail-page .address-card__person { font-size: 14px; font-weight: 650; margin-bottom: 8px; overflow-wrap: anywhere; }
+    .order-detail-page .address-card__phone { color: var(--order-muted); font-size: 13px; font-weight: 400; margin-left: 6px; }
+    .order-detail-page .address-card address { color: var(--bs-body-color); font-size: 13px; line-height: 1.7; margin: 0; overflow-wrap: anywhere; }
+    .order-detail-page .address-card__postal { color: var(--order-muted); display: block; margin-top: 4px; }
+    .order-detail-page .status-layout { display: grid; gap: 24px; grid-template-columns: minmax(210px, .45fr) minmax(0, 1fr); }
+    .order-detail-page .status-current { background: var(--order-surface); border: 1px solid var(--order-border); border-radius: 10px; padding: 18px; }
+    .order-detail-page .status-current__label { color: var(--order-muted); display: block; font-size: 12px; margin-bottom: 9px; }
+    .order-detail-page .status-current__help { color: var(--order-muted); font-size: 12px; line-height: 1.55; margin: 12px 0 0; }
+    .order-detail-page .status-form .el-form-item { margin-bottom: 16px; }
+    .order-detail-page .status-form .el-form-item__label { color: var(--bs-body-color); float: none; font-size: 13px; font-weight: 600; line-height: 1.35; padding: 0 0 7px; text-align: left; }
+    .order-detail-page .status-form .el-form-item__content { line-height: 1.4; margin-left: 0 !important; }
+    .order-detail-page .status-form .el-select, .order-detail-page .status-form .el-input, .order-detail-page .status-form textarea { max-width: 620px; width: 100%; }
+    .order-detail-page .status-form textarea { min-height: 92px; resize: vertical; }
+    .order-detail-page .payment-overview { align-items: center; display: flex; flex-wrap: wrap; gap: 10px 16px; justify-content: space-between; }
+    .order-detail-page .payment-meta { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 14px; }
+    .order-detail-page .payment-meta__item { min-width: min(220px, 100%); }
+    .order-detail-page .payment-meta__item small { color: var(--order-muted); display: block; margin-bottom: 3px; }
+    .order-detail-page .payment-meta__item strong { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+    .order-detail-page .payment-attempt { border: 1px solid var(--order-border); border-radius: 10px; padding: 16px; }
+    .order-detail-page .payment-attempt + .payment-attempt { margin-top: 12px; }
+    .order-detail-page .payment-attempt details { border-top: 1px solid var(--order-border); margin-top: 14px; padding-top: 12px; }
+    .order-detail-page .payment-attempt summary { color: var(--bs-primary); cursor: pointer; font-size: 13px; font-weight: 600; }
+    .order-detail-page .payment-payload-grid { display: grid; gap: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 12px; }
+    .order-detail-page .payment-payload { min-width: 0; }
+    .order-detail-page .payment-payload label { color: var(--order-muted); display: block; font-size: 11px; font-weight: 600; margin-bottom: 5px; text-transform: uppercase; }
+    .order-detail-page .payment-payload pre { background: var(--order-surface); border: 1px solid var(--order-border); border-radius: 8px; font-size: 11px; margin: 0; max-height: 220px; overflow: auto; padding: 10px; white-space: pre-wrap; word-break: break-word; }
+    .order-detail-page .table-push { overflow-x: auto; }
+    .order-detail-page .order-products-table { min-width: 760px; }
+    .order-detail-page .order-extension-table:has(tbody:empty) { display: none; }
+    @media (max-width: 1199.98px) { .order-detail-page .order-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 767.98px) {
+      .order-detail-page .card-header, .order-detail-page .card-body { padding-left: 16px; padding-right: 16px; }
+      .order-detail-page .order-facts, .order-detail-page .address-grid, .order-detail-page .status-layout, .order-detail-page .payment-payload-grid { grid-template-columns: 1fr; }
+      .order-detail-page .order-identity { margin-bottom: 16px; }
+      .order-detail-page .order-fact { padding: 12px 14px; }
+      .order-detail-page .address-card { padding: 15px; }
+      .order-detail-page .status-layout { gap: 16px; }
+    }
+  </style>
+@endpush
+
 @section('content')
+<div class="order-detail-page">
   @hook('admin.order.form.content.before')
 
   @hookwrapper('admin.order.form.base')
   <div class="card mb-4">
-    <div class="card-header"><h6 class="card-title">{{ __('admin/common.order') }}</h6></div>
-    <div class="card-body order-top-info">
-      <div class="row">
-        <div class="col-lg-4 col-12">
-          <table class="table table-borderless">
-            <tbody>
-              <tr>
-                <td>{{ __('order.number') }}：</td>
-                <td>{{ $order->number }}</td>
-              </tr>
-              <tr>
-                <td>{{ __('order.payment_method') }}：</td>
-                <td>{{ $order->payment_method_name }}</td>
-              </tr>
-              <tr>
-                <td>{{ __('admin/plugin.shipping') }}：</td>
-                <td>
-                  <div>{{ $order->shipping_method_name }}</div>
-                  @foreach ((array) data_get($order->shipping_quote_data, 'fields', []) as $field => $value)
-                    @if (is_scalar($value) || $value === null)
-                      <div class="small text-muted mt-1"><span class="fw-semibold">{{ str_replace(['_', '.'], ' ', (string) $field) }}:</span> {{ $value }}</div>
-                    @endif
-                  @endforeach
-                </td>
-              </tr>
-            </tbody>
-          </table>
+    <div class="card-header"><h6 class="card-title">{{ __('admin/order.order_overview') }}</h6></div>
+    <div class="card-body">
+      @php
+        $orderStatusClass = match ((string) $order->status) {
+          'completed', 'paid', 'shipped' => 'is-completed',
+          'cancelled', 'refunded', 'refunding' => 'is-failed',
+          'unpaid' => 'is-pending',
+          default => 'is-neutral',
+        };
+        $shippingFields = collect((array) data_get($order->shipping_quote_data, 'fields', []))
+          ->filter(static fn ($value) => is_scalar($value) && trim((string) $value) !== '');
+      @endphp
+      <div class="order-identity">
+        <div>
+          <span class="order-number-label">{{ __('order.number') }}</span>
+          <div class="order-number">{{ $order->number }}</div>
         </div>
-        <div class="col-lg-4 col-12">
-          <table class="table table-borderless">
-            <tbody>
-              <tr>
-                <td>{{ __('order.total') }}：</td>
-                <td>{{ currency_format($order->total, $order->currency_code, $order->currency_value) }}</td>
-              </tr>
-              <tr>
-                <td>{{ __('order.customer_name') }}：</td>
-                <td>{{ $order->customer_name }}</td>
-              </tr>
-              <tr>
-                <td>{{ __('common.email') }}：</td>
-                <td>{{ $order->email }}</td>
-              </tr>
-            </tbody>
-          </table>
+        <span class="order-status-pill {{ $orderStatusClass }}">{{ $order->status_format ?: $order->status }}</span>
+      </div>
+
+      <div class="order-facts">
+        <div class="order-fact">
+          <span class="order-fact-label">{{ __('order.total') }}</span>
+          <span class="order-fact-value">{{ currency_format($order->total, $order->currency_code, $order->currency_value) }}</span>
         </div>
-        <div class="col-lg-4 col-12">
-          <table class="table table-borderless">
-            <tbody>
-              <tr>
-                <td>{{ __('order.created_at') }}：</td>
-                <td>{{ $order->created_at }}</td>
-              </tr>
-              <tr>
-                <td>{{ __('order.updated_at') }}：</td>
-                <td>{{ $order->updated_at }}</td>
-              </tr>
-              @hook('admin.order.form.base.updated_at.after')
-            </tbody>
-          </table>
+        <div class="order-fact">
+          <span class="order-fact-label">{{ __('order.payment_method') }}</span>
+          <span class="order-fact-value">{{ $order->payment_method_name ?: '-' }}</span>
+          @if ($order->payment_method_code)
+            <span class="order-fact-subvalue">{{ $order->payment_method_code }}</span>
+          @endif
+        </div>
+        <div class="order-fact">
+          <span class="order-fact-label">{{ __('order.customer_name') }}</span>
+          <span class="order-fact-value">{{ $order->customer_name ?: '-' }}</span>
+          <span class="order-fact-subvalue">{{ $order->email ?: '-' }}</span>
+        </div>
+        <div class="order-fact">
+          <span class="order-fact-label">{{ __('admin/plugin.shipping') }}</span>
+          <span class="order-fact-value">{{ $order->shipping_method_name ?: '-' }}</span>
+          @foreach ($shippingFields as $field => $value)
+            <span class="order-fact-subvalue"><span class="fw-semibold">{{ str_replace(['_', '.'], ' ', (string) $field) }}:</span> {{ $value }}</span>
+          @endforeach
+        </div>
+        <div class="order-fact">
+          <span class="order-fact-label">{{ __('order.created_at') }}</span>
+          <span class="order-fact-value">{{ $order->created_at }}</span>
+        </div>
+        <div class="order-fact">
+          <span class="order-fact-label">{{ __('order.updated_at') }}</span>
+          <span class="order-fact-value">{{ $order->updated_at }}</span>
+        </div>
+        <div class="order-fact">
+          <span class="order-fact-label">{{ __('admin/order.telephone') }}</span>
+          <span class="order-fact-value">{{ trim(implode(' ', array_filter([$order->calling_code, $order->telephone]))) ?: '-' }}</span>
+        </div>
+        <div class="order-fact">
+          <span class="order-fact-label">{{ __('admin/order.payment_state') }}</span>
+          @php
+            $paymentStateLabel = __('admin/order.payment_' . $paymentSummary['state']);
+            $paymentStateClass = match ($paymentSummary['state']) {
+              'completed' => 'is-completed',
+              'failed' => 'is-failed',
+              'pending' => 'is-pending',
+              default => 'is-neutral',
+            };
+          @endphp
+          <span class="payment-state-pill {{ $paymentStateClass }}">{{ $paymentStateLabel }}</span>
         </div>
       </div>
+      <table class="table table-borderless table-sm order-extension-table mb-0 mt-2"><tbody>@hook('admin.order.form.base.updated_at.after')</tbody></table>
     </div>
   </div>
   @endhookwrapper
@@ -87,56 +161,50 @@
   <div class="card mb-4">
     <div class="card-header"><h6 class="card-title">{{ __('order.address_info') }}</h6></div>
     <div class="card-body">
-      <table class="table table-no-mb">
-        <thead class="">
-          <tr>
-            @if ($order->shipping_country)
-            <th>{{ __('order.shipping_address') }}</th>
+      @php
+        $hasShippingAddress = collect([
+          $order->shipping_customer_name, $order->shipping_country, $order->shipping_zone,
+          $order->shipping_city, $order->shipping_address_1, $order->shipping_address_2,
+        ])->filter(static fn ($value) => trim((string) $value) !== '')->isNotEmpty();
+        $shippingLocality = collect([$order->shipping_city, $order->shipping_zone, $order->shipping_country])
+          ->filter(static fn ($value) => trim((string) $value) !== '')->implode(', ');
+        $paymentLocality = collect([$order->payment_city, $order->payment_zone, $order->payment_country])
+          ->filter(static fn ($value) => trim((string) $value) !== '')->implode(', ');
+      @endphp
+      <div class="address-grid" @if (! $hasShippingAddress) style="grid-template-columns: minmax(0, 1fr)" @endif>
+        @if ($hasShippingAddress)
+          <section class="address-card" aria-labelledby="shipping-address-title">
+            <h3 class="address-card__title" id="shipping-address-title"><i class="bi bi-truck" aria-hidden="true"></i>{{ __('admin/order.shipping_details') }}</h3>
+            <div class="address-card__person">
+              {{ $order->shipping_customer_name ?: '-' }}
+              @if ($order->shipping_telephone)
+                <span class="address-card__phone">{{ trim(implode(' ', array_filter([$order->shipping_calling_code, $order->shipping_telephone]))) }}</span>
+              @endif
+            </div>
+            <address>
+              @if ($order->shipping_address_1)<div>{{ $order->shipping_address_1 }}</div>@endif
+              @if ($order->shipping_address_2)<div>{{ $order->shipping_address_2 }}</div>@endif
+              @if ($shippingLocality)<div>{{ $shippingLocality }}</div>@endif
+              @if ($order->shipping_zipcode)<span class="address-card__postal">{{ __('address.post_code') }}: {{ $order->shipping_zipcode }}</span>@endif
+            </address>
+          </section>
+        @endif
+        <section class="address-card" aria-labelledby="billing-address-title">
+          <h3 class="address-card__title" id="billing-address-title"><i class="bi bi-receipt" aria-hidden="true"></i>{{ __('admin/order.billing_details') }}</h3>
+          <div class="address-card__person">
+            {{ $order->payment_customer_name ?: '-' }}
+            @if ($order->payment_telephone)
+              <span class="address-card__phone">{{ trim(implode(' ', array_filter([$order->payment_calling_code, $order->payment_telephone]))) }}</span>
             @endif
-            <th>{{ __('order.payment_address') }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            @if ($order->shipping_country)
-            <td>
-              <div>
-                {{ __('address.name') }}：{{ $order->shipping_customer_name }}
-                @if ($order->shipping_telephone)
-                ({{ $order->shipping_telephone }})
-                @endif
-              </div>
-              <div>
-                {{ __('address.address') }}：
-                {{ $order->shipping_address_1 }}
-                {{ $order->shipping_address_2 }}
-                {{ $order->shipping_city }}
-                {{ $order->shipping_zone }}
-                {{ $order->shipping_country }}
-              </div>
-              <div>{{ __('address.post_code') }}：{{ $order->shipping_zipcode }}</div>
-            </td>
-            @endif
-            <td>
-              <div>
-                {{ __('address.name') }}：{{ $order->payment_customer_name }}
-                @if ($order->payment_telephone)
-                ({{ $order->payment_telephone }})
-                @endif
-              </div>
-              <div>
-                {{ __('address.address') }}：
-                {{ $order->payment_address_1 }}
-                {{ $order->payment_address_2 }}
-                {{ $order->payment_city }}
-                {{ $order->payment_zone }}
-                {{ $order->payment_country }}
-              </div>
-              <div>{{ __('address.post_code') }}：{{ $order->payment_zipcode }}</div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+          </div>
+          <address>
+            @if ($order->payment_address_1)<div>{{ $order->payment_address_1 }}</div>@endif
+            @if ($order->payment_address_2)<div>{{ $order->payment_address_2 }}</div>@endif
+            @if ($paymentLocality)<div>{{ $paymentLocality }}</div>@endif
+            @if ($order->payment_zipcode)<span class="address-card__postal">{{ __('address.post_code') }}: {{ $order->payment_zipcode }}</span>@endif
+          </address>
+        </section>
+      </div>
     </div>
   </div>
   @endhookwrapper
@@ -150,46 +218,49 @@
   <div class="card mb-4">
     <div class="card-header"><h6 class="card-title">{{ __('order.order_status') }}</h6></div>
     <div class="card-body" id="app">
-      <el-form ref="form" :model="form" :rules="rules" label-width="100px">
-        <el-form-item label="{{ __('order.current_status') }}">
-          {{ $order->status_format }}
-        </el-form-item>
+      <div class="status-layout">
+        <div class="status-current">
+          <span class="status-current__label">{{ __('order.current_status') }}</span>
+          <span class="order-status-pill {{ $orderStatusClass }}">{{ $order->status_format ?: $order->status }}</span>
+          <p class="status-current__help">{{ __('admin/order.status_update_help') }}</p>
+        </div>
         @if (count($statuses))
-          <el-form-item label="{{ __('order.change_to_status') }}" prop="status">
-            <el-select class="wp-200" size="small" v-model="form.status" placeholder="{{ __('common.please_choose') }}">
-              <el-option
-                v-for="item in statuses"
-                :key="item.status"
-                :label="item.name"
-                :value="item.status">
-              </el-option>
-            </el-select>
-          </el-form-item>
-          <el-form-item label="{{ __('order.express_company') }}" v-if="form.status == 'shipped'" prop="express_code">
-            <el-select class="wp-200" size="small" v-model="form.express_code" placeholder="{{ __('common.please_choose') }}">
-              <el-option
-                v-for="item in source.express_company"
-                :key="item.code"
-                :label="item.name"
-                :value="item.code">
-              </el-option>
-            </el-select>
-            <a href="{{ admin_route('settings.express') }}" target="_blank" rel="noopener noreferrer" class="ms-2">{{ __('common.to_setting') }}</a>
-          </el-form-item>
-          <el-form-item label="{{ __('order.express_number') }}" v-if="form.status == 'shipped'" prop="express_number">
-            <el-input class="w-max-500" v-model="form.express_number" size="small" v-if="form.status == 'shipped'" placeholder="{{ __('order.express_number') }}"></el-input>
-          </el-form-item>
-          {{-- <el-form-item label="{{ __('admin/order.notify') }}">
-            <el-checkbox :true-label="1" :false-label="0" v-model="form.notify"></el-checkbox>
-          </el-form-item> --}}
-          <el-form-item label="{{ __('order.comment') }}">
-            <textarea class="form-control w-max-500" v-model="form.comment"></textarea>
-          </el-form-item>
-          <el-form-item>
-            <el-button type="primary" @click="submitForm('form')">{{ __('order.submit_status') }}</el-button>
-          </el-form-item>
+          <el-form class="status-form" ref="form" :model="form" :rules="rules" label-position="top">
+            <el-form-item label="{{ __('order.change_to_status') }}" prop="status">
+              <el-select size="small" v-model="form.status" placeholder="{{ __('common.please_choose') }}">
+                <el-option
+                  v-for="item in statuses"
+                  :key="item.status"
+                  :label="item.name"
+                  :value="item.status">
+                </el-option>
+              </el-select>
+            </el-form-item>
+            <el-form-item label="{{ __('order.express_company') }}" v-if="form.status == 'shipped'" prop="express_code">
+              <div class="d-flex align-items-center flex-wrap gap-2 w-100">
+                <el-select size="small" v-model="form.express_code" placeholder="{{ __('common.please_choose') }}">
+                  <el-option
+                    v-for="item in source.express_company"
+                    :key="item.code"
+                    :label="item.name"
+                    :value="item.code">
+                  </el-option>
+                </el-select>
+                <a href="{{ admin_route('settings.express') }}" target="_blank" rel="noopener noreferrer">{{ __('common.to_setting') }}</a>
+              </div>
+            </el-form-item>
+            <el-form-item label="{{ __('order.express_number') }}" v-if="form.status == 'shipped'" prop="express_number">
+              <el-input v-model="form.express_number" size="small" placeholder="{{ __('order.express_number') }}"></el-input>
+            </el-form-item>
+            <el-form-item label="{{ __('order.comment') }}">
+              <textarea class="form-control" v-model="form.comment"></textarea>
+            </el-form-item>
+            <el-form-item class="mb-0">
+              <el-button type="primary" @click="submitForm('form')">{{ __('order.submit_status') }}</el-button>
+            </el-form-item>
+          </el-form>
         @endif
-      </el-form>
+      </div>
     </div>
   </div>
   @endhookwrapper
@@ -200,7 +271,7 @@
     <div class="card-header"><h6 class="card-title">{{ __('order.product_info') }}</h6></div>
     <div class="card-body">
       <div class="table-push">
-        <table class="table ">
+        <table class="table order-products-table">
           <thead class="">
             <tr>
               <th>ID</th>
@@ -252,49 +323,72 @@
     </div>
   @endif
 
-  @if ($order->orderPayments)
-    @hookwrapper('admin.order.form.payments')
-    <div class="card mb-4">
-      <div class="card-header"><h6 class="card-title">{{ __('admin/order.payments_history') }}</h6></div>
-      <div class="card-body">
-        <div class="table-push">
-          <table class="table">
-            <thead class="">
-              <tr>
-                <th>{{ __('admin/order.order_id') }}</th>
-                <th>{{ __('admin/order.text_transaction_id') }}</th>
-                <th>{{ __('admin/order.text_request') }}</th>
-                <th>{{ __('admin/order.text_response') }}</th>
-                <th>{{ __('admin/order.text_callback') }}</th>
-                <th>{{ __('admin/order.text_receipt') }}</th>
-                <th>{{ __('order.created_at') }}</th>
-                <th>{{ __('order.updated_at') }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              @foreach ($order->orderPayments as $payment)
-              <tr>
-                <td>{{ $payment->order_id }}</td>
-                <td>{{ $payment->transaction_id }}</td>
-                <td><textarea class="form-control" readonly>{{ $payment->request }}</textarea></td>
-                <td><textarea class="form-control" readonly>{{ $payment->response }}</textarea></td>
-                <td><textarea class="form-control" readonly>{{ $payment->callback }}</textarea></td>
-                <td>
-                  @if ($payment->receipt)
-                  <a href="{{ image_origin($payment->receipt) }}" target="_blank" rel="noopener noreferrer">{{ __('admin/order.text_click_view') }}</a>
-                  @endif
-                </td>
-                <td>{{ $payment->created_at }}</td>
-                <td>{{ $payment->updated_at }}</td>
-              </tr>
-              @endforeach
-            </tbody>
-          </table>
+  @hookwrapper('admin.order.form.payments')
+  <div class="card mb-4">
+    <div class="card-header"><h6 class="card-title">{{ __('admin/order.payments_history') }}</h6></div>
+    <div class="card-body">
+      <div class="payment-overview">
+        <div>
+          <div class="small text-secondary mb-2">{{ $order->payment_method_name ?: __('order.payment_method') }}</div>
+          <span class="payment-state-pill {{ $paymentStateClass }}">{{ $paymentStateLabel }}</span>
         </div>
+        @if ($paymentSummary['updated_at'])
+          <div class="text-secondary small">{{ __('admin/order.payment_last_attempt') }}: {{ $paymentSummary['updated_at'] }}</div>
+        @endif
       </div>
+
+      @if ($paymentSummary['transaction_id'] || $paymentSummary['provider_status'] || $paymentSummary['stage'] || $paymentSummary['reference'])
+        <div class="payment-meta">
+          @if ($paymentSummary['transaction_id'])
+            <div class="payment-meta__item"><small>{{ __('admin/order.transaction_reference') }}</small><strong>{{ $paymentSummary['transaction_id'] }}</strong></div>
+          @endif
+          @if ($paymentSummary['provider_status'])
+            <div class="payment-meta__item"><small>{{ __('admin/order.payment_provider_status') }}</small><strong>{{ $paymentSummary['provider_status'] }}</strong></div>
+          @endif
+          @if ($paymentSummary['stage'])
+            <div class="payment-meta__item"><small>{{ __('admin/order.payment_stage') }}</small><strong>{{ $paymentSummary['stage'] }}</strong></div>
+          @endif
+          @if ($paymentSummary['reference'])
+            <div class="payment-meta__item"><small>{{ __('admin/order.payment_reference') }}</small><strong>{{ $paymentSummary['reference'] }}</strong></div>
+          @endif
+        </div>
+      @elseif ($order->orderPayments->isEmpty())
+        <p class="text-secondary small mb-0 mt-3">{{ __('admin/order.no_payment_attempt') }}</p>
+      @endif
+
+      @foreach ($order->orderPayments->sortByDesc('id') as $payment)
+        @php
+          $formatPaymentPayload = static function ($payload): string {
+            if (is_array($payload)) {
+              return json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?: '';
+            }
+            $decoded = json_decode((string) $payload, true);
+            return is_array($decoded)
+              ? (json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?: '')
+              : trim((string) $payload);
+          };
+        @endphp
+        <article class="payment-attempt mt-3">
+          <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+            <strong class="small">{{ __('admin/order.payment_attempt_details') }}</strong>
+            <span class="small text-secondary">{{ $payment->updated_at }}</span>
+          </div>
+          @if ($payment->receipt)
+            <a class="small d-inline-block mt-2" href="{{ image_origin($payment->receipt) }}" target="_blank" rel="noopener noreferrer">{{ __('admin/order.text_click_view') }}</a>
+          @endif
+          <details>
+            <summary>{{ __('admin/order.view_technical_details') }}</summary>
+            <div class="payment-payload-grid">
+              <div class="payment-payload"><label>{{ __('admin/order.text_request') }}</label><pre>{{ $formatPaymentPayload($payment->request) ?: '-' }}</pre></div>
+              <div class="payment-payload"><label>{{ __('admin/order.text_response') }}</label><pre>{{ $formatPaymentPayload($payment->response) ?: '-' }}</pre></div>
+              <div class="payment-payload"><label>{{ __('admin/order.text_callback') }}</label><pre>{{ $formatPaymentPayload($payment->callback) ?: '-' }}</pre></div>
+            </div>
+          </details>
+        </article>
+      @endforeach
     </div>
-    @endhookwrapper
-  @endif
+  </div>
+  @endhookwrapper
 
   @if ($order->orderShipments->count())
     @hookwrapper('admin.order.form.shipments')
@@ -383,6 +477,7 @@
   @endhookwrapper
 
   @hook('admin.order.form.content.after')
+</div>
 @endsection
 
 @push('footer')

@@ -22,6 +22,14 @@ $requiredWhen = static fn (callable $condition): array => [
     'string',
     'max:2048',
 ];
+$restCredentialRules = static fn (callable $condition, int $minimum): array => [
+    Rule::requiredIf(static fn (): bool => $isEnabled() && $condition()),
+    'nullable',
+    'string',
+    "min:{$minimum}",
+    'max:512',
+    'regex:/^[A-Za-z0-9_-]+$/',
+];
 
 return [
     [
@@ -42,7 +50,7 @@ return [
         'label_key'       => 'setting.sandbox_client_id',
         'type'            => 'string',
         'required'        => false,
-        'rules'           => $requiredWhen(static fn (): bool => $isRest() && $isSandbox()),
+        'rules'           => $restCredentialRules(static fn (): bool => $isRest() && $isSandbox(), 10),
         'description_key' => 'setting.client_id_desc',
     ],
     [
@@ -50,7 +58,7 @@ return [
         'label_key'       => 'setting.sandbox_secret',
         'type'            => 'password',
         'required'        => false,
-        'rules'           => $requiredWhen(static fn (): bool => $isRest() && $isSandbox()),
+        'rules'           => $restCredentialRules(static fn (): bool => $isRest() && $isSandbox(), 8),
         'description_key' => 'setting.secret_desc',
     ],
     [
@@ -66,7 +74,7 @@ return [
         'label_key'       => 'setting.live_client_id',
         'type'            => 'string',
         'required'        => false,
-        'rules'           => $requiredWhen(static fn (): bool => $isRest() && ! $isSandbox()),
+        'rules'           => $restCredentialRules(static fn (): bool => $isRest() && ! $isSandbox(), 10),
         'description_key' => 'setting.client_id_desc',
     ],
     [
@@ -74,7 +82,7 @@ return [
         'label_key'       => 'setting.live_secret',
         'type'            => 'password',
         'required'        => false,
-        'rules'           => $requiredWhen(static fn (): bool => $isRest() && ! $isSandbox()),
+        'rules'           => $restCredentialRules(static fn (): bool => $isRest() && ! $isSandbox(), 8),
         'description_key' => 'setting.secret_desc',
     ],
     [

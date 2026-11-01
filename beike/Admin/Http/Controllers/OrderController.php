@@ -12,6 +12,7 @@
 
 namespace Beike\Admin\Http\Controllers;
 
+use App\Services\OrderPaymentSummary;
 use Beike\Admin\Http\Resources\OrderSimple;
 use Beike\Models\Order;
 use Beike\Models\OrderShipment;
@@ -101,6 +102,7 @@ class OrderController extends Controller
         $data                     = hook_filter('admin.order.show.data', ['order' => $order, 'html_items' => []]);
         $data['statuses']         = StateMachineService::getInstance($order)->nextBackendStatuses();
         $data['expressCompanies'] = system_setting('base.express_company', []);
+        $data['paymentSummary']   = OrderPaymentSummary::make($order->orderPayments->sortByDesc('id')->first(), (string) $order->status);
         hook_action('admin.order.show.after', $data);
 
         return view('admin::pages.orders.form', $data);

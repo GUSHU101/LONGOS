@@ -49,6 +49,8 @@ class PaypalController
      */
     public function create(Request $request): JsonResponse
     {
+        $order = null;
+
         try {
             $data        = $this->getRequestData($request);
             $orderNumber = $this->getOrderNumberFromData($data, $request);
@@ -105,7 +107,7 @@ class PaypalController
                 return response()->json($safeResult);
             });
         } catch (Throwable $e) {
-            return $this->paymentError($e, 'PayPal order creation failed.');
+            return $this->paymentError($e, 'PayPal order creation failed.', $order, 'create');
         }
     }
 
@@ -125,7 +127,15 @@ class PaypalController
             'orderNumber' => $orderNumber,
         ]));
         if ($response->getStatusCode() >= 400) {
-            return null;
+            $failure   = $response->getData(true);
+            $reference = trim((string) ($failure['reference'] ?? ''));
+            $message   = trans('Paypal::checkout.start_failed');
+            if ($reference !== '') {
+                $message .= ' (' . $reference . ')';
+            }
+
+            return redirect(order_payment_url($order, true))
+                ->withErrors(['error' => $message]);
         }
 
         $result = $response->getData(true);
@@ -146,6 +156,8 @@ class PaypalController
      */
     public function capture(Request $request): JsonResponse
     {
+        $order = null;
+
         try {
             $data        = $this->getRequestData($request);
             $orderNumber = $this->getOrderNumberFromData($data, $request);
@@ -188,7 +200,11 @@ class PaypalController
                 }
 
                 OrderPaymentRepo::createOrUpdatePayment($order->id, [
-                    'request' => $this->safeCaptureRequest($data),
+                    'request' => [
+                        'stage'  => 'capture',
+                        'result' => 'processing',
+                        ...$this->safeCaptureRequest($data),
+                    ],
                 ]);
 
                 if ($isNvpRequest) {
@@ -207,7 +223,7 @@ class PaypalController
                 return response()->json($safeResult);
             });
         } catch (Throwable $e) {
-            return $this->paymentError($e, 'PayPal payment capture failed.');
+            return $this->paymentError($e, 'PayPal payment capture failed.', $order, 'capture');
         }
     }
 
@@ -223,6 +239,7 @@ class PaypalController
         }
 
         $providerBound = false;
+        $order         = null;
 
         try {
             $order = $this->resolvePaypalOrder($orderNumber, false);
@@ -246,7 +263,11 @@ class PaypalController
                     return $this->redirectWithMessage($request, $this->getSuccessRedirectUrl($orderNumber), 'success', trans('Paypal::checkout.completed'));
                 }
 
-                OrderPaymentRepo::createOrUpdatePayment($order->id, ['request' => $this->safeCaptureRequest($data)]);
+                OrderPaymentRepo::createOrUpdatePayment($order->id, ['request' => [
+                    'stage'  => 'nvp_return',
+                    'result' => 'processing',
+                    ...$this->safeCaptureRequest($data),
+                ]]);
                 $result = $paypalService->captureNvpPayment($token, $payerId);
                 $paypalService->validateStoredCapture($result, $token);
                 $safeResult = PaypalService::safeProviderResult($result, true);
@@ -263,7 +284,14 @@ class PaypalController
                 );
             });
         } catch (Throwable $e) {
-            return $this->redirectWithMessage($request, $this->getFailureRedirectUrl($orderNumber, $providerBound), 'error', trans('Paypal::checkout.failed'));
+            $reference = $this->recordPaymentFailure($order, 'nvp_return', $e);
+
+            return $this->redirectWithMessage(
+                $request,
+                $this->getFailureRedirectUrl($orderNumber, $providerBound),
+                'error',
+                trans('Paypal::checkout.failed') . ' (' . $reference . ')'
+            );
         }
     }
 
@@ -276,6 +304,7 @@ class PaypalController
         }
 
         $providerBound = false;
+        $order         = null;
 
         try {
             // The canonical callback can use the tenant's retained platform
@@ -299,6 +328,12 @@ class PaypalController
                     $paypalService->validateStoredCapture($storedResult, $paypalOrderId);
                     $safeResult = PaypalService::safeProviderResult($storedResult, false);
                 } else {
+                    OrderPaymentRepo::createOrUpdatePayment($order->id, ['request' => [
+                        'stage'          => 'rest_return',
+                        'result'         => 'processing',
+                        'order_number'   => $orderNumber,
+                        'paypalOrderId'  => $paypalOrderId,
+                    ]]);
                     $result     = $paypalService->captureRestPayment($paypalOrderId);
                     $safeResult = PaypalService::safeProviderResult($result, false);
                 }
@@ -309,12 +344,19 @@ class PaypalController
                 return $this->redirectWithMessage($request, $this->getSuccessRedirectUrl($orderNumber), 'success', trans('Paypal::checkout.completed'));
             });
         } catch (Throwable $e) {
+            $reference = $this->recordPaymentFailure($order, 'rest_return', $e);
             Log::warning('PayPal redirect return failed.', [
                 'exception' => $e::class,
                 'message'   => $this->redactProviderMessage($e->getMessage()),
+                'reference' => $reference,
             ]);
 
-            return $this->redirectWithMessage($request, $this->getFailureRedirectUrl($orderNumber, $providerBound), 'error', trans('Paypal::checkout.failed'));
+            return $this->redirectWithMessage(
+                $request,
+                $this->getFailureRedirectUrl($orderNumber, $providerBound),
+                'error',
+                trans('Paypal::checkout.failed') . ' (' . $reference . ')'
+            );
         }
     }
 
@@ -322,7 +364,7 @@ class PaypalController
     {
         $orderNumber   = $this->getOrderNumberFromData($request->all(), $request);
         $token         = trim((string) $request->query('token', ''));
-        $providerBound = $this->isProviderBoundReturn($orderNumber, $token);
+        $providerBound = $this->cancelBoundAttempt($orderNumber, $token, 'rest_cancel');
 
         return $this->redirectWithMessage(
             $request,
@@ -336,7 +378,7 @@ class PaypalController
     {
         $data          = $request->all();
         $orderNumber   = $this->getOrderNumberFromData($data, $request);
-        $providerBound = $this->isProviderBoundReturn($orderNumber, $this->getNvpToken($data, $request));
+        $providerBound = $this->cancelBoundAttempt($orderNumber, $this->getNvpToken($data, $request), 'nvp_cancel');
 
         return $this->redirectWithMessage($request, $this->getFailureRedirectUrl($orderNumber, $providerBound), 'error', trans('Paypal::checkout.cancelled'));
     }
@@ -447,14 +489,27 @@ class PaypalController
         return $order;
     }
 
-    private function paymentError(Throwable $exception, string $fallback): JsonResponse
-    {
+    private function paymentError(
+        Throwable $exception,
+        string $fallback,
+        ?object $order = null,
+        string $stage = '',
+    ): JsonResponse {
+        $reference = $this->recordPaymentFailure($order, $stage, $exception);
+
         Log::warning($fallback, [
             'exception' => $exception::class,
             'message'   => $this->redactProviderMessage($exception->getMessage()),
+            'reference' => $reference,
+            'order_id'  => $order->id ?? null,
+            'stage'     => $stage,
         ]);
 
-        return response()->json(['message' => $fallback], 422);
+        return response()->json([
+            'message'   => trans('Paypal::checkout.failed'),
+            'reference' => $reference,
+            'retryable' => true,
+        ], 422);
     }
 
     private function assertProviderOrderBinding(int $orderId, string $providerOrderId): void
@@ -687,6 +742,85 @@ class PaypalController
         } catch (Throwable) {
             return false;
         }
+    }
+
+    /**
+     * Cancelled provider sessions must never be reused on the next attempt.
+     * The retained provider id still proves which PayPal session was bound,
+     * while the removed approval link prevents an expired redirect loop.
+     */
+    private function cancelBoundAttempt(string $orderNumber, string $providerOrderId, string $stage): bool
+    {
+        if (! $this->isProviderBoundReturn($orderNumber, $providerOrderId)) {
+            return false;
+        }
+
+        try {
+            $order    = $this->resolvePaypalOrder($orderNumber, false);
+            $payment  = OrderPayment::query()->where('order_id', $order->id)->firstOrFail();
+            $response = $this->decodePaymentResponse($payment->response);
+
+            $response['status'] = 'CANCELLED';
+            unset($response['approval_url'], $response['links']);
+
+            OrderPaymentRepo::createOrUpdatePayment((int) $order->id, [
+                'request' => [
+                    'stage'        => $stage,
+                    'result'       => 'cancelled',
+                    'order_number' => (string) $order->number,
+                    'occurred_at'  => now()->toIso8601String(),
+                ],
+                'response' => $response,
+            ]);
+
+            return true;
+        } catch (Throwable $exception) {
+            Log::warning('PayPal cancelled attempt could not be recorded.', [
+                'order_number' => mb_substr($orderNumber, 0, 128),
+                'exception'    => $exception::class,
+            ]);
+
+            return true;
+        }
+    }
+
+    private function failureReference(Throwable $exception): string
+    {
+        return 'PP-' . strtoupper(substr(hash(
+            'sha256',
+            $exception::class . '|' . $this->redactProviderMessage($exception->getMessage())
+        ), 0, 12));
+    }
+
+    private function recordPaymentFailure(?object $order, string $stage, Throwable $exception): string
+    {
+        $reference = $this->failureReference($exception);
+
+        if (! $order || ! isset($order->id)) {
+            return $reference;
+        }
+
+        try {
+            // Keep the provider response and transaction binding intact;
+            // only the safe attempt summary changes on a failed retry.
+            OrderPaymentRepo::createOrUpdatePayment((int) $order->id, [
+                'request' => [
+                    'stage'        => $stage,
+                    'result'       => 'failed',
+                    'reference'    => $reference,
+                    'order_number' => (string) ($order->number ?? ''),
+                    'occurred_at'  => now()->toIso8601String(),
+                ],
+            ]);
+        } catch (Throwable $auditException) {
+            Log::warning('PayPal failure audit could not be persisted.', [
+                'order_id'  => (int) $order->id,
+                'reference' => $reference,
+                'exception' => $auditException::class,
+            ]);
+        }
+
+        return $reference;
     }
 
     private function redirectWithMessage(Request $request, string $url, string $key, string $message): RedirectResponse
