@@ -201,6 +201,10 @@ Coolify 会分别生成 build-time 和 runtime 环境文件。当管理员邮箱
 
 这不是 Dockerfile 第 1 行的语法错误，而是 BuildKit 前端进程在构建期间意外退出。旧版 Compose 把同一份应用 `build` 继承给 app、worker 和 scheduler，Compose v2 会并行执行三个完整的 PHP/Composer/Node 构建，可能触发内存压力或 BuildKit 前端异常。新版只由 app 构建一次资源专属的 `longos-runtime` 镜像，worker 与 scheduler 直接复用；更新到包含该修复的最新 `main` 后 Redeploy。默认日志中只应出现 app 这一个仓库构建项；只有显式启用 `self-hosted-mail` profile 才会额外构建 mail-relay。若仍出现同样错误，再检查服务器可用内存、磁盘空间与 Docker daemon 日志并重启 Docker/BuildKit；无需删除 LONGOS 数据卷。
 
+### 构建阶段在 `apt-get` / PHP 扩展安装处报 `exit code: 1`
+
+先确认日志中失败的具体构建阶段，不要把 Docker 最后汇总的长命令当成根因。新版镜像已将 Debian 依赖下载、PHP 内置扩展编译、Imagick PECL 安装和扩展完整性校验拆成独立缓存层：Debian 下载使用 IPv4、超时和自动重试，PHP/PECL 默认单任务编译，避免在单 vCPU 或内存共享的 Coolify 主机上峰值过高。更新到最新 `main` 后普通 Redeploy；重试时已成功的阶段会复用 BuildKit 缓存。如果仍失败，保留第一个失败阶段的完整输出；新日志会明确区分 APT、PHP 扩展或 Imagick，无需删除数据卷，也不应在运行中容器手工安装依赖。
+
 ### 启动阶段报 `docker/mail-relay not found`
 
 如果日志在“Starting new application”之后出现 `unable to prepare context`，并指向

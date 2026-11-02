@@ -9,28 +9,49 @@ FROM composer:2.8.12 AS composer-binary
 # those extensions were present in the final application image.
 FROM php:8.2.34-fpm-bookworm AS runtime-base
 
-ARG PHP_BUILD_JOBS=2
+ARG PHP_BUILD_JOBS=1
+ARG APT_RETRIES=5
+ARG PECL_RETRIES=3
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Keep the operating-system download separate from extension compilation so a
+# transient mirror failure does not discard several minutes of compiled PHP
+# work. IPv4 avoids slow broken IPv6 paths on smaller VPS providers, while the
+# retry/timeout policy still fails closed instead of accepting unsigned data.
+RUN set -eux; \
+    apt-get \
+        -o Acquire::Retries="${APT_RETRIES}" \
+        -o Acquire::ForceIPv4=true \
+        -o Acquire::http::Timeout=60 \
+        -o Acquire::https::Timeout=60 \
+        update; \
+    DEBIAN_FRONTEND=noninteractive apt-get \
+        -o Acquire::Retries="${APT_RETRIES}" \
+        -o Acquire::ForceIPv4=true \
+        -o Acquire::http::Timeout=60 \
+        -o Acquire::https::Timeout=60 \
+        install -y --no-install-recommends \
     $PHPIZE_DEPS \
     nginx \
     curl \
     ca-certificates \
-    libcurl4-openssl-dev \
     libpng-dev \
     libjpeg-dev \
     libfreetype6-dev \
     libicu-dev \
     libmagickwand-dev \
     libwebp-dev \
-    libonig-dev \
     libpq-dev \
-    libxml2-dev \
     libzip-dev \
     unzip \
-    util-linux \
-    && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
-    && docker-php-ext-install -j"${PHP_BUILD_JOBS}" \
+    util-linux; \
+    rm -rf /var/lib/apt/lists/*
+
+# One compile job is deliberately the default: Coolify, BuildKit, MySQL and
+# the running storefront commonly share a one-vCPU host. Operators with a
+# dedicated build machine can still override PHP_BUILD_JOBS explicitly.
+RUN set -eux; \
+    docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp; \
+    docker-php-ext-install -j"${PHP_BUILD_JOBS}" \
         pdo_mysql \
         pdo_pgsql \
         exif \
@@ -39,13 +60,34 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         gd \
         intl \
         zip \
-        opcache \
-    && pecl install imagick-3.7.0 \
-    && docker-php-ext-enable imagick \
-    && php -r '$required = ["pdo_mysql", "pdo_pgsql", "curl", "mbstring", "exif", "pcntl", "posix", "bcmath", "gd", "imagick", "intl", "dom", "simplexml", "xml", "xmlreader", "xmlwriter", "zip", "Zend OPcache"]; $missing = array_values(array_filter($required, static fn (string $extension): bool => !extension_loaded($extension))); if ($missing !== []) { fwrite(STDERR, "Missing required PHP extensions: " . implode(", ", $missing) . PHP_EOL); exit(1); }' \
-    && rm -rf /var/lib/apt/lists/* \
-    && rm -f /etc/nginx/sites-enabled/default /etc/nginx/sites-available/default \
-    && mkdir -p /run/nginx /var/log/nginx /var/log/php
+        opcache
+
+# Imagick remains required for animated and extended WebP sources. Isolating
+# PECL in its own cached layer makes both failures and retries unambiguous.
+RUN --mount=type=cache,target=/tmp/pear/cache,sharing=locked \
+    set -eux; \
+    pecl config-set cache_dir /tmp/pear/cache; \
+    pecl_work_dir="$(mktemp -d)"; \
+    pecl_package="${pecl_work_dir}/imagick-3.7.0.tgz"; \
+    pecl_attempt=1; \
+    until (cd "${pecl_work_dir}" && pecl download imagick-3.7.0); do \
+        rm -f "${pecl_package}"; \
+        if [ "${pecl_attempt}" -ge "${PECL_RETRIES}" ]; then \
+            echo "Unable to download imagick-3.7.0 after ${PECL_RETRIES} attempts" >&2; \
+            exit 1; \
+        fi; \
+        pecl_attempt=$((pecl_attempt + 1)); \
+        sleep $((pecl_attempt * 5)); \
+    done; \
+    MAKEFLAGS="-j${PHP_BUILD_JOBS}" pecl install "${pecl_package}"; \
+    rm -rf "${pecl_work_dir}"; \
+    docker-php-ext-enable imagick; \
+    php --ri imagick > /dev/null
+
+RUN set -eux; \
+    php -r '$required = ["pdo_mysql", "pdo_pgsql", "curl", "mbstring", "exif", "pcntl", "posix", "bcmath", "gd", "imagick", "intl", "dom", "simplexml", "xml", "xmlreader", "xmlwriter", "zip", "Zend OPcache"]; $missing = array_values(array_filter($required, static fn (string $extension): bool => !extension_loaded($extension))); if ($missing !== []) { fwrite(STDERR, "Missing required PHP extensions: " . implode(", ", $missing) . PHP_EOL); exit(1); }'; \
+    rm -f /etc/nginx/sites-enabled/default /etc/nginx/sites-available/default; \
+    mkdir -p /run/nginx /var/log/nginx /var/log/php
 
 FROM runtime-base AS php-dependencies
 

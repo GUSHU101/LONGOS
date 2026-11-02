@@ -114,7 +114,8 @@ class StorefrontMediaPresentationTest extends TestCase
         self::assertStringContainsString("['jpg', 'jpeg', 'webp'], true) ? 82 : null", $imageService);
         self::assertStringContainsString('decodeFirstFrameWithImagick', $imageService);
         self::assertStringContainsString('$source->coalesceImages()', $imageService);
-        self::assertStringContainsString('pecl install imagick-3.7.0', $dockerfile);
+        self::assertStringContainsString('pecl download imagick-3.7.0', $dockerfile);
+        self::assertStringContainsString('pecl install "${pecl_package}"', $dockerfile);
         self::assertStringContainsString('"imagick"', $dockerfile);
         self::assertStringContainsString('catch (Throwable)', $imageService);
         self::assertStringNotContainsString("ini_set('memory_limit', '-1')", $imageService);

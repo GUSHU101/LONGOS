@@ -105,8 +105,14 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringContainsString('FROM runtime-base AS runtime', $dockerfile);
         self::assertStringContainsString('COPY --from=composer-binary /usr/bin/composer /usr/local/bin/composer', $dockerfile);
         self::assertStringContainsString('ENV NODE_OPTIONS=--max-old-space-size=1536', $dockerfile);
-        self::assertStringContainsString('ARG PHP_BUILD_JOBS=2', $dockerfile);
+        self::assertStringContainsString('ARG PHP_BUILD_JOBS=1', $dockerfile);
+        self::assertStringContainsString('ARG APT_RETRIES=5', $dockerfile);
+        self::assertStringContainsString('ARG PECL_RETRIES=3', $dockerfile);
+        self::assertStringContainsString('Acquire::Retries="${APT_RETRIES}"', $dockerfile);
+        self::assertStringContainsString('Acquire::ForceIPv4=true', $dockerfile);
         self::assertStringContainsString('docker-php-ext-install -j"${PHP_BUILD_JOBS}"', $dockerfile);
+        self::assertStringContainsString('pecl download imagick-3.7.0', $dockerfile);
+        self::assertStringContainsString('MAKEFLAGS="-j${PHP_BUILD_JOBS}" pecl install "${pecl_package}"', $dockerfile);
         self::assertStringContainsString('composer install', $dockerfile);
         self::assertStringContainsString('--no-dev', $dockerfile);
         self::assertStringContainsString('--no-autoloader', $dockerfile);
@@ -120,7 +126,7 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringNotContainsString('--ignore-platform-req', $dockerfile);
         self::assertSame(
             1,
-            preg_match('/docker-php-ext-install.*?(?=\\s+&& php -r)/s', $dockerfile, $compiledExtensionBlock)
+            preg_match('/docker-php-ext-install.*?(?=\\R# Imagick)/s', $dockerfile, $compiledExtensionBlock)
         );
         foreach (['pdo_mysql', 'pdo_pgsql', 'exif', 'pcntl', 'bcmath', 'gd', 'intl', 'zip', 'opcache'] as $extension) {
             self::assertMatchesRegularExpression('/^\\s*' . preg_quote($extension, '/') . '\\s*\\\\?$/m', $compiledExtensionBlock[0]);

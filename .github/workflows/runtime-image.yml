@@ -1,0 +1,46 @@
+name: LONGOS Runtime Image
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - docker/nginx/Dockerfile
+      - .github/workflows/runtime-image.yml
+  pull_request:
+    paths:
+      - docker/nginx/Dockerfile
+      - .github/workflows/runtime-image.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: longos-runtime-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  runtime-base:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build the production PHP runtime base
+        env:
+          DOCKER_BUILDKIT: '1'
+        run: |
+          docker build \
+            --pull \
+            --progress=plain \
+            --target runtime-base \
+            --tag longos-runtime-base:ci \
+            --file docker/nginx/Dockerfile \
+            .
+
+      - name: Verify required runtime programs and extensions
+        run: |
+          docker run --rm longos-runtime-base:ci php --ri imagick >/dev/null
+          docker run --rm longos-runtime-base:ci php --ri gd >/dev/null
+          docker run --rm longos-runtime-base:ci nginx -v
