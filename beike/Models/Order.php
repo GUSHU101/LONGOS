@@ -37,6 +37,8 @@ class Order extends Base
         'payment_zone', 'payment_zone_id', 'payment_city', 'payment_address_1', 'payment_address_2', 'payment_zipcode',
     ];
 
+    protected $hidden = ['checkout_token_hash'];
+
     protected $appends = ['status_format', 'total_format', 'settlement_total'];
 
     protected $casts = [

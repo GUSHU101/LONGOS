@@ -14,7 +14,7 @@ export default {
   getCarts() {
     $(document).ready(() => {
       const cartsMiniUrl = window.longosStorefrontRoutes?.cartsMini || 'carts/mini';
-      $http.get(cartsMiniUrl, null, {hload: true}).then((res) => {
+      $http.get(cartsMiniUrl, null, {hload: true, timeout: 15000}).then((res) => {
         $('#offcanvas-right-cart').html(res.data.html);
         if (!res.data.quantity_all) {
           $('.cart-badge-quantity').hide();
@@ -72,7 +72,7 @@ export default {
     };
 
     const cartsStoreUrl = window.longosStorefrontRoutes?.cartsStore || 'carts';
-    const operation = $http.post(cartsStoreUrl, postData, {hload: !!event}).then((res) => {
+    const operation = $http.post(cartsStoreUrl, postData, {hload: !!event, timeout: 25000}).then((res) => {
       // A completed response proves the browser received the mutation
       // receipt. Only now may a later intentional click use a new key. When
       // the network fails, keep the key so retrying cannot increase quantity

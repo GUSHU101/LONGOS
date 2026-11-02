@@ -193,7 +193,11 @@ class CheckoutService
             // the database boundary instead of silently creating a mixed order.
             $expectedCartFingerprint = $this->checkoutCartFingerprint((array) data_get($checkoutData, 'carts.carts', []));
 
-            $order = DB::transaction(function () use ($checkoutData, $customer, $expectedCartFingerprint) {
+            $checkoutTokenHash = Str::isUuid($checkoutToken)
+                ? self::checkoutTokenHash($checkoutToken, $customer)
+                : null;
+
+            $order = DB::transaction(function () use ($checkoutData, $customer, $expectedCartFingerprint, $checkoutTokenHash) {
                 $lockedProducts = CartRepo::selectedCartProductsBuilder($customer->id ?? 0)
                     ->lockForUpdate()
                     ->get();
@@ -208,6 +212,13 @@ class CheckoutService
                 }
 
                 $order = OrderRepo::create($checkoutData);
+                if ($checkoutTokenHash !== null) {
+                    // Persist the idempotency receipt in the same transaction
+                    // as the order. Cache and session receipts are accelerators;
+                    // this row is the durable source of truth after a lost HTTP
+                    // response or cache outage.
+                    $order->forceFill(['checkout_token_hash' => $checkoutTokenHash])->saveOrFail();
+                }
                 StateMachineService::getInstance($order)->changeStatus(StateMachineService::UNPAID, '', true);
                 app(AbandonedOrderRecoveryService::class)->markConverted($this->cart, $order);
                 CartRepo::clearSelectedCartProducts($customer);
@@ -239,12 +250,27 @@ class CheckoutService
 
         try {
             $number = Cache::get(self::confirmationCacheKey($checkoutToken, $customer));
+            if (is_string($number) && preg_match('/^[A-Za-z0-9-]{1,64}$/', $number) === 1) {
+                return $number;
+            }
+        } catch (Throwable $e) {
+            Log::warning('Checkout confirmation receipt could not be read from cache.', [
+                'exception' => $e::class,
+                'message'   => SensitiveValueRedactor::redact($e->getMessage()),
+            ]);
+        }
+
+        try {
+            $number = Order::query()
+                ->where('checkout_token_hash', self::checkoutTokenHash($checkoutToken, $customer))
+                ->where('customer_id', (int) ($customer->id ?? 0))
+                ->value('number');
 
             return is_string($number) && preg_match('/^[A-Za-z0-9-]{1,64}$/', $number) === 1
                 ? $number
                 : null;
         } catch (Throwable $e) {
-            Log::warning('Checkout confirmation receipt could not be read from cache.', [
+            Log::warning('Checkout confirmation receipt could not be read from the order record.', [
                 'exception' => $e::class,
                 'message'   => SensitiveValueRedactor::redact($e->getMessage()),
             ]);
@@ -840,10 +866,15 @@ class CheckoutService
 
     private static function confirmationCacheKey(string $checkoutToken, $customer = null): string
     {
+        return 'checkout:receipt:' . self::checkoutTokenHash($checkoutToken, $customer);
+    }
+
+    private static function checkoutTokenHash(string $checkoutToken, $customer = null): string
+    {
         $identity = isset($customer->id) && (int) $customer->id > 0
             ? 'customer:' . (int) $customer->id
             : 'session:' . hash('sha256', (string) get_session_id());
 
-        return 'checkout:receipt:' . hash('sha256', $identity . "\0" . $checkoutToken);
+        return hash('sha256', $identity . "\0" . $checkoutToken);
     }
 }

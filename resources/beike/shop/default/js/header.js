@@ -51,7 +51,7 @@ $(function () {
   $(document).on('click', '.offcanvas-products-delete', function () {
     const id = $(this).data('id');
 
-    $http.delete(`carts/${id}`).then((res) => {
+    $http.delete(`carts/${id}`, null, {timeout: 20000}).then((res) => {
       $(this).parents('.product-list').remove();
       if (!res.data.quantity) {
         $('.cart-badge-quantity').hide();
@@ -130,7 +130,8 @@ $(function () {
     $http.post(cartSelectionUrl, {
       cart_ids: [cartId]
     }, {
-      hload: true
+      hload: true,
+      timeout: 20000
     }).then((res) => {
       updateMiniCartData(res);
     })
@@ -161,7 +162,8 @@ $(function () {
     $http.post(cartSelectionUrl, {
       cart_ids: checkedIds
     }, {
-      hload: true
+      hload: true,
+      timeout: 20000
     }).then((res) => {
       updateMiniCartData(res);
     })
@@ -177,7 +179,8 @@ $(function () {
       quantity: quantity,
       sku_id
     }, {
-      hload: true
+      hload: true,
+      timeout: 20000
     }).then((res) => {
       if (res.status != 'success') {
         layer.msg(res.message)

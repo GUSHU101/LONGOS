@@ -315,7 +315,7 @@
         if (!countryId) { this.source.zones = []; this.addressForm.zone_id = ''; this.zonesLoading = false; return Promise.resolve([]); }
         this.zonesLoading = true;
         const zonesUrl = checkoutCountryZonesUrlTemplate.replace('__COUNTRY_ID__', encodeURIComponent(countryId));
-        return $http.get(zonesUrl, null, {hmsg: true, hload: true}).then((res) => {
+        return $http.get(zonesUrl, null, {hmsg: true, hload: true, timeout: 15000}).then((res) => {
           if (requestId !== this.zoneRequestId) return [];
           const wasRegionValidationBlocked = this.regionValidationBlocked;
           this.regionValidationBlocked = false;
@@ -399,7 +399,7 @@
         });
       },
       detectVisitorCountry() {
-        return $http.get(checkoutUserCountryUrl, null, {hmsg: true, hload: true}).then((res) => {
+        return $http.get(checkoutUserCountryUrl, null, {hmsg: true, hload: true, timeout: 8000}).then((res) => {
           const code = String(res.data?.countryCode || '').toUpperCase();
           const country = this.source.countries.find((item) => String(item.code || '').toUpperCase() === code);
           if (!country || this.addressForm.id || this.addressForm.address_1) return;
@@ -440,7 +440,7 @@
         const selectedCountryCode = String(selectedCountry?.code || '').toUpperCase();
         if (/^[A-Z]{2}$/.test(selectedCountryCode)) params.country_code = selectedCountryCode;
 
-        return $http.post(checkoutAddressSuggestionsUrl, params, {hmsg: true, hload: true}).then((res) => {
+        return $http.post(checkoutAddressSuggestionsUrl, params, {hmsg: true, hload: true, timeout: 12000}).then((res) => {
           if (requestId !== this.addressLookupRequestId || query !== String(this.addressForm.address_1 || '').trim()) return [];
           this.addressSuggestions = Array.isArray(res.data) ? res.data : [];
           this.activeSuggestion = this.addressSuggestions.length ? 0 : -1;

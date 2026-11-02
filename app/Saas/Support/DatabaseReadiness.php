@@ -35,6 +35,7 @@ final class DatabaseReadiness
     /** @var array<string, array<int, string>> */
     private const REQUIRED_COLUMNS = [
         'mail_logs' => ['delivery_id', 'attempts', 'last_attempt_at'],
+        'orders'    => ['checkout_token_hash'],
     ];
 
     /** @var array<int, string> */

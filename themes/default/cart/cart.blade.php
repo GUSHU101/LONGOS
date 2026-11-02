@@ -254,7 +254,7 @@
             this.queuedQuantityUpdates = Math.max(0, this.queuedQuantityUpdates - 1)
             const fallbackQuantity = this.confirmedQuantities[cart_id] || 1
             this.runCartMutation(
-              () => $http.put(cartItemUrl(cart_id), {quantity: normalized, sku_id}, {hload: true}),
+              () => $http.put(cartItemUrl(cart_id), {quantity: normalized, sku_id}, {hload: true, timeout: 20000}),
               () => {
                 const currentProduct = this.products.find(item => String(item.cart_id) === String(cart_id))
                 if (currentProduct) currentProduct.quantity = fallbackQuantity
@@ -264,14 +264,14 @@
         },
 
         checkedBtnDelete(cart_id) {
-          this.runCartMutation(() => $http.delete(cartItemUrl(cart_id)))
+          this.runCartMutation(() => $http.delete(cartItemUrl(cart_id), null, {timeout: 20000}))
         },
 
         checkedCartTr(index) {
           const selected = this.products[index].selected;
           const cart_id = this.products[index].cart_id;
           this.runCartMutation(
-            () => $http.post(selected ? cartSelectUrl : cartUnselectUrl, {cart_ids: [cart_id]}, {hload: true}),
+            () => $http.post(selected ? cartSelectUrl : cartUnselectUrl, {cart_ids: [cart_id]}, {hload: true, timeout: 20000}),
             () => {
               const currentProduct = this.products.find(item => String(item.cart_id) === String(cart_id))
               if (currentProduct) currentProduct.selected = !selected
@@ -283,7 +283,7 @@
           const cart_ids = this.products.map(x => x.cart_id)
 
           this.runCartMutation(
-            () => $http.post(this.allSelected ? cartSelectUrl : cartUnselectUrl, {cart_ids: cart_ids}, {hload: true}),
+            () => $http.post(this.allSelected ? cartSelectUrl : cartUnselectUrl, {cart_ids: cart_ids}, {hload: true, timeout: 20000}),
             () => previous.forEach(item => {
               const product = this.products.find(candidate => String(candidate.cart_id) === String(item.cart_id))
               if (product) product.selected = item.selected

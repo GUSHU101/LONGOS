@@ -69,7 +69,8 @@ class CheckoutPresentationTest extends TestCase
         self::assertStringNotContainsString("__('shop/carts.invalid_payment_method')", $checkout);
         self::assertStringContainsString('window.showCheckoutError = showCheckoutError', $checkout);
         self::assertStringContainsString("res.status === 'fail'", $address);
-        self::assertStringContainsString('{hmsg: true, hload: true}', $checkout);
+        self::assertStringContainsString('{hmsg: true, hload: true, timeout: 45000}', $checkout);
+        self::assertStringContainsString('{hmsg: true, hload: true, timeout: 25000}', $checkout);
         self::assertStringContainsString('aria-busy', $checkout);
         self::assertStringContainsString('class="pay-button__label"', $checkout);
         self::assertStringContainsString('class="pay-button__icon"', $checkout);
@@ -102,6 +103,9 @@ class CheckoutPresentationTest extends TestCase
         self::assertStringNotContainsString('addressLocationUse', $address);
         self::assertStringContainsString('params.country_code = selectedCountryCode', $address);
         self::assertStringContainsString('$http.post(checkoutAddressSuggestionsUrl, params', $address);
+        self::assertStringContainsString('timeout: 12000', $address);
+        self::assertStringContainsString('timeout: 15000', $address);
+        self::assertStringContainsString('timeout: 8000', $address);
         self::assertStringContainsString('@click="selectAddressSuggestion(suggestion)"', $address);
         self::assertStringContainsString('scheduleAddressLookup', $address);
         self::assertStringContainsString('const requestId = ++this.addressLookupRequestId', $address);
@@ -169,6 +173,7 @@ class CheckoutPresentationTest extends TestCase
         self::assertStringContainsString('checkoutCartFingerprint', $service);
         self::assertStringContainsString('rememberConfirmation($checkoutToken, $order)', $service);
         self::assertStringContainsString('confirmedOrderNumber', $service);
+        self::assertStringContainsString("forceFill(['checkout_token_hash' => \$checkoutTokenHash])", $service);
         self::assertStringContainsString('CartRepo::selectedCartProducts', $service);
         self::assertStringContainsString('DB::transaction(function ()', $service);
         self::assertStringNotContainsString('DB::beginTransaction()', $service);

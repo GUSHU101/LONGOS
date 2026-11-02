@@ -154,6 +154,8 @@ class SaasMigrationRoundTripTest extends TestCase
         self::assertTrue(Schema::hasTable('roles'));
         self::assertTrue(Schema::hasIndex('orders', 'orders_number_unique'));
         self::assertTrue(Schema::hasColumn('orders', 'stock_reserved'));
+        self::assertTrue(Schema::hasColumn('orders', 'checkout_token_hash'));
+        self::assertTrue(Schema::hasIndex('orders', 'orders_checkout_token_hash_unique'));
         self::assertTrue(Schema::hasIndex('order_payments', 'order_payments_order_id_unique'));
         self::assertTrue(Schema::hasTable('abandoned_order_recoveries'));
         self::assertTrue(Schema::hasColumn('mail_logs', 'delivery_id'));
@@ -166,16 +168,26 @@ class SaasMigrationRoundTripTest extends TestCase
         DatabaseReadiness::assertMigrated('saas');
         DatabaseReadiness::assertControlPlaneMigrated('saas');
 
-        $roundTripSteps = count(array_filter(
+        $roundTripPaths = array_values(array_filter(
             glob(database_path('migrations/*.php')) ?: [],
             static fn (string $path): bool => basename($path) >= '2026_10_03_000200_add_saas_domain_routing.php',
         ));
-        self::assertGreaterThan(0, $roundTripSteps);
-        self::assertSame(0, Artisan::call('migrate:rollback', [
-            '--force'          => true,
-            '--no-interaction' => true,
-            '--step'           => $roundTripSteps,
-        ]));
+        rsort($roundTripPaths, SORT_STRING);
+        self::assertNotEmpty($roundTripPaths);
+
+        // Invoke every applied down migration explicitly. Keeping this test
+        // independent from Laravel's process-wide migrator path cache makes
+        // the round trip deterministic when another feature test booted a
+        // separate in-memory application earlier in the same PHPUnit worker.
+        foreach ($roundTripPaths as $path) {
+            $name = pathinfo($path, PATHINFO_FILENAME);
+            if (! DB::table('migrations')->where('migration', $name)->exists()) {
+                continue;
+            }
+
+            (require $path)->down();
+            DB::table('migrations')->where('migration', $name)->delete();
+        }
         self::assertFalse(Schema::hasColumn('saas_domains', 'routing_behavior'));
         self::assertFalse(Schema::hasColumn('saas_domains', 'published_at'));
         self::assertFalse(Schema::hasColumn('saas_domains', 'publication_error'));
@@ -190,6 +202,7 @@ class SaasMigrationRoundTripTest extends TestCase
         self::assertFalse(Schema::hasIndex('order_histories', 'idx_order_histories_paid_first_transition'));
         self::assertFalse(Schema::hasIndex('orders', 'orders_number_unique'));
         self::assertFalse(Schema::hasColumn('orders', 'stock_reserved'));
+        self::assertFalse(Schema::hasColumn('orders', 'checkout_token_hash'));
         self::assertFalse(Schema::hasIndex('order_payments', 'order_payments_order_id_unique'));
         self::assertFalse(Schema::hasTable('abandoned_order_recoveries'));
         self::assertFalse(Schema::hasColumn('mail_logs', 'delivery_id'));
@@ -255,6 +268,8 @@ class SaasMigrationRoundTripTest extends TestCase
         self::assertTrue(Schema::hasIndex('order_histories', 'idx_order_histories_paid_first_transition'));
         self::assertTrue(Schema::hasIndex('orders', 'orders_number_unique'));
         self::assertTrue(Schema::hasColumn('orders', 'stock_reserved'));
+        self::assertTrue(Schema::hasColumn('orders', 'checkout_token_hash'));
+        self::assertTrue(Schema::hasIndex('orders', 'orders_checkout_token_hash_unique'));
         self::assertTrue(Schema::hasIndex('order_payments', 'order_payments_order_id_unique'));
         self::assertTrue(Schema::hasTable('abandoned_order_recoveries'));
         self::assertTrue(Schema::hasColumn('mail_logs', 'delivery_id'));

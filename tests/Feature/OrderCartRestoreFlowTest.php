@@ -13,6 +13,7 @@ use Beike\Models\ProductSku;
 use Beike\Services\StateMachineService;
 use Beike\Shop\Http\Controllers\OrderController;
 use Beike\Shop\Services\CartService;
+use Beike\Shop\Services\CheckoutService;
 use Beike\Shop\Services\OrderCartRestoreService;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Http\Request;
@@ -20,6 +21,7 @@ use Illuminate\Session\ArraySessionHandler;
 use Illuminate\Session\Store;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use PHPUnit\Framework\TestCase;
 
 class OrderCartRestoreFlowTest extends TestCase
@@ -171,6 +173,19 @@ class OrderCartRestoreFlowTest extends TestCase
             'payment_confirmed' => true,
             'final'             => true,
         ], $paid->getData(true)['data']);
+
+        // A lost checkout response must still reconcile from the committed
+        // order after the volatile cache/session receipt is unavailable.
+        $token    = (string) Str::uuid();
+        $identity = 'session:' . hash('sha256', (string) get_session_id());
+
+        $order->forceFill([
+            'checkout_token_hash' => hash('sha256', $identity . "\0" . $token),
+        ])->saveOrFail();
+
+        self::assertSame((string) $order->number, CheckoutService::confirmedOrderNumber($token));
+        self::assertNull(CheckoutService::confirmedOrderNumber((string) Str::uuid()));
+        self::assertArrayNotHasKey('checkout_token_hash', $order->fresh()->toArray());
     }
 
     public function test_interrupted_payment_result_view_compiles_the_reconciliation_flow(): void

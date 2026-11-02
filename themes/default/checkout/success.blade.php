@@ -140,7 +140,7 @@
 
         const checkPaymentStatus = async () => {
           const controller = new AbortController();
-          const timeout = window.setTimeout(() => controller.abort(), 10000);
+          const timeout = window.setTimeout(() => controller.abort(), 5000);
           try {
             const response = await fetch(@json($orderStatusUrl), {
               method: 'GET',
@@ -215,7 +215,7 @@
           if (message) message.textContent = @json(__('shop/checkout.payment_verifying_message'));
           if (retry) retry.hidden = true;
 
-          for (const delay of [0, 1000, 2000, 4000]) {
+          for (const delay of [0, 750, 1500]) {
             if (delay) await wait(delay);
             const paymentState = await checkPaymentStatus();
             if (paymentState === 'confirmed') return;

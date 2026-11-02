@@ -740,7 +740,7 @@
         announceCheckout(checkoutMessages.orderProcessing);
         $submitButton.html('<span class="pay-button__label"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span><span>{{ __('shop/checkout.submit_order') }}</span></span>');
 
-        $http.post(window.longosStorefrontRoutes.checkoutConfirm, data, {hmsg: true, hload: true}).then(async (res) => {
+        $http.post(window.longosStorefrontRoutes.checkoutConfirm, data, {hmsg: true, hload: true, timeout: 45000}).then(async (res) => {
           if (!res || !res.number) {
             throw checkoutFailure(checkoutMessages.invalidOrderResponse);
           }
@@ -822,7 +822,7 @@
       window.syncCheckoutSubmitState();
       const request = checkoutUpdateQueue
         .catch(() => undefined)
-        .then(() => $http.put(window.longosStorefrontRoutes.checkoutUpdate, payload, {hmsg: true, hload: true}));
+        .then(() => $http.put(window.longosStorefrontRoutes.checkoutUpdate, payload, {hmsg: true, hload: true, timeout: 25000}));
 
       checkoutUpdateQueue = request.catch(() => undefined);
 

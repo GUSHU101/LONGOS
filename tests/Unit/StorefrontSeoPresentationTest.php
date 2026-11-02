@@ -31,6 +31,8 @@ class StorefrontSeoPresentationTest extends TestCase
         self::assertStringNotContainsString("__('shop/common.nginx_alert')", $master);
         self::assertStringNotContainsString("includes('nginx')", $http);
         self::assertStringNotContainsString("$('.nginx-alert')", $http);
+        self::assertStringContainsString('const requestedTimeout = Number(timeout)', $http);
+        self::assertStringContainsString('requestConfig.timeout = Math.min(Math.floor(requestedTimeout), 120000)', $http);
     }
 
     public function test_product_schema_and_variant_canonical_share_one_product_identity(): void

@@ -21,8 +21,8 @@ export default {
    */
   axiosApi,
 
-  get (url, params, {hmsg, hload, base}={}) {
-    return this.request('get', url, params = params, {hmsg, hload, base});
+  get (url, params, {hmsg, hload, base, timeout}={}) {
+    return this.request('get', url, params = params, {hmsg, hload, base, timeout});
   },
 
   /**
@@ -33,8 +33,8 @@ export default {
    * @returns {AxiosPromise<any>}
    */
 
-  post (url, params, {hmsg, hload, base}={}) {
-    return this.request('post', url, params, {hmsg, hload, base});
+  post (url, params, {hmsg, hload, base, timeout}={}) {
+    return this.request('post', url, params, {hmsg, hload, base, timeout});
   },
 
   /**
@@ -44,8 +44,8 @@ export default {
   * @returns {Promise}
   */
 
-  delete (url, params, {hmsg, hload, base}={}) {
-    return this.request('delete', url, params, {hmsg, hload, base});
+  delete (url, params, {hmsg, hload, base, timeout}={}) {
+    return this.request('delete', url, params, {hmsg, hload, base, timeout});
   },
 
   /**
@@ -55,8 +55,8 @@ export default {
   * @returns {Promise}
   */
 
-  put (url, params, {hmsg, hload, base}={}) {
-    return this.request('put', url, params, {hmsg, hload, base});
+  put (url, params, {hmsg, hload, base, timeout}={}) {
+    return this.request('put', url, params, {hmsg, hload, base, timeout});
   },
 
 
@@ -68,7 +68,7 @@ export default {
    * @param showError 是否展示错误信息
    * @returns {Promise<any>}
    */
-  request(method, url, params = {}, {hmsg, hload, base} = {}) {
+  request(method, url, params = {}, {hmsg, hload, base, timeout} = {}) {
     if (!hload) {
       layer.load(2, {shade: [0.3,'#fff'] })
     }
@@ -77,8 +77,16 @@ export default {
       axiosApi.defaults.baseURL = base;
     }
 
+    const requestConfig = {method: method, url: url, [method == 'get' ? 'params' : 'data']: params};
+    const requestedTimeout = Number(timeout);
+    if (Number.isFinite(requestedTimeout) && requestedTimeout > 0) {
+      // Keep storefront mutations bounded without imposing a global timeout
+      // on intentionally long-running admin uploads and exports.
+      requestConfig.timeout = Math.min(Math.floor(requestedTimeout), 120000);
+    }
+
     return new Promise((resolve, reject) => {
-      axiosApi({method: method, url: url, [method == 'get' ? 'params' : 'data']: params}).then((res) => {
+      axiosApi(requestConfig).then((res) => {
         if (res) {
           resolve(res.data);
         } else { // 其他情况返回错误信息，根据需要处理
