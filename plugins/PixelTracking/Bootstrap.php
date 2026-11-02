@@ -48,6 +48,12 @@ class Bootstrap
                 return $output;
             }
             $order = $data['data']['order'] ?? null;
+            if (! $order || ! in_array((string) $order->status, StateMachineService::getValidStatuses(), true)) {
+                // The result page is also the recovery surface for unpaid or
+                // interrupted payments. Never report those visits as revenue;
+                // a confirmed callback will refresh the page and emit once.
+                return $output;
+            }
 
             return $output . view('PixelTracking::shop.purchase_event', compact('order'))->render();
         });

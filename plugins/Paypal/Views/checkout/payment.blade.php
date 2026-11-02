@@ -3,6 +3,8 @@
 @php
   $paypalCreateUrl = shop_route('paypal.create');
   $paypalCaptureUrl = shop_route('paypal.capture');
+  $paypalStatusUrl = shop_route('orders.status', ['number' => (string) ($order->number ?? '')]);
+  $paypalSuccessUrl = order_checkout_result_url($order);
   $paypalOrderNumber = (string) ($order->number ?? '');
   $paypalMode = strtolower((string) ($payment_setting['api_mode'] ?? 'rest'));
   $paypalSandbox = filter_var($payment_setting['sandbox_mode'] ?? true, FILTER_VALIDATE_BOOLEAN);
@@ -53,9 +55,36 @@
       const orderNumber = {!! json_encode($paypalOrderNumber, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) !!};
       const messages = @json($paypalMessages);
       const status = document.getElementById('paypal-payment-status');
+      const orderStatusUrl = @json($paypalStatusUrl);
+      const successUrl = @json($paypalSuccessUrl);
+      const wait = function (delay) { return new Promise(function (resolve) { window.setTimeout(resolve, delay); }); };
+      const recoverCompletion = async function () {
+        for (const delay of [0, 1000, 2000]) {
+          if (delay) await wait(delay);
+          const recoveryController = new AbortController();
+          const recoveryTimeout = window.setTimeout(function () { recoveryController.abort(); }, 8000);
+          try {
+            const response = await fetch(orderStatusUrl, {
+              credentials: 'same-origin', cache: 'no-store', signal: recoveryController.signal,
+              headers: {Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest'}
+            });
+            const payload = await response.json().catch(function () { return {}; });
+            if (response.ok && payload && payload.data && payload.data.payment_confirmed) {
+              window.location.assign(successUrl);
+              return true;
+            }
+          } catch (error) {
+          } finally {
+            window.clearTimeout(recoveryTimeout);
+          }
+        }
+        return false;
+      };
       if (status) status.textContent = messages.connecting;
+      const controller = new AbortController();
+      const timeout = window.setTimeout(function () { controller.abort(); }, 35000);
       fetch(@json($paypalCreateUrl), {
-        method: 'POST',
+        method: 'POST', signal: controller.signal,
         headers: {'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content'), 'Content-Type': 'application/json', 'Accept': 'application/json'},
         body: JSON.stringify({orderNumber: orderNumber})
       }).then(function (response) {
@@ -75,10 +104,13 @@
         if (!orderData.approval_url) throw new Error(orderData.message || messages.failed);
         if (status) status.textContent = messages.redirecting;
         window.location.assign(orderData.approval_url);
-      }).catch(function (error) {
+      }).catch(async function (error) {
+        if (await recoverCompletion()) return;
         const message = error.message || messages.start_failed;
         if (status) status.textContent = message;
         if (window.layer && typeof window.layer.msg === 'function') window.layer.msg(message);
+      }).finally(function () {
+        window.clearTimeout(timeout);
       });
     })();
   </script>
@@ -98,9 +130,36 @@
         return;
       }
       const orderNumber = {!! json_encode($paypalOrderNumber, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) !!};
+      const orderStatusUrl = @json($paypalStatusUrl);
+      const successUrl = @json($paypalSuccessUrl);
+      const wait = function (delay) { return new Promise(function (resolve) { window.setTimeout(resolve, delay); }); };
+      const recoverCompletion = async function () {
+        for (const delay of [0, 1000, 2000]) {
+          if (delay) await wait(delay);
+          const controller = new AbortController();
+          const timeout = window.setTimeout(function () { controller.abort(); }, 8000);
+          try {
+            const response = await fetch(orderStatusUrl, {
+              credentials: 'same-origin', cache: 'no-store', signal: controller.signal,
+              headers: {Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest'}
+            });
+            const payload = await response.json().catch(function () { return {}; });
+            if (response.ok && payload && payload.data && payload.data.payment_confirmed) {
+              window.location.assign(successUrl);
+              return true;
+            }
+          } catch (error) {
+          } finally {
+            window.clearTimeout(timeout);
+          }
+        }
+        return false;
+      };
       const requestJson = function (url, payload) {
+        const controller = new AbortController();
+        const timeout = window.setTimeout(function () { controller.abort(); }, 35000);
         return fetch(url, {
-          method: 'POST',
+          method: 'POST', signal: controller.signal,
           headers: {'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content'), 'Content-Type': 'application/json', 'Accept': 'application/json'},
           body: JSON.stringify(payload)
         }).then(function (response) {
@@ -111,6 +170,11 @@
             }
             return data;
           });
+        }).catch(function (error) {
+          if (error && error.name === 'AbortError') throw new Error(messages.failed);
+          throw error;
+        }).finally(function () {
+          window.clearTimeout(timeout);
         });
       };
 
@@ -134,12 +198,18 @@
             if (orderData.status !== 'COMPLETED') throw new Error(orderData.message || messages.not_completed);
             setStatus(messages.completed);
             window.location.assign(@json(shop_route('checkout.success', ['order_number' => $paypalOrderNumber])));
+          }).catch(async function (error) {
+            if (await recoverCompletion()) return;
+            const message = (error && error.message) || messages.failed;
+            setStatus(message);
+            if (window.layer && typeof window.layer.msg === 'function') window.layer.msg(message);
           });
         },
         onCancel: function () {
           setStatus(messages.cancelled);
         },
-        onError: function (error) {
+        onError: async function (error) {
+          if (await recoverCompletion()) return;
           const message = (error && error.message) || messages.start_failed;
           setStatus(message);
           if (window.layer && typeof window.layer.msg === 'function') window.layer.msg(message);

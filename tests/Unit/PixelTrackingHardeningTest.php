@@ -123,6 +123,10 @@ class PixelTrackingHardeningTest extends TestCase
         self::assertStringContainsString("TrackingEventId::make('purchase'", $purchase);
         self::assertStringContainsString("TrackingEventId::make('order'", $purchase);
         self::assertStringContainsString('contents: @json($trackingContents)', $purchase);
+        self::assertStringContainsString('StateMachineService::getValidStatuses()', $purchase);
+
+        $bootstrap = (string) file_get_contents($root . '/plugins/PixelTracking/Bootstrap.php');
+        self::assertStringContainsString('! in_array((string) $order->status, StateMachineService::getValidStatuses(), true)', $bootstrap);
     }
 
     public function test_server_tracking_uses_current_tiktok_envelope_and_provider_level_success_checks(): void

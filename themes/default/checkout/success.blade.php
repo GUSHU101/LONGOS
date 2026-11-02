@@ -33,21 +33,25 @@
       </div>
     @endif
 
-    @if (!empty($autoRestoreCart) && $paymentRequired)
-      <div class="purchase-alert" id="cart-restore-status" role="status" aria-live="polite" aria-busy="true">
+    @if (!empty($shouldReconcilePayment) && $paymentRequired)
+      <div class="purchase-alert" id="payment-recovery-status" role="status" aria-live="polite" aria-busy="true">
         <i class="bi bi-arrow-repeat" aria-hidden="true"></i>
         <div>
-          <strong>{{ __('shop/checkout.cart_restoring') }}</strong>
-          <p>{{ __('shop/checkout.cart_restore_help') }}</p>
-          <button class="btn btn-sm btn-outline-secondary mt-2" id="cart-restore-retry" type="button" hidden>{{ __('shop/checkout.restore_cart') }}</button>
+          <strong>{{ __('shop/checkout.payment_verifying_title') }}</strong>
+          <p>{{ __('shop/checkout.payment_verifying_message') }}</p>
+          @if (!empty($autoRestoreCart))
+            <button class="btn btn-sm btn-outline-secondary mt-2" id="cart-restore-retry" type="button" hidden>{{ __('shop/checkout.restore_cart') }}</button>
+          @endif
         </div>
       </div>
-      <noscript>
-        <form action="{{ $cartRestoreUrl }}" method="post" class="purchase-primary-actions">
-          @csrf
-          <button class="purchase-action purchase-action--primary" type="submit">{{ __('shop/checkout.restore_cart') }}</button>
-        </form>
-      </noscript>
+      @if (!empty($autoRestoreCart))
+        <noscript>
+          <form action="{{ $cartRestoreUrl }}" method="post" class="purchase-primary-actions">
+            @csrf
+            <button class="purchase-action purchase-action--primary" type="submit">{{ __('shop/checkout.restore_cart') }}</button>
+          </form>
+        </noscript>
+      @endif
     @endif
 
     <section class="purchase-card order-result-card">
@@ -122,14 +126,45 @@
   </div>
 @endsection
 
-@if (!empty($autoRestoreCart) && $paymentRequired)
+@if (!empty($shouldReconcilePayment) && $paymentRequired)
   @push('add-scripts')
     <script>
       (() => {
-        const status = document.getElementById('cart-restore-status');
+        const status = document.getElementById('payment-recovery-status');
+        const title = status?.querySelector('strong');
         const message = status?.querySelector('p');
         const retry = document.getElementById('cart-restore-retry');
         const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+        const shouldRestoreCart = @json(!empty($autoRestoreCart));
+        const wait = (delay) => new Promise((resolve) => window.setTimeout(resolve, delay));
+
+        const checkPaymentStatus = async () => {
+          const controller = new AbortController();
+          const timeout = window.setTimeout(() => controller.abort(), 10000);
+          try {
+            const response = await fetch(@json($orderStatusUrl), {
+              method: 'GET',
+              credentials: 'same-origin',
+              signal: controller.signal,
+              cache: 'no-store',
+              headers: {
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+              },
+            });
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok || payload.status !== 'success') return 'unknown';
+            if (payload.data?.payment_confirmed) {
+              window.location.reload();
+              return 'confirmed';
+            }
+            return payload.data?.final === true ? 'final' : 'pending';
+          } catch (error) {
+            return 'unknown';
+          } finally {
+            window.clearTimeout(timeout);
+          }
+        };
 
         const restoreCart = async () => {
           const controller = new AbortController();
@@ -138,6 +173,7 @@
             status.setAttribute('role', 'status');
             status.setAttribute('aria-busy', 'true');
           }
+          if (title) title.textContent = @json(__('shop/checkout.cart_restoring'));
           if (message) message.textContent = @json(__('shop/checkout.cart_restore_help'));
           if (retry) retry.hidden = true;
 
@@ -170,8 +206,37 @@
           }
         };
 
-        retry?.addEventListener('click', restoreCart);
-        restoreCart();
+        const reconcilePayment = async () => {
+          if (status) {
+            status.setAttribute('role', 'status');
+            status.setAttribute('aria-busy', 'true');
+          }
+          if (title) title.textContent = @json(__('shop/checkout.payment_verifying_title'));
+          if (message) message.textContent = @json(__('shop/checkout.payment_verifying_message'));
+          if (retry) retry.hidden = true;
+
+          for (const delay of [0, 1000, 2000, 4000]) {
+            if (delay) await wait(delay);
+            const paymentState = await checkPaymentStatus();
+            if (paymentState === 'confirmed') return;
+            if (paymentState === 'final') break;
+          }
+
+          if (shouldRestoreCart) {
+            await restoreCart();
+            return;
+          }
+
+          if (status) {
+            status.setAttribute('role', 'alert');
+            status.setAttribute('aria-busy', 'false');
+          }
+          if (title) title.textContent = @json(__('shop/checkout.payment_needs_attention'));
+          if (message) message.textContent = @json(__('shop/checkout.payment_not_confirmed'));
+        };
+
+        retry?.addEventListener('click', reconcilePayment);
+        reconcilePayment();
       })();
     </script>
   @endpush

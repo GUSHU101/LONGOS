@@ -76,6 +76,26 @@ class OrderController extends Controller
     }
 
     /**
+     * Return the latest payment-facing state without exposing order details.
+     * Provider webhooks can arrive after the browser has already returned, so
+     * the result page uses this endpoint to replace a stale unpaid snapshot.
+     */
+    public function status(Request $request, $number)
+    {
+        $order = $this->authorizedOrder($request, $number)->fresh();
+        $state = (string) $order->status;
+
+        $response = json_success('', [
+            'state'             => $state,
+            'payment_confirmed' => in_array($state, StateMachineService::getValidStatuses(), true),
+            'final'             => $state !== StateMachineService::UNPAID,
+        ]);
+        $response->headers->set('Cache-Control', 'no-store, private');
+
+        return $response;
+    }
+
+    /**
      * Cancel an order for either the current customer or a session-authorized guest.
      */
     public function cancel(Request $request, $number)

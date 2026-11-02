@@ -117,6 +117,9 @@ Route::prefix('/')
                 Route::get('checkout/success', [CheckoutController::class, 'success'])->name('checkout.success');
                 Route::post('checkout/confirm', [CheckoutController::class, 'confirm'])->name('checkout.confirm');
                 Route::get('orders/{number}/pay', [\Beike\Shop\Http\Controllers\OrderController::class, 'pay'])->name('orders.pay');
+                Route::get('orders/{number}/status', [\Beike\Shop\Http\Controllers\OrderController::class, 'status'])
+                    ->middleware('throttle:60,1')
+                    ->name('orders.status');
                 Route::post('orders/{number}/restore-cart', [\Beike\Shop\Http\Controllers\OrderController::class, 'restoreCart'])->name('orders.restore-cart');
                 Route::post('orders/{number}/cancel', [\Beike\Shop\Http\Controllers\OrderController::class, 'cancel'])->name('orders.cancel');
                 Route::post('orders/{number}/complete', [\Beike\Shop\Http\Controllers\OrderController::class, 'complete'])->name('orders.complete');

@@ -23,11 +23,14 @@ class PlatformPaymentRecoveryContractTest extends TestCase
         self::assertStringContainsString('recentUnpaidConfirmation()', $checkout);
         self::assertStringContainsString('$platformPaymentNotice', $success);
         self::assertStringContainsString('!empty($platformPaymentNotice) && $paymentRequired', $success);
-        self::assertStringContainsString('cart-restore-status', $success);
+        self::assertStringContainsString('payment-recovery-status', $success);
+        self::assertStringContainsString('checkPaymentStatus', $success);
+        self::assertStringContainsString("if (paymentState === 'confirmed') return", $success);
         self::assertStringContainsString('fetch(@json($cartRestoreUrl)', $success);
         self::assertStringContainsString('new AbortController()', $success);
-        self::assertStringContainsString("retry?.addEventListener('click', restoreCart)", $success);
+        self::assertStringContainsString("retry?.addEventListener('click', reconcilePayment)", $success);
         self::assertStringContainsString("'orders.restore-cart'", (string) file_get_contents($root . '/beike/Shop/Routes/shop.php'));
+        self::assertStringContainsString("'orders.status'", (string) file_get_contents($root . '/beike/Shop/Routes/shop.php'));
         self::assertFileExists($root . '/beike/Shop/Services/OrderCartRestoreService.php');
     }
 
@@ -94,6 +97,25 @@ class PlatformPaymentRecoveryContractTest extends TestCase
         self::assertStringContainsString('$releasedStale = PlatformPaymentSession::query()', $command);
         self::assertStringContainsString("->where('provider', 'paypal')", $command);
         self::assertStringContainsString('$gateway->cancelUnresolved(', $command);
+    }
+
+    public function test_direct_provider_pages_reconcile_lost_browser_responses(): void
+    {
+        $root          = dirname(__DIR__, 2);
+        $stripePayment = (string) file_get_contents($root . '/plugins/Stripe/Views/checkout/payment.blade.php');
+        $stripeInline  = (string) file_get_contents($root . '/plugins/Stripe/Views/checkout/inline.blade.php');
+        $paypalPayment = (string) file_get_contents($root . '/plugins/Paypal/Views/checkout/payment.blade.php');
+
+        self::assertStringContainsString("shop_route('orders.status'", $stripePayment);
+        self::assertStringContainsString('const recoverCompletion = async () =>', $stripePayment);
+        self::assertStringContainsString('providerMayHaveCompleted && await recoverCompletion()', $stripePayment);
+        self::assertStringContainsString('{headers, timeout: 35000}', $stripePayment);
+        self::assertStringContainsString('{headers, timeout: 35000}', $stripeInline);
+        self::assertStringContainsString("shop_route('orders.status'", $paypalPayment);
+        self::assertStringContainsString('const recoverCompletion = async function ()', $paypalPayment);
+        self::assertGreaterThanOrEqual(2, substr_count($paypalPayment, 'if (await recoverCompletion()) return'));
+        self::assertStringContainsString('if (await recoverCompletion()) return', $paypalPayment);
+        self::assertStringContainsString('controller.abort()', $paypalPayment);
     }
 
     public function test_child_and_hosted_requests_have_bounded_network_waits(): void

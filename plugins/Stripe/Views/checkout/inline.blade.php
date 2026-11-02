@@ -143,7 +143,7 @@
       setStatus(messages.processing)
       const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
       const headers = {'X-CSRF-TOKEN': csrfToken, Accept: 'application/json'}
-      const intentResponse = await window.axios.post(intentUrl, {order_number: orderNumber}, {headers})
+      const intentResponse = await window.axios.post(intentUrl, {order_number: orderNumber}, {headers, timeout: 35000})
       const intentData = intentResponse.data?.data || {}
       if (intentResponse.data?.status !== 'success') throw new Error(intentResponse.data?.message || messages.failed)
       if (intentData.already_succeeded && intentData.redirect_url) {
@@ -161,7 +161,7 @@
       const captureResponse = await window.axios.post(captureUrl, {
         order_number: orderNumber,
         payment_intent_id: confirmation.paymentIntent.id,
-      }, {headers})
+      }, {headers, timeout: 35000})
       const redirectUrl = captureResponse.data?.data?.redirect_url
       if (captureResponse.data?.status !== 'success' || !redirectUrl) {
         throw new Error(captureResponse.data?.message || messages.failed)

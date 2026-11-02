@@ -67,13 +67,18 @@ class StorefrontPurchaseJourneyTest extends TestCase
         self::assertStringContainsString('@click="addCart(true, $event.currentTarget)"', $product);
         self::assertStringContainsString('bk.addCart(params, button, () => {', $product);
         self::assertStringContainsString('this.pendingCartAdds.has(requestIdentity)', $common);
-        self::assertStringContainsString('idempotency_key: window.crypto?.randomUUID?.()', $common);
+        self::assertStringContainsString('const idempotencyKey = this.cartRequestKey(requestIdentity)', $common);
+        self::assertStringContainsString('window.localStorage?.setItem(storageKey', $common);
+        self::assertStringContainsString('this.clearCartRequestKey(requestIdentity, idempotencyKey)', $common);
+        self::assertStringContainsString('idempotency_key: idempotencyKey', $common);
         self::assertStringContainsString("'idempotency_key'", $request);
         self::assertStringContainsString("'cart:add:receipt:'", $controller);
         self::assertStringContainsString("'fingerprint'", $controller);
         self::assertStringContainsString('DB::transaction(', $controller);
         self::assertStringContainsString('return CartService::mutationLockKey($customer);', $controller);
         self::assertStringContainsString('return CartService::mutationLockKey($this->customer);', (string) file_get_contents($root . '/beike/Shop/Services/CheckoutService.php'));
+        self::assertStringContainsString("'selected' => true", (string) file_get_contents($root . '/beike/Shop/Services/CartService.php'));
+        self::assertStringContainsString('Cache::lock(CartService::mutationLockKey(current_customer()), 60)', (string) file_get_contents($root . '/beike/Services/AbandonedOrderRecoveryService.php'));
         self::assertStringContainsString('DashboardEvent::recordCartAdded', $controller);
     }
 
@@ -139,6 +144,8 @@ class StorefrontPurchaseJourneyTest extends TestCase
         self::assertStringContainsString("__('shop/checkout.order_unpaid_message')", $success);
         self::assertStringContainsString("__('shop/checkout.order_paid_message')", $success);
         self::assertStringContainsString("__('shop/checkout.retry_payment')", $success);
+        self::assertStringContainsString('fetch(@json($orderStatusUrl)', $success);
+        self::assertStringContainsString("if (paymentState === 'confirmed') return", $success);
         self::assertStringContainsString('class="purchase-next-steps"', $success);
         self::assertStringContainsString('class="purchase-address-grid"', $success);
         self::assertStringNotContainsString('is_mobile()', $success);

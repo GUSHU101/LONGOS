@@ -207,12 +207,18 @@ class CheckoutController extends Controller
         $autoRestoreCart = $notice !== ''
             && (string) $order->status              === StateMachineService::UNPAID
             && (string) $order->payment_method_code === PlatformPaymentSessionService::PAYMENT_CODE
-            && current_site() !== null;
+            && current_site()             !== null;
+        $shouldReconcilePayment = $notice !== ''
+            && (string) $order->status === StateMachineService::UNPAID;
         $data = hook_filter('account.order.show.data', [
             'order'                  => $order,
             'html_items'             => [],
             'platformPaymentNotice'  => $notice,
             'autoRestoreCart'        => $autoRestoreCart,
+            'shouldReconcilePayment' => $shouldReconcilePayment,
+            'orderStatusUrl'         => $shouldReconcilePayment
+                ? shop_route('orders.status', ['number' => $order->number])
+                : '',
             'cartRestoreUrl'         => $autoRestoreCart
                 ? shop_route('orders.restore-cart', ['number' => $order->number])
                 : '',

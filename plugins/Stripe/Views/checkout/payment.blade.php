@@ -64,8 +64,33 @@
   const publicKey = @json(plugin_setting('stripe.publishable_key', ''));
   const intentUrl = @json(shop_route('stripe.intent'));
   const captureUrl = @json(shop_route('stripe_capture'));
+  const orderStatusUrl = @json(shop_route('orders.status', ['number' => (string) ($order->number ?? '')]));
+  const successUrl = @json(order_checkout_result_url($order));
   const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
   const headers = {'X-CSRF-TOKEN': csrfToken, Accept: 'application/json'}
+  const wait = delay => new Promise(resolve => window.setTimeout(resolve, delay))
+  const recoverCompletion = async () => {
+    for (const delay of [0, 1000, 2000]) {
+      if (delay) await wait(delay)
+      const controller = new AbortController()
+      const timeout = window.setTimeout(() => controller.abort(), 8000)
+      try {
+        const response = await fetch(orderStatusUrl, {
+          credentials: 'same-origin', cache: 'no-store', signal: controller.signal,
+          headers: {Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
+        })
+        const payload = await response.json().catch(() => ({}))
+        if (response.ok && payload?.data?.payment_confirmed) {
+          window.location.assign(successUrl)
+          return true
+        }
+      } catch (error) {
+      } finally {
+        window.clearTimeout(timeout)
+      }
+    }
+    return false
+  }
 
   new Vue({
     el: '#stripe-form',
@@ -109,8 +134,9 @@
 
         this.submitting = true
         const loading = window.layer?.load?.(2, {shade: [0.3, '#fff']})
+        let providerMayHaveCompleted = false
         try {
-          const intentResponse = await window.axios.post(intentUrl, {order_number: orderNumber}, {headers})
+          const intentResponse = await window.axios.post(intentUrl, {order_number: orderNumber}, {headers, timeout: 35000})
           const intentData = intentResponse.data?.data || {}
           if (intentResponse.data?.status !== 'success' || !intentData.client_secret) {
             if (!intentData.already_succeeded) {
@@ -119,6 +145,7 @@
           }
 
           let paymentIntentId = intentData.payment_intent_id
+          providerMayHaveCompleted = Boolean(intentData.already_succeeded)
           if (!intentData.already_succeeded) {
             const confirmation = await stripe.confirmCardPayment(intentData.client_secret, {
               payment_method: {card: cardNumberElement, billing_details: {name: this.cardholderName}}
@@ -127,13 +154,14 @@
             if (confirmation.paymentIntent?.status !== 'succeeded') {
               throw new Error(@json(__('Stripe::common.capture_fail')))
             }
+            providerMayHaveCompleted = true
             paymentIntentId = confirmation.paymentIntent.id
           }
 
           const captureResponse = await window.axios.post(captureUrl, {
             order_number: orderNumber,
             payment_intent_id: paymentIntentId,
-          }, {headers})
+          }, {headers, timeout: 35000})
           if (captureResponse.data?.status !== 'success') {
             throw new Error(captureResponse.data?.message || @json(__('Stripe::common.capture_fail')))
           }
@@ -142,6 +170,7 @@
           if (!redirectUrl) throw new Error(@json(__('Stripe::common.capture_fail')))
           window.location.assign(redirectUrl)
         } catch (error) {
+          if (providerMayHaveCompleted && await recoverCompletion()) return
           window.layer?.msg?.(error.response?.data?.message || error.message || @json(__('Stripe::common.capture_fail')))
         } finally {
           this.submitting = false

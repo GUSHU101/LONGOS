@@ -11,6 +11,8 @@ use Beike\Models\OrderProduct;
 use Beike\Models\Product;
 use Beike\Models\ProductSku;
 use Beike\Services\StateMachineService;
+use Beike\Shop\Http\Controllers\OrderController;
+use Beike\Shop\Services\CartService;
 use Beike\Shop\Services\OrderCartRestoreService;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Http\Request;
@@ -127,6 +129,58 @@ class OrderCartRestoreFlowTest extends TestCase
         self::assertSame(3, (int) $sku->fresh()->quantity);
         self::assertFalse(CartProduct::query()->exists());
         self::assertSame(PlatformPaymentSession::STATUS_PROCESSING, $paymentSession->fresh()->status);
+    }
+
+    public function test_readding_an_unselected_cart_line_selects_it_and_increments_once(): void
+    {
+        [, $sku]  = $this->orderWithReservedProduct();
+        $line     = CartProduct::query()->create([
+            'customer_id' => 0,
+            'session_id'  => get_session_id(),
+            'product_id'  => $sku->product_id,
+            'product_sku' => $sku->sku,
+            'quantity'    => 1,
+            'selected'    => false,
+        ]);
+
+        $updated = CartService::add($sku, 1);
+
+        self::assertSame($line->id, $updated->id);
+        self::assertSame(2, (int) $updated->fresh()->quantity);
+        self::assertTrue((bool) $updated->fresh()->selected);
+        self::assertSame(1, CartProduct::query()->where('product_sku', $sku->sku)->count());
+    }
+
+    public function test_guest_can_reconcile_a_delayed_payment_without_exposing_order_details(): void
+    {
+        [$order] = $this->orderWithReservedProduct();
+        session()->put('guest_order_numbers', [(string) $order->number]);
+
+        $unpaid = app(OrderController::class)->status(request(), $order->number);
+        self::assertSame('no-store, private', $unpaid->headers->get('Cache-Control'));
+        self::assertSame([
+            'state'             => StateMachineService::UNPAID,
+            'payment_confirmed' => false,
+            'final'             => false,
+        ], $unpaid->getData(true)['data']);
+
+        $order->forceFill(['status' => StateMachineService::PAID])->saveOrFail();
+        $paid = app(OrderController::class)->status(request(), $order->number);
+        self::assertSame([
+            'state'             => StateMachineService::PAID,
+            'payment_confirmed' => true,
+            'final'             => true,
+        ], $paid->getData(true)['data']);
+    }
+
+    public function test_interrupted_payment_result_view_compiles_the_reconciliation_flow(): void
+    {
+        $source   = (string) file_get_contents(dirname(__DIR__, 2) . '/themes/default/checkout/success.blade.php');
+        $compiled = app('blade.compiler')->compileString($source);
+
+        self::assertStringContainsString('id="payment-recovery-status"', $compiled);
+        self::assertStringContainsString('reconcilePayment', $compiled);
+        self::assertStringContainsString('checkPaymentStatus', $compiled);
     }
 
     /** @return array{Order, ProductSku} */

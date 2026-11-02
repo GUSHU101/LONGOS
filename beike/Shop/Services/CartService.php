@@ -108,11 +108,17 @@ class CartService
             ->first();
 
         if ($cart) {
-            if ($cart->quantity + $quantity > $cart->sku->quantity) {
+            $targetQuantity = (int) $cart->quantity + $quantity;
+            if ($targetQuantity > $skuQuantity) {
                 throw new Exception(trans('cart.stock_out'));
             }
-            $cart->selected = true;
-            $cart->increment('quantity', $quantity);
+            // Persist both fields in one write. Eloquent's increment() writes
+            // directly to the database and would otherwise leave a previously
+            // unselected line unselected after the customer adds it again.
+            $cart->update([
+                'quantity' => $targetQuantity,
+                'selected' => true,
+            ]);
         } else {
             if (count(self::list($customer)) >= 500) {
                 throw new Exception(trans('cart.cart_quantity_max_500'));

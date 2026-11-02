@@ -1,4 +1,4 @@
-@if ($order)
+@if ($order && in_array((string) $order->status, \Beike\Services\StateMachineService::getValidStatuses(), true))
 @php
   $order->loadMissing('orderProducts');
   $trackingContents = $order->orderProducts->map(fn ($product) => [

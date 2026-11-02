@@ -18,9 +18,11 @@ use Beike\Repositories\DiscountRepo;
 use Beike\Repositories\SettingRepo;
 use Beike\Shop\Services\CartService;
 use Exception;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -393,14 +395,30 @@ class AbandonedOrderRecoveryService
      */
     public function restoreToCart(AbandonedOrderRecovery $recovery): array
     {
-        return DB::transaction(function () use ($recovery): array {
-            $lockedRecovery = AbandonedOrderRecovery::query()->lockForUpdate()->findOrFail($recovery->id);
-            $order          = Order::query()->lockForUpdate()->find($lockedRecovery->order_id);
-            $order?->load(['orderProducts.productSku.product']);
-            $lockedRecovery->setRelation('order', $order);
+        $lock     = Cache::lock(CartService::mutationLockKey(current_customer()), 60);
+        $acquired = false;
 
-            return $this->restoreLocked($lockedRecovery);
-        }, 3);
+        try {
+            $lock->block(10);
+            $acquired = true;
+
+            return DB::transaction(function () use ($recovery): array {
+                $lockedRecovery = AbandonedOrderRecovery::query()->lockForUpdate()->findOrFail($recovery->id);
+                $order          = Order::query()->lockForUpdate()->find($lockedRecovery->order_id);
+                $order?->load(['orderProducts.productSku.product']);
+                $lockedRecovery->setRelation('order', $order);
+
+                return $this->restoreLocked($lockedRecovery);
+            }, 3);
+        } catch (LockTimeoutException) {
+            throw ValidationException::withMessages([
+                'recovery' => [trans('shop/carts.request_in_progress')],
+            ]);
+        } finally {
+            if ($acquired) {
+                $lock->release();
+            }
+        }
     }
 
     /** @return array{restored: int, unavailable: int, discount_applied: bool} */

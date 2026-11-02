@@ -62,17 +62,22 @@ export default {
     if ($btn.length) $btn.html(loadHtml).prop('disabled', true).attr('aria-busy', 'true');
     $(document).find('.tooltip').remove();
 
+    const idempotencyKey = this.cartRequestKey(requestIdentity);
     const postData = {
       sku_id,
       quantity,
       buy_now: isBuyNow,
       ...extraParams,
-      idempotency_key: window.crypto?.randomUUID?.()
-        || `cart-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`
+      idempotency_key: idempotencyKey
     };
 
     const cartsStoreUrl = window.longosStorefrontRoutes?.cartsStore || 'carts';
     const operation = $http.post(cartsStoreUrl, postData, {hload: !!event}).then((res) => {
+      // A completed response proves the browser received the mutation
+      // receipt. Only now may a later intentional click use a new key. When
+      // the network fails, keep the key so retrying cannot increase quantity
+      // twice after an ambiguous server-side success.
+      this.clearCartRequestKey(requestIdentity, idempotencyKey);
       window.dispatchEvent(new CustomEvent('longos:cart-added', {
         detail: {
           sku_id,
@@ -99,6 +104,57 @@ export default {
 
     this.pendingCartAdds.set(requestIdentity, operation);
     return operation;
+  },
+
+  cartRequestKey(requestIdentity) {
+    const storageKey = `longos:cart-add:${String(requestIdentity || '')}`;
+    const now = Date.now();
+    const ttl = 15 * 60 * 1000;
+
+    try {
+      const saved = JSON.parse(window.localStorage?.getItem(storageKey) || 'null');
+      if (saved
+        && typeof saved.key === 'string'
+        && saved.key.length >= 8
+        && Number.isFinite(Number(saved.createdAt))
+        && now - Number(saved.createdAt) >= 0
+        && now - Number(saved.createdAt) < ttl) {
+        return saved.key;
+      }
+      window.localStorage?.removeItem(storageKey);
+    } catch (error) {
+      // Browsers may disable storage in strict privacy modes. The in-memory
+      // fallback still protects repeated clicks within the current page.
+    }
+
+    this.cartRequestKeys = this.cartRequestKeys || new Map();
+    const cached = this.cartRequestKeys.get(storageKey);
+    if (cached && now - cached.createdAt < ttl) return cached.key;
+
+    const key = window.crypto?.randomUUID?.()
+      || `cart-${now.toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+    const receipt = {key, createdAt: now};
+    this.cartRequestKeys.set(storageKey, receipt);
+    try {
+      // localStorage coordinates reloads and separate tabs on this storefront;
+      // browser origins keep different tenant domains isolated.
+      window.localStorage?.setItem(storageKey, JSON.stringify(receipt));
+    } catch (error) {}
+
+    return key;
+  },
+
+  clearCartRequestKey(requestIdentity, idempotencyKey) {
+    const storageKey = `longos:cart-add:${String(requestIdentity || '')}`;
+    this.cartRequestKeys = this.cartRequestKeys || new Map();
+    if (this.cartRequestKeys.get(storageKey)?.key === idempotencyKey) {
+      this.cartRequestKeys.delete(storageKey);
+    }
+
+    try {
+      const saved = JSON.parse(window.localStorage?.getItem(storageKey) || 'null');
+      if (!saved || saved.key === idempotencyKey) window.localStorage?.removeItem(storageKey);
+    } catch (error) {}
   },
 
   addWishlist(id, event) {
