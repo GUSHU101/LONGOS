@@ -66,7 +66,6 @@ RUN set -eux; \
 # PECL in its own cached layer makes both failures and retries unambiguous.
 RUN --mount=type=cache,target=/tmp/pear/cache,sharing=locked \
     set -eux; \
-    pecl config-set cache_dir /tmp/pear/cache; \
     pecl_work_dir="$(mktemp -d)"; \
     pecl_package="${pecl_work_dir}/imagick-3.7.0.tgz"; \
     pecl_attempt=1; \
