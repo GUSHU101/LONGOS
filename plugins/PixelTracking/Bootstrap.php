@@ -29,7 +29,9 @@ class Bootstrap
                 return $output;
             }
 
-            return $output . view('PixelTracking::shop.tracker')->render();
+            $context = (array) ($data['data'] ?? []);
+
+            return $output . view('PixelTracking::shop.tracker', compact('context'))->render();
         });
 
         add_hook_blade('product.detail.name', function ($callback, $output, $data) {

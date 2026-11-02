@@ -21,6 +21,11 @@ export default {
         } else {
           $('.cart-badge-quantity').show().html(res.data.quantity_all > 99 ? '99+' : res.data.quantity_all);
         }
+        const notices = Array.isArray(res.data.notices) ? res.data.notices.filter(Boolean) : [];
+        if (notices.length) {
+          notices.forEach((notice) => layer.msg(notice));
+          this.announce(notices.join(' '));
+        }
       })
     })
   },
@@ -35,7 +40,7 @@ export default {
   addCart(params = {}, event, callback) {
     if (!config.isLogin && !config.guestCheckout) {
       this.openLogin()
-      return;
+      return Promise.resolve(null);
     }
 
     const {
@@ -45,21 +50,29 @@ export default {
       ...extraParams
     } = params;
 
-    const $btn = $(event);
-    const btnHtml = $btn.html();
+    const requestIdentity = `${sku_id}:${Number(quantity) || 1}:${isBuyNow ? 'buy' : 'cart'}`;
+    this.pendingCartAdds = this.pendingCartAdds || new Map();
+    if (this.pendingCartAdds.has(requestIdentity)) {
+      return this.pendingCartAdds.get(requestIdentity);
+    }
+
+    const $btn = event ? $(event) : $();
+    const btnHtml = $btn.length ? $btn.html() : '';
     const loadHtml = '<span class="spinner-border spinner-border-sm"></span>';
-    $btn.html(loadHtml).prop('disabled', true).attr('aria-busy', 'true');
+    if ($btn.length) $btn.html(loadHtml).prop('disabled', true).attr('aria-busy', 'true');
     $(document).find('.tooltip').remove();
 
     const postData = {
       sku_id,
       quantity,
       buy_now: isBuyNow,
-      ...extraParams
+      ...extraParams,
+      idempotency_key: window.crypto?.randomUUID?.()
+        || `cart-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`
     };
 
     const cartsStoreUrl = window.longosStorefrontRoutes?.cartsStore || 'carts';
-    $http.post(cartsStoreUrl, postData, {hload: !!event}).then((res) => {
+    const operation = $http.post(cartsStoreUrl, postData, {hload: !!event}).then((res) => {
       window.dispatchEvent(new CustomEvent('longos:cart-added', {
         detail: {
           sku_id,
@@ -79,7 +92,13 @@ export default {
       }
     }).catch((error) => {
       this.announce(error?.response?.data?.message || error?.message || '')
-    }).finally(() => {$btn.html(btnHtml).prop('disabled', false).removeAttr('aria-busy')})
+    }).finally(() => {
+      this.pendingCartAdds.delete(requestIdentity);
+      if ($btn.length) $btn.html(btnHtml).prop('disabled', false).removeAttr('aria-busy');
+    })
+
+    this.pendingCartAdds.set(requestIdentity, operation);
+    return operation;
   },
 
   addWishlist(id, event) {

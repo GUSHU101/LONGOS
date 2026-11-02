@@ -65,7 +65,7 @@ class PaymentService
         ]);
         $startResponse = is_array($start) ? ($start['response'] ?? null) : null;
         if ($startResponse instanceof Response) {
-            DashboardEvent::recordPaymentInformationAdded(current_customer());
+            DashboardEvent::recordPaymentInformationAdded(current_customer(), $this->order);
 
             return $startResponse;
         }
@@ -95,7 +95,7 @@ class PaymentService
         // Reaching a provider's payment form is the platform-neutral point at
         // which payment information can be added.  The event contains no
         // payment data and failures are isolated inside DashboardEvent.
-        DashboardEvent::recordPaymentInformationAdded(current_customer());
+        DashboardEvent::recordPaymentInformationAdded(current_customer(), $this->order);
 
         return view('checkout.payment', ['order' => $this->order, 'payment' => $paymentView]);
     }

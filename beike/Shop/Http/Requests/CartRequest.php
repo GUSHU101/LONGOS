@@ -44,15 +44,17 @@ class CartRequest extends FormRequest
                     $fail(trans('cart.stock_out'));
                 }
             }],
-            'buy_now'  => 'bool',
+            'buy_now'         => 'bool',
+            'idempotency_key' => ['nullable', 'string', 'max:128', 'regex:/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/'],
         ];
     }
 
     public function attributes()
     {
         return [
-            'sku_id'   => trans('cart.sku_id'),
-            'quantity' => trans('cart.quantity'),
+            'sku_id'          => trans('cart.sku_id'),
+            'quantity'        => trans('cart.quantity'),
+            'idempotency_key' => trans('shop/carts.request_identifier'),
         ];
     }
 }

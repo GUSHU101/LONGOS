@@ -22,6 +22,9 @@ class CartService
     /** @var array<string, array> */
     private static array $cartLists = [];
 
+    /** @var array<string, array{removed:int, adjusted:int}> */
+    private static array $cartAdjustments = [];
+
     /**
      * 获取购物车商品列表
      *
@@ -45,13 +48,14 @@ class CartService
         }
         $cartItems = $cartBuilder->get();
 
-        $cartItems = $cartItems->filter(function ($item) {
+        $cartItems = $cartItems->filter(function ($item) use ($identity) {
             $sku         = $item->sku;
             $product     = $item->product;
             $description = $sku?->product?->description;
             $skuQuantity = (int) ($sku?->quantity ?? 0);
             if (empty($description) || empty($product) || ! $product->active || ! $sku?->active || $skuQuantity < 1) {
                 $item->delete();
+                self::recordAdjustment($identity, 'removed');
 
                 return false;
             }
@@ -60,6 +64,7 @@ class CartService
             if ($cartQuantity > $skuQuantity) {
                 $item->quantity = $skuQuantity;
                 $item->save();
+                self::recordAdjustment($identity, 'adjusted');
             }
             $item->shipping = $product->shipping;
 
@@ -109,7 +114,7 @@ class CartService
             $cart->selected = true;
             $cart->increment('quantity', $quantity);
         } else {
-            if (count(self::list(current_customer())) >= 500) {
+            if (count(self::list($customer)) >= 500) {
                 throw new Exception(trans('cart.cart_quantity_max_500'));
             }
             $cart = CartProduct::query()->create([
@@ -251,6 +256,7 @@ class CartService
             'quantity_all'  => $quantityAll,
             'amount'        => $amount,
             'amount_format' => currency_format($amount),
+            'notices'       => self::consumeAdjustments($customer),
         ];
 
         return hook_filter('service.cart.data', $data);
@@ -277,6 +283,44 @@ class CartService
     public static function resetRuntimeCache(): void
     {
         self::$cartLists = [];
+    }
+
+    /**
+     * One stable lock namespace for every write from cart through checkout.
+     * It remains stable when confirmation deletes the old checkout cart row.
+     */
+    public static function mutationLockKey($customer = null): string
+    {
+        $identity = isset($customer->id) && (int) $customer->id > 0
+            ? 'customer:' . (int) $customer->id
+            : 'session:' . get_session_id();
+
+        return 'checkout:cart:' . hash('sha256', $identity);
+    }
+
+    private static function recordAdjustment(string $identity, string $type): void
+    {
+        self::$cartAdjustments[$identity] ??= ['removed' => 0, 'adjusted' => 0];
+        self::$cartAdjustments[$identity][$type]++;
+    }
+
+    private static function consumeAdjustments($customer): array
+    {
+        $identity = isset($customer->id) && (int) $customer->id > 0
+            ? 'customer:' . (int) $customer->id
+            : 'session:' . get_session_id();
+        $adjustments = self::$cartAdjustments[$identity] ?? ['removed' => 0, 'adjusted' => 0];
+        unset(self::$cartAdjustments[$identity]);
+
+        $notices = [];
+        if ($adjustments['removed'] > 0) {
+            $notices[] = trans('shop/carts.items_unavailable_removed', ['count' => $adjustments['removed']]);
+        }
+        if ($adjustments['adjusted'] > 0) {
+            $notices[] = trans('shop/carts.quantities_adjusted', ['count' => $adjustments['adjusted']]);
+        }
+
+        return $notices;
     }
 
     /**

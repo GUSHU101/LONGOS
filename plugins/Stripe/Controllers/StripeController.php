@@ -21,6 +21,8 @@ class StripeController extends Controller
     /** Create or recover the order's SCA-capable PaymentIntent. */
     public function intent(Request $request): JsonResponse
     {
+        $order = null;
+
         try {
             $data  = $request->validate(['order_number' => ['required', 'string', 'max:128']]);
             $order = $this->resolveStripeOrder($data['order_number']);
@@ -71,7 +73,7 @@ class StripeController extends Controller
                 ]);
             });
         } catch (\Throwable $exception) {
-            return $this->paymentError($exception, 'Stripe payment could not be initialized.');
+            return $this->paymentError($exception, 'Stripe payment could not be initialized.', $order, 'intent');
         }
     }
 
@@ -81,6 +83,8 @@ class StripeController extends Controller
      */
     public function capture(Request $request): JsonResponse
     {
+        $order = null;
+
         try {
             $data  = $request->validate([
                 'order_number'      => ['required', 'string', 'max:128'],
@@ -127,7 +131,7 @@ class StripeController extends Controller
                 ]);
             });
         } catch (\Throwable $exception) {
-            return $this->paymentError($exception, 'Payment could not be completed.');
+            return $this->paymentError($exception, 'Payment could not be completed.', $order, 'confirm');
         }
     }
 
@@ -278,10 +282,49 @@ class StripeController extends Controller
         }
     }
 
-    private function paymentError(\Throwable $exception, string $message): JsonResponse
-    {
+    private function paymentError(
+        \Throwable $exception,
+        string $message,
+        ?object $order = null,
+        string $stage = 'payment',
+    ): JsonResponse {
+        $reference = $this->recordPaymentFailure($order, $stage, $exception);
         Log::warning($message, ['exception' => $exception::class]);
 
-        return json_fail($message);
+        return json_fail($message . ' (' . $reference . ')', ['reference' => $reference]);
+    }
+
+    private function recordPaymentFailure(?object $order, string $stage, \Throwable $exception): string
+    {
+        $reference = 'ST-' . strtoupper(substr(hash(
+            'sha256',
+            $exception::class . '|' . $exception->getMessage(),
+        ), 0, 12));
+
+        if (! $order || ! isset($order->id)) {
+            return $reference;
+        }
+
+        try {
+            // Keep the provider response and transaction binding intact;
+            // only the safe attempt summary changes on a failed retry.
+            OrderPaymentRepo::createOrUpdatePayment((int) $order->id, [
+                'request' => [
+                    'stage'        => $stage,
+                    'result'       => 'failed',
+                    'reference'    => $reference,
+                    'order_number' => (string) ($order->number ?? ''),
+                    'occurred_at'  => now()->toIso8601String(),
+                ],
+            ]);
+        } catch (\Throwable $auditException) {
+            Log::warning('Stripe failure audit could not be persisted.', [
+                'order_id'  => (int) $order->id,
+                'reference' => $reference,
+                'exception' => $auditException::class,
+            ]);
+        }
+
+        return $reference;
     }
 }

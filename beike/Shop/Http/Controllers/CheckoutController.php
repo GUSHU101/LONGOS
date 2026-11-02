@@ -15,6 +15,7 @@ namespace Beike\Shop\Http\Controllers;
 use App\Saas\Support\SensitiveValueRedactor;
 use App\Services\PlatformPayment\PlatformPaymentSessionService;
 use Beike\Exceptions\CartException;
+use Beike\Models\DashboardEvent;
 use Beike\Models\Order;
 use Beike\Repositories\OrderRepo;
 use Beike\Services\StateMachineService;
@@ -243,6 +244,11 @@ class CheckoutController extends Controller
      */
     private function confirmationResponse(Order $order): mixed
     {
+        // This is the common server-side point reached by redirect, inline
+        // card and platform providers. DashboardEvent de-duplicates retries
+        // and the later provider page without storing payment details.
+        DashboardEvent::recordPaymentInformationAdded(current_customer(), $order);
+
         $order->setAttribute('payment_recovery_url', order_checkout_result_url($order, 'error'));
         $order->setVisible(['number', 'payment_recovery_url']);
 

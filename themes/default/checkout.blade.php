@@ -303,6 +303,9 @@
   @if (session('success'))
     <div class="alert alert-success mx-auto mt-3 mb-0" style="max-width:1180px" role="status">{{ session('success') }}</div>
   @endif
+  @foreach (($carts['notices'] ?? []) as $notice)
+    <div class="alert alert-warning mx-auto mt-3 mb-0" style="max-width:1180px" role="status">{{ $notice }}</div>
+  @endforeach
   <div id="checkout-error-summary" class="checkout-error-summary" role="alert" aria-live="assertive" aria-atomic="true" tabindex="-1" hidden>
     <span class="checkout-error-summary__icon" aria-hidden="true">!</span>
     <div class="checkout-error-summary__content">
@@ -638,12 +641,7 @@
         const key = $(this).hasClass('delivery-option__selector') ? 'shipping_method_code' : 'payment_method_code';
         const value = $(this).data('value');
         const extra = key === 'shipping_method_code' ? {shipping_quote_data: collectShippingQuoteData(value)} : {};
-        updateCheckout(
-          key,
-          value,
-          key === 'payment_method_code' ? () => announcePaymentInformationAdded(value) : undefined,
-          extra,
-        );
+        updateCheckout(key, value, undefined, extra);
       });
 
       $(document).on('change', '#shipping-methods-wrap [data-shipping-quote-fields] input, #shipping-methods-wrap [data-shipping-quote-fields] select, #shipping-methods-wrap [data-shipping-quote-fields] textarea', function () {
@@ -786,7 +784,6 @@
         const code = $(this).data('express-payment');
         $button.prop('disabled', true).attr('aria-busy', 'true');
         updateCheckout('payment_method_code', code, () => {
-          announcePaymentInformationAdded(code);
           const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
           document.querySelector('#payment-methods-wrap')?.scrollIntoView({behavior: reducedMotion ? 'auto' : 'smooth', block: 'center'});
         }).finally(() => $button.prop('disabled', false).removeAttr('aria-busy'));

@@ -30,6 +30,9 @@ class StripeIntegrationHardeningTest extends TestCase
         self::assertStringContainsString('validateWebhookPayment(', $controller);
         self::assertStringContainsString('new StripeService($order, true)', $controller);
         self::assertStringNotContainsString('->setShipment()', $controller);
+        self::assertStringContainsString("'ST-'", $controller);
+        self::assertStringContainsString("'result'       => 'failed'", $controller);
+        self::assertStringContainsString("['reference' => \$reference]", $controller);
     }
 
     public function test_checkout_collects_card_details_before_order_submission_without_exposing_them_to_longos(): void

@@ -42,6 +42,11 @@ return [
     'cart_updated'             => '购物车已更新。',
     'cart_update_failed'       => '购物车更新失败，请重试。',
     'checkout_wait'            => '请等待购物车更新完成后再结账。',
+    'items_unavailable_removed' => '有 :count 件商品已下架或缺货，已从购物车移除。',
+    'quantities_adjusted'       => '有 :count 件商品的数量已按当前库存自动调整。',
+    'request_in_progress'       => '此加购请求仍在处理，请稍候。',
+    'request_conflict'          => '此请求标识已用于其他商品，请重试。',
+    'request_identifier'        => '购物车请求标识',
 
     'invalid_customer'         => '购物车客户无效',
     'empty_selected_products'  => '购物车选中商品为空',

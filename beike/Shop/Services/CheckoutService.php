@@ -752,7 +752,7 @@ class CheckoutService
 
     private function checkoutLockKey(): string
     {
-        return 'checkout:confirm:' . $this->cart->getKey();
+        return CartService::mutationLockKey($this->customer);
     }
 
     /**

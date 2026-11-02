@@ -163,7 +163,7 @@ class CheckoutPresentationTest extends TestCase
         $root    = dirname(__DIR__, 2);
         $service = (string) file_get_contents($root . '/beike/Shop/Services/CheckoutService.php');
 
-        self::assertStringContainsString("return 'checkout:confirm:' . \$this->cart->getKey()", $service);
+        self::assertStringContainsString('return CartService::mutationLockKey($this->customer)', $service);
         self::assertStringContainsString('Cache::lock($this->checkoutLockKey(), 60)', $service);
         self::assertStringContainsString('->lockForUpdate()', $service);
         self::assertStringContainsString('checkoutCartFingerprint', $service);

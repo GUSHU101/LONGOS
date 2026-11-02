@@ -55,6 +55,59 @@ class StorefrontPurchaseJourneyTest extends TestCase
         self::assertStringContainsString("window.matchMedia('(max-width: 767.98px)')", $common);
     }
 
+    public function test_add_to_cart_is_coalesced_idempotent_and_serialized_with_checkout(): void
+    {
+        $root       = dirname(__DIR__, 2);
+        $product    = (string) file_get_contents($root . '/themes/default/product/product.blade.php');
+        $common     = (string) file_get_contents($root . '/resources/beike/shop/default/js/common.js');
+        $request    = (string) file_get_contents($root . '/beike/Shop/Http/Requests/CartRequest.php');
+        $controller = (string) file_get_contents($root . '/beike/Shop/Http/Controllers/CartController.php');
+
+        self::assertStringContainsString('@click="addCart(false, $event.currentTarget)"', $product);
+        self::assertStringContainsString('@click="addCart(true, $event.currentTarget)"', $product);
+        self::assertStringContainsString('bk.addCart(params, button, () => {', $product);
+        self::assertStringContainsString('this.pendingCartAdds.has(requestIdentity)', $common);
+        self::assertStringContainsString('idempotency_key: window.crypto?.randomUUID?.()', $common);
+        self::assertStringContainsString("'idempotency_key'", $request);
+        self::assertStringContainsString("'cart:add:receipt:'", $controller);
+        self::assertStringContainsString("'fingerprint'", $controller);
+        self::assertStringContainsString('DB::transaction(', $controller);
+        self::assertStringContainsString('return CartService::mutationLockKey($customer);', $controller);
+        self::assertStringContainsString('return CartService::mutationLockKey($this->customer);', (string) file_get_contents($root . '/beike/Shop/Services/CheckoutService.php'));
+        self::assertStringContainsString('DashboardEvent::recordCartAdded', $controller);
+    }
+
+    public function test_stock_corrections_are_explained_in_cart_and_checkout(): void
+    {
+        $root     = dirname(__DIR__, 2);
+        $service  = (string) file_get_contents($root . '/beike/Shop/Services/CartService.php');
+        $cart     = (string) file_get_contents($root . '/themes/default/cart/cart.blade.php');
+        $checkout = (string) file_get_contents($root . '/themes/default/checkout.blade.php');
+
+        self::assertStringContainsString("self::recordAdjustment(\$identity, 'removed')", $service);
+        self::assertStringContainsString("self::recordAdjustment(\$identity, 'adjusted')", $service);
+        self::assertStringContainsString("'notices'", $service);
+        self::assertStringContainsString('($notices ?? []) as $notice', $cart);
+        self::assertStringContainsString("(\$carts['notices'] ?? []) as \$notice", $checkout);
+    }
+
+    public function test_payment_information_signal_is_emitted_only_after_checkout_validation_and_deduplicated(): void
+    {
+        $root       = dirname(__DIR__, 2);
+        $checkout   = (string) file_get_contents($root . '/themes/default/checkout.blade.php');
+        $events     = (string) file_get_contents($root . '/beike/Models/DashboardEvent.php');
+        $payment    = (string) file_get_contents($root . '/beike/Shop/Services/PaymentService.php');
+        $controller = (string) file_get_contents($root . '/beike/Shop/Http/Controllers/CheckoutController.php');
+
+        self::assertStringContainsString('const announcePaymentInformationAdded =', $checkout);
+        self::assertSame(1, substr_count($checkout, 'announcePaymentInformationAdded('));
+        self::assertStringNotContainsString("key === 'payment_method_code' ? () => announcePaymentInformationAdded", $checkout);
+        self::assertStringContainsString('announcePaymentInformationAdded(selectedPaymentCode)', $checkout);
+        self::assertStringContainsString('Cache::add($deduplicationKey', $events);
+        self::assertStringContainsString('DashboardEvent::recordPaymentInformationAdded(current_customer(), $order)', $controller);
+        self::assertSame(2, substr_count($payment, 'recordPaymentInformationAdded(current_customer(), $this->order)'));
+    }
+
     public function test_checkout_progress_and_payment_state_are_semantic_and_recoverable(): void
     {
         $root     = dirname(__DIR__, 2);

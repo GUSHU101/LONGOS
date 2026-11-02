@@ -42,6 +42,11 @@ return [
     'cart_updated'             => 'Your cart is up to date.',
     'cart_update_failed'       => 'Your cart could not be updated. Please try again.',
     'checkout_wait'            => 'Please wait until your cart finishes updating.',
+    'items_unavailable_removed' => ':count unavailable item(s) were removed from your cart.',
+    'quantities_adjusted'       => 'The quantity of :count item(s) was adjusted to current stock.',
+    'request_in_progress'       => 'This cart request is still processing. Please wait a moment.',
+    'request_conflict'          => 'This cart request was already used for different products. Please try again.',
+    'request_identifier'        => 'Cart request identifier',
 
     'invalid_customer'         => 'Invalid customer.',
     'empty_selected_products'  => 'Empty selected products.',

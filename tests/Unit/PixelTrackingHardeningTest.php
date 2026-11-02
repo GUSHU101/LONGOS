@@ -115,7 +115,8 @@ class PixelTrackingHardeningTest extends TestCase
         self::assertStringContainsString('tracking.content_id', $tracker);
         self::assertStringContainsString('itemPrice * quantity', $tracker);
         self::assertStringContainsString("config.serverTracking && name !== 'Purchase'", $tracker);
-        self::assertStringContainsString("emit('InitiateCheckout')", $tracker);
+        self::assertStringContainsString("TrackingEventId::make('checkout'", $tracker);
+        self::assertStringContainsString("emit('InitiateCheckout', checkoutEvent.properties", $tracker);
         self::assertStringContainsString("emit('AddPaymentInfo', properties, eventId)", $tracker);
         self::assertStringContainsString("window.addEventListener('longos:checkout-payment-information-added'", $tracker);
         self::assertStringContainsString("emit('Search'", $tracker);
@@ -178,6 +179,7 @@ class PixelTrackingHardeningTest extends TestCase
 
         $bootstrap = (string) file_get_contents($root . '/plugins/PixelTracking/Bootstrap.php');
         self::assertStringContainsString("add_hook_action('service.account.register.after'", $bootstrap);
+        self::assertStringContainsString("view('PixelTracking::shop.tracker', compact('context'))", $bootstrap);
         self::assertStringContainsString("add_hook_filter('repository.order.create.after'", $bootstrap);
         self::assertStringContainsString('rememberOrderContext($order, request())', $bootstrap);
         self::assertStringContainsString('PixelEventDispatcher::dispatch(', $bootstrap);

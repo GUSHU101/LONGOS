@@ -2,6 +2,7 @@
 
 namespace Beike\Models;
 
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
 
 class DashboardEvent extends Base
@@ -42,10 +43,22 @@ class DashboardEvent extends Base
      * The event deliberately stores no payment fields or card data.  It is
      * used only as a de-duplicated funnel signal in the administrator dashboard.
      */
-    public static function recordPaymentInformationAdded($customer = null): void
+    public static function recordPaymentInformationAdded($customer = null, $order = null): void
     {
+        $deduplicationKey = '';
+
         try {
             if (! Schema::hasTable('dashboard_events')) {
+                return;
+            }
+
+            $site  = current_site();
+            $scope = implode('|', [
+                (string) ($site?->uuid ?? $site?->id ?? config('app.url', 'longos')),
+                (string) ($order?->id ?? $order?->number ?? get_session_id()),
+            ]);
+            $deduplicationKey = 'dashboard:event:payment-information-added:' . hash('sha256', $scope);
+            if (! Cache::add($deduplicationKey, true, now()->addDays(7))) {
                 return;
             }
 
@@ -57,6 +70,9 @@ class DashboardEvent extends Base
                 'ip'          => request()->ip(),
             ]);
         } catch (\Throwable) {
+            if ($deduplicationKey !== '') {
+                Cache::forget($deduplicationKey);
+            }
             // Analytics must never interrupt a checkout or payment attempt.
         }
     }

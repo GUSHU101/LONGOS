@@ -20,6 +20,9 @@
     @if (session('success'))
       <x-shop-alert type="success" msg="{{ session('success') }}" class="mt-4" />
     @endif
+    @foreach (($notices ?? []) as $notice)
+      <x-shop-alert type="warning" msg="{{ $notice }}" class="mt-4" />
+    @endforeach
 
     <div class="cart-progress" aria-label="{{ __('shop/carts.checkout_progress') }}">
       @include('shared.steps', ['steps' => 1])

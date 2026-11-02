@@ -302,7 +302,7 @@
                 :product-id="product.id"
                 :product-price="product.price"
                 :disabled="!product.quantity || product.active != 1"
-                @click="addCart(false, this)"
+                @click="addCart(false, $event.currentTarget)"
               >
                 <span class="product-cta__label">{{ __('shop/products.add_to_cart') }}</span>
               </button>
@@ -314,7 +314,7 @@
                 :disabled="!product.quantity || product.active != 1"
                 :product-id="product.id"
                 :product-price="product.price"
-                @click="addCart(true, this)"
+                @click="addCart(true, $event.currentTarget)"
               >
                 <span class="product-cta__label">{{ __('shop/products.buy_now') }}</span>
               </button>
@@ -951,7 +951,7 @@
           closeVideo()
         },
 
-        addCart(isBuyNow = false) {
+        addCart(isBuyNow = false, button = null) {
           //判断如果是多规格 并且没有选择组合
           const realLength = this.selectedVariantsIndex.filter(v => v !== undefined).length;
 
@@ -985,7 +985,7 @@
             }
           }
 
-          bk.addCart(params, null, () => {
+          bk.addCart(params, button, () => {
             const path = @json(shop_route('checkout.index'));
 
             if (isIframe) {

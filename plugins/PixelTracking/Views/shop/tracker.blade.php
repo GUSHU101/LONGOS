@@ -8,6 +8,38 @@
   }
   $hasServerProfiles = collect([...$metaPixels, ...$tikTokPixels, ...$snapchatPixels])
     ->contains(static fn ($pixel) => !empty($pixel['access_token']));
+  $checkoutItems = collect(data_get($context ?? [], 'carts.carts', []));
+  $checkoutTotals = collect(data_get($context ?? [], 'totals', []));
+  $checkoutTotal = (array) ($checkoutTotals->last() ?? []);
+  $checkoutContents = $checkoutItems->map(static function ($item) {
+    $id = (string) ($item['product_id'] ?? $item['sku_id'] ?? '');
+    if ($id === '') return null;
+
+    return [
+      'id' => $id,
+      'quantity' => max(1, (int) ($item['quantity'] ?? 1)),
+      'item_price' => max(0, (float) ($item['price_converted'] ?? 0)),
+    ];
+  })->filter()->values()->all();
+  $checkoutCurrency = strtoupper((string) ($checkoutTotal['currency_code'] ?? current_currency_code()));
+  $checkoutScope = $checkoutItems->map(static fn ($item) => [
+    (string) ($item['cart_id'] ?? ''),
+    (string) ($item['product_id'] ?? $item['sku_id'] ?? ''),
+    max(1, (int) ($item['quantity'] ?? 1)),
+  ])->values()->all();
+  $checkoutEvent = $checkoutContents === [] ? null : [
+    'event_id' => \Plugin\PixelTracking\Services\TrackingEventId::make('checkout', hash('sha256', json_encode([
+      'cart' => $checkoutScope,
+      'currency' => $checkoutCurrency,
+    ], JSON_THROW_ON_ERROR))),
+    'properties' => [
+      'content_ids' => array_column($checkoutContents, 'id'),
+      'contents' => $checkoutContents,
+      'content_type' => 'product',
+      'value' => max(0, (float) ($checkoutTotal['amount_converted'] ?? 0)),
+      'currency' => $checkoutCurrency,
+    ],
+  ];
   $publicConfig = [
     'endpoint' => shop_route('pixel_tracking.events.store'),
     'csrf' => csrf_token(),
@@ -16,6 +48,7 @@
     'consentCookie' => $consentCookie,
     'currency' => current_currency_code(),
     'checkoutPath' => parse_url(shop_route('checkout.index'), PHP_URL_PATH),
+    'checkoutEvent' => $checkoutEvent,
     'metaPixels' => array_values(array_filter(array_map(fn ($pixel) => $pixel['pixel_id'] ?? null, $metaPixels))),
     'tikTokPixels' => array_values(array_filter(array_map(fn ($pixel) => $pixel['pixel_code'] ?? null, $tikTokPixels))),
     'snapchatPixels' => array_values(array_filter(array_map(fn ($pixel) => $pixel['pixel_id'] ?? null, $snapchatPixels))),
@@ -172,7 +205,10 @@
       loadSnapchat();
       bindCommerceEvents();
       emit('PageView');
-      if (window.location.pathname.replace(/\/$/, '') === String(config.checkoutPath || '').replace(/\/$/, '')) emit('InitiateCheckout');
+      if (window.location.pathname.replace(/\/$/, '') === String(config.checkoutPath || '').replace(/\/$/, '')) {
+        const checkoutEvent = config.checkoutEvent || {};
+        emit('InitiateCheckout', checkoutEvent.properties || {}, checkoutEvent.event_id || createEventId());
+      }
       const searchTerm = new URLSearchParams(window.location.search).get('keyword');
       if (searchTerm) emit('Search', {search_string: searchTerm.slice(0, 191)});
       pendingEvents.splice(0).forEach(([name, properties, eventId]) => emit(name, properties, eventId));
