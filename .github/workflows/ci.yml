@@ -157,18 +157,20 @@ jobs:
         run: |
           docker compose config --quiet
           docker compose config --format json > /tmp/longos-compose.json
+          docker compose --profile self-hosted-mail config --quiet
+          docker compose --profile self-hosted-mail config --format json > /tmp/longos-compose-profiled.json
           jq -e '.services.app.environment.ADMIN_EMAIL == "ops@example.test"' /tmp/longos-compose.json
           jq -e '.services.app.environment.MAIL_FROM_ADDRESS == "no-reply@shops.example.test"' /tmp/longos-compose.json
           jq -e '.services.app.environment.MAIL_RELAY_PLATFORM_SENDER_DOMAIN == "shops.example.test"' /tmp/longos-compose.json
           jq -e '.services.app.environment.MAIL_RELAY_DNS_RECORDS_PATH == "/var/lib/longos-mail-dns"' /tmp/longos-compose.json
           jq -e '.services.app.volumes[] | select(.target == "/var/lib/longos-mail-dns" and .read_only == true)' /tmp/longos-compose.json
-          jq -e '.services["mail-relay"].volumes[] | select(.target == "/var/lib/mail-relay-dns" and .read_only != true)' /tmp/longos-compose.json
+          jq -e '.services["mail-relay"].volumes[] | select(.target == "/var/lib/mail-relay-dns" and .read_only != true)' /tmp/longos-compose-profiled.json
           jq -e '[.services.app.volumes[] | select(.target == "/var/lib/dkim")] | length == 0' /tmp/longos-compose.json
           # Coolify removes its temporary Git artifact before Raw Compose
           # startup. Nested build contexts can otherwise be re-evaluated from
           # /data/coolify/applications/<uuid> and fail after old containers
           # were already stopped. Every repository build must use root.
-          docker compose config --no-path-resolution --format json > /tmp/longos-compose-paths.json
+          docker compose --profile self-hosted-mail config --no-path-resolution --format json > /tmp/longos-compose-paths.json
           jq -e '[.services[] | select(.build != null) | .build.context] | length > 0 and all(. == ".")' \
             /tmp/longos-compose-paths.json
           jq -e '.services["mail-relay"].build.dockerfile == "docker/mail-relay/Dockerfile"' \
