@@ -11,6 +11,46 @@ final class ProviderAccountService
 {
     public const PROVIDERS = ['aliyun', 'volcengine', 'baidu'];
 
+    /**
+     * The API credential contract is provider-specific. Keep this metadata
+     * beside the validation contract so the admin form can never describe one
+     * provider while submitting keys intended for another.
+     *
+     * @return array<string, array{label:string,credential_fields:list<array{key:string,label:string,placeholder:string,help:string}>,account_help:string,quota_help:string}>
+     */
+    public static function profiles(): array
+    {
+        return [
+            'aliyun' => [
+                'label'             => '阿里云机器翻译',
+                'credential_fields' => [
+                    ['key' => 'access_key_id', 'label' => 'AccessKey ID', 'placeholder' => 'LTAI…', 'help' => '使用 RAM 用户的 AccessKey ID，不要使用主账号密钥。'],
+                    ['key' => 'access_key_secret', 'label' => 'AccessKey Secret', 'placeholder' => '输入 AccessKey Secret', 'help' => '仅在保存时提交，并立即加密。'],
+                ],
+                'account_help' => '建议填写阿里云账号别名或 RAM 用户标识，便于区分额度。',
+                'quota_help'   => '填写本计费周期可安全使用的免费字符额度；V1 不会产生超额付费。',
+            ],
+            'volcengine' => [
+                'label'             => '火山引擎机器翻译',
+                'credential_fields' => [
+                    ['key' => 'access_key_id', 'label' => 'Access Key（AK）', 'placeholder' => 'AKLT…', 'help' => '填写火山引擎访问控制（IAM）的 Access Key。'],
+                    ['key' => 'secret_access_key', 'label' => 'Secret Key（SK）', 'placeholder' => '输入 Secret Key', 'help' => '填写与上述 AK 配对的 Secret Key。'],
+                ],
+                'account_help' => '建议填写火山引擎账号别名或 IAM 用户标识，便于区分额度。',
+                'quota_help'   => '填写本计费周期可安全使用的免费字符额度；V1 不会产生超额付费。',
+            ],
+            'baidu' => [
+                'label'             => '百度翻译开放平台',
+                'credential_fields' => [
+                    ['key' => 'appid', 'label' => 'APP ID', 'placeholder' => '输入百度翻译 APP ID', 'help' => '在百度翻译开放平台的应用详情中获取。'],
+                    ['key' => 'secret', 'label' => '密钥', 'placeholder' => '输入应用密钥', 'help' => '填写与 APP ID 配对的应用密钥。'],
+                ],
+                'account_help' => '建议填写百度翻译应用名称或账户标识，便于区分额度。',
+                'quota_help'   => '填写本计费周期可安全使用的免费字符额度；V1 不会产生超额付费。',
+            ],
+        ];
+    }
+
     /** @param array<string, string> $credentials */
     public function save(array $input, array $credentials, ?int $actorId): array
     {
@@ -145,11 +185,11 @@ final class ProviderAccountService
     /** @param array<string, string> $credentials */
     private function validateCredentialShape(string $provider, array $credentials): void
     {
-        $required = match ($provider) {
-            'aliyun'     => ['access_key_id', 'access_key_secret'],
-            'volcengine' => ['access_key_id', 'secret_access_key'],
-            'baidu'      => ['appid', 'secret'],
-        };
+        $profile = self::profiles()[$provider] ?? null;
+        if ($profile === null) {
+            throw new InvalidArgumentException('UNKNOWN_PROVIDER');
+        }
+        $required = array_column($profile['credential_fields'], 'key');
         foreach ($required as $key) {
             if (! isset($credentials[$key]) || trim($credentials[$key]) === '' || mb_strlen($credentials[$key]) > 1024) {
                 throw new InvalidArgumentException('INVALID_PROVIDER_CREDENTIALS');

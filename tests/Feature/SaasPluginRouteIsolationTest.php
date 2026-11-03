@@ -132,6 +132,13 @@ class SaasPluginRouteIsolationTest extends TestCase
             self::assertSame(['GET', 'HEAD'], $route->methods());
         }
 
+        $recommendations = Route::getRoutes()->getByName(admin_name() . '.longos_global_translate.country-rules.recommendations.apply');
+        self::assertNotNull($recommendations);
+        self::assertSame(['PUT'], $recommendations->methods());
+        self::assertContains('admin', $recommendations->gatherMiddleware());
+        self::assertContains('plugin.enabled:longos_global_translate', $recommendations->gatherMiddleware());
+        self::assertContains('can:plugins_index', $recommendations->gatherMiddleware());
+
         // Reproduce an interrupted historical release: its sentinel settings
         // table exists, while a dashboard table does not. The plugin must
         // return a controlled recovery response instead of querying the
@@ -213,6 +220,21 @@ class SaasPluginRouteIsolationTest extends TestCase
             $migration->up();
         }
 
+        Schema::create('countries', function (Blueprint $table): void {
+            $table->id();
+            $table->string('name', 64);
+            $table->string('code', 16);
+            $table->integer('sort_order')->default(0);
+            $table->boolean('active')->default(true);
+            $table->timestamps();
+        });
+        DB::table('countries')->insert([
+            ['name' => 'France', 'code' => 'FR', 'sort_order' => 1, 'active' => true, 'created_at' => now(), 'updated_at' => now()],
+            ['name' => 'Germany', 'code' => 'DE', 'sort_order' => 2, 'active' => true, 'created_at' => now(), 'updated_at' => now()],
+            ['name' => 'United States', 'code' => 'US', 'sort_order' => 3, 'active' => true, 'created_at' => now(), 'updated_at' => now()],
+            ['name' => 'Japan', 'code' => 'JP', 'sort_order' => 4, 'active' => false, 'created_at' => now(), 'updated_at' => now()],
+        ]);
+
         // Isolate the plugin view from the full authenticated admin shell.
         // The shell is independently exercised by its own feature suite; this
         // verifies that this plugin's data contract and Blade view can render
@@ -230,12 +252,33 @@ class SaasPluginRouteIsolationTest extends TestCase
         self::assertStringContainsString('id="lgt-settings-form"', $response->getContent());
         self::assertStringContainsString('展示模式', $response->getContent());
         self::assertStringContainsString('翻译库', $response->getContent());
-        self::assertStringContainsString('访问密钥 / App ID', $response->getContent());
+        self::assertStringNotContainsString('访问密钥 / App ID', $response->getContent());
         self::assertStringContainsString('前台语言选择器', $response->getContent());
         self::assertStringContainsString('不可变发布版本', $response->getContent());
         self::assertStringContainsString('人工修订', $response->getContent());
+        self::assertStringContainsString('阿里云机器翻译', $response->getContent());
+        self::assertStringContainsString('secret_access_key', $response->getContent());
+        self::assertStringContainsString('APP ID', $response->getContent());
+        self::assertStringContainsString('按系统国家/地区快捷启用语言', $response->getContent());
+        self::assertStringContainsString('France', $response->getContent());
+        self::assertStringNotContainsString('Japan（JP）', $response->getContent());
         self::assertStringNotContainsString('Presentation mode', $response->getContent());
         self::assertStringNotContainsString('Safe repair pending', $response->getContent());
+
+        $controller      = app(\Plugin\LongosGlobalTranslate\Controllers\AdminTranslationController::class);
+        $countryResponse = $controller
+            ->applyCountryRecommendations(Request::create('/admin/global-translate/country-rules/recommendations', 'PUT', ['countries' => ['FR', 'DE']]));
+        $countryPayload = $countryResponse->getData(true);
+        self::assertSame(200, $countryResponse->getStatusCode());
+        self::assertSame(['fr', 'de'], $countryPayload['settings']['enabled_locales']);
+        self::assertCount(2, $countryPayload['rules']);
+
+        try {
+            $controller->applyCountryRecommendations(Request::create('/admin/global-translate/country-rules/recommendations', 'PUT', ['countries' => ['US']]));
+            self::fail('An enabled country without a supported recommendation must not create a rule.');
+        } catch (\Illuminate\Validation\ValidationException $exception) {
+            self::assertArrayHasKey('countries', $exception->errors());
+        }
     }
 
     public function test_shopify_transfer_routes_are_tenant_guarded_and_follow_product_permissions(): void

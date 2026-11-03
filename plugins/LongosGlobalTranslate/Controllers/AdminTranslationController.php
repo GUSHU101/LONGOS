@@ -3,10 +3,13 @@
 namespace Plugin\LongosGlobalTranslate\Controllers;
 
 use Beike\Admin\Http\Controllers\Controller;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Plugin\LongosGlobalTranslate\Services\ContentScanner;
+use Plugin\LongosGlobalTranslate\Services\CountryLocaleCatalog;
 use Plugin\LongosGlobalTranslate\Services\ProviderAccountService;
 use Plugin\LongosGlobalTranslate\Services\ProviderVerificationService;
 use Plugin\LongosGlobalTranslate\Services\PublicationService;
@@ -14,7 +17,6 @@ use Plugin\LongosGlobalTranslate\Services\TranslationJobService;
 use Plugin\LongosGlobalTranslate\Services\TranslationLibrary;
 use Plugin\LongosGlobalTranslate\Services\TranslationSchema;
 use Plugin\LongosGlobalTranslate\Services\TranslationSettings;
-use Illuminate\Http\Exceptions\HttpResponseException;
 use Throwable;
 
 final class AdminTranslationController extends Controller
@@ -27,6 +29,7 @@ final class AdminTranslationController extends Controller
         private readonly TranslationJobService $jobs,
         private readonly TranslationLibrary $library,
         private readonly PublicationService $publications,
+        private readonly CountryLocaleCatalog $countries,
     ) {}
 
     public function index()
@@ -50,13 +53,13 @@ final class AdminTranslationController extends Controller
         $schema = TranslationSchema::inspect();
         if (! $schema['ready']) {
             return $this->json([
-                'ready'             => false,
-                'schema'            => $schema,
-                'mode'              => TranslationSettings::MODE_PREVIEW,
-                'dispatch_enabled'  => false,
-                'paid_cap'          => 0,
-                'provider_calls'    => 'schema_repair_required',
-                'tenant_resolved'   => current_site() !== null,
+                'ready'                 => false,
+                'schema'                => $schema,
+                'mode'                  => TranslationSettings::MODE_PREVIEW,
+                'dispatch_enabled'      => false,
+                'paid_cap'              => 0,
+                'provider_calls'        => 'schema_repair_required',
+                'tenant_resolved'       => current_site() !== null,
                 'core_locale_unchanged' => true,
             ], 503);
         }
@@ -98,7 +101,9 @@ final class AdminTranslationController extends Controller
         $locale   = TranslationSettings::locale((string) $data['locale']);
         $settings = $this->settings->all();
         if (! in_array($locale, array_merge([(string) $settings['source_locale']], (array) $settings['enabled_locales']), true)) {
-            abort(422, 'Country-rule locale must be an enabled presentation language.');
+            throw ValidationException::withMessages([
+                'locale' => '国家/地区默认语言必须先在“展示语言设置”中启用。',
+            ]);
         }
         $before = DB::table('lgt_country_rules')->where('country', $country)->first();
         DB::table('lgt_country_rules')->updateOrInsert(
@@ -109,6 +114,64 @@ final class AdminTranslationController extends Controller
         $this->audit('country_rule_saved', 'country_rule', (int) $rule->id, (array) $before, ['country' => $country, 'locale' => $locale, 'enabled' => (bool) $data['enabled']]);
 
         return $this->json(['rule' => $rule]);
+    }
+
+    /**
+     * Apply the language recommendations for selected, enabled system
+     * countries. This is intentionally additive: it never deletes a manual
+     * locale or a country rule that the operator did not select.
+     */
+    public function applyCountryRecommendations(Request $request): JsonResponse
+    {
+        $this->requireSchema();
+        $data = $request->validate([
+            'countries'   => ['required', 'array', 'min:1', 'max:250'],
+            'countries.*' => ['required', 'string', 'regex:/^[A-Za-z]{2}$/'],
+        ]);
+        $countryCodes = array_values(array_unique(array_map(
+            static fn (string $country): string => strtoupper(trim($country)),
+            $data['countries'],
+        )));
+        $suggestions = $this->countries->suggestionsFor($countryCodes);
+        if (count($suggestions) !== count($countryCodes)) {
+            throw ValidationException::withMessages([
+                'countries' => '请仅选择系统中已启用且具有受支持推荐语言的国家/地区。',
+            ]);
+        }
+
+        $current = $this->settings->all();
+        $locales = array_values(array_unique(array_merge(
+            (array) $current['enabled_locales'],
+            array_values($suggestions),
+        )));
+        if (count($locales) > 24) {
+            throw ValidationException::withMessages([
+                'countries' => '所选国家对应的展示语言超过 24 种上限，请减少选择后重试。',
+            ]);
+        }
+
+        $result = DB::transaction(function () use ($current, $locales, $suggestions): array {
+            $settings = $this->settings->save([...$current, 'enabled_locales' => $locales]);
+            $rules    = [];
+            foreach ($suggestions as $country => $locale) {
+                $before = DB::table('lgt_country_rules')->where('country', $country)->first();
+                DB::table('lgt_country_rules')->updateOrInsert(
+                    ['country' => $country],
+                    ['locale' => $locale, 'enabled' => true, 'updated_at' => now(), 'created_at' => $before?->created_at ?? now()],
+                );
+                $rule = DB::table('lgt_country_rules')->where('country', $country)->first();
+                $this->audit('country_recommendation_applied', 'country_rule', (int) $rule->id, (array) $before, ['country' => $country, 'locale' => $locale, 'enabled' => true]);
+                $rules[] = $rule;
+            }
+
+            return ['settings' => $settings, 'rules' => $rules];
+        });
+        $this->audit('country_recommendations_applied', 'settings', null, [], ['countries' => array_keys($suggestions), 'locales' => array_values($suggestions)]);
+
+        return $this->json([
+            ...$result,
+            'notice' => sprintf('已将 %d 个国家/地区与 %d 种推荐展示语言联动保存。', count($suggestions), count(array_unique($suggestions))),
+        ]);
     }
 
     public function saveProvider(Request $request): JsonResponse
@@ -152,14 +215,14 @@ final class AdminTranslationController extends Controller
     public function dispatchProvider(Request $request, int $provider): JsonResponse
     {
         $this->requireSchema();
-        $data = $request->validate(['enabled' => ['required', 'boolean'], 'confirm_dispatch' => ['accepted_if:enabled,true']]);
+        $data    = $request->validate(['enabled' => ['required', 'boolean'], 'confirm_dispatch' => ['accepted_if:enabled,true']]);
         $account = $this->accounts->setDispatch($provider, (bool) $data['enabled'], $this->actorId());
         $resumed = (bool) $data['enabled'] ? $this->jobs->resumePausedJobs() : 0;
 
         return $this->json([
-            'account' => $account,
+            'account'      => $account,
             'resumed_jobs' => $resumed,
-            'notice' => $resumed > 0
+            'notice'       => $resumed > 0
                 ? "已开启服务商派发，并恢复 {$resumed} 个因免费额度模式暂停的任务。"
                 : '服务商派发设置已保存。',
         ]);
@@ -242,25 +305,28 @@ final class AdminTranslationController extends Controller
     /** @return array<string, mixed> */
     private function dashboard(): array
     {
-        $warnings = [];
-        $settings = $this->safeDashboardValue('settings', fn (): array => $this->settings->all(), $this->defaultSettings(), $warnings);
-        $latest = $this->safeDashboardValue('coverage', fn (): mixed => DB::table('lgt_coverage_snapshots')->latest('id')->value('report'), null, $warnings);
-        $accounts = $this->safeDashboardValue('provider accounts', fn (): array => $this->accounts->publicAccounts(), [], $warnings);
-        $jobs = $this->safeDashboardValue('job history', fn () => DB::table('lgt_jobs')->latest('id')->limit(12)->get(), collect(), $warnings);
+        $warnings     = [];
+        $settings     = $this->safeDashboardValue('settings', fn (): array => $this->settings->all(), $this->defaultSettings(), $warnings);
+        $latest       = $this->safeDashboardValue('coverage', fn (): mixed => DB::table('lgt_coverage_snapshots')->latest('id')->value('report'), null, $warnings);
+        $accounts     = $this->safeDashboardValue('provider accounts', fn (): array => $this->accounts->publicAccounts(), [], $warnings);
+        $jobs         = $this->safeDashboardValue('job history', fn () => DB::table('lgt_jobs')->latest('id')->limit(12)->get(), collect(), $warnings);
         $publications = $this->safeDashboardValue('publication history', fn () => DB::table('lgt_publications')->orderByDesc('published_at')->limit(24)->get(), collect(), $warnings);
         $countryRules = $this->safeDashboardValue('country defaults', fn () => DB::table('lgt_country_rules')->orderBy('country')->limit(250)->get(), collect(), $warnings);
+        $countries    = $this->safeDashboardValue('system countries', fn (): array => $this->countries->enabledCountries(), [], $warnings);
 
         $dispatchEnabled = collect($accounts)->contains(static fn (mixed $account): bool => (bool) data_get($account, 'dispatch_enabled', false));
 
         return [
-            'settings'        => $settings,
-            'accounts'        => $accounts,
-            'jobs'            => $jobs,
-            'publications'    => $publications,
-            'countryRules'    => $countryRules,
-            'latest_coverage' => is_string($latest) ? (json_decode($latest, true) ?: []) : [],
+            'settings'           => $settings,
+            'accounts'           => $accounts,
+            'jobs'               => $jobs,
+            'publications'       => $publications,
+            'countryRules'       => $countryRules,
+            'countries'          => $countries,
+            'providerProfiles'   => ProviderAccountService::profiles(),
+            'latest_coverage'    => is_string($latest) ? (json_decode($latest, true) ?: []) : [],
             'workspace_warnings' => $warnings,
-            'diagnostics'     => [
+            'diagnostics'        => [
                 'mode'                  => $settings['mode'],
                 'dispatch_enabled'      => $dispatchEnabled,
                 'paid_cap'              => 0,
@@ -275,16 +341,16 @@ final class AdminTranslationController extends Controller
     private function defaultSettings(): array
     {
         return [
-            'mode' => TranslationSettings::MODE_PREVIEW,
-            'source_locale' => 'en',
-            'enabled_locales' => [],
+            'mode'                    => TranslationSettings::MODE_PREVIEW,
+            'source_locale'           => 'en',
+            'enabled_locales'         => [],
             'accept_language_enabled' => false,
-            'widget' => [
-                'enabled' => false,
-                'position' => 'right',
-                'bottom_offset' => 84,
+            'widget'                  => [
+                'enabled'              => false,
+                'position'             => 'right',
+                'bottom_offset'        => 84,
                 'mobile_bottom_offset' => 88,
-                'theme' => 'system',
+                'theme'                => 'system',
             ],
         ];
     }

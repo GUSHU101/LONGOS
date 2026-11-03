@@ -14,6 +14,12 @@
 <style>
   .lgt-admin{--lgt-primary:#155eef;--lgt-ink:#101828;--lgt-muted:#667085;--lgt-border:#e4e7ec;max-width:1440px;margin:auto}.lgt-admin .nav-pills{gap:.45rem;overflow-x:auto;flex-wrap:nowrap;padding-bottom:.35rem}.lgt-admin .nav-link{white-space:nowrap;border:1px solid var(--lgt-border);color:#344054;background:#fff}.lgt-admin .nav-link.active{border-color:var(--lgt-primary);background:var(--lgt-primary);color:#fff}.lgt-admin .lgt-tab{display:none}.lgt-admin .lgt-tab.active{display:block}.lgt-admin .lgt-stat{min-height:112px;border:1px solid var(--lgt-border);border-radius:.8rem;background:#fff}.lgt-admin .lgt-setup-lead{border:1px solid #c7d7fe;border-radius:1rem;background:linear-gradient(120deg,#f5f8ff,#fff);padding:1.5rem}.lgt-admin .lgt-status{position:sticky;bottom:1rem;z-index:4;display:none;max-width:720px;margin:1rem auto 0;box-shadow:0 .5rem 1.5rem rgba(16,24,40,.16)}.lgt-admin .lgt-table-cell{max-width:25rem;overflow-wrap:anywhere;white-space:pre-wrap}.lgt-admin .form-text{color:var(--lgt-muted)}@media(max-width:767px){.lgt-admin .card-body{padding:1rem}.lgt-admin .lgt-stat{min-height:auto}.lgt-admin .lgt-setup-lead{padding:1rem}}
 </style>
+<style>
+  .lgt-country-picker{display:grid;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));gap:.5rem;max-height:21rem;overflow:auto;background:#fcfcfd}
+  .lgt-country-option{display:flex;align-items:flex-start;gap:.55rem;padding:.65rem .75rem;border:1px solid var(--lgt-border);border-radius:.6rem;background:#fff;cursor:pointer}
+  .lgt-country-option:hover{border-color:var(--lgt-primary);background:#f5f8ff}.lgt-country-option input{margin-top:.2rem}.lgt-country-option small{display:block;color:var(--lgt-muted)}
+  @media(max-width:767px){.lgt-country-picker{grid-template-columns:1fr;max-height:18rem}}
+</style>
 <main class="lgt-admin py-3" aria-labelledby="lgt-title">
   <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-4">
     <div><h1 id="lgt-title" class="h3 mb-1">{{ __('LongosGlobalTranslate::translate.title') }}</h1><p class="text-secondary mb-0">{{ __('LongosGlobalTranslate::translate.preview') }}</p></div>
@@ -31,7 +37,7 @@
   </div><div class="card mt-3"><div class="card-body"><h2 class="h5">安全发布流程</h2><ol class="mb-0 ps-3"><li>仅扫描已公开的受支持内容字段。</li><li>逐项审核或人工修订目标语言文本。</li><li>按语言发布不可变的版本快照。</li><li>通过快照创建新版本进行回滚，不覆盖历史。</li></ol></div></div></section>
 
   <section class="lgt-tab" data-lgt-panel="setup"><div class="row g-3"><div class="col-12 col-xl-7"><div class="card"><div class="card-body"><h2 class="h5">翻译 API 服务商</h2><p class="form-text">凭据仅加密保存，页面与接口不会回传。重新保存后必须重新验证，派发保持关闭。</p>
-  <form id="lgt-provider-form" class="row g-3" novalidate><div class="col-md-4"><label class="form-label" for="lgt-provider">服务商</label><select id="lgt-provider" class="form-select"><option value="aliyun">阿里云</option><option value="volcengine">火山引擎</option><option value="baidu">百度翻译</option></select></div><div class="col-md-8"><label class="form-label" for="lgt-billing">账户标识</label><input id="lgt-billing" class="form-control" required maxlength="255" autocomplete="off"><div class="form-text">仅作租户内识别，保存前会散列处理。</div></div><div class="col-md-6"><label class="form-label" for="lgt-key-one">访问密钥 / App ID</label><input id="lgt-key-one" class="form-control" required autocomplete="off"></div><div class="col-md-6"><label class="form-label" for="lgt-key-two">访问密钥 Secret</label><input id="lgt-key-two" type="password" class="form-control" required autocomplete="new-password"></div><div class="col-md-4"><label class="form-label" for="lgt-free-quota">免费额度</label><input id="lgt-free-quota" class="form-control" type="number" min="0" value="0"></div><div class="col-md-4"><label class="form-label" for="lgt-soft-cap">本地安全上限</label><input id="lgt-soft-cap" class="form-control" type="number" min="0" value="0"></div><div class="col-md-4"><label class="form-label" for="lgt-qps">每秒请求上限（QPS）</label><input id="lgt-qps" class="form-control" type="number" min="1" max="10" value="1"></div><div class="col-12"><div class="form-check"><input class="form-check-input" type="checkbox" id="lgt-provider-enabled"><label class="form-check-label" for="lgt-provider-enabled">保存为已启用（验证成功前不会派发）</label></div></div><div class="col-12"><button class="btn btn-primary" type="submit">加密保存 API 配置</button></div></form>
+  <form id="lgt-provider-form" class="row g-3" novalidate><div class="col-md-4"><label class="form-label" for="lgt-provider">翻译服务商</label><select id="lgt-provider" class="form-select">@foreach($providerProfiles as $providerCode => $profile)<option value="{{ $providerCode }}">{{ $profile['label'] }}</option>@endforeach</select><div class="form-text" id="lgt-provider-quota-help">V1 仅允许免费额度范围内派发。</div></div><div class="col-md-8"><label class="form-label" for="lgt-billing">账户标识</label><input id="lgt-billing" class="form-control" required maxlength="255" autocomplete="off" aria-describedby="lgt-billing-help"><div class="form-text" id="lgt-billing-help">仅作租户内识别，保存前会散列处理。</div></div><div class="col-md-6"><label class="form-label" id="lgt-key-one-label" for="lgt-key-one">AccessKey ID</label><input id="lgt-key-one" class="form-control" required autocomplete="off" aria-describedby="lgt-key-one-help"><div class="form-text" id="lgt-key-one-help"></div></div><div class="col-md-6"><label class="form-label" id="lgt-key-two-label" for="lgt-key-two">AccessKey Secret</label><input id="lgt-key-two" type="password" class="form-control" required autocomplete="new-password" aria-describedby="lgt-key-two-help"><div class="form-text" id="lgt-key-two-help"></div></div><div class="col-md-4"><label class="form-label" for="lgt-free-quota">本周期免费字符额度</label><input id="lgt-free-quota" class="form-control" type="number" min="0" value="0"><div class="form-text">填 0 表示禁止派发。</div></div><div class="col-md-4"><label class="form-label" for="lgt-soft-cap">本地安全上限</label><input id="lgt-soft-cap" class="form-control" type="number" min="0" value="0"><div class="form-text">建议小于或等于免费额度。</div></div><div class="col-md-4"><label class="form-label" for="lgt-qps">每秒请求上限（QPS）</label><input id="lgt-qps" class="form-control" type="number" min="1" max="10" value="1"><div class="form-text">按服务商后台限额填写，建议从 1 开始。</div></div><div class="col-12"><div class="form-check"><input class="form-check-input" type="checkbox" id="lgt-provider-enabled"><label class="form-check-label" for="lgt-provider-enabled">保存为已启用（仍需完成验证后才可派发）</label></div></div><div class="col-12"><button class="btn btn-primary" type="submit">加密保存 API 配置</button></div></form>
   </div></div></div><div class="col-12 col-xl-5"><div class="card"><div class="card-body"><h2 class="h5">已配置账户</h2><p class="form-text">验证只会向服务商发送一次小请求，费用会记入本地账本；系统不会自动验证或自动派发。</p><div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>服务商</th><th>凭据</th><th>验证状态</th><th>派发状态</th><th>操作</th></tr></thead><tbody>@forelse($accounts as $account)<tr><td>{{ $providerLabels[$account['provider']] ?? $account['provider'] }}</td><td>{{ $account['credentials_configured'] ? '已配置' : '未配置' }}</td><td>{{ $account['verified_at'] ?: '未验证' }}</td><td>{{ $account['dispatch_enabled'] ? '已开启' : '已关闭' }}</td><td class="text-nowrap">@if(!$account['verified_at'])<button type="button" class="btn btn-sm btn-outline-primary lgt-verify-provider" data-id="{{ $account['id'] }}">验证</button>@else<button type="button" class="btn btn-sm btn-outline-secondary lgt-dispatch-provider" data-id="{{ $account['id'] }}" data-enabled="{{ $account['dispatch_enabled'] ? '0' : '1' }}">{{ $account['dispatch_enabled'] ? '关闭派发' : '开启派发' }}</button>@endif</td></tr>@empty<tr><td colspan="5" class="text-secondary">尚未配置翻译服务商账户。</td></tr>@endforelse</tbody></table></div></div></div></div></div></section>
 
   <section class="lgt-tab" data-lgt-panel="plan"><div class="card"><div class="card-body"><h2 class="h5">扫描可公开翻译内容</h2><p class="form-text">仅索引已启用商品、分类、页面及已发布的受支持装修模块。订单、客户资料、结账、支付、评论和在线聊天均不会被读取。</p><form id="lgt-scan-form" class="d-flex flex-wrap gap-3 align-items-center"><fieldset class="d-flex flex-wrap gap-3"><legend class="visually-hidden">内容范围</legend>@foreach(['product'=>'商品','category'=>'分类','page'=>'页面','builder'=>'已发布装修模块'] as $key=>$name)<div class="form-check"><input class="form-check-input" type="checkbox" name="scope" value="{{ $key }}" id="scan-{{ $key }}" checked><label class="form-check-label" for="scan-{{ $key }}">{{ $name }}</label></div>@endforeach</fieldset><button class="btn btn-outline-primary" type="submit">立即扫描</button></form><pre id="lgt-scan-result" class="bg-light border rounded p-3 mt-3 mb-0 small" hidden></pre></div></div><div class="card mt-3"><div class="card-body"><h2 class="h5">创建翻译任务</h2><p class="form-text">仅预览模式绝不会调用服务商。仅免费额度模式在没有单独完成验证并获准派发的账户时会安全暂停。</p><form id="lgt-plan-form" class="row g-3"><div class="col-md-6"><label class="form-label" for="lgt-plan-locales">目标语言</label><input id="lgt-plan-locales" class="form-control" value="{{ $enabledLocales }}" placeholder="fr, de, es" required><div class="form-text">填写已启用语言代码，并以英文逗号分隔。</div></div><div class="col-md-6"><label class="form-label">扫描范围</label><div class="d-flex gap-3 flex-wrap pt-2">@foreach(['product'=>'商品','category'=>'分类','page'=>'页面','builder'=>'装修模块'] as $key=>$name)<div class="form-check"><input class="form-check-input" type="checkbox" value="{{ $key }}" name="plan_scope" id="plan-{{ $key }}" checked><label class="form-check-label" for="plan-{{ $key }}">{{ $name }}</label></div>@endforeach</div></div><div class="col-12"><button class="btn btn-primary" type="submit">创建安全任务</button></div></form></div></div></section>
@@ -45,7 +51,7 @@
   <section class="lgt-tab" data-lgt-panel="operations"><div class="card mb-3"><div class="card-body"><h2 class="h5">不可变发布版本</h2><form id="lgt-publish-form" class="d-flex flex-wrap align-items-end gap-2"><div><label class="form-label" for="lgt-publish-locale">语言代码</label><input id="lgt-publish-locale" class="form-control" placeholder="fr" required></div><button class="btn btn-primary" type="submit">发布已审核版本</button></form><div class="table-responsive mt-3"><table class="table table-sm"><thead><tr><th>语言</th><th>版本</th><th>状态</th><th>发布时间</th><th>回滚</th></tr></thead><tbody>@forelse($publications as $publication)<tr><td>{{ $publication->locale }}</td><td>{{ $publication->revision }}</td><td>{{ $publicationStateLabels[$publication->state] ?? $publication->state }}</td><td>{{ $publication->published_at }}</td><td>@if(in_array($publication->state,['published','superseded'],true))<button type="button" class="btn btn-sm btn-outline-secondary lgt-rollback" data-id="{{ $publication->id }}" data-locale="{{ $publication->locale }}">恢复此版本</button>@endif</td></tr>@empty<tr><td colspan="5" class="text-secondary">尚未发布任何翻译版本。</td></tr>@endforelse</tbody></table></div></div></div><div class="card"><div class="card-body"><h2 class="h5">最近任务与安全状态</h2><div class="table-responsive"><table class="table table-sm"><thead><tr><th>ID</th><th>状态</th><th>模式</th><th>进度</th><th>创建时间</th></tr></thead><tbody>@forelse($jobs as $job)<tr><td>{{ $job->public_id }}</td><td>{{ $jobStatusLabels[$job->status] ?? $job->status }}</td><td>{{ $modeLabels[$job->mode] ?? $job->mode }}</td><td>{{ $job->completed_items }}/{{ $job->total_items }}；失败 {{ $job->failed_items }}</td><td>{{ $job->created_at }}</td></tr>@empty<tr><td colspan="5" class="text-secondary">尚未创建翻译任务。</td></tr>@endforelse</tbody></table></div><pre class="bg-light border rounded p-3 mb-0 small" aria-label="技术诊断信息">{{ json_encode($diagnostics, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES) }}</pre></div></div></section>
   <section class="lgt-tab" data-lgt-panel="library"><div class="card mt-3"><div class="card-body"><h2 class="h5">人工修订</h2><p class="form-text">使用当前条目版本保存。每次修订都会形成可审计版本，也可锁定译文以阻止后续机器翻译覆盖。</p><form id="lgt-manual-form" class="row g-3"><div class="col-md-3"><label class="form-label" for="lgt-manual-id">翻译条目 ID</label><input id="lgt-manual-id" class="form-control" type="number" min="1" required readonly></div><div class="col-md-3"><label class="form-label" for="lgt-manual-version">当前版本</label><input id="lgt-manual-version" class="form-control" type="number" min="1" required readonly></div><div class="col-md-6 d-flex align-items-end"><div class="form-check mb-2"><input id="lgt-manual-lock" class="form-check-input" type="checkbox"><label class="form-check-label" for="lgt-manual-lock">锁定此人工译文</label></div></div><div class="col-12"><label class="form-label" for="lgt-manual-text">前台展示译文</label><textarea id="lgt-manual-text" class="form-control" rows="5" maxlength="100000" required></textarea><div class="form-text">V1 契约不接受或重建 HTML，仅保存纯文本展示内容。</div></div><div class="col-12"><button class="btn btn-primary" type="submit">保存人工修订</button></div></form></div></div></section>
 
-  <section class="lgt-tab" data-lgt-panel="setup"><div class="card mt-3"><div class="card-body"><h2 class="h5">可信国家默认语言</h2><p class="form-text">仅在访客没有手动选择语言时生效。国家信息仅使用既有可信代理规则，插件不会读取不可信请求头。</p><form id="lgt-country-rule-form" class="row g-3"><div class="col-md-4"><label class="form-label" for="lgt-country">国家/地区</label><input id="lgt-country" class="form-control text-uppercase" maxlength="2" pattern="[A-Za-z]{2}" placeholder="FR" required></div><div class="col-md-5"><label class="form-label" for="lgt-country-locale">展示语言</label><input id="lgt-country-locale" class="form-control" maxlength="24" placeholder="fr" required></div><div class="col-md-3 d-flex align-items-end"><div class="form-check mb-2"><input id="lgt-country-enabled" class="form-check-input" type="checkbox" checked><label class="form-check-label" for="lgt-country-enabled">启用</label></div></div><div class="col-12"><button class="btn btn-outline-primary" type="submit">保存国家默认语言</button></div></form><div class="table-responsive mt-3"><table class="table table-sm mb-0"><thead><tr><th>国家/地区</th><th>语言</th><th>状态</th></tr></thead><tbody>@forelse($countryRules as $rule)<tr><td>{{ $rule->country }}</td><td>{{ $rule->locale }}</td><td>{{ $rule->enabled ? '已启用' : '已停用' }}</td></tr>@empty<tr><td colspan="3" class="text-secondary">尚未保存国家默认语言。</td></tr>@endforelse</tbody></table></div></div></div></section>
+  <section class="lgt-tab" data-lgt-panel="setup"><div class="card mt-3"><div class="card-body"><h2 class="h5">按系统国家/地区快捷启用语言</h2><p class="form-text">此列表直接读取“系统设置 → 国家/地区”中已启用的项目。多选后，系统会去重启用对应的展示语言，并为所选国家创建可信默认语言规则；不会删除任何已有手工配置。</p><div class="row g-3"><div class="col-lg-6"><label class="form-label" for="lgt-country-search">搜索已启用国家/地区</label><input id="lgt-country-search" class="form-control" type="search" placeholder="输入国家名称或 ISO 代码，例如 France、FR" autocomplete="off"><div class="form-text">仅显示插件支持推荐语言的国家/地区。</div></div><div class="col-lg-6"><div class="d-flex justify-content-between align-items-end gap-2 h-100"><p id="lgt-country-selection-summary" class="mb-0 text-secondary">正在加载系统国家/地区…</p><button id="lgt-country-clear" class="btn btn-sm btn-outline-secondary" type="button">清空选择</button></div></div><div class="col-12"><div id="lgt-country-options" class="lgt-country-picker border rounded p-2" aria-live="polite"></div><p id="lgt-country-empty" class="form-text mb-0" hidden>没有符合条件的已启用国家/地区，或这些国家暂没有受支持的推荐语言。</p></div><div class="col-12"><button id="lgt-apply-country-recommendations" class="btn btn-primary" type="button" disabled>应用所选国家的语言建议</button><div class="form-text">保存后会更新“启用的展示语言”和下方国家默认语言列表。访客手动选择的语言始终优先。</div></div></div><hr class="my-4"><h3 class="h6">单个国家/地区自定义覆盖</h3><p class="form-text">当系统推荐语言不符合您的运营计划时，可在此手动指定。该语言必须已在“展示语言设置”中启用。</p><form id="lgt-country-rule-form" class="row g-3"><div class="col-md-4"><label class="form-label" for="lgt-country">国家/地区代码</label><input id="lgt-country" class="form-control text-uppercase" maxlength="2" pattern="[A-Za-z]{2}" placeholder="FR" required></div><div class="col-md-5"><label class="form-label" for="lgt-country-locale">展示语言代码</label><input id="lgt-country-locale" class="form-control" maxlength="24" placeholder="fr" required></div><div class="col-md-3 d-flex align-items-end"><div class="form-check mb-2"><input id="lgt-country-enabled" class="form-check-input" type="checkbox" checked><label class="form-check-label" for="lgt-country-enabled">启用</label></div></div><div class="col-12"><button class="btn btn-outline-primary" type="submit">保存自定义国家语言</button></div></form><div class="table-responsive mt-3"><table class="table table-sm mb-0"><thead><tr><th>国家/地区</th><th>语言</th><th>状态</th></tr></thead><tbody>@forelse($countryRules as $rule)<tr><td>{{ $rule->country }}</td><td>{{ $rule->locale }}</td><td>{{ $rule->enabled ? '已启用' : '已停用' }}</td></tr>@empty<tr><td colspan="3" class="text-secondary">尚未保存国家默认语言。</td></tr>@endforelse</tbody></table></div></div></div></section>
 
   <div id="lgt-status" class="lgt-status alert" role="status" aria-live="polite"></div>
 </main>
@@ -216,6 +222,101 @@
       '确认恢复发布记录 $1 吗？此操作会创建新的不可变版本。',
     ),
   );
+})();
+</script>
+<script>
+(() => {
+  const providerProfiles = @json($providerProfiles);
+  const provider = document.getElementById('lgt-provider');
+  const firstKey = document.getElementById('lgt-key-one');
+  const secondKey = document.getElementById('lgt-key-two');
+  const updateProviderProfile = (clearCredentials = false) => {
+    const profile = providerProfiles[provider.value];
+    if (!profile) return;
+    const [first, second] = profile.credential_fields;
+    document.getElementById('lgt-key-one-label').textContent = first.label;
+    document.getElementById('lgt-key-two-label').textContent = second.label;
+    document.getElementById('lgt-key-one-help').textContent = first.help;
+    document.getElementById('lgt-key-two-help').textContent = second.help;
+    document.getElementById('lgt-billing-help').textContent = profile.account_help;
+    document.getElementById('lgt-provider-quota-help').textContent = profile.quota_help;
+    firstKey.placeholder = first.placeholder;
+    secondKey.placeholder = second.placeholder;
+    firstKey.name = `credentials[${first.key}]`;
+    secondKey.name = `credentials[${second.key}]`;
+    if (clearCredentials) {
+      firstKey.value = '';
+      secondKey.value = '';
+    }
+  };
+  provider.addEventListener('change', () => updateProviderProfile(true));
+  document.getElementById('lgt-provider-form').addEventListener('reset', () => window.setTimeout(() => updateProviderProfile(), 0));
+  updateProviderProfile();
+})();
+</script>
+<script>
+(() => {
+  const countries = @json($countries);
+  const applyUrl = @json(admin_route('longos_global_translate.country-rules.recommendations.apply'));
+  const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+  const search = document.getElementById('lgt-country-search');
+  const options = document.getElementById('lgt-country-options');
+  const summary = document.getElementById('lgt-country-selection-summary');
+  const empty = document.getElementById('lgt-country-empty');
+  const clear = document.getElementById('lgt-country-clear');
+  const apply = document.getElementById('lgt-apply-country-recommendations');
+  const status = document.getElementById('lgt-status');
+  const selected = new Set();
+  const selectedCountries = () => countries.filter(country => selected.has(country.code));
+  const showStatus = (text, error = false) => {
+    status.textContent = text;
+    status.className = `lgt-status alert ${error ? 'alert-danger' : 'alert-success'}`;
+    status.style.display = 'block';
+  };
+  const render = () => {
+    const keyword = search.value.trim().toLocaleLowerCase();
+    const visible = countries.filter(country => country.locale && `${country.name} ${country.code} ${country.locale} ${country.locale_label}`.toLocaleLowerCase().includes(keyword));
+    options.replaceChildren();
+    visible.forEach(country => {
+      const label = document.createElement('label');
+      const checkbox = document.createElement('input');
+      const text = document.createElement('span');
+      label.className = 'lgt-country-option';
+      checkbox.type = 'checkbox'; checkbox.value = country.code; checkbox.checked = selected.has(country.code);
+      checkbox.addEventListener('change', () => { checkbox.checked ? selected.add(country.code) : selected.delete(country.code); render(); });
+      text.textContent = `${country.name}（${country.code}）`;
+      const hint = document.createElement('small'); hint.textContent = `推荐：${country.locale_label}（${country.locale}）`;
+      text.append(hint); label.append(checkbox, text); options.append(label);
+    });
+    const languageCount = new Set(selectedCountries().map(country => country.locale)).size;
+    summary.textContent = selected.size === 0 ? `可选国家/地区：${countries.filter(country => country.locale).length} 个` : `已选择 ${selected.size} 个国家/地区，将启用 ${languageCount} 种去重语言`;
+    empty.hidden = visible.length !== 0;
+    apply.disabled = selected.size === 0;
+  };
+  search.addEventListener('input', render);
+  clear.addEventListener('click', () => { selected.clear(); render(); search.focus(); });
+  apply.addEventListener('click', async () => {
+    const countryCodes = [...selected];
+    if (countryCodes.length === 0) return;
+    apply.disabled = true;
+    apply.textContent = '正在保存联动设置…';
+    try {
+      const response = await fetch(applyUrl, {method: 'PUT', credentials: 'same-origin', headers: {Accept: 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf}, body: JSON.stringify({countries: countryCodes})});
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message || Object.values(payload.errors || {}).flat()[0] || '保存失败，请检查所选国家/地区后重试。');
+      const locales = payload.settings?.enabled_locales || [];
+      document.getElementById('lgt-locales').value = locales.join(', ');
+      document.getElementById('lgt-plan-locales').value = locales.join(', ');
+      showStatus(payload.notice || '国家/地区与展示语言已联动保存。');
+      selected.clear(); render();
+    } catch (error) {
+      showStatus(error.message, true);
+    } finally {
+      apply.textContent = '应用所选国家的语言建议';
+      apply.disabled = selected.size === 0;
+    }
+  });
+  render();
 })();
 </script>
 @endsection
