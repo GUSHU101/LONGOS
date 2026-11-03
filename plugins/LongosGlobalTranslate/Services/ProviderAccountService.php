@@ -85,6 +85,10 @@ final class ProviderAccountService
                 'external_usage_buffer' => $this->units($input['external_usage_buffer'] ?? 0),
                 'cycle_timezone'        => $this->timezone((string) ($input['cycle_timezone'] ?? 'UTC')),
                 'qps_limit'             => min(10, max(1, (int) ($input['qps_limit'] ?? 1))),
+                // Lower numbers are selected first. This is deliberately
+                // independent of provider type so a tenant can order Baidu,
+                // Aliyun and Volcengine as primary/secondary/tertiary.
+                'failover_priority'     => min(1000, max(1, (int) ($input['failover_priority'] ?? 100))),
                 'enabled'               => (bool) ($input['enabled'] ?? false),
                 'dispatch_enabled'      => false,
                 'verified_at'           => null,
@@ -131,7 +135,7 @@ final class ProviderAccountService
     /** @return list<array<string, mixed>> */
     public function publicAccounts(): array
     {
-        return DB::table('lgt_provider_accounts')->orderBy('provider')->get()->map(
+        return DB::table('lgt_provider_accounts')->orderBy('failover_priority')->orderBy('id')->get()->map(
             fn (object $account): array => $this->publicAccount((array) $account)
         )->all();
     }

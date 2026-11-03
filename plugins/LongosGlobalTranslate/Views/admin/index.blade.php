@@ -320,4 +320,62 @@
   render();
 })();
 </script>
+<script>
+(() => {
+  const form = document.getElementById('lgt-provider-form');
+  const qps = document.getElementById('lgt-qps');
+  if (!form || !qps || document.getElementById('lgt-failover-priority')) return;
+
+  const column = document.createElement('div');
+  column.className = 'col-md-4';
+  column.innerHTML = '<label class="form-label" for="lgt-failover-priority">自动切换优先级</label><input id="lgt-failover-priority" class="form-control" type="number" min="1" max="1000" value="100" required><div class="form-text">数字越小越优先；本账号免费额度耗尽后自动切换到下一已验证账号。</div>';
+  qps.closest('.col-md-4')?.insertAdjacentElement('afterend', column);
+
+  // This document-capture handler replaces the legacy submit handler so
+  // priority is part of the same encrypted credential save operation, never
+  // a second partial update. It runs before the form's bubble-phase handler.
+  document.addEventListener('submit', async event => {
+    if (event.target !== form) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const provider = document.getElementById('lgt-provider').value;
+    const first = document.getElementById('lgt-key-one').value;
+    const second = document.getElementById('lgt-key-two').value;
+    const credentials = provider === 'aliyun'
+      ? {access_key_id: first, access_key_secret: second}
+      : provider === 'volcengine'
+        ? {access_key_id: first, secret_access_key: second}
+        : {appid: first, secret: second};
+    const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    const endpoint = @json(admin_route('longos_global_translate.providers.save'));
+    const status = document.getElementById('lgt-status');
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST', credentials: 'same-origin',
+        headers: {Accept: 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf},
+        body: JSON.stringify({
+          provider,
+          billing_identity: document.getElementById('lgt-billing').value,
+          free_quota: Number(document.getElementById('lgt-free-quota').value),
+          soft_cap: Number(document.getElementById('lgt-soft-cap').value),
+          qps_limit: Number(document.getElementById('lgt-qps').value),
+          failover_priority: Number(document.getElementById('lgt-failover-priority').value),
+          enabled: document.getElementById('lgt-provider-enabled').checked,
+          credentials,
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.message || Object.values(body.errors || {}).flat()[0] || '保存失败，请检查 API 凭据和额度设置。');
+      form.reset();
+      status.textContent = `${body.notice || 'API 配置已保存。'} 自动切换优先级：${body.account.failover_priority}。`;
+      status.className = 'lgt-status alert alert-success';
+      status.style.display = 'block';
+    } catch (error) {
+      status.textContent = error.message;
+      status.className = 'lgt-status alert alert-danger';
+      status.style.display = 'block';
+    }
+  }, true);
+})();
+</script>
 @endsection

@@ -132,7 +132,10 @@ class GlobalTranslationProviderTest extends TestCase
         $failure  = new BaiduProvider($this->client(['error_code' => '54004']));
         $response = $failure->send($this->request(['Hello']), ['appid' => 'id', 'secret' => 'secret']);
         self::assertSame('BALANCE_EXHAUSTED', $response->errorCode);
-        self::assertFalse($failure->classifyFailure($response)['definitely_unbilled']);
+        // A provider-declared exhausted balance did not accept a translation;
+        // it is safe to release this reservation and try the next verified
+        // free account. Transport ambiguity remains conservatively occupied.
+        self::assertTrue($failure->classifyFailure($response)['definitely_unbilled']);
     }
 
     public function test_each_provider_uses_its_documented_traditional_chinese_code(): void

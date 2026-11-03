@@ -199,8 +199,8 @@ final class TranslationJobService
 
             return;
         }
-        $account = $this->accountFor($sourceLocale, (string) $item->target_locale);
-        if ($account === null) {
+        $accounts = $this->accountsFor($sourceLocale, (string) $item->target_locale);
+        if ($accounts === []) {
             // No account is a recoverable operator configuration state, not
             // a source failure. Put this exact item back and stop dispatching
             // until an operator explicitly enables a verified account.
@@ -209,59 +209,51 @@ final class TranslationJobService
 
             return;
         }
-        $provider           = $this->providers->get((string) $account->provider);
         $prepared           = TextContract::protect((string) $entry->source_text, $this->protectedTerms($sourceLocale, (string) $item->target_locale));
         $segments           = TextContract::segments($prepared['text'], 4500, 4800, array_keys($prepared['tokens']));
-        $batches            = $provider->buildBatches($segments, $sourceLocale, (string) $item->target_locale);
         $successful         = [];
         $translatedSegments = [];
-        foreach ($batches as $batch) {
-            $units       = array_sum(array_map(static fn (string $segment): int => TextContract::units($segment)['codepoints'], $batch));
-            $reservation = $this->ledger->reserve((int) $account->id, $units, (int) $item->id);
-            DB::table('lgt_job_items')->where('id', $item->id)->update(['attempt_id' => $reservation['id'], 'updated_at' => now()]);
-            $requestMarkedSending = false;
-
-            try {
-                $this->ledger->markSending($reservation['id']);
-                $requestMarkedSending = true;
-                $response             = $provider->send(new TranslationProviderRequest(
-                    $reservation['request_uuid'], (int) $account->id, $sourceLocale, (string) $item->target_locale, $batch,
-                    (string) $entry->source_hash,
-                ), $this->accounts->credentials($account));
-                if (! $response->ok || count($response->translations) !== count($batch)) {
-                    $failure = $provider->classifyFailure($response);
-                    if ($failure['definitely_unbilled']) {
-                        $this->ledger->definiteFailure($reservation['id'], $failure['code']);
-                    } else {
-                        $this->ledger->uncertain($reservation['id'], $failure['code']);
-                    }
-                    $this->commitSuccessfulAttempts($successful);
+        $providersUsed      = [];
+        $accountsUsed       = [];
+        foreach ($segments as $segment) {
+            // A single segment is a valid request for every supported
+            // provider.  Keeping this boundary provider-neutral makes it
+            // safe to move from a Volcengine batch to an Aliyun/Baidu backup
+            // without ever replaying or dropping part of a source field.
+            $result = $this->translateSegmentWithFailover(
+                $accounts,
+                $segment,
+                $sourceLocale,
+                (string) $item->target_locale,
+                (string) $entry->source_hash,
+                (int) $item->id,
+            );
+            if ($result['state'] === 'exhausted') {
+                $this->commitSuccessfulAttempts($successful);
+                if ($successful === []) {
+                    // No provider has received this field, so pausing leaves
+                    // it safe to resume when an operator tops up or enables a
+                    // further free provider.
+                    $this->releaseItem((int) $item->id, $runToken);
+                    $this->setJobStatus((int) $job->id, 'paused');
+                } else {
+                    // Earlier segments may already have been accepted. Never
+                    // requeue the whole field and risk charging them twice.
                     $this->finishItem($item->id, 'failed', $runToken);
+                }
 
-                    return;
-                }
-                $translatedSegments = [...$translatedSegments, ...$response->translations];
-                $successful[]       = ['attempt_id' => $reservation['id'], 'request_id' => (string) ($response->requestId ?? '')];
-            } catch (Throwable $exception) {
-                // Once markSending succeeds, an exception might have occurred
-                // after the provider received bytes.  Before it succeeds no
-                // external request exists, so release the reservation instead
-                // of stranding free quota in a permanent reserved state.
-                try {
-                    if ($requestMarkedSending) {
-                        $this->ledger->uncertain($reservation['id'], 'WORKER_EXCEPTION');
-                    } else {
-                        $this->ledger->definiteFailure($reservation['id'], 'PRE_SEND_FAILURE');
-                    }
-                } catch (Throwable) {
-                    // Preserve the original error state; a later operator can
-                    // reconcile the durable sending attempt.
-                }
+                return;
+            }
+            if ($result['state'] !== 'success') {
                 $this->commitSuccessfulAttempts($successful);
                 $this->finishItem($item->id, 'failed', $runToken);
 
                 return;
             }
+            $translatedSegments[] = $result['translation'];
+            $successful[]         = $result['attempt'];
+            $providersUsed[]      = $result['provider'];
+            $accountsUsed[]       = $result['account_id'];
         }
 
         try {
@@ -269,9 +261,13 @@ final class TranslationJobService
             // the full provider response first, then restore and verify each
             // token exactly once. Restoring batch-by-batch falsely fails when
             // another batch owns a protected token.
-            $translated = TextContract::restore(implode('', $translatedSegments), $prepared['tokens']);
-            DB::transaction(function () use ($successful, $entry, $item, $translated, $account): void {
-                $this->library->saveMachineResult((int) $entry->id, (string) $item->target_locale, (string) $entry->source_hash, $translated, (string) $account->provider, (int) $account->id);
+            $translated    = TextContract::restore(implode('', $translatedSegments), $prepared['tokens']);
+            $providersUsed = array_values(array_unique($providersUsed));
+            $accountsUsed  = array_values(array_unique($accountsUsed));
+            $providerLabel = count($providersUsed) === 1 ? $providersUsed[0] : 'multi_provider';
+            $accountId     = count($accountsUsed)  === 1 ? $accountsUsed[0] : null;
+            DB::transaction(function () use ($successful, $entry, $item, $translated, $providerLabel, $accountId): void {
+                $this->library->saveMachineResult((int) $entry->id, (string) $item->target_locale, (string) $entry->source_hash, $translated, $providerLabel, $accountId);
                 foreach ($successful as $attempt) {
                     $this->ledger->commit((int) $attempt['attempt_id'], (string) $attempt['request_id']);
                 }
@@ -287,6 +283,81 @@ final class TranslationJobService
             return;
         }
         $this->finishItem($item->id, 'completed', $runToken);
+    }
+
+    /**
+     * Send one provider-neutral segment through verified accounts in priority
+     * order. Only a local cap or an explicit, pre-translation account-capacity
+     * response may fail over; timeouts and unknown responses remain pinned to
+     * their original account so a retry cannot create duplicate billable work.
+     *
+     * @param list<object> $accounts
+     * @return array{state:'success',translation:string,attempt:array{attempt_id:int,request_id:string},provider:string,account_id:int}|array{state:'exhausted'}|array{state:'failed'}
+     */
+    private function translateSegmentWithFailover(array $accounts, string $segment, string $sourceLocale, string $targetLocale, string $sourceHash, int $jobItemId): array
+    {
+        $units = TextContract::units($segment)['codepoints'];
+        foreach ($accounts as $account) {
+            try {
+                $reservation = $this->ledger->reserve((int) $account->id, $units, $jobItemId);
+            } catch (RuntimeException $exception) {
+                if ($exception->getMessage() === 'LOCAL_BUDGET_EXHAUSTED') {
+                    continue;
+                }
+
+                throw $exception;
+            }
+            DB::table('lgt_job_items')->where('id', $jobItemId)->update(['attempt_id' => $reservation['id'], 'updated_at' => now()]);
+            $requestMarkedSending = false;
+
+            try {
+                $provider = $this->providers->get((string) $account->provider);
+                $this->ledger->markSending($reservation['id']);
+                $requestMarkedSending = true;
+                $response             = $provider->send(new TranslationProviderRequest(
+                    $reservation['request_uuid'], (int) $account->id, $sourceLocale, $targetLocale, [$segment], $sourceHash,
+                ), $this->accounts->credentials($account));
+                if ($response->ok && count($response->translations) === 1 && is_string($response->translations[0]) && trim($response->translations[0]) !== '') {
+                    return [
+                        'state'       => 'success',
+                        'translation' => $response->translations[0],
+                        'attempt'     => ['attempt_id' => $reservation['id'], 'request_id' => (string) ($response->requestId ?? '')],
+                        'provider'    => (string) $account->provider,
+                        'account_id'  => (int) $account->id,
+                    ];
+                }
+                $failure = $provider->classifyFailure($response);
+                if ($failure['definitely_unbilled']) {
+                    $this->ledger->definiteFailure($reservation['id'], $failure['code']);
+                    if (in_array($failure['code'], ['BALANCE_EXHAUSTED', 'NOT_OPENED'], true)) {
+                        continue;
+                    }
+                } else {
+                    $this->ledger->uncertain($reservation['id'], $failure['code']);
+                }
+
+                return ['state' => 'failed'];
+            } catch (Throwable) {
+                // Once markSending succeeds, an exception might have occurred
+                // after the provider received bytes. Before it succeeds no
+                // external request exists, so release the reservation instead
+                // of stranding free quota in a permanent reserved state.
+                try {
+                    if ($requestMarkedSending) {
+                        $this->ledger->uncertain($reservation['id'], 'WORKER_EXCEPTION');
+                    } else {
+                        $this->ledger->definiteFailure($reservation['id'], 'PRE_SEND_FAILURE');
+                    }
+                } catch (Throwable) {
+                    // Preserve the original error state; a later operator can
+                    // reconcile the durable sending attempt.
+                }
+
+                return ['state' => 'failed'];
+            }
+        }
+
+        return ['state' => 'exhausted'];
     }
 
     /** @param list<array{attempt_id:int,request_id:string}> $attempts */
@@ -326,15 +397,17 @@ final class TranslationJobService
             }, []);
     }
 
-    private function accountFor(string $source, string $target): ?object
+    /** @return list<object> */
+    private function accountsFor(string $source, string $target): array
     {
-        foreach (DB::table('lgt_provider_accounts')->where('owner_scope', 'tenant')->where('enabled', true)->where('dispatch_enabled', true)->whereNotNull('verified_at')->orderBy('id')->get() as $account) {
+        $accounts = [];
+        foreach (DB::table('lgt_provider_accounts')->where('owner_scope', 'tenant')->where('enabled', true)->where('dispatch_enabled', true)->whereNotNull('verified_at')->orderBy('failover_priority')->orderBy('id')->get() as $account) {
             if ($this->providers->get((string) $account->provider)->supports($source, $target)) {
-                return $account;
+                $accounts[] = $account;
             }
         }
 
-        return null;
+        return $accounts;
     }
 
     private function claim(int $jobId, string $runToken): ?object

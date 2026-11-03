@@ -89,6 +89,7 @@ return new class extends Migration
                 $t->unsignedBigInteger('external_usage_buffer')->default(0);
                 $t->string('cycle_timezone', 64)->default('UTC');
                 $t->unsignedSmallInteger('qps_limit')->default(1);
+                $t->unsignedSmallInteger('failover_priority')->default(100);
                 // Microsecond epoch, updated under the account row lock
                 // immediately before an external request.  This is durable
                 // per tenant and therefore remains correct across workers.

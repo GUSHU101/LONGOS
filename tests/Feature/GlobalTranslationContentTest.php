@@ -28,6 +28,8 @@ class GlobalTranslationContentTest extends TestCase
         $claims->up();
         $rateLimit = require base_path('plugins/LongosGlobalTranslate/Migrations/2026_11_03_000004_add_provider_dispatch_rate_limit.php');
         $rateLimit->up();
+        $priority = require base_path('plugins/LongosGlobalTranslate/Migrations/2026_11_03_000005_add_provider_failover_priority.php');
+        $priority->up();
         Schema::create('products', function (Blueprint $t): void {
             $t->id();
             $t->boolean('active');

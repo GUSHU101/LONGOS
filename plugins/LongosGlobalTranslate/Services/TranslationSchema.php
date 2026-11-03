@@ -63,7 +63,7 @@ final class TranslationSchema
         'lgt_provider_accounts' => [
             'id', 'provider', 'billing_identity_hash', 'owner_scope', 'account_tier', 'credentials_ciphertext',
             'credential_fingerprint', 'credential_revision', 'free_quota', 'soft_cap',
-            'paid_cap', 'external_usage_buffer', 'cycle_timezone', 'qps_limit', 'enabled',
+            'paid_cap', 'external_usage_buffer', 'cycle_timezone', 'qps_limit', 'failover_priority', 'enabled',
             'last_dispatch_at_us', 'dispatch_enabled', 'verified_at', 'verified_by', 'source_link', 'created_at', 'updated_at',
         ],
         'lgt_usage_months' => [
@@ -95,8 +95,8 @@ final class TranslationSchema
         'lgt_publication_items' => [
             'id', 'publication_id', 'translation_id', 'translation_version', 'source_hash', 'text', 'created_at', 'updated_at',
         ],
-        'lgt_settings' => ['id', 'key', 'value', 'revision', 'created_at', 'updated_at'],
-        'lgt_country_rules' => ['id', 'country', 'locale', 'enabled', 'created_at', 'updated_at'],
+        'lgt_settings'       => ['id', 'key', 'value', 'revision', 'created_at', 'updated_at'],
+        'lgt_country_rules'  => ['id', 'country', 'locale', 'enabled', 'created_at', 'updated_at'],
         'lgt_glossary_terms' => [
             'id', 'source_locale', 'target_locale', 'term', 'replacement', 'protect', 'created_at', 'updated_at',
         ],
@@ -104,7 +104,7 @@ final class TranslationSchema
             'id', 'kind', 'entity_id', 'field', 'reason', 'created_by', 'created_at', 'updated_at',
         ],
         'lgt_coverage_snapshots' => ['id', 'scope', 'report', 'created_by', 'created_at', 'updated_at'],
-        'lgt_audit_logs' => [
+        'lgt_audit_logs'         => [
             'id', 'actor_id', 'action', 'subject_type', 'subject_id', 'before', 'after', 'created_at', 'updated_at',
         ],
     ];
@@ -120,7 +120,7 @@ final class TranslationSchema
      */
     public static function inspect(): array
     {
-        $missingTables = [];
+        $missingTables  = [];
         $missingColumns = [];
 
         try {

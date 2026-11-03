@@ -2,11 +2,11 @@
 
 namespace Tests\Feature;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use Carbon\CarbonImmutable;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use Plugin\LongosGlobalTranslate\Controllers\ShopTranslationController;
@@ -14,14 +14,14 @@ use Plugin\LongosGlobalTranslate\Providers\ProviderRegistry;
 use Plugin\LongosGlobalTranslate\Providers\TranslationProviderInterface;
 use Plugin\LongosGlobalTranslate\Providers\TranslationProviderRequest;
 use Plugin\LongosGlobalTranslate\Providers\TranslationProviderResponse;
-use Plugin\LongosGlobalTranslate\Services\DictionaryService;
 use Plugin\LongosGlobalTranslate\Services\ContentScanner;
+use Plugin\LongosGlobalTranslate\Services\DictionaryService;
 use Plugin\LongosGlobalTranslate\Services\ProviderAccountService;
 use Plugin\LongosGlobalTranslate\Services\ProviderVerificationService;
 use Plugin\LongosGlobalTranslate\Services\PublicationService;
+use Plugin\LongosGlobalTranslate\Services\TranslationJobService;
 use Plugin\LongosGlobalTranslate\Services\TranslationLibrary;
 use Plugin\LongosGlobalTranslate\Services\TranslationSchema;
-use Plugin\LongosGlobalTranslate\Services\TranslationJobService;
 use Plugin\LongosGlobalTranslate\Services\TranslationSettings;
 use Plugin\LongosGlobalTranslate\Services\UsageLedger;
 use RuntimeException;
@@ -45,6 +45,7 @@ class GlobalTranslationWorkflowTest extends TestCase
             '2026_11_02_000002_add_worker_claim_tokens.php',
             '2026_11_02_000003_repair_translation_schema.php',
             '2026_11_03_000004_add_provider_dispatch_rate_limit.php',
+            '2026_11_03_000005_add_provider_failover_priority.php',
         ] as $migrationFile) {
             $migration = require base_path('plugins/LongosGlobalTranslate/Migrations/' . $migrationFile);
             $migration->up();
@@ -107,15 +108,15 @@ class GlobalTranslationWorkflowTest extends TestCase
     {
         DB::table('products')->insert(['id' => 43, 'active' => true]);
         DB::table('product_descriptions')->insert(['product_id' => 43, 'locale' => 'en', 'name' => 'Original case']);
-        $hash = ContentScanner::sourceHash('Original case');
+        $hash    = ContentScanner::sourceHash('Original case');
         $entryId = DB::table('lgt_entries')->insertGetId([
-            'content_key' => hash('sha256', 'product-43-name'), 'kind' => 'product', 'entity_id' => 43, 'field' => 'name',
+            'content_key'   => hash('sha256', 'product-43-name'), 'kind' => 'product', 'entity_id' => 43, 'field' => 'name',
             'source_locale' => 'en', 'source_format' => 'plain', 'source_text' => 'Original case', 'source_hash' => $hash,
-            'is_public' => true, 'is_tombstoned' => false, 'created_at' => now(), 'updated_at' => now(),
+            'is_public'     => true, 'is_tombstoned' => false, 'created_at' => now(), 'updated_at' => now(),
         ]);
         $translationId = DB::table('lgt_translations')->insertGetId([
             'entry_id' => $entryId, 'locale' => 'fr', 'source_hash' => $hash, 'text' => 'Unused live row',
-            'status' => TranslationLibrary::APPROVED, 'version' => 1, 'created_at' => now(), 'updated_at' => now(),
+            'status'   => TranslationLibrary::APPROVED, 'version' => 1, 'created_at' => now(), 'updated_at' => now(),
         ]);
         foreach ([[1, 'Ancienne version'], [2, 'Nouvelle version']] as [$revision, $text]) {
             $publicationId = DB::table('lgt_publications')->insertGetId([
@@ -123,7 +124,7 @@ class GlobalTranslationWorkflowTest extends TestCase
             ]);
             DB::table('lgt_publication_items')->insert([
                 'publication_id' => $publicationId, 'translation_id' => $translationId, 'translation_version' => 1,
-                'source_hash' => $hash, 'text' => $text, 'created_at' => now(), 'updated_at' => now(),
+                'source_hash'    => $hash, 'text' => $text, 'created_at' => now(), 'updated_at' => now(),
             ]);
         }
 
@@ -142,7 +143,7 @@ class GlobalTranslationWorkflowTest extends TestCase
             new DictionaryService,
         );
 
-        $config = $controller->config(\Illuminate\Http\Request::create('/global-translate/config'));
+        $config     = $controller->config(\Illuminate\Http\Request::create('/global-translate/config'));
         $dictionary = $controller->dictionary(\Illuminate\Http\Request::create('/global-translate/dictionary/product/1?locale=fr'), 'product', 1);
 
         self::assertFalse($config->getData(true)['enabled']);
@@ -173,14 +174,14 @@ class GlobalTranslationWorkflowTest extends TestCase
     public function test_provider_dispatch_is_durably_rate_limited_per_tenant_account(): void
     {
         $accountId = DB::table('lgt_provider_accounts')->insertGetId([
-            'provider' => 'baidu', 'billing_identity_hash' => hash('sha256', 'rate-limited'), 'owner_scope' => 'tenant',
+            'provider'               => 'baidu', 'billing_identity_hash' => hash('sha256', 'rate-limited'), 'owner_scope' => 'tenant',
             'credentials_ciphertext' => 'not-used', 'credential_revision' => 1, 'free_quota' => 100, 'soft_cap' => 100,
-            'cycle_timezone' => 'UTC', 'qps_limit' => 4, 'enabled' => true, 'dispatch_enabled' => true,
-            'verified_at' => now(), 'created_at' => now(), 'updated_at' => now(),
+            'cycle_timezone'         => 'UTC', 'qps_limit' => 4, 'enabled' => true, 'dispatch_enabled' => true,
+            'verified_at'            => now(), 'created_at' => now(), 'updated_at' => now(),
         ]);
-        $ledger = new UsageLedger;
+        $ledger  = new UsageLedger;
         $attempt = $ledger->reserve($accountId, 1, null, 'e9b6ca17-a2e7-4d62-ae3c-4a8c35791111');
-        $at = CarbonImmutable::parse('2026-11-03 12:00:00.123456', 'UTC');
+        $at      = CarbonImmutable::parse('2026-11-03 12:00:00.123456', 'UTC');
 
         $ledger->markSending($attempt['id'], $at);
 
@@ -191,8 +192,8 @@ class GlobalTranslationWorkflowTest extends TestCase
     public function test_pre_send_rate_limit_failure_releases_the_verification_reservation_without_contacting_a_provider(): void
     {
         $accounts = new ProviderAccountService;
-        $account = $accounts->save([
-            'provider' => 'baidu', 'billing_identity' => 'rate-limit-recovery', 'enabled' => true,
+        $account  = $accounts->save([
+            'provider'   => 'baidu', 'billing_identity' => 'rate-limit-recovery', 'enabled' => true,
             'free_quota' => 100, 'soft_cap' => 100, 'qps_limit' => 1,
         ], ['appid' => 'rate-limit-app', 'secret' => 'rate-limit-secret'], 7);
         $clock = CarbonImmutable::now('UTC');
@@ -200,12 +201,32 @@ class GlobalTranslationWorkflowTest extends TestCase
         DB::table('lgt_provider_accounts')->where('id', $account['id'])->update(['last_dispatch_at_us' => $nowUs + 3_000_000]);
         $provider = new class implements TranslationProviderInterface
         {
-            public function id(): string { return 'baidu'; }
+            public function id(): string
+            {
+                return 'baidu';
+            }
+
             public function validateCredentialShape(array $credentials): void {}
-            public function supports(string $sourceLocale, string $targetLocale): bool { return true; }
-            public function buildBatches(array $segments, string $sourceLocale, string $targetLocale): array { return [$segments]; }
-            public function send(TranslationProviderRequest $request, array $credentials): TranslationProviderResponse { self::fail('Provider must not be called before a rate-limit reservation is released.'); }
-            public function classifyFailure(\Throwable|TranslationProviderResponse $failure): array { return ['kind' => 'definite', 'code' => 'TEST', 'definitely_unbilled' => true]; }
+
+            public function supports(string $sourceLocale, string $targetLocale): bool
+            {
+                return true;
+            }
+
+            public function buildBatches(array $segments, string $sourceLocale, string $targetLocale): array
+            {
+                return [$segments];
+            }
+
+            public function send(TranslationProviderRequest $request, array $credentials): TranslationProviderResponse
+            {
+                self::fail('Provider must not be called before a rate-limit reservation is released.');
+            }
+
+            public function classifyFailure(\Throwable|TranslationProviderResponse $failure): array
+            {
+                return ['kind' => 'definite', 'code' => 'TEST', 'definitely_unbilled' => true];
+            }
         };
         $verification = new ProviderVerificationService($accounts, new ProviderRegistry(['baidu' => $provider]), new UsageLedger);
 
@@ -323,11 +344,11 @@ class GlobalTranslationWorkflowTest extends TestCase
         $entryId = DB::table('lgt_entries')->insertGetId([
             'content_key'   => hash('sha256', 'queued-product'), 'kind' => 'product', 'entity_id' => 98, 'field' => 'name',
             'source_locale' => 'en', 'source_format' => 'plain', 'source_text' => 'Queued case', 'source_hash' => ContentScanner::sourceHash('Queued case'),
-            'is_public' => true, 'is_tombstoned' => false, 'created_at' => now(), 'updated_at' => now(),
+            'is_public'     => true, 'is_tombstoned' => false, 'created_at' => now(), 'updated_at' => now(),
         ]);
         $jobId = DB::table('lgt_jobs')->insertGetId([
             'public_id' => '7924b49f-e6ce-4eb6-a3be-bfab91011111', 'status' => 'queued', 'mode' => TranslationSettings::MODE_FREE_ONLY,
-            'scope' => json_encode(['product']), 'target_locales' => json_encode(['fr']), 'created_at' => now(), 'updated_at' => now(),
+            'scope'     => json_encode(['product']), 'target_locales' => json_encode(['fr']), 'created_at' => now(), 'updated_at' => now(),
         ]);
         DB::table('lgt_job_items')->insert([
             'job_id' => $jobId, 'entry_id' => $entryId, 'target_locale' => 'fr', 'source_hash' => ContentScanner::sourceHash('Queued case'),
@@ -348,7 +369,7 @@ class GlobalTranslationWorkflowTest extends TestCase
     {
         $jobId = DB::table('lgt_jobs')->insertGetId([
             'public_id' => '40ee7d26-8c6f-40f4-9159-5fb9423b2222', 'status' => 'paused', 'mode' => TranslationSettings::MODE_FREE_ONLY,
-            'scope' => json_encode(['product']), 'target_locales' => json_encode(['fr']), 'created_at' => now(), 'updated_at' => now(),
+            'scope'     => json_encode(['product']), 'target_locales' => json_encode(['fr']), 'created_at' => now(), 'updated_at' => now(),
         ]);
         foreach (['run-a', 'run-b'] as $index => $token) {
             DB::table('lgt_job_items')->insert([
@@ -370,7 +391,7 @@ class GlobalTranslationWorkflowTest extends TestCase
     {
         (new TranslationSettings)->save(['mode' => TranslationSettings::MODE_FREE_ONLY, 'enabled_locales' => ['fr']]);
         $accounts = new ProviderAccountService;
-        $account = $accounts->save([
+        $account  = $accounts->save([
             'provider' => 'baidu', 'billing_identity' => 'queue-success', 'enabled' => true, 'free_quota' => 1_000, 'soft_cap' => 1_000,
         ], ['appid' => 'queue-app', 'secret' => 'queue-secret'], 11);
         $accounts->markVerified((int) $account['id'], 11);
@@ -379,11 +400,11 @@ class GlobalTranslationWorkflowTest extends TestCase
         $entryId = DB::table('lgt_entries')->insertGetId([
             'content_key'   => hash('sha256', 'completed-product'), 'kind' => 'product', 'entity_id' => 99, 'field' => 'name',
             'source_locale' => 'en', 'source_format' => 'plain', 'source_text' => 'Protected case', 'source_hash' => ContentScanner::sourceHash('Protected case'),
-            'is_public' => true, 'is_tombstoned' => false, 'created_at' => now(), 'updated_at' => now(),
+            'is_public'     => true, 'is_tombstoned' => false, 'created_at' => now(), 'updated_at' => now(),
         ]);
         $jobId = DB::table('lgt_jobs')->insertGetId([
             'public_id' => '4d97dbfa-26de-4859-a75f-d0713d2a3333', 'status' => 'queued', 'mode' => TranslationSettings::MODE_FREE_ONLY,
-            'scope' => json_encode(['product']), 'target_locales' => json_encode(['fr']), 'total_items' => 1, 'created_at' => now(), 'updated_at' => now(),
+            'scope'     => json_encode(['product']), 'target_locales' => json_encode(['fr']), 'total_items' => 1, 'created_at' => now(), 'updated_at' => now(),
         ]);
         DB::table('lgt_job_items')->insert([
             'job_id' => $jobId, 'entry_id' => $entryId, 'target_locale' => 'fr', 'source_hash' => ContentScanner::sourceHash('Protected case'),
@@ -391,12 +412,32 @@ class GlobalTranslationWorkflowTest extends TestCase
         ]);
         $provider = new class implements TranslationProviderInterface
         {
-            public function id(): string { return 'baidu'; }
+            public function id(): string
+            {
+                return 'baidu';
+            }
+
             public function validateCredentialShape(array $credentials): void {}
-            public function supports(string $sourceLocale, string $targetLocale): bool { return $sourceLocale === 'en' && $targetLocale === 'fr'; }
-            public function buildBatches(array $segments, string $sourceLocale, string $targetLocale): array { return [$segments]; }
-            public function send(TranslationProviderRequest $request, array $credentials): TranslationProviderResponse { return new TranslationProviderResponse(true, ['Étui protégé'], 'queue-result', null, hash('sha256', 'queue-result'), 1); }
-            public function classifyFailure(\Throwable|TranslationProviderResponse $failure): array { return ['kind' => 'definite', 'code' => 'TEST', 'definitely_unbilled' => true]; }
+
+            public function supports(string $sourceLocale, string $targetLocale): bool
+            {
+                return $sourceLocale === 'en' && $targetLocale === 'fr';
+            }
+
+            public function buildBatches(array $segments, string $sourceLocale, string $targetLocale): array
+            {
+                return [$segments];
+            }
+
+            public function send(TranslationProviderRequest $request, array $credentials): TranslationProviderResponse
+            {
+                return new TranslationProviderResponse(true, ['Étui protégé'], 'queue-result', null, hash('sha256', 'queue-result'), 1);
+            }
+
+            public function classifyFailure(\Throwable|TranslationProviderResponse $failure): array
+            {
+                return ['kind' => 'definite', 'code' => 'TEST', 'definitely_unbilled' => true];
+            }
         };
         $service = new TranslationJobService(new ContentScanner, new TranslationSettings, $accounts, new ProviderRegistry(['baidu' => $provider]), new UsageLedger, new TranslationLibrary);
         $service->process($jobId, 1, 'e2ec17a3-7321-447b-a010-8b42a3550001');
@@ -407,10 +448,200 @@ class GlobalTranslationWorkflowTest extends TestCase
         self::assertSame('Étui protégé', DB::table('lgt_translations')->where('entry_id', $entryId)->value('text'));
     }
 
+    public function test_local_free_quota_exhaustion_fails_over_to_the_next_verified_provider_in_priority_order(): void
+    {
+        (new TranslationSettings)->save(['mode' => TranslationSettings::MODE_FREE_ONLY, 'enabled_locales' => ['fr']]);
+        $accounts = new ProviderAccountService;
+        $primary  = $accounts->save([
+            'provider'   => 'baidu', 'billing_identity' => 'primary-cap-exhausted', 'enabled' => true,
+            'free_quota' => 10, 'soft_cap' => 10, 'failover_priority' => 10,
+        ], ['appid' => 'primary-app', 'secret' => 'primary-secret'], 14);
+        $secondary = $accounts->save([
+            'provider'   => 'aliyun', 'billing_identity' => 'secondary-free-capacity', 'enabled' => true,
+            'free_quota' => 100, 'soft_cap' => 100, 'failover_priority' => 20,
+        ], ['access_key_id' => 'secondary-key', 'access_key_secret' => 'secondary-secret'], 14);
+        foreach ([$primary, $secondary] as $account) {
+            $accounts->markVerified((int) $account['id'], 14);
+            $accounts->setDispatch((int) $account['id'], true, 14);
+        }
+        // Simulate capacity already committed/reserved by another task. The
+        // primary provider must not receive this field at all.
+        (new UsageLedger)->reserve((int) $primary['id'], 10);
+
+        $entryId         = $this->queueSingleTranslationItem('local-failover', 'Free quota fallback', '9f6e93f8-b9a0-4abd-b6db-000000000001');
+        $primaryProvider = new class implements TranslationProviderInterface
+        {
+            public int $calls = 0;
+
+            public function id(): string
+            {
+                return 'baidu';
+            }
+
+            public function validateCredentialShape(array $credentials): void {}
+
+            public function supports(string $sourceLocale, string $targetLocale): bool
+            {
+                return true;
+            }
+
+            public function buildBatches(array $segments, string $sourceLocale, string $targetLocale): array
+            {
+                return [$segments];
+            }
+
+            public function send(TranslationProviderRequest $request, array $credentials): TranslationProviderResponse
+            {
+                $this->calls++;
+
+                throw new RuntimeException('PRIMARY_MUST_NOT_BE_CALLED');
+            }
+
+            public function classifyFailure(\Throwable|TranslationProviderResponse $failure): array
+            {
+                return ['kind' => 'definite_failure', 'code' => 'TEST', 'definitely_unbilled' => true];
+            }
+        };
+        $secondaryProvider = new class implements TranslationProviderInterface
+        {
+            public int $calls = 0;
+
+            public function id(): string
+            {
+                return 'aliyun';
+            }
+
+            public function validateCredentialShape(array $credentials): void {}
+
+            public function supports(string $sourceLocale, string $targetLocale): bool
+            {
+                return true;
+            }
+
+            public function buildBatches(array $segments, string $sourceLocale, string $targetLocale): array
+            {
+                return [$segments];
+            }
+
+            public function send(TranslationProviderRequest $request, array $credentials): TranslationProviderResponse
+            {
+                $this->calls++;
+
+                return new TranslationProviderResponse(true, ['Relais de quota'], 'secondary-request', null, hash('sha256', 'secondary'), 1);
+            }
+
+            public function classifyFailure(\Throwable|TranslationProviderResponse $failure): array
+            {
+                return ['kind' => 'definite_failure', 'code' => 'TEST', 'definitely_unbilled' => true];
+            }
+        };
+        $service = new TranslationJobService(new ContentScanner, new TranslationSettings, $accounts, new ProviderRegistry(['baidu' => $primaryProvider, 'aliyun' => $secondaryProvider]), new UsageLedger, new TranslationLibrary);
+        $service->process((int) DB::table('lgt_job_items')->where('entry_id', $entryId)->value('job_id'), 1, '9f6e93f8-b9a0-4abd-b6db-000000000002');
+
+        self::assertSame(0, $primaryProvider->calls);
+        self::assertSame(1, $secondaryProvider->calls);
+        self::assertSame('aliyun', DB::table('lgt_translations')->where('entry_id', $entryId)->value('provider'));
+        self::assertSame('completed', DB::table('lgt_job_items')->where('entry_id', $entryId)->value('status'));
+    }
+
+    public function test_explicit_provider_balance_exhaustion_fails_over_without_replaying_an_uncertain_request(): void
+    {
+        (new TranslationSettings)->save(['mode' => TranslationSettings::MODE_FREE_ONLY, 'enabled_locales' => ['fr']]);
+        $accounts = new ProviderAccountService;
+        $primary  = $accounts->save([
+            'provider'   => 'baidu', 'billing_identity' => 'primary-provider-balance', 'enabled' => true,
+            'free_quota' => 100, 'soft_cap' => 100, 'failover_priority' => 10,
+        ], ['appid' => 'balance-app', 'secret' => 'balance-secret'], 15);
+        $secondary = $accounts->save([
+            'provider'   => 'volcengine', 'billing_identity' => 'secondary-provider-balance', 'enabled' => true,
+            'free_quota' => 100, 'soft_cap' => 100, 'failover_priority' => 20,
+        ], ['access_key_id' => 'fallback-key', 'secret_access_key' => 'fallback-secret'], 15);
+        foreach ([$primary, $secondary] as $account) {
+            $accounts->markVerified((int) $account['id'], 15);
+            $accounts->setDispatch((int) $account['id'], true, 15);
+        }
+
+        $entryId         = $this->queueSingleTranslationItem('provider-failover', 'Provider balance fallback', 'c4a2c70d-7020-4d0d-8d14-000000000001');
+        $primaryProvider = new class implements TranslationProviderInterface
+        {
+            public int $calls = 0;
+
+            public function id(): string
+            {
+                return 'baidu';
+            }
+
+            public function validateCredentialShape(array $credentials): void {}
+
+            public function supports(string $sourceLocale, string $targetLocale): bool
+            {
+                return true;
+            }
+
+            public function buildBatches(array $segments, string $sourceLocale, string $targetLocale): array
+            {
+                return [$segments];
+            }
+
+            public function send(TranslationProviderRequest $request, array $credentials): TranslationProviderResponse
+            {
+                $this->calls++;
+
+                return new TranslationProviderResponse(false, [], 'balance-request', 'BALANCE_EXHAUSTED', hash('sha256', 'balance'), 1);
+            }
+
+            public function classifyFailure(\Throwable|TranslationProviderResponse $failure): array
+            {
+                return ['kind' => 'definite_failure', 'code' => 'BALANCE_EXHAUSTED', 'definitely_unbilled' => true];
+            }
+        };
+        $secondaryProvider = new class implements TranslationProviderInterface
+        {
+            public int $calls = 0;
+
+            public function id(): string
+            {
+                return 'volcengine';
+            }
+
+            public function validateCredentialShape(array $credentials): void {}
+
+            public function supports(string $sourceLocale, string $targetLocale): bool
+            {
+                return true;
+            }
+
+            public function buildBatches(array $segments, string $sourceLocale, string $targetLocale): array
+            {
+                return [$segments];
+            }
+
+            public function send(TranslationProviderRequest $request, array $credentials): TranslationProviderResponse
+            {
+                $this->calls++;
+
+                return new TranslationProviderResponse(true, ['Relais fournisseur'], 'fallback-request', null, hash('sha256', 'fallback'), 1);
+            }
+
+            public function classifyFailure(\Throwable|TranslationProviderResponse $failure): array
+            {
+                return ['kind' => 'definite_failure', 'code' => 'TEST', 'definitely_unbilled' => true];
+            }
+        };
+        $service = new TranslationJobService(new ContentScanner, new TranslationSettings, $accounts, new ProviderRegistry(['baidu' => $primaryProvider, 'volcengine' => $secondaryProvider]), new UsageLedger, new TranslationLibrary);
+        $service->process((int) DB::table('lgt_job_items')->where('entry_id', $entryId)->value('job_id'), 1, 'c4a2c70d-7020-4d0d-8d14-000000000002');
+
+        self::assertSame(1, $primaryProvider->calls);
+        self::assertSame(1, $secondaryProvider->calls);
+        self::assertSame(UsageLedger::DEFINITE_FAILED, DB::table('lgt_attempts')->where('provider_account_id', $primary['id'])->where('job_item_id', DB::table('lgt_job_items')->where('entry_id', $entryId)->value('id'))->value('state'));
+        self::assertSame(UsageLedger::COMMITTED, DB::table('lgt_attempts')->where('provider_account_id', $secondary['id'])->where('job_item_id', DB::table('lgt_job_items')->where('entry_id', $entryId)->value('id'))->value('state'));
+        self::assertSame('volcengine', DB::table('lgt_translations')->where('entry_id', $entryId)->value('provider'));
+    }
+
     public function test_lost_worker_releases_only_a_pre_send_reservation_and_quarantines_a_sending_attempt(): void
     {
         $accounts = new ProviderAccountService;
-        $account = $accounts->save([
+        $account  = $accounts->save([
             'provider' => 'baidu', 'billing_identity' => 'worker-loss', 'enabled' => true, 'free_quota' => 100, 'soft_cap' => 100,
         ], ['appid' => 'worker-loss-app', 'secret' => 'worker-loss-secret'], 12);
         $accounts->markVerified((int) $account['id'], 12);
@@ -426,5 +657,25 @@ class GlobalTranslationWorkflowTest extends TestCase
         $ledger->recoverWorkerLoss($sending['id']);
         self::assertSame(UsageLedger::UNCERTAIN, DB::table('lgt_attempts')->where('id', $sending['id'])->value('state'));
         self::assertSame(10, (int) DB::table('lgt_usage_months')->where('provider_account_id', $account['id'])->value('uncertain_units'));
+    }
+
+    private function queueSingleTranslationItem(string $key, string $source, string $jobPublicId): int
+    {
+        $hash    = ContentScanner::sourceHash($source);
+        $entryId = DB::table('lgt_entries')->insertGetId([
+            'content_key'   => hash('sha256', $key), 'kind' => 'product', 'entity_id' => random_int(10_000, 99_999), 'field' => 'name',
+            'source_locale' => 'en', 'source_format' => 'plain', 'source_text' => $source, 'source_hash' => $hash,
+            'is_public'     => true, 'is_tombstoned' => false, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $jobId = DB::table('lgt_jobs')->insertGetId([
+            'public_id' => $jobPublicId, 'status' => 'queued', 'mode' => TranslationSettings::MODE_FREE_ONLY,
+            'scope'     => json_encode(['product']), 'target_locales' => json_encode(['fr']), 'total_items' => 1, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('lgt_job_items')->insert([
+            'job_id' => $jobId, 'entry_id' => $entryId, 'target_locale' => 'fr', 'source_hash' => $hash,
+            'status' => 'ready', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        return $entryId;
     }
 }

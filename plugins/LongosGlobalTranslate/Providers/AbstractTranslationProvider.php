@@ -68,7 +68,7 @@ abstract class AbstractTranslationProvider implements TranslationProviderInterfa
         }
         if ($failure instanceof TranslationProviderResponse) {
             $code = (string) ($failure->errorCode ?? 'UNKNOWN_PROVIDER_ERROR');
-            if (in_array($code, ['INVALID_INPUT', 'UNSUPPORTED_LANGUAGE', 'AUTH', 'NOT_OPENED', 'RATE_LIMIT'], true)) {
+            if (in_array($code, ['INVALID_INPUT', 'UNSUPPORTED_LANGUAGE', 'AUTH', 'NOT_OPENED', 'RATE_LIMIT', 'BALANCE_EXHAUSTED'], true)) {
                 return ['kind' => 'definite_failure', 'code' => $code, 'definitely_unbilled' => true];
             }
         }

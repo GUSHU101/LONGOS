@@ -186,6 +186,7 @@ final class AdminTranslationController extends Controller
             'external_usage_buffer' => ['nullable', 'integer', 'min:0', 'max:10000000000'],
             'cycle_timezone'        => ['nullable', 'string', 'max:64'],
             'qps_limit'             => ['nullable', 'integer', 'min:1', 'max:10'],
+            'failover_priority'     => ['nullable', 'integer', 'min:1', 'max:1000'],
             'enabled'               => ['boolean'],
             'source_link'           => ['nullable', 'url', 'max:512'],
             'credentials'           => ['required', 'array'],

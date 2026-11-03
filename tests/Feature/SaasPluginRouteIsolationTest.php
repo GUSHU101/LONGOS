@@ -215,6 +215,7 @@ class SaasPluginRouteIsolationTest extends TestCase
             '2026_11_02_000002_add_worker_claim_tokens.php',
             '2026_11_02_000003_repair_translation_schema.php',
             '2026_11_03_000004_add_provider_dispatch_rate_limit.php',
+            '2026_11_03_000005_add_provider_failover_priority.php',
         ] as $migrationFile) {
             $migration = require base_path('plugins/LongosGlobalTranslate/Migrations/' . $migrationFile);
             $migration->up();
