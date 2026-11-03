@@ -3,6 +3,7 @@
 namespace Plugin\LongosGlobalTranslate;
 
 use Beike\Services\DesignService;
+use Plugin\LongosGlobalTranslate\Services\TranslationSchema;
 use Plugin\LongosGlobalTranslate\Services\TranslationSettings;
 
 class Bootstrap
@@ -52,6 +53,13 @@ class Bootstrap
                 || str_starts_with($routeName, 'shop.account.')
                 || in_array($routeName, ['shop.login.index', 'shop.register.index'], true)
                 || str_contains((string) $output, 'id="longos-global-translate"')) {
+                return $output;
+            }
+            // A previous deployment can have been interrupted between plugin
+            // migrations. Do not let an optional widget probe incomplete
+            // tables during a storefront request; the admin recovery screen
+            // and the next normal Coolify upgrade repair the schema.
+            if (! TranslationSchema::ready()) {
                 return $output;
             }
             $settings = app(TranslationSettings::class)->all();

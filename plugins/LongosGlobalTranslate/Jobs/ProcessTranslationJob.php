@@ -9,6 +9,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Str;
 use Plugin\LongosGlobalTranslate\Services\TranslationJobService;
+use Plugin\LongosGlobalTranslate\Services\TranslationSchema;
 use Throwable;
 
 final class ProcessTranslationJob implements ShouldQueue
@@ -31,6 +32,12 @@ final class ProcessTranslationJob implements ShouldQueue
 
     public function handle(TranslationJobService $service): void
     {
+        // A worker can start while a rolling deployment is still repairing
+        // the plugin schema. Failing closed here prevents any provider call
+        // until the durable accounting and claim tables are available.
+        if (! TranslationSchema::ready()) {
+            return;
+        }
         // LONGOS queues are tenant-aware by default. The payload contains only
         // a tenant-local job ID; it never serializes source text or credentials.
         $service->process($this->translationJobId, 50, $this->runToken);
@@ -38,6 +45,9 @@ final class ProcessTranslationJob implements ShouldQueue
 
     public function failed(Throwable $exception): void
     {
+        if (! TranslationSchema::ready()) {
+            return;
+        }
         // Laravel invokes this only after the configured retry policy is
         // exhausted. Marking our own claim failed lets the parent job finish
         // visibly without ever replaying an outcome that might have reached a

@@ -7,6 +7,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Plugin\LongosGlobalTranslate\Services\DictionaryService;
 use Plugin\LongosGlobalTranslate\Services\PresentationLocaleResolver;
+use Plugin\LongosGlobalTranslate\Services\TranslationSchema;
 use Plugin\LongosGlobalTranslate\Services\TranslationSettings;
 
 final class ShopTranslationController extends Controller
@@ -19,6 +20,9 @@ final class ShopTranslationController extends Controller
 
     public function config(Request $request): JsonResponse
     {
+        if (! TranslationSchema::ready()) {
+            return $this->json($this->disabledConfig());
+        }
         $settings = $this->settings->all();
         $decision = $this->locales->decide($request);
 
@@ -34,6 +38,9 @@ final class ShopTranslationController extends Controller
 
     public function locale(Request $request): JsonResponse
     {
+        if (! TranslationSchema::ready()) {
+            return $this->json(['saved' => false, 'code' => 'LGT_SCHEMA_NOT_READY'], 503);
+        }
         $locale   = (string) $request->validate(['locale' => ['required', 'string', 'max:24']])['locale'];
         $response = $this->json(['saved' => true]);
         $decision = $this->locales->persist($response, $locale);
@@ -47,6 +54,9 @@ final class ShopTranslationController extends Controller
 
     public function dictionary(Request $request, string $kind, int $entityId): JsonResponse
     {
+        if (! TranslationSchema::ready()) {
+            return $this->json(['revision' => null, 'items' => []]);
+        }
         $decision = $this->locales->decide($request);
         $locale   = (string) $request->query('locale', $decision->locale);
         // The server retains authority over enabled locales. An arbitrary URL
@@ -60,9 +70,23 @@ final class ShopTranslationController extends Controller
     }
 
     /** @param array<string, mixed> $payload */
-    private function json(array $payload): JsonResponse
+    /** @return array<string, mixed> */
+    private function disabledConfig(): array
     {
-        return response()->json($payload, 200, [
+        return [
+            'enabled'        => false,
+            'source_locale'  => 'en',
+            'locales'        => ['en'],
+            'locale'         => 'en',
+            'locale_source'  => 'schema_not_ready',
+            'dictionary_url' => '',
+        ];
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function json(array $payload, int $status = 200): JsonResponse
+    {
+        return response()->json($payload, $status, [
             'Cache-Control'          => 'private, no-store',
             'Pragma'                 => 'no-cache',
             'Vary'                   => 'Cookie',

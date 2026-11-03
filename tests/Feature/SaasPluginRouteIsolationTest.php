@@ -132,11 +132,30 @@ class SaasPluginRouteIsolationTest extends TestCase
             self::assertSame(['GET', 'HEAD'], $route->methods());
         }
 
-        $payload = app(\Plugin\LongosGlobalTranslate\Controllers\AdminTranslationController::class)->diagnostics()->getData(true);
+        // Reproduce an interrupted historical release: its sentinel settings
+        // table exists, while a dashboard table does not. The plugin must
+        // return a controlled recovery response instead of querying the
+        // missing coverage table and producing an admin 500.
+        Schema::create('lgt_settings', function (Blueprint $table): void {
+            $table->id();
+            $table->string('key', 96)->unique();
+            $table->json('value')->nullable();
+            $table->unsignedBigInteger('revision')->default(1);
+            $table->timestamps();
+        });
+        $controller = app(\Plugin\LongosGlobalTranslate\Controllers\AdminTranslationController::class);
+        $response   = $controller->diagnostics();
+        $payload    = $response->getData(true);
+        self::assertSame(503, $response->getStatusCode());
+        self::assertFalse($payload['ready']);
+        self::assertContains('lgt_entries', $payload['schema']['missing_tables']);
         self::assertFalse($payload['dispatch_enabled']);
         self::assertSame(0, $payload['paid_cap']);
         self::assertSame('preview_only', $payload['mode']);
         self::assertArrayNotHasKey('credentials', $payload);
+
+        app('view')->addNamespace('LongosGlobalTranslate', base_path('plugins/LongosGlobalTranslate/Views'));
+        self::assertTrue(view()->exists('LongosGlobalTranslate::admin.not_ready'));
     }
 
     public function test_translation_plugin_status_is_isolated_in_prefix_and_database_modes(): void

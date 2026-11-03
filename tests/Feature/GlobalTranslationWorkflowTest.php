@@ -18,6 +18,7 @@ use Plugin\LongosGlobalTranslate\Services\ProviderAccountService;
 use Plugin\LongosGlobalTranslate\Services\ProviderVerificationService;
 use Plugin\LongosGlobalTranslate\Services\PublicationService;
 use Plugin\LongosGlobalTranslate\Services\TranslationLibrary;
+use Plugin\LongosGlobalTranslate\Services\TranslationSchema;
 use Plugin\LongosGlobalTranslate\Services\TranslationJobService;
 use Plugin\LongosGlobalTranslate\Services\TranslationSettings;
 use Plugin\LongosGlobalTranslate\Services\UsageLedger;
@@ -40,6 +41,7 @@ class GlobalTranslationWorkflowTest extends TestCase
             '2026_11_02_000000_create_translation_tables.php',
             '2026_11_02_000001_upgrade_translation_schema.php',
             '2026_11_02_000002_add_worker_claim_tokens.php',
+            '2026_11_02_000003_repair_translation_schema.php',
         ] as $migrationFile) {
             $migration = require base_path('plugins/LongosGlobalTranslate/Migrations/' . $migrationFile);
             $migration->up();
@@ -129,6 +131,41 @@ class GlobalTranslationWorkflowTest extends TestCase
 
         $this->expectException(InvalidArgumentException::class);
         (new TranslationSettings)->save(['source_locale' => 'fr']);
+    }
+
+    public function test_schema_repair_restores_an_interrupted_plugin_migration_without_dropping_data(): void
+    {
+        Schema::drop('lgt_coverage_snapshots');
+        Schema::table('lgt_job_items', function (Blueprint $table): void {
+            $table->dropIndex('lgt_job_item_claim');
+            $table->dropColumn('claim_token');
+        });
+
+        self::assertFalse(TranslationSchema::inspect()['ready']);
+
+        $repair = require base_path('plugins/LongosGlobalTranslate/Migrations/2026_11_02_000003_repair_translation_schema.php');
+        $repair->up();
+
+        self::assertTrue(TranslationSchema::inspect()['ready']);
+        self::assertTrue(Schema::hasTable('lgt_coverage_snapshots'));
+        self::assertTrue(Schema::hasColumn('lgt_job_items', 'claim_token'));
+    }
+
+    public function test_malformed_persisted_settings_fail_closed_without_breaking_the_admin_workspace(): void
+    {
+        DB::table('lgt_settings')->insert([
+            'key'        => 'mode',
+            'value'      => json_encode('unsafe_unknown_mode'),
+            'revision'   => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $settings = (new TranslationSettings)->all();
+
+        self::assertSame(TranslationSettings::MODE_PREVIEW, $settings['mode']);
+        self::assertSame('en', $settings['source_locale']);
+        self::assertFalse((bool) $settings['widget']['enabled']);
     }
 
     public function test_controlled_provider_verification_commits_one_journaled_probe_but_keeps_dispatch_off(): void

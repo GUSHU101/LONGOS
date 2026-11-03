@@ -45,7 +45,22 @@ final class TranslationSettings
             }
         }
 
-        return $this->validate($defaults);
+        try {
+            return $this->validate($defaults);
+        } catch (InvalidArgumentException) {
+            // Settings are operator-editable persistent data.  An invalid
+            // value left by an interrupted preview upgrade must not make the
+            // optional plugin (or the whole admin page) unavailable.  Return
+            // conservative, source-English defaults; the next successful
+            // save writes a normalized revision back to the tenant database.
+            return $this->validate([
+                'mode'                    => self::MODE_PREVIEW,
+                'source_locale'           => 'en',
+                'enabled_locales'         => [],
+                'accept_language_enabled' => false,
+                'widget'                  => ['enabled' => false, 'position' => 'right', 'bottom_offset' => 84, 'mobile_bottom_offset' => 88, 'theme' => 'system'],
+            ]);
+        }
     }
 
     /** @param array<string, mixed> $settings */

@@ -13,7 +13,9 @@ use Plugin\LongosGlobalTranslate\Services\ProviderVerificationService;
 use Plugin\LongosGlobalTranslate\Services\PublicationService;
 use Plugin\LongosGlobalTranslate\Services\TranslationJobService;
 use Plugin\LongosGlobalTranslate\Services\TranslationLibrary;
+use Plugin\LongosGlobalTranslate\Services\TranslationSchema;
 use Plugin\LongosGlobalTranslate\Services\TranslationSettings;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Throwable;
 
 final class AdminTranslationController extends Controller
@@ -30,17 +32,63 @@ final class AdminTranslationController extends Controller
 
     public function index()
     {
-        return response()->view('LongosGlobalTranslate::admin.index', $this->dashboard())
-            ->header('Cache-Control', 'private, no-store');
+        $schema = TranslationSchema::inspect();
+        if (! $schema['ready']) {
+            return $this->recoveryPage($schema);
+        }
+
+        try {
+            return response()->view('LongosGlobalTranslate::admin.index', $this->dashboard())
+                ->header('Cache-Control', 'private, no-store');
+        } catch (Throwable $exception) {
+            // This plugin is presentation-only.  A damaged historical setting
+            // or an unforeseen tenant-local data inconsistency must never
+            // become a raw admin 500 or affect commerce routes. The exception
+            // stays in the platform log for diagnosis; the browser receives
+            // a non-cacheable, actionable recovery state without internals.
+            report($exception);
+
+            return $this->recoveryPage($this->runtimeRecoverySchema());
+        }
     }
 
     public function diagnostics(): JsonResponse
     {
-        return $this->json($this->dashboard()['diagnostics']);
+        $schema = TranslationSchema::inspect();
+        if (! $schema['ready']) {
+            return $this->json([
+                'ready'             => false,
+                'schema'            => $schema,
+                'mode'              => TranslationSettings::MODE_PREVIEW,
+                'dispatch_enabled'  => false,
+                'paid_cap'          => 0,
+                'provider_calls'    => 'schema_repair_required',
+                'tenant_resolved'   => current_site() !== null,
+                'core_locale_unchanged' => true,
+            ], 503);
+        }
+
+        try {
+            return $this->json($this->dashboard()['diagnostics']);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return $this->json([
+                'ready'             => false,
+                'schema'            => $this->runtimeRecoverySchema(),
+                'mode'              => TranslationSettings::MODE_PREVIEW,
+                'dispatch_enabled'  => false,
+                'paid_cap'          => 0,
+                'provider_calls'    => 'runtime_recovery_required',
+                'tenant_resolved'   => current_site() !== null,
+                'core_locale_unchanged' => true,
+            ], 503);
+        }
     }
 
     public function saveSettings(Request $request): JsonResponse
     {
+        $this->requireSchema();
         $data = $request->validate([
             'mode'                        => ['required', 'string'],
             'source_locale'               => ['required', 'string', 'max:24'],
@@ -62,6 +110,7 @@ final class AdminTranslationController extends Controller
 
     public function saveCountryRule(Request $request): JsonResponse
     {
+        $this->requireSchema();
         $data = $request->validate([
             'country' => ['required', 'string', 'regex:/^[A-Za-z]{2}$/'],
             'locale'  => ['required', 'string', 'max:24'],
@@ -86,6 +135,7 @@ final class AdminTranslationController extends Controller
 
     public function saveProvider(Request $request): JsonResponse
     {
+        $this->requireSchema();
         $data = $request->validate([
             'provider'              => ['required', 'in:aliyun,volcengine,baidu'],
             'billing_identity'      => ['required', 'string', 'max:255'],
@@ -112,6 +162,7 @@ final class AdminTranslationController extends Controller
 
     public function verifyProvider(Request $request, int $provider): JsonResponse
     {
+        $this->requireSchema();
         $request->validate(['confirm_provider_charge' => ['accepted']]);
 
         return $this->json([
@@ -122,6 +173,7 @@ final class AdminTranslationController extends Controller
 
     public function dispatchProvider(Request $request, int $provider): JsonResponse
     {
+        $this->requireSchema();
         $data = $request->validate(['enabled' => ['required', 'boolean'], 'confirm_dispatch' => ['accepted_if:enabled,true']]);
         $account = $this->accounts->setDispatch($provider, (bool) $data['enabled'], $this->actorId());
         $resumed = (bool) $data['enabled'] ? $this->jobs->resumePausedJobs() : 0;
@@ -137,6 +189,7 @@ final class AdminTranslationController extends Controller
 
     public function scan(Request $request): JsonResponse
     {
+        $this->requireSchema();
         $data  = $request->validate(['scope' => ['present', 'array', 'max:4'], 'scope.*' => ['in:product,category,page,builder']]);
         $scope = $data['scope'] ?: ['product', 'category', 'page', 'builder'];
 
@@ -145,6 +198,7 @@ final class AdminTranslationController extends Controller
 
     public function plan(Request $request): JsonResponse
     {
+        $this->requireSchema();
         $data = $request->validate([
             'locales'   => ['required', 'array', 'min:1', 'max:24'],
             'locales.*' => ['string', 'max:24'],
@@ -157,6 +211,7 @@ final class AdminTranslationController extends Controller
 
     public function translations(Request $request): JsonResponse
     {
+        $this->requireSchema();
         $locale = $request->filled('locale') ? TranslationSettings::locale((string) $request->query('locale')) : null;
         $query  = DB::table('lgt_translations as t')->join('lgt_entries as e', 'e.id', '=', 't.entry_id')
             ->orderByDesc('t.updated_at')->limit(100);
@@ -172,6 +227,7 @@ final class AdminTranslationController extends Controller
 
     public function updateTranslation(Request $request, int $translation): JsonResponse
     {
+        $this->requireSchema();
         $data = $request->validate([
             'version' => ['required', 'integer', 'min:1'],
             'text'    => ['required', 'string', 'max:100000'],
@@ -183,6 +239,7 @@ final class AdminTranslationController extends Controller
 
     public function reviewTranslation(Request $request, int $translation): JsonResponse
     {
+        $this->requireSchema();
         $data = $request->validate(['version' => ['required', 'integer', 'min:1'], 'approved' => ['required', 'boolean']]);
 
         return $this->json(['translation' => $this->library->review($translation, (int) $data['version'], (bool) $data['approved'], $this->actorId())]);
@@ -190,6 +247,7 @@ final class AdminTranslationController extends Controller
 
     public function publish(Request $request): JsonResponse
     {
+        $this->requireSchema();
         $data = $request->validate(['locale' => ['required', 'string', 'max:24']]);
 
         return $this->json(['publication' => $this->publications->publish($data['locale'], $this->actorId())], 201);
@@ -197,6 +255,7 @@ final class AdminTranslationController extends Controller
 
     public function rollback(Request $request, int $publication): JsonResponse
     {
+        $this->requireSchema();
         $data = $request->validate(['locale' => ['required', 'string', 'max:24']]);
 
         return $this->json(['publication' => $this->publications->rollback($data['locale'], $publication, $this->actorId())], 201);
@@ -241,6 +300,39 @@ final class AdminTranslationController extends Controller
                 'tenant_resolved'       => current_site() !== null,
                 'core_locale_unchanged' => true,
             ],
+        ];
+    }
+
+    private function requireSchema(): void
+    {
+        $schema = TranslationSchema::inspect();
+        if ($schema['ready']) {
+            return;
+        }
+
+        throw new HttpResponseException($this->json([
+            'message' => 'Translation workspace is temporarily unavailable while its safe schema repair is pending.',
+            'code'    => 'LGT_SCHEMA_NOT_READY',
+            'schema'  => $schema,
+        ], 503));
+    }
+
+    /** @param array<string, mixed> $schema */
+    private function recoveryPage(array $schema)
+    {
+        return response()->view('LongosGlobalTranslate::admin.not_ready', compact('schema'), 503)
+            ->header('Cache-Control', 'private, no-store');
+    }
+
+    /** @return array{ready: false, missing_tables: list<string>, missing_columns: list<string>, inspection_failed: false, runtime_recovery: true} */
+    private function runtimeRecoverySchema(): array
+    {
+        return [
+            'ready'             => false,
+            'missing_tables'    => [],
+            'missing_columns'   => [],
+            'inspection_failed' => false,
+            'runtime_recovery'  => true,
         ];
     }
 
