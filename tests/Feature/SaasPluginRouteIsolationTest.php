@@ -192,6 +192,42 @@ class SaasPluginRouteIsolationTest extends TestCase
         PluginRepo::resetRuntimeCache();
     }
 
+    public function test_translation_admin_workspace_renders_with_a_ready_tenant_schema(): void
+    {
+        $provider = new PluginServiceProvider(app());
+        $register = Closure::bind(function (): void {
+            $this->pluginBasePath = base_path('plugins');
+            $this->registerRoutes('LongosGlobalTranslate', 'longos_global_translate');
+        }, $provider, PluginServiceProvider::class);
+        $register();
+        Route::getRoutes()->refreshNameLookups();
+
+        foreach ([
+            '2026_11_02_000000_create_translation_tables.php',
+            '2026_11_02_000001_upgrade_translation_schema.php',
+            '2026_11_02_000002_add_worker_claim_tokens.php',
+            '2026_11_02_000003_repair_translation_schema.php',
+        ] as $migrationFile) {
+            $migration = require base_path('plugins/LongosGlobalTranslate/Migrations/' . $migrationFile);
+            $migration->up();
+        }
+
+        // Isolate the plugin view from the full authenticated admin shell.
+        // The shell is independently exercised by its own feature suite; this
+        // verifies that this plugin's data contract and Blade view can render
+        // an actual ready workspace rather than only its recovery response.
+        app('view')->replaceNamespace('admin', base_path('tests/Fixtures/views/admin'));
+        app('view')->addNamespace('LongosGlobalTranslate', base_path('plugins/LongosGlobalTranslate/Views'));
+        app('translator')->addNamespace('LongosGlobalTranslate', base_path('plugins/LongosGlobalTranslate/Lang'));
+
+        $response = app(\Plugin\LongosGlobalTranslate\Controllers\AdminTranslationController::class)->index();
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertStringContainsString('Presentation mode', $response->getContent());
+        self::assertStringContainsString('Translation library', $response->getContent());
+        self::assertStringNotContainsString('Safe repair pending', $response->getContent());
+    }
+
     public function test_shopify_transfer_routes_are_tenant_guarded_and_follow_product_permissions(): void
     {
         $provider = new PluginServiceProvider(app());

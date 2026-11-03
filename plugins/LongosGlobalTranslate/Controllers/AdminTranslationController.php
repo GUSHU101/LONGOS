@@ -6,7 +6,6 @@ use Beike\Admin\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Plugin\LongosGlobalTranslate\Services\ContentScanner;
 use Plugin\LongosGlobalTranslate\Services\ProviderAccountService;
 use Plugin\LongosGlobalTranslate\Services\ProviderVerificationService;
@@ -37,19 +36,13 @@ final class AdminTranslationController extends Controller
             return $this->recoveryPage($schema);
         }
 
-        try {
-            return response()->view('LongosGlobalTranslate::admin.index', $this->dashboard())
-                ->header('Cache-Control', 'private, no-store');
-        } catch (Throwable $exception) {
-            // This plugin is presentation-only.  A damaged historical setting
-            // or an unforeseen tenant-local data inconsistency must never
-            // become a raw admin 500 or affect commerce routes. The exception
-            // stays in the platform log for diagnosis; the browser receives
-            // a non-cacheable, actionable recovery state without internals.
-            report($exception);
-
-            return $this->recoveryPage($this->runtimeRecoverySchema());
-        }
+        // A ready schema must lead to the actual workspace.  Do not turn a
+        // coding or presentation failure into a reassuring but unusable
+        // “upgrade” screen: dashboard() isolates recoverable tenant records
+        // section-by-section and an unexpected defect remains observable in
+        // both monitoring and the test suite.
+        return response()->view('LongosGlobalTranslate::admin.index', $this->dashboard())
+            ->header('Cache-Control', 'private, no-store');
     }
 
     public function diagnostics(): JsonResponse
@@ -68,22 +61,7 @@ final class AdminTranslationController extends Controller
             ], 503);
         }
 
-        try {
-            return $this->json($this->dashboard()['diagnostics']);
-        } catch (Throwable $exception) {
-            report($exception);
-
-            return $this->json([
-                'ready'             => false,
-                'schema'            => $this->runtimeRecoverySchema(),
-                'mode'              => TranslationSettings::MODE_PREVIEW,
-                'dispatch_enabled'  => false,
-                'paid_cap'          => 0,
-                'provider_calls'    => 'runtime_recovery_required',
-                'tenant_resolved'   => current_site() !== null,
-                'core_locale_unchanged' => true,
-            ], 503);
-        }
+        return $this->json($this->dashboard()['diagnostics']);
     }
 
     public function saveSettings(Request $request): JsonResponse
@@ -264,34 +242,22 @@ final class AdminTranslationController extends Controller
     /** @return array<string, mixed> */
     private function dashboard(): array
     {
-        $settings = $this->settings->all();
-        if (! Schema::hasTable('lgt_settings')) {
-            return [
-                'settings'        => $settings,
-                'accounts'        => [],
-                'jobs'            => collect(),
-                'publications'    => collect(),
-                'countryRules'    => collect(),
-                'latest_coverage' => [],
-                'diagnostics'     => [
-                    'mode'                  => $settings['mode'],
-                    'dispatch_enabled'      => false,
-                    'paid_cap'              => 0,
-                    'provider_calls'        => 'schema_upgrade_required',
-                    'tenant_resolved'       => current_site() !== null,
-                    'core_locale_unchanged' => true,
-                ],
-            ];
-        }
-        $latest   = DB::table('lgt_coverage_snapshots')->latest('id')->value('report');
+        $warnings = [];
+        $settings = $this->safeDashboardValue('settings', fn (): array => $this->settings->all(), $this->defaultSettings(), $warnings);
+        $latest = $this->safeDashboardValue('coverage', fn (): mixed => DB::table('lgt_coverage_snapshots')->latest('id')->value('report'), null, $warnings);
+        $accounts = $this->safeDashboardValue('provider accounts', fn (): array => $this->accounts->publicAccounts(), [], $warnings);
+        $jobs = $this->safeDashboardValue('job history', fn () => DB::table('lgt_jobs')->latest('id')->limit(12)->get(), collect(), $warnings);
+        $publications = $this->safeDashboardValue('publication history', fn () => DB::table('lgt_publications')->orderByDesc('published_at')->limit(24)->get(), collect(), $warnings);
+        $countryRules = $this->safeDashboardValue('country defaults', fn () => DB::table('lgt_country_rules')->orderBy('country')->limit(250)->get(), collect(), $warnings);
 
         return [
             'settings'        => $settings,
-            'accounts'        => $this->accounts->publicAccounts(),
-            'jobs'            => DB::table('lgt_jobs')->latest('id')->limit(12)->get(),
-            'publications'    => DB::table('lgt_publications')->orderByDesc('published_at')->limit(24)->get(),
-            'countryRules'    => DB::table('lgt_country_rules')->orderBy('country')->limit(250)->get(),
+            'accounts'        => $accounts,
+            'jobs'            => $jobs,
+            'publications'    => $publications,
+            'countryRules'    => $countryRules,
             'latest_coverage' => is_string($latest) ? (json_decode($latest, true) ?: []) : [],
+            'workspace_warnings' => $warnings,
             'diagnostics'     => [
                 'mode'                  => $settings['mode'],
                 'dispatch_enabled'      => false,
@@ -301,6 +267,43 @@ final class AdminTranslationController extends Controller
                 'core_locale_unchanged' => true,
             ],
         ];
+    }
+
+    /** @return array<string, mixed> */
+    private function defaultSettings(): array
+    {
+        return [
+            'mode' => TranslationSettings::MODE_PREVIEW,
+            'source_locale' => 'en',
+            'enabled_locales' => [],
+            'accept_language_enabled' => false,
+            'widget' => [
+                'enabled' => false,
+                'position' => 'right',
+                'bottom_offset' => 84,
+                'mobile_bottom_offset' => 88,
+                'theme' => 'system',
+            ],
+        ];
+    }
+
+    /**
+     * Keep an optional history panel from blanking the configuration workspace.
+     * Schema readiness is still required for all writes, and failures are
+     * reported server-side without exposing tenant internals in the browser.
+     *
+     * @param array<int, string> $warnings
+     */
+    private function safeDashboardValue(string $section, callable $resolver, mixed $fallback, array &$warnings): mixed
+    {
+        try {
+            return $resolver();
+        } catch (Throwable $exception) {
+            report($exception);
+            $warnings[] = $section;
+
+            return $fallback;
+        }
     }
 
     private function requireSchema(): void
@@ -322,18 +325,6 @@ final class AdminTranslationController extends Controller
     {
         return response()->view('LongosGlobalTranslate::admin.not_ready', compact('schema'), 503)
             ->header('Cache-Control', 'private, no-store');
-    }
-
-    /** @return array{ready: false, missing_tables: list<string>, missing_columns: list<string>, inspection_failed: false, runtime_recovery: true} */
-    private function runtimeRecoverySchema(): array
-    {
-        return [
-            'ready'             => false,
-            'missing_tables'    => [],
-            'missing_columns'   => [],
-            'inspection_failed' => false,
-            'runtime_recovery'  => true,
-        ];
     }
 
     private function actorId(): ?int
