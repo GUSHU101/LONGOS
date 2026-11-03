@@ -134,7 +134,7 @@ final class AdminTranslationController extends Controller
 
         return $this->json([
             'account' => $account,
-            'notice'  => 'Credentials are encrypted, dispatch remains off, and an operator must complete a controlled verification before a provider can receive content.',
+            'notice'  => 'API 凭据已加密保存，派发保持关闭。请先由管理员完成受控验证，再显式开启内容派发。',
         ], 201);
     }
 
@@ -145,7 +145,7 @@ final class AdminTranslationController extends Controller
 
         return $this->json([
             'account' => $this->verification->verify($provider, $this->actorId()),
-            'notice'  => 'The controlled verification request succeeded. Dispatch is still off until you enable it explicitly.',
+            'notice'  => '受控验证请求已成功。内容派发仍处于关闭状态，需由管理员手动开启。',
         ]);
     }
 
@@ -160,8 +160,8 @@ final class AdminTranslationController extends Controller
             'account' => $account,
             'resumed_jobs' => $resumed,
             'notice' => $resumed > 0
-                ? "Provider dispatch enabled; {$resumed} paused free-only job(s) were resumed."
-                : 'Provider dispatch setting saved.',
+                ? "已开启服务商派发，并恢复 {$resumed} 个因免费额度模式暂停的任务。"
+                : '服务商派发设置已保存。',
         ]);
     }
 

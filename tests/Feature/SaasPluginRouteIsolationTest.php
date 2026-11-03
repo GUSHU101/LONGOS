@@ -228,8 +228,13 @@ class SaasPluginRouteIsolationTest extends TestCase
         self::assertStringContainsString('展示语言设置', $response->getContent());
         self::assertStringContainsString('id="lgt-provider-form"', $response->getContent());
         self::assertStringContainsString('id="lgt-settings-form"', $response->getContent());
-        self::assertStringContainsString('Presentation mode', $response->getContent());
-        self::assertStringContainsString('Translation library', $response->getContent());
+        self::assertStringContainsString('展示模式', $response->getContent());
+        self::assertStringContainsString('翻译库', $response->getContent());
+        self::assertStringContainsString('访问密钥 / App ID', $response->getContent());
+        self::assertStringContainsString('前台语言选择器', $response->getContent());
+        self::assertStringContainsString('不可变发布版本', $response->getContent());
+        self::assertStringContainsString('人工修订', $response->getContent());
+        self::assertStringNotContainsString('Presentation mode', $response->getContent());
         self::assertStringNotContainsString('Safe repair pending', $response->getContent());
     }
 
