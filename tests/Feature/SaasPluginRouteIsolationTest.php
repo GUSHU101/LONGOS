@@ -224,6 +224,10 @@ class SaasPluginRouteIsolationTest extends TestCase
         $response = app(\Plugin\LongosGlobalTranslate\Controllers\AdminTranslationController::class)->index();
 
         self::assertSame(200, $response->getStatusCode());
+        self::assertStringContainsString('翻译 API 服务商', $response->getContent());
+        self::assertStringContainsString('展示语言设置', $response->getContent());
+        self::assertStringContainsString('id="lgt-provider-form"', $response->getContent());
+        self::assertStringContainsString('id="lgt-settings-form"', $response->getContent());
         self::assertStringContainsString('Presentation mode', $response->getContent());
         self::assertStringContainsString('Translation library', $response->getContent());
         self::assertStringNotContainsString('Safe repair pending', $response->getContent());
