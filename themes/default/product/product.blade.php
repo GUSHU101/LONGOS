@@ -185,11 +185,11 @@
       </div>
 
       <div class="col-12 col-lg-5">
-        <div class="product-info product-mb-block" id="product-app">
+        <div class="product-info product-mb-block" id="product-app" data-lgt-root data-lgt-kind="product" data-lgt-entity="{{ (int) $product['id'] }}">
           <div class="product-purchase-surface">
           @hookwrapper('product.detail.name')
           <div class="product-heading">
-            <h1 class="mb-2 product-name">{{ $product['name'] }}</h1>
+            <h1 class="mb-2 product-name" data-lgt-field="name">{{ $product['name'] }}</h1>
             <span :class="['product-availability', product.quantity > 0 ? 'is-available' : 'is-unavailable']"><i></i><span v-text="product.quantity > 0 ? '{{ __('shop/products.in_stock') }}' : '{{ __('shop/products.out_stock') }}'">{{ $initialStock > 0 ? __('shop/products.in_stock') : __('shop/products.out_stock') }}</span></span>
           </div>
           @if (!empty($product_reviews))

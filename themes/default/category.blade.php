@@ -31,10 +31,10 @@
   </div>
 
   <div class="container-fluid category-page-shell">
-    <header class="category-intro {{ $category->image ? '' : 'category-intro--text-only' }}">
+    <header class="category-intro {{ $category->image ? '' : 'category-intro--text-only' }}" data-lgt-root data-lgt-kind="category" data-lgt-entity="{{ (int) $category->id }}">
       <div class="category-intro__content">
         <p class="category-intro__eyebrow">{{ __('shop/categories.collection') }}</p>
-        <h1>{{ $categoryName }}</h1>
+        <h1 data-lgt-field="name">{{ $categoryName }}</h1>
         @if ($categoryDescription)
           <p class="category-desc">{{ $categoryDescription }}</p>
         @endif

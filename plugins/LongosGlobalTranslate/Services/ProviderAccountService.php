@@ -1,0 +1,197 @@
+<?php
+
+namespace Plugin\LongosGlobalTranslate\Services;
+
+use Illuminate\Contracts\Encryption\DecryptException;
+use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
+
+final class ProviderAccountService
+{
+    public const PROVIDERS = ['aliyun', 'volcengine', 'baidu'];
+
+    /** @param array<string, string> $credentials */
+    public function save(array $input, array $credentials, ?int $actorId): array
+    {
+        $provider = strtolower(trim((string) ($input['provider'] ?? '')));
+        if (! in_array($provider, self::PROVIDERS, true)) {
+            throw new InvalidArgumentException('UNKNOWN_PROVIDER');
+        }
+        $billingIdentity = trim((string) ($input['billing_identity'] ?? ''));
+        if ($billingIdentity === '' || mb_strlen($billingIdentity) > 255) {
+            throw new InvalidArgumentException('INVALID_BILLING_IDENTITY');
+        }
+        $this->validateCredentialShape($provider, $credentials);
+        $identityHash = hash('sha256', strtolower($provider) . "\0" . $billingIdentity);
+        $ciphertext   = Crypt::encryptString(json_encode($credentials, JSON_THROW_ON_ERROR));
+
+        return DB::transaction(function () use ($input, $provider, $identityHash, $ciphertext, $credentials, $actorId): array {
+            $row = DB::table('lgt_provider_accounts')
+                ->where('provider', $provider)
+                ->where('billing_identity_hash', $identityHash)
+                ->lockForUpdate()
+                ->first();
+            $values = [
+                'owner_scope'            => 'tenant',
+                'account_tier'           => $this->short($input['account_tier'] ?? null, 48),
+                'credentials_ciphertext' => $ciphertext,
+                'credential_fingerprint' => hash('sha256', json_encode($credentials, JSON_THROW_ON_ERROR)),
+                'credential_revision'    => $row ? (int) $row->credential_revision + 1 : 1,
+                'free_quota'             => $this->units($input['free_quota'] ?? 0),
+                'soft_cap'               => $this->units($input['soft_cap'] ?? 0),
+                // V1 never authorizes automatic paid overage.
+                'paid_cap'              => 0,
+                'external_usage_buffer' => $this->units($input['external_usage_buffer'] ?? 0),
+                'cycle_timezone'        => $this->timezone((string) ($input['cycle_timezone'] ?? 'UTC')),
+                'qps_limit'             => min(10, max(1, (int) ($input['qps_limit'] ?? 1))),
+                'enabled'               => (bool) ($input['enabled'] ?? false),
+                'dispatch_enabled'      => false,
+                'verified_at'           => null,
+                'verified_by'           => null,
+                'source_link'           => $this->url($input['source_link'] ?? null),
+                'updated_at'            => now(),
+            ];
+            if ($row === null) {
+                $values += ['provider' => $provider, 'billing_identity_hash' => $identityHash, 'created_at' => now()];
+                $id = DB::table('lgt_provider_accounts')->insertGetId($values);
+            } else {
+                DB::table('lgt_provider_accounts')->where('id', $row->id)->update($values);
+                $id = (int) $row->id;
+            }
+            $this->audit('provider_credentials_updated', 'provider_account', $id, $actorId, [], [
+                'provider'            => $provider,
+                'credential_revision' => $values['credential_revision'],
+            ]);
+
+            return $this->publicAccount((array) DB::table('lgt_provider_accounts')->where('id', $id)->first());
+        });
+    }
+
+    /** @return array<string, string> */
+    public function credentials(object|array $account): array
+    {
+        $ciphertext = is_array($account) ? (string) ($account['credentials_ciphertext'] ?? '') : (string) ($account->credentials_ciphertext ?? '');
+        if ($ciphertext === '') {
+            throw new InvalidArgumentException('PROVIDER_CREDENTIALS_MISSING');
+        }
+
+        try {
+            $credentials = json_decode(Crypt::decryptString($ciphertext), true, 32, JSON_THROW_ON_ERROR);
+        } catch (DecryptException|\JsonException) {
+            throw new InvalidArgumentException('PROVIDER_CREDENTIALS_UNREADABLE');
+        }
+        if (! is_array($credentials)) {
+            throw new InvalidArgumentException('PROVIDER_CREDENTIALS_UNREADABLE');
+        }
+
+        return array_map(static fn (mixed $value): string => (string) $value, $credentials);
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function publicAccounts(): array
+    {
+        return DB::table('lgt_provider_accounts')->orderBy('provider')->get()->map(
+            fn (object $account): array => $this->publicAccount((array) $account)
+        )->all();
+    }
+
+    /** @return array<string, mixed> */
+    public function markVerified(int $accountId, ?int $actorId): array
+    {
+        return DB::transaction(function () use ($accountId, $actorId): array {
+            $account = DB::table('lgt_provider_accounts')->where('id', $accountId)->lockForUpdate()->first();
+            if ($account === null || ! $account->enabled || (int) $account->paid_cap !== 0) {
+                throw new InvalidArgumentException('PROVIDER_ACCOUNT_NOT_VERIFIABLE');
+            }
+            DB::table('lgt_provider_accounts')->where('id', $accountId)->update([
+                'verified_at' => now(), 'verified_by' => $actorId, 'updated_at' => now(),
+            ]);
+            $this->audit('provider_verified', 'provider_account', $accountId, $actorId, [], ['provider' => $account->provider]);
+
+            return $this->publicAccount((array) DB::table('lgt_provider_accounts')->where('id', $accountId)->first());
+        });
+    }
+
+    /** @return array<string, mixed> */
+    public function setDispatch(int $accountId, bool $enabled, ?int $actorId): array
+    {
+        return DB::transaction(function () use ($accountId, $enabled, $actorId): array {
+            $account = DB::table('lgt_provider_accounts')->where('id', $accountId)->lockForUpdate()->first();
+            if ($account === null) {
+                throw new InvalidArgumentException('PROVIDER_ACCOUNT_NOT_FOUND');
+            }
+            if ($enabled && (! $account->enabled || $account->verified_at === null || (int) $account->paid_cap !== 0)) {
+                throw new InvalidArgumentException('PROVIDER_ACCOUNT_NOT_DISPATCHABLE');
+            }
+            DB::table('lgt_provider_accounts')->where('id', $accountId)->update(['dispatch_enabled' => $enabled, 'updated_at' => now()]);
+            $this->audit('provider_dispatch_changed', 'provider_account', $accountId, $actorId, ['dispatch_enabled' => (bool) $account->dispatch_enabled], ['dispatch_enabled' => $enabled]);
+
+            return $this->publicAccount((array) DB::table('lgt_provider_accounts')->where('id', $accountId)->first());
+        });
+    }
+
+    /** @return array<string, mixed> */
+    private function publicAccount(array $account): array
+    {
+        $configured = ! empty($account['credentials_ciphertext']);
+        unset($account['credentials_ciphertext'], $account['credential_fingerprint'], $account['billing_identity_hash']);
+        $account['credentials_configured'] = $configured;
+        $account['paid_cap']               = 0;
+
+        return $account;
+    }
+
+    /** @param array<string, string> $credentials */
+    private function validateCredentialShape(string $provider, array $credentials): void
+    {
+        $required = match ($provider) {
+            'aliyun'     => ['access_key_id', 'access_key_secret'],
+            'volcengine' => ['access_key_id', 'secret_access_key'],
+            'baidu'      => ['appid', 'secret'],
+        };
+        foreach ($required as $key) {
+            if (! isset($credentials[$key]) || trim($credentials[$key]) === '' || mb_strlen($credentials[$key]) > 1024) {
+                throw new InvalidArgumentException('INVALID_PROVIDER_CREDENTIALS');
+            }
+        }
+    }
+
+    private function units(mixed $value): int
+    {
+        return min(10_000_000_000, max(0, filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]) ?: 0));
+    }
+
+    private function short(mixed $value, int $limit): ?string
+    {
+        $value = trim((string) $value);
+
+        return $value === '' ? null : mb_substr($value, 0, $limit);
+    }
+
+    private function timezone(string $timezone): string
+    {
+        return in_array($timezone, \DateTimeZone::listIdentifiers(), true) ? $timezone : 'UTC';
+    }
+
+    private function url(mixed $url): ?string
+    {
+        $url = trim((string) $url);
+
+        return $url !== '' && filter_var($url, FILTER_VALIDATE_URL) ? mb_substr($url, 0, 512) : null;
+    }
+
+    private function audit(string $action, string $type, int $id, ?int $actorId, array $before, array $after): void
+    {
+        DB::table('lgt_audit_logs')->insert([
+            'actor_id'     => $actorId,
+            'action'       => $action,
+            'subject_type' => $type,
+            'subject_id'   => $id,
+            'before'       => json_encode($before),
+            'after'        => json_encode($after),
+            'created_at'   => now(),
+            'updated_at'   => now(),
+        ]);
+    }
+}

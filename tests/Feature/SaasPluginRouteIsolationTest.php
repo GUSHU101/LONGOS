@@ -113,6 +113,66 @@ class SaasPluginRouteIsolationTest extends TestCase
         self::assertContains('saas.platform-admin', $marketplaceDownload->gatherMiddleware());
     }
 
+    public function test_translation_admin_routes_require_tenant_plugin_and_existing_permissions(): void
+    {
+        $provider = new PluginServiceProvider(app());
+        $register = Closure::bind(function (): void {
+            $this->pluginBasePath = base_path('plugins');
+            $this->registerRoutes('LongosGlobalTranslate', 'longos_global_translate');
+        }, $provider, PluginServiceProvider::class);
+        $register();
+        Route::getRoutes()->refreshNameLookups();
+
+        foreach (['index', 'diagnostics'] as $name) {
+            $route = Route::getRoutes()->getByName(admin_name() . '.longos_global_translate.' . $name);
+            self::assertNotNull($route);
+            self::assertContains('admin', $route->gatherMiddleware());
+            self::assertContains('plugin.enabled:longos_global_translate', $route->gatherMiddleware());
+            self::assertContains('can:plugins_index', $route->gatherMiddleware());
+            self::assertSame(['GET', 'HEAD'], $route->methods());
+        }
+
+        $payload = app(\Plugin\LongosGlobalTranslate\Controllers\AdminTranslationController::class)->diagnostics()->getData(true);
+        self::assertFalse($payload['dispatch_enabled']);
+        self::assertSame(0, $payload['paid_cap']);
+        self::assertSame('preview_only', $payload['mode']);
+        self::assertArrayNotHasKey('credentials', $payload);
+    }
+
+    public function test_translation_plugin_status_is_isolated_in_prefix_and_database_modes(): void
+    {
+        foreach (['prefix', 'database'] as $mode) {
+            foreach (['a', 'b'] as $tenant) {
+                $connection = 'lgt_' . $mode . '_' . $tenant;
+                config(['database.connections.' . $connection => [
+                    'driver'   => 'sqlite',
+                    'database' => $mode === 'prefix' ? $this->databasePath : ':memory:',
+                    'prefix'   => $mode === 'prefix' ? 'lgt_' . $tenant . '_' : '',
+                ]]);
+                DB::purge($connection);
+                DB::setDefaultConnection($connection);
+                Schema::create('plugins', function (Blueprint $table): void {
+                    $table->id();
+                    $table->string('code');
+                    $table->string('type');
+                    $table->timestamps();
+                });
+                if ($tenant === 'a') {
+                    DB::table('plugins')->insert(['code' => 'longos_global_translate', 'type' => 'feature']);
+                }
+                config(['bk.plugin.longos_global_translate.status' => '1']);
+                PluginRepo::resetRuntimeCache();
+                $plugin = (new Manager)->getPlugins()->get('longos_global_translate');
+                self::assertNotNull($plugin);
+                self::assertSame($tenant === 'a', $plugin->getInstalled());
+                self::assertSame($tenant === 'a', $plugin->getEnabled());
+                DB::disconnect($connection);
+            }
+        }
+        DB::setDefaultConnection('plugin_route_test');
+        PluginRepo::resetRuntimeCache();
+    }
+
     public function test_shopify_transfer_routes_are_tenant_guarded_and_follow_product_permissions(): void
     {
         $provider = new PluginServiceProvider(app());

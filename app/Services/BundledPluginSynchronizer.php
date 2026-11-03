@@ -27,6 +27,22 @@ class BundledPluginSynchronizer
      * @var array<string, array{type: string, settings: array<string, scalar>, tables: list<string>}>
      */
     private const PACKAGES = [
+        'longos_global_translate' => [
+            'type'     => 'feature',
+            'settings' => ['status' => '0'],
+            'tables'   => [
+                'lgt_entries',
+                'lgt_translations',
+                'lgt_provider_accounts',
+                'lgt_usage_months',
+                'lgt_attempts',
+                'lgt_jobs',
+                'lgt_job_items',
+                'lgt_publications',
+                'lgt_publication_items',
+                'lgt_settings',
+            ],
+        ],
         'flat_shipping' => [
             'type'     => 'shipping',
             'settings' => ['status' => '1', 'type' => 'fixed', 'value' => '0'],
@@ -116,6 +132,22 @@ class BundledPluginSynchronizer
                     ['type' => 'plugin', 'space' => $code, 'name' => $name],
                     ['value' => (string) $value, 'json' => false],
                 );
+            }
+
+            // Bundled packages bypass the interactive plugin installer. Keep
+            // their browser assets in sync during the normal, serialized
+            // application upgrade so an updated PHP hook never references a
+            // stale or absent widget bundle. This is copy-only and never
+            // executes tenant-provided code.
+            try {
+                $package = app('plugin')->getPlugin($code);
+                if ($package !== null) {
+                    PluginRepo::publishPluginFiles($package);
+                }
+            } catch (\Throwable) {
+                // assertReady() provides the explicit post-upgrade failure if
+                // the package itself is absent. A transient package cache must
+                // not prevent settings registration for the active tenant.
             }
         }
 

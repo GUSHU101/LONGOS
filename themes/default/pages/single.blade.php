@@ -32,9 +32,9 @@
   <div class="container-fluid">
     <div class="row">
       <div class="{{ $className }}">
-        <div class="card shadow-sm page-content">
+        <div class="card shadow-sm page-content" data-lgt-root data-lgt-kind="page" data-lgt-entity="{{ (int) $page->id }}">
           <div class="card-body h-min-600 p-lg-4">
-            <h1 class="page-title mb-3">{{ $page->description->title }}</h1>
+            <h1 class="page-title mb-3" data-lgt-field="title">{{ $page->description->title }}</h1>
 
             @if ($page->category)
               <div class="text-secondary opacity-75 mb-4">
