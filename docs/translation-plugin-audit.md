@@ -21,7 +21,8 @@
 | Content allowlist | Scanner accepts only active product names, category names, page titles, and explicit plain-text fields from nine published Builder components with matching storefront markers. Orders, checkout, payment, customers, reviews, chat, metadata and HTML bodies are excluded. |
 | No GET billing | Storefront endpoints only read settings and an immutable publication dictionary. Provider calls exist only in queued free-only jobs or an explicit administrator verification action. |
 | Secret isolation | Credential ciphertext is encrypted, redacted from all responses, never added to logs or storefront JSON. |
-| Budget safety | `UsageLedger` journals `reserved`, `sending`, `committed`, `definite_failed`, and `uncertain`; uncertain sends retain budget and have no automatic retry. Paid overage is forced to zero. |
+| Budget safety | `UsageLedger` journals `reserved`, `sending`, `committed`, `definite_failed`, and `uncertain`; uncertain sends retain budget and have no automatic retry. A lost worker releases only a provably pre-send reservation and quarantines any `sending` request. Paid overage is forced to zero. |
+| Queue recovery | Each worker run owns an opaque claim token. A failed worker can finish only its own claim; missing provider authorization pauses and preserves work until an administrator explicitly enables a verified free-only provider. |
 | Human precedence | Manual edit uses a version CAS check; a locked row cannot be overwritten by a machine result. |
 | Publication | Publication items are immutable snapshots tied to source hashes. Rollback creates a new revision; it never mutates history. |
 | Storefront safety | Widget has a host-only secure HttpOnly locale cookie, bounded root selectors, no whole-DOM scan, and is omitted from cart, checkout, sign-in and account flows. |

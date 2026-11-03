@@ -31,7 +31,11 @@ final class ContentScanner
      */
     public function scan(?array $scope = null, ?int $actorId = null): array
     {
-        $scope ??= array_keys(self::SOURCES);
+        // The builder is a supported public source just like catalog records.
+        // Keep it in the default invocation too: console callers and tests do
+        // not go through the admin controller, which otherwise supplies this
+        // scope explicitly.
+        $scope ??= [...array_keys(self::SOURCES), 'builder'];
         $report = [
             'supported_sources'      => [], 'found' => 0, 'changed' => 0, 'translated' => 0,
             'approved'               => 0, 'stale' => 0, 'excluded_by_rule' => 0,
@@ -161,31 +165,69 @@ final class ContentScanner
         return ['promo_bar', 'faq', 'trust_cards', 'testimonials', 'campaign_offer', 'payment_trust', 'story_block', 'feature_grid', 'social_proof'];
     }
 
+    /**
+     * The scanner and the storefront must stay in lockstep.  This is an
+     * allowlist of fields that are both public and rendered by each supported
+     * component; it intentionally is not a generic "translate everything in
+     * module content" traversal.
+     *
+     * @return array<string, array{top: list<string>, collections?: array<string, list<string>>}>
+     */
+    public static function builderFieldContract(): array
+    {
+        return [
+            'promo_bar' => [
+                'top' => ['title', 'sub_title', 'button_text'],
+            ],
+            'faq' => [
+                'top'         => ['title', 'sub_title'],
+                'collections' => ['items' => ['question', 'answer']],
+            ],
+            'trust_cards' => [
+                'top'         => ['title', 'sub_title'],
+                'collections' => ['items' => ['title', 'description']],
+            ],
+            'testimonials' => [
+                'top'         => ['title', 'sub_title'],
+                'collections' => ['items' => ['quote', 'name', 'detail']],
+            ],
+            'campaign_offer' => [
+                'top'         => ['title', 'sub_title', 'code_label', 'terms'],
+                'collections' => ['offers' => ['badge', 'condition', 'benefit', 'description']],
+            ],
+            'payment_trust' => [
+                'top'         => ['title', 'sub_title', 'status_text', 'payments_title', 'payments_sub'],
+                'collections' => ['benefits' => ['title', 'text']],
+            ],
+            'story_block' => [
+                'top' => ['eyebrow', 'title', 'description', 'button_text'],
+            ],
+            'feature_grid' => [
+                'top'         => ['title', 'sub_title'],
+                'collections' => ['items' => ['eyebrow', 'title', 'text', 'link_label']],
+            ],
+            'social_proof' => [
+                'top'         => ['title', 'sub_title'],
+                'collections' => ['items' => ['label', 'detail']],
+            ],
+        ];
+    }
+
     /** @param array<string, mixed> $content @return array<string, string> */
     private function builderFields(string $code, array $content): array
     {
+        $contract = self::builderFieldContract()[$code] ?? null;
+        if ($contract === null) {
+            return [];
+        }
+
         $fields = [];
-        foreach (['title', 'sub_title', 'button_text', 'description', 'text', 'eyebrow', 'status_text', 'payments_title', 'payments_sub', 'terms', 'code_label'] as $field) {
+        foreach ($contract['top'] as $field) {
             if (is_scalar($content[$field] ?? null)) {
                 $fields[$field] = (string) $content[$field];
             }
         }
-        if (in_array($code, ['faq', 'trust_cards', 'testimonials', 'feature_grid', 'social_proof'], true)) {
-            foreach (array_slice((array) ($content['items'] ?? []), 0, 24, true) as $index => $item) {
-                if (! is_array($item)) {
-                    continue;
-                }
-                foreach (['question', 'answer', 'title', 'description', 'quote', 'name', 'detail', 'eyebrow', 'text', 'link_label', 'label'] as $field) {
-                    if (is_scalar($item[$field] ?? null)) {
-                        $fields['items.' . $index . '.' . $field] = (string) $item[$field];
-                    }
-                }
-            }
-        }
-        foreach ([
-            'campaign_offer' => ['offers' => ['badge', 'condition', 'benefit', 'description']],
-            'payment_trust'  => ['benefits' => ['title', 'text']],
-        ][$code] ?? [] as $collection => $fieldNames) {
+        foreach ($contract['collections'] ?? [] as $collection => $fieldNames) {
             foreach (array_slice((array) ($content[$collection] ?? []), 0, 24, true) as $index => $item) {
                 if (! is_array($item)) {
                     continue;

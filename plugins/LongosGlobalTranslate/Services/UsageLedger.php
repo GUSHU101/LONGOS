@@ -140,6 +140,28 @@ final class UsageLedger
         ]);
     }
 
+    /**
+     * Recover an exhausted queue worker without guessing whether a request was
+     * delivered. A reservation that never reached `sending` is provably safe
+     * to release; once it entered `sending`, its budget stays occupied.
+     */
+    public function recoverWorkerLoss(int $attemptId, ?CarbonImmutable $now = null): void
+    {
+        try {
+            $this->transition($attemptId, self::RESERVED, self::DEFINITE_FAILED, $now, 'release', [
+                'failure_code' => 'WORKER_LOST_BEFORE_SEND',
+                'finished_at'  => $now ?? CarbonImmutable::now('UTC'),
+            ]);
+
+            return;
+        } catch (RuntimeException) {
+            // It either reached `sending` or is already terminal. The next
+            // transition makes only the former uncertain and leaves terminal
+            // rows untouched for the caller to observe.
+        }
+        $this->uncertain($attemptId, 'WORKER_EXHAUSTED', $now);
+    }
+
     /** @param string|list<string> $from @param array<string, mixed> $patch */
     private function transition(int $attemptId, string|array $from, string $to, ?CarbonImmutable $now, string $event, array $patch = []): void
     {

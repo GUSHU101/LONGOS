@@ -63,7 +63,7 @@
   document.querySelectorAll('.lgt-dispatch-provider').forEach(button => button.addEventListener('click', async () => {
     const enabled = button.dataset.enabled === '1';
     if (enabled && !confirm('Enable provider dispatch for free-quota-only jobs? Paid overage remains forbidden.')) return;
-    try { await post(`${base}${button.dataset.id}/dispatch`, {enabled, confirm_dispatch: enabled}); message(enabled ? 'Provider dispatch enabled.' : 'Provider dispatch disabled.'); button.disabled = true; } catch (error) { message(error.message, true); }
+    try { const result = await post(`${base}${button.dataset.id}/dispatch`, {enabled, confirm_dispatch: enabled}); message(result.notice || (enabled ? 'Provider dispatch enabled.' : 'Provider dispatch disabled.')); button.disabled = true; } catch (error) { message(error.message, true); }
   }));
 })();
 </script>

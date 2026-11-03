@@ -123,8 +123,16 @@ final class AdminTranslationController extends Controller
     public function dispatchProvider(Request $request, int $provider): JsonResponse
     {
         $data = $request->validate(['enabled' => ['required', 'boolean'], 'confirm_dispatch' => ['accepted_if:enabled,true']]);
+        $account = $this->accounts->setDispatch($provider, (bool) $data['enabled'], $this->actorId());
+        $resumed = (bool) $data['enabled'] ? $this->jobs->resumePausedJobs() : 0;
 
-        return $this->json(['account' => $this->accounts->setDispatch($provider, (bool) $data['enabled'], $this->actorId())]);
+        return $this->json([
+            'account' => $account,
+            'resumed_jobs' => $resumed,
+            'notice' => $resumed > 0
+                ? "Provider dispatch enabled; {$resumed} paused free-only job(s) were resumed."
+                : 'Provider dispatch setting saved.',
+        ]);
     }
 
     public function scan(Request $request): JsonResponse

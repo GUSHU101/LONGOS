@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="{{ asset('plugin/longos_global_translate/widget.css') }}">
 <div id="longos-global-translate"
      class="lgt-widget lgt-widget--{{ $position }}"
+     hidden
      data-theme="{{ $theme }}"
      data-config-url="{{ shop_route('longos_global_translate.config') }}"
      data-locale-url="{{ shop_route('longos_global_translate.locale') }}"

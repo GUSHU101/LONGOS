@@ -18,6 +18,7 @@ use Plugin\LongosGlobalTranslate\Services\ProviderAccountService;
 use Plugin\LongosGlobalTranslate\Services\ProviderVerificationService;
 use Plugin\LongosGlobalTranslate\Services\PublicationService;
 use Plugin\LongosGlobalTranslate\Services\TranslationLibrary;
+use Plugin\LongosGlobalTranslate\Services\TranslationJobService;
 use Plugin\LongosGlobalTranslate\Services\TranslationSettings;
 use Plugin\LongosGlobalTranslate\Services\UsageLedger;
 use RuntimeException;
@@ -38,6 +39,7 @@ class GlobalTranslationWorkflowTest extends TestCase
         foreach ([
             '2026_11_02_000000_create_translation_tables.php',
             '2026_11_02_000001_upgrade_translation_schema.php',
+            '2026_11_02_000002_add_worker_claim_tokens.php',
         ] as $migrationFile) {
             $migration = require base_path('plugins/LongosGlobalTranslate/Migrations/' . $migrationFile);
             $migration->up();
@@ -171,5 +173,116 @@ class GlobalTranslationWorkflowTest extends TestCase
         self::assertFalse((bool) $verified['dispatch_enabled']);
         self::assertSame('committed', DB::table('lgt_attempts')->value('state'));
         self::assertSame(19, (int) DB::table('lgt_usage_months')->value('committed_units'));
+    }
+
+    public function test_missing_dispatchable_account_pauses_without_losing_or_requeuing_the_claimed_item(): void
+    {
+        (new TranslationSettings)->save(['mode' => TranslationSettings::MODE_FREE_ONLY, 'enabled_locales' => ['fr']]);
+        $entryId = DB::table('lgt_entries')->insertGetId([
+            'content_key'   => hash('sha256', 'queued-product'), 'kind' => 'product', 'entity_id' => 98, 'field' => 'name',
+            'source_locale' => 'en', 'source_format' => 'plain', 'source_text' => 'Queued case', 'source_hash' => ContentScanner::sourceHash('Queued case'),
+            'is_public' => true, 'is_tombstoned' => false, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $jobId = DB::table('lgt_jobs')->insertGetId([
+            'public_id' => '7924b49f-e6ce-4eb6-a3be-bfab91011111', 'status' => 'queued', 'mode' => TranslationSettings::MODE_FREE_ONLY,
+            'scope' => json_encode(['product']), 'target_locales' => json_encode(['fr']), 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('lgt_job_items')->insert([
+            'job_id' => $jobId, 'entry_id' => $entryId, 'target_locale' => 'fr', 'source_hash' => ContentScanner::sourceHash('Queued case'),
+            'status' => 'ready', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $service = new TranslationJobService(new ContentScanner, new TranslationSettings, new ProviderAccountService, new ProviderRegistry, new UsageLedger, new TranslationLibrary);
+        $service->process($jobId, 1, '95a4ca5b-7da2-4d67-bc1e-d7849d800001');
+
+        self::assertSame('paused', DB::table('lgt_jobs')->where('id', $jobId)->value('status'));
+        self::assertSame(0, (int) DB::table('lgt_jobs')->where('id', $jobId)->value('completed_items'));
+        self::assertSame(0, (int) DB::table('lgt_jobs')->where('id', $jobId)->value('failed_items'));
+        self::assertSame('ready', DB::table('lgt_job_items')->where('job_id', $jobId)->value('status'));
+        self::assertNull(DB::table('lgt_job_items')->where('job_id', $jobId)->value('claim_token'));
+    }
+
+    public function test_failed_worker_can_only_finish_claims_owned_by_its_run_token(): void
+    {
+        $jobId = DB::table('lgt_jobs')->insertGetId([
+            'public_id' => '40ee7d26-8c6f-40f4-9159-5fb9423b2222', 'status' => 'paused', 'mode' => TranslationSettings::MODE_FREE_ONLY,
+            'scope' => json_encode(['product']), 'target_locales' => json_encode(['fr']), 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        foreach (['run-a', 'run-b'] as $index => $token) {
+            DB::table('lgt_job_items')->insert([
+                'job_id' => $jobId, 'entry_id' => 500 + $index, 'target_locale' => 'fr', 'source_hash' => str_repeat((string) ($index + 1), 64),
+                'status' => 'claimed', 'claim_token' => $token, 'claimed_at' => now(), 'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+
+        $service = new TranslationJobService(new ContentScanner, new TranslationSettings, new ProviderAccountService, new ProviderRegistry, new UsageLedger, new TranslationLibrary);
+        $service->failClaimsForRun($jobId, 'run-a');
+
+        self::assertSame('failed', DB::table('lgt_job_items')->where('job_id', $jobId)->where('claim_token', null)->value('status'));
+        self::assertSame('claimed', DB::table('lgt_job_items')->where('job_id', $jobId)->where('claim_token', 'run-b')->value('status'));
+        self::assertSame(1, (int) DB::table('lgt_jobs')->where('id', $jobId)->value('completed_items'));
+        self::assertSame(1, (int) DB::table('lgt_jobs')->where('id', $jobId)->value('failed_items'));
+    }
+
+    public function test_owned_claim_completes_and_releases_its_token_after_a_provider_result(): void
+    {
+        (new TranslationSettings)->save(['mode' => TranslationSettings::MODE_FREE_ONLY, 'enabled_locales' => ['fr']]);
+        $accounts = new ProviderAccountService;
+        $account = $accounts->save([
+            'provider' => 'baidu', 'billing_identity' => 'queue-success', 'enabled' => true, 'free_quota' => 1_000, 'soft_cap' => 1_000,
+        ], ['appid' => 'queue-app', 'secret' => 'queue-secret'], 11);
+        $accounts->markVerified((int) $account['id'], 11);
+        $accounts->setDispatch((int) $account['id'], true, 11);
+
+        $entryId = DB::table('lgt_entries')->insertGetId([
+            'content_key'   => hash('sha256', 'completed-product'), 'kind' => 'product', 'entity_id' => 99, 'field' => 'name',
+            'source_locale' => 'en', 'source_format' => 'plain', 'source_text' => 'Protected case', 'source_hash' => ContentScanner::sourceHash('Protected case'),
+            'is_public' => true, 'is_tombstoned' => false, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $jobId = DB::table('lgt_jobs')->insertGetId([
+            'public_id' => '4d97dbfa-26de-4859-a75f-d0713d2a3333', 'status' => 'queued', 'mode' => TranslationSettings::MODE_FREE_ONLY,
+            'scope' => json_encode(['product']), 'target_locales' => json_encode(['fr']), 'total_items' => 1, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('lgt_job_items')->insert([
+            'job_id' => $jobId, 'entry_id' => $entryId, 'target_locale' => 'fr', 'source_hash' => ContentScanner::sourceHash('Protected case'),
+            'status' => 'ready', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $provider = new class implements TranslationProviderInterface
+        {
+            public function id(): string { return 'baidu'; }
+            public function validateCredentialShape(array $credentials): void {}
+            public function supports(string $sourceLocale, string $targetLocale): bool { return $sourceLocale === 'en' && $targetLocale === 'fr'; }
+            public function buildBatches(array $segments, string $sourceLocale, string $targetLocale): array { return [$segments]; }
+            public function send(TranslationProviderRequest $request, array $credentials): TranslationProviderResponse { return new TranslationProviderResponse(true, ['Étui protégé'], 'queue-result', null, hash('sha256', 'queue-result'), 1); }
+            public function classifyFailure(\Throwable|TranslationProviderResponse $failure): array { return ['kind' => 'definite', 'code' => 'TEST', 'definitely_unbilled' => true]; }
+        };
+        $service = new TranslationJobService(new ContentScanner, new TranslationSettings, $accounts, new ProviderRegistry(['baidu' => $provider]), new UsageLedger, new TranslationLibrary);
+        $service->process($jobId, 1, 'e2ec17a3-7321-447b-a010-8b42a3550001');
+
+        self::assertSame('completed', DB::table('lgt_jobs')->where('id', $jobId)->value('status'));
+        self::assertSame('completed', DB::table('lgt_job_items')->where('job_id', $jobId)->value('status'));
+        self::assertNull(DB::table('lgt_job_items')->where('job_id', $jobId)->value('claim_token'));
+        self::assertSame('Étui protégé', DB::table('lgt_translations')->where('entry_id', $entryId)->value('text'));
+    }
+
+    public function test_lost_worker_releases_only_a_pre_send_reservation_and_quarantines_a_sending_attempt(): void
+    {
+        $accounts = new ProviderAccountService;
+        $account = $accounts->save([
+            'provider' => 'baidu', 'billing_identity' => 'worker-loss', 'enabled' => true, 'free_quota' => 100, 'soft_cap' => 100,
+        ], ['appid' => 'worker-loss-app', 'secret' => 'worker-loss-secret'], 12);
+        $accounts->markVerified((int) $account['id'], 12);
+        $accounts->setDispatch((int) $account['id'], true, 12);
+        $ledger = new UsageLedger;
+
+        $reserved = $ledger->reserve((int) $account['id'], 10);
+        $ledger->recoverWorkerLoss($reserved['id']);
+        self::assertSame(UsageLedger::DEFINITE_FAILED, DB::table('lgt_attempts')->where('id', $reserved['id'])->value('state'));
+
+        $sending = $ledger->reserve((int) $account['id'], 10);
+        $ledger->markSending($sending['id']);
+        $ledger->recoverWorkerLoss($sending['id']);
+        self::assertSame(UsageLedger::UNCERTAIN, DB::table('lgt_attempts')->where('id', $sending['id'])->value('state'));
+        self::assertSame(10, (int) DB::table('lgt_usage_months')->where('provider_account_id', $account['id'])->value('uncertain_units'));
     }
 }

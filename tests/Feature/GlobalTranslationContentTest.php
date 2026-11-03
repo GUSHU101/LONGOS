@@ -24,6 +24,8 @@ class GlobalTranslationContentTest extends TestCase
         $migration->up();
         $upgrade = require base_path('plugins/LongosGlobalTranslate/Migrations/2026_11_02_000001_upgrade_translation_schema.php');
         $upgrade->up();
+        $claims = require base_path('plugins/LongosGlobalTranslate/Migrations/2026_11_02_000002_add_worker_claim_tokens.php');
+        $claims->up();
         Schema::create('products', function (Blueprint $t): void {
             $t->id();
             $t->boolean('active');

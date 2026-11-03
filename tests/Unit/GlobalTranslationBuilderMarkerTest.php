@@ -4,6 +4,7 @@ namespace Tests\Unit;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Plugin\LongosGlobalTranslate\Services\ContentScanner;
 
 class GlobalTranslationBuilderMarkerTest extends TestCase
 {
@@ -37,5 +38,30 @@ class GlobalTranslationBuilderMarkerTest extends TestCase
         self::assertIsString($contents);
         self::assertStringNotContainsString('data-lgt-root', $contents);
         self::assertStringNotContainsString('data-lgt-field=', $contents);
+    }
+
+    public function test_every_scannable_builder_field_has_an_exact_storefront_marker(): void
+    {
+        foreach (ContentScanner::builderFieldContract() as $component => $contract) {
+            $contents = file_get_contents(dirname(__DIR__, 2) . '/themes/default/design/' . $component . '.blade.php');
+
+            self::assertIsString($contents, $component . ' view must exist');
+            foreach ($contract['top'] as $field) {
+                self::assertStringContainsString(
+                    'data-lgt-field="module.{{ $module_id }}.' . $field . '"',
+                    $contents,
+                    $component . '.' . $field . ' is scannable but not renderable'
+                );
+            }
+            foreach ($contract['collections'] ?? [] as $collection => $fields) {
+                foreach ($fields as $field) {
+                    self::assertStringContainsString(
+                        'data-lgt-field="module.{{ $module_id }}.' . $collection . '.{{ $loop->index }}.' . $field . '"',
+                        $contents,
+                        $component . '.' . $collection . '.' . $field . ' is scannable but not renderable'
+                    );
+                }
+            }
+        }
     }
 }
