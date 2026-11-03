@@ -140,7 +140,21 @@ final class VolcengineProvider extends AbstractTranslationProvider
             '-400'  => 'INVALID_INPUT',
             '-415'  => 'UNSUPPORTED_LANGUAGE',
             '-429'  => 'RATE_LIMIT',
+            '-401', '-403' => 'AUTH',
             default => 'VOLCENGINE_' . preg_replace('/[^A-Z0-9_-]/i', '', $code),
+        };
+    }
+
+    /**
+     * Volcengine's text API uses the BCP-47 `zh-Hant` code for Traditional
+     * Chinese.  The generic LONGOS locale remains lowercase (`zh-tw`) so it
+     * can be shared by country defaults, publications, and every provider.
+     */
+    protected function languageCode(string $locale): ?string
+    {
+        return match (strtolower(str_replace('_', '-', trim($locale)))) {
+            'zh-tw' => 'zh-Hant',
+            default => parent::languageCode($locale),
         };
     }
 }

@@ -63,14 +63,19 @@ final class AliyunProvider extends AbstractTranslationProvider
         $http                = $this->client->request('POST', 'https://' . self::HOST . '/', [
             'form_params' => $params, 'timeout' => $request->timeoutSeconds, 'headers' => ['Accept' => 'application/json'],
         ]);
-        $payload    = json_decode((string) $http->getBody(), true) ?: [];
-        $code       = (int) ($payload['Code'] ?? 0);
-        $translated = $payload['Data']['Translated'] ?? null;
+        $payload = json_decode((string) $http->getBody(), true) ?: [];
+        // The RPC endpoint has existed in both a flat JSON form and an
+        // operation-wrapped `TranslateGeneralResponse` form. Accept only the
+        // documented wrapper, never a generic nested response, so malformed
+        // provider output remains a conservative failure.
+        $result     = is_array($payload['TranslateGeneralResponse'] ?? null) ? $payload['TranslateGeneralResponse'] : $payload;
+        $code       = (int) ($result['Code'] ?? 0);
+        $translated = $result['Data']['Translated'] ?? null;
         if ($http->getStatusCode() !== 200 || $code !== 200 || ! is_string($translated) || trim($translated) === '') {
-            return $this->response($payload, $started, $payload['RequestId'] ?? null, $this->error((string) ($payload['Code'] ?? $http->getStatusCode())));
+            return $this->response($payload, $started, $result['RequestId'] ?? null, $this->error((string) ($result['Code'] ?? $http->getStatusCode())));
         }
 
-        return $this->response($payload, $started, $payload['RequestId'] ?? null, null, [$translated]);
+        return $this->response($payload, $started, $result['RequestId'] ?? null, null, [$translated]);
     }
 
     /** @param array<string, string> $parameters */
@@ -101,10 +106,32 @@ final class AliyunProvider extends AbstractTranslationProvider
     private function error(string $code): string
     {
         return match ($code) {
+            // The general-edition API rejects malformed/oversized input
+            // before it starts a translation, so the local free quota can be
+            // released safely.
+            '10003', '10004', '10008' => 'INVALID_INPUT',
             '10005' => 'UNSUPPORTED_LANGUAGE',
             '10009', '10010', '10013' => 'NOT_OPENED',
+            // Timeouts and provider-side failures can occur after the
+            // provider accepted bytes. Keep their quota occupied instead of
+            // guessing that a replay would be free.
             '10001', '10002' => 'UNKNOWN_UPSTREAM',
+            '429'   => 'RATE_LIMIT',
             default => 'ALIYUN_' . preg_replace('/[^A-Z0-9_]/i', '', $code),
+        };
+    }
+
+    /**
+     * Alibaba Cloud's general MT API follows BCP-47 for Traditional Chinese;
+     * it does not use Baidu's `cht` code.  Keep this mapping local to the
+     * provider so a tenant can switch provider without changing the LONGOS
+     * storefront locale stored in its database.
+     */
+    protected function languageCode(string $locale): ?string
+    {
+        return match (strtolower(str_replace('_', '-', trim($locale)))) {
+            'zh-tw' => 'zh-tw',
+            default => parent::languageCode($locale),
         };
     }
 }

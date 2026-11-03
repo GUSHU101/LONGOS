@@ -142,9 +142,10 @@
         source.className = text.className = 'lgt-table-cell';
         const kindLabels = {product: '商品', category: '分类', page: '页面', builder: '装修模块'};
         const statusLabels = {pending: '待处理', queued: '排队中', translating: '翻译中', translated: '待审核', approved: '已审核', stale: '待更新', failed: '失败'};
+        const qualityLabels = {SOURCE_ECHO: '疑似未翻译原文', REPEATED_OUTPUT: '疑似重复输出', LENGTH_OUTLIER: '长度异常', TRUNCATED_OUTPUT: '疑似截断', EMPTY_OUTPUT: '空译文'};
         source.textContent = `${kindLabels[item.kind] || item.kind} #${item.entity_id} · ${item.field}\n${item.source_text}`;
         locale.textContent = item.locale;
-        state.textContent = (statusLabels[item.status] || item.status) + (item.locked ? ' · 已锁定' : '');
+        state.textContent = (statusLabels[item.status] || item.status) + (item.quality_code ? ` · ${qualityLabels[item.quality_code] || item.quality_code}` : '') + (item.locked ? ' · 已锁定' : '');
         text.textContent = item.text || '—';
         const edit = document.createElement('button');
         edit.type = 'button'; edit.className = 'btn btn-sm btn-outline-secondary me-1'; edit.textContent = '修订';

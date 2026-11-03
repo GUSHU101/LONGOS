@@ -75,11 +75,32 @@ final class BaiduProvider extends AbstractTranslationProvider
     private function error(string $code): string
     {
         return match ($code) {
-            '54001' => 'AUTH',
-            '54003' => 'RATE_LIMIT',
+            // These errors are returned before a billable translation is
+            // accepted. Do not reserve a user's free quota for them.
+            '401', '403', '52003', '54001', '58000', '58002', '90107' => 'AUTH',
+            '400', '54000' => 'INVALID_INPUT',
+            '429', '54003', '54005' => 'RATE_LIMIT',
             '54004' => 'BALANCE_EXHAUSTED',
             '58001' => 'UNSUPPORTED_LANGUAGE',
             default => 'BAIDU_' . preg_replace('/[^A-Z0-9_]/i', '', $code),
+        };
+    }
+
+    /**
+     * Baidu's general translation API uses several historic language codes
+     * that differ from the locale codes LONGOS stores for storefronts.
+     */
+    protected function languageCode(string $locale): ?string
+    {
+        return match (strtolower(str_replace('_', '-', trim($locale)))) {
+            'zh-tw' => 'cht',
+            'ja'    => 'jp',
+            'ko'    => 'kor',
+            'fr'    => 'fra',
+            'es'    => 'spa',
+            'ar'    => 'ara',
+            'vi'    => 'vie',
+            default => parent::languageCode($locale),
         };
     }
 }

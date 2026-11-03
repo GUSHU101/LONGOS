@@ -47,7 +47,7 @@ final class TranslationLibrary
             if ((bool) $translation->locked) {
                 return (array) $translation;
             }
-            $quality     = $this->quality($text, (string) $entry->source_text);
+            $quality     = TranslationQualityGate::evaluate($text, (string) $entry->source_text);
             $status      = $quality === null ? self::TRANSLATED : self::NEEDS_REVIEW;
             $nextVersion = (int) $translation->version + 1;
             DB::table('lgt_translations')->where('id', $translation->id)->update([
@@ -90,7 +90,7 @@ final class TranslationLibrary
                 'locked'       => $lock || (bool) $translation->locked,
                 'locked_by'    => $lock ? $actorId : $translation->locked_by,
                 'locked_at'    => $lock ? now() : $translation->locked_at,
-                'quality_code' => $this->quality($text, (string) $entry->source_text),
+                'quality_code' => TranslationQualityGate::evaluate($text, (string) $entry->source_text),
                 'version'      => $nextVersion,
                 'updated_at'   => now(),
             ]);
@@ -142,15 +142,6 @@ final class TranslationLibrary
         }
 
         return trim($text);
-    }
-
-    private function quality(string $text, string $source): ?string
-    {
-        if (mb_strlen($source, 'UTF-8') > 50 && mb_strlen($text, 'UTF-8') > mb_strlen($source, 'UTF-8') * 4) {
-            return 'LENGTH_OUTLIER';
-        }
-
-        return null;
     }
 
     private function version(int $translationId, int $revision, string $sourceHash, string $text, string $status, string $reason, ?int $actorId): void

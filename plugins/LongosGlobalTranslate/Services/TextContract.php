@@ -49,16 +49,33 @@ final class TextContract
         return $segments;
     }
 
-    /** @param list<string> $protectedTerms */
+    /**
+     * @param list<string>|array<string, string> $protectedTerms
+     *
+     * Associative input is a tenant glossary: its key is the exact source
+     * term and its value is the required target-language replacement. A
+     * numeric list keeps a term unchanged (useful for brands, SKU fragments,
+     * and legal labels). Neither the source term nor the replacement is sent
+     * to an external provider.
+     */
     public static function protect(string $text, array $protectedTerms = []): array
     {
-        $tokens      = [];
-        $nonce       = bin2hex(random_bytes(12));
-        $quotedTerms = array_values(array_filter(array_map(static fn (mixed $term): string => preg_quote(trim((string) $term), '~'), $protectedTerms)));
+        $tokens       = [];
+        $nonce        = bin2hex(random_bytes(12));
+        $replacements = [];
+        foreach ($protectedTerms as $term => $replacement) {
+            $source = trim((string) (is_int($term) ? $replacement : $term));
+            if ($source === '') {
+                continue;
+            }
+            $target                = is_int($term) ? $source : trim((string) $replacement);
+            $replacements[$source] = $target !== '' ? $target : $source;
+        }
+        $quotedTerms = array_values(array_map(static fn (string $term): string => preg_quote($term, '~'), array_keys($replacements)));
         $termPattern = $quotedTerms === [] ? '(?!)' : '(?:' . implode('|', $quotedTerms) . ')';
-        $masked      = preg_replace_callback('~' . $termPattern . '|https?://[^\s<>]+|[\w.+-]+@[\w.-]+\.[a-z]{2,}|\{\{[^{}]+\}\}|\{[\w]+\}|(?<!\w):[a-zA-Z_]+|%[sd]|[$€£]?\d+(?:[.,]\d+)*(?:%|\s?(?:kg|cm|mm|GB|TB))?~u', function (array $match) use (&$tokens, $nonce): string {
+        $masked      = preg_replace_callback('~' . $termPattern . '|https?://[^\s<>]+|[\w.+-]+@[\w.-]+\.[a-z]{2,}|\{\{[^{}]+\}\}|\{[\w]+\}|(?<!\w):[a-zA-Z_]+|%[sd]|[$€£]?\d+(?:[.,]\d+)*(?:%|\s?(?:kg|cm|mm|GB|TB))?~u', function (array $match) use (&$tokens, $nonce, $replacements): string {
             $token          = '__LGT_' . $nonce . '_' . count($tokens) . '_' . substr(hash('sha256', $match[0]), 0, 8) . '__';
-            $tokens[$token] = $match[0];
+            $tokens[$token] = $replacements[$match[0]] ?? $match[0];
 
             return $token;
         }, $text);

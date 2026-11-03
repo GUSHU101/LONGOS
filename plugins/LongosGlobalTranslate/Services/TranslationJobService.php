@@ -88,7 +88,7 @@ final class TranslationJobService
     public function process(int $jobId, int $limit = 50, ?string $runToken = null): void
     {
         $runToken = $runToken ?: (string) Str::uuid();
-        $job = DB::table('lgt_jobs')->where('id', $jobId)->first();
+        $job      = DB::table('lgt_jobs')->where('id', $jobId)->first();
         if ($job === null || in_array($job->status, ['cancelled', 'completed', 'partial_failed', 'paused'], true)) {
             return;
         }
@@ -104,6 +104,7 @@ final class TranslationJobService
             if ($item === null) {
                 break;
             }
+
             try {
                 $this->processItem($job, $item, (string) $settings['source_locale'], $runToken);
             } catch (Throwable) {
@@ -139,7 +140,7 @@ final class TranslationJobService
                     $attemptIds[] = (int) $item->attempt_id;
                 }
                 DB::table('lgt_job_items')->where('id', $item->id)->where('status', 'claimed')->where('claim_token', $runToken)->update([
-                    'status' => 'failed', 'completed_at' => now(), 'claim_token' => null,
+                    'status'  => 'failed', 'completed_at' => now(), 'claim_token' => null,
                     'version' => (int) $item->version + 1, 'updated_at' => now(),
                 ]);
             }
@@ -148,7 +149,7 @@ final class TranslationJobService
                 if ($job !== null) {
                     DB::table('lgt_jobs')->where('id', $jobId)->update([
                         'completed_items' => (int) $job->completed_items + $items->count(),
-                        'failed_items'    => (int) $job->failed_items + $items->count(),
+                        'failed_items'    => (int) $job->failed_items    + $items->count(),
                         'updated_at'      => now(),
                     ]);
                 }
@@ -223,7 +224,7 @@ final class TranslationJobService
             try {
                 $this->ledger->markSending($reservation['id']);
                 $requestMarkedSending = true;
-                $response = $provider->send(new TranslationProviderRequest(
+                $response             = $provider->send(new TranslationProviderRequest(
                     $reservation['request_uuid'], (int) $account->id, $sourceLocale, (string) $item->target_locale, $batch,
                     (string) $entry->source_hash,
                 ), $this->accounts->credentials($account));
@@ -301,7 +302,7 @@ final class TranslationJobService
         }
     }
 
-    /** @return list<string> */
+    /** @return array<string, string> Exact source term => protected replacement. */
     private function protectedTerms(string $sourceLocale, string $targetLocale): array
     {
         return DB::table('lgt_glossary_terms')
@@ -313,7 +314,16 @@ final class TranslationJobService
             // LENGTH is available in both MySQL and the SQLite test harness.
             ->orderByRaw('LENGTH(term) DESC')
             ->limit(200)
-            ->pluck('term')->filter(static fn (mixed $term): bool => is_string($term) && $term !== '')->values()->all();
+            ->get(['term', 'replacement'])
+            ->reduce(static function (array $terms, object $row): array {
+                $term = trim((string) $row->term);
+                if ($term !== '') {
+                    $replacement  = trim((string) ($row->replacement ?? ''));
+                    $terms[$term] = $replacement !== '' ? $replacement : $term;
+                }
+
+                return $terms;
+            }, []);
     }
 
     private function accountFor(string $source, string $target): ?object

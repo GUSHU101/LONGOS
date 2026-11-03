@@ -5,6 +5,7 @@ namespace Tests\Unit;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use Plugin\LongosGlobalTranslate\Services\TextContract;
+use Plugin\LongosGlobalTranslate\Services\TranslationQualityGate;
 
 class GlobalTranslationTextTest extends TestCase
 {
@@ -34,5 +35,22 @@ class GlobalTranslationTextTest extends TestCase
     {
         $this->expectException(InvalidArgumentException::class);
         TextContract::restore('<img src=x onerror=alert(1)>', []);
+    }
+
+    public function test_glossary_replacements_are_restored_without_sending_terms_to_a_provider(): void
+    {
+        $protected = TextContract::protect('LONGOS ships the Atlas Case worldwide.', ['LONGOS' => '朗格斯', 'Atlas Case' => '阿特拉斯保护壳']);
+
+        self::assertStringNotContainsString('LONGOS', $protected['text']);
+        self::assertStringNotContainsString('Atlas Case', $protected['text']);
+        self::assertSame('朗格斯 ships the 阿特拉斯保护壳 worldwide.', TextContract::restore($protected['text'], $protected['tokens']));
+    }
+
+    public function test_quality_gate_flags_only_safe_machine_output_anomalies(): void
+    {
+        self::assertSame('SOURCE_ECHO', TranslationQualityGate::evaluate('Enjoy free worldwide shipping on every order today', 'Enjoy free worldwide shipping on every order today'));
+        self::assertSame('REPEATED_OUTPUT', TranslationQualityGate::evaluate('bonjour bonjour bonjour', 'Enjoy free worldwide shipping on every order today'));
+        self::assertSame('TRUNCATED_OUTPUT', TranslationQualityGate::evaluate('好', str_repeat('A clear product promise. ', 5)));
+        self::assertNull(TranslationQualityGate::evaluate('Profitez de la livraison gratuite dans le monde entier.', 'Enjoy free worldwide shipping on every order today'));
     }
 }
