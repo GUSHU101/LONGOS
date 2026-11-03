@@ -89,6 +89,10 @@ return new class extends Migration
                 $t->unsignedBigInteger('external_usage_buffer')->default(0);
                 $t->string('cycle_timezone', 64)->default('UTC');
                 $t->unsignedSmallInteger('qps_limit')->default(1);
+                // Microsecond epoch, updated under the account row lock
+                // immediately before an external request.  This is durable
+                // per tenant and therefore remains correct across workers.
+                $t->unsignedBigInteger('last_dispatch_at_us')->default(0);
                 $t->boolean('enabled')->default(false);
                 $t->boolean('dispatch_enabled')->default(false);
                 $t->timestamp('verified_at')->nullable();

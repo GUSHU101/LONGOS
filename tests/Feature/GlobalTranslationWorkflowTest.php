@@ -6,8 +6,10 @@ use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Carbon\CarbonImmutable;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
+use Plugin\LongosGlobalTranslate\Controllers\ShopTranslationController;
 use Plugin\LongosGlobalTranslate\Providers\ProviderRegistry;
 use Plugin\LongosGlobalTranslate\Providers\TranslationProviderInterface;
 use Plugin\LongosGlobalTranslate\Providers\TranslationProviderRequest;
@@ -42,6 +44,7 @@ class GlobalTranslationWorkflowTest extends TestCase
             '2026_11_02_000001_upgrade_translation_schema.php',
             '2026_11_02_000002_add_worker_claim_tokens.php',
             '2026_11_02_000003_repair_translation_schema.php',
+            '2026_11_03_000004_add_provider_dispatch_rate_limit.php',
         ] as $migrationFile) {
             $migration = require base_path('plugins/LongosGlobalTranslate/Migrations/' . $migrationFile);
             $migration->up();
@@ -100,6 +103,55 @@ class GlobalTranslationWorkflowTest extends TestCase
         self::assertSame($publication['id'], DB::table('lgt_publications')->where('id', $rolledBack['id'])->value('rollback_of'));
     }
 
+    public function test_public_dictionary_uses_the_newest_published_snapshot_if_a_recovery_left_multiple_active_rows(): void
+    {
+        DB::table('products')->insert(['id' => 43, 'active' => true]);
+        DB::table('product_descriptions')->insert(['product_id' => 43, 'locale' => 'en', 'name' => 'Original case']);
+        $hash = ContentScanner::sourceHash('Original case');
+        $entryId = DB::table('lgt_entries')->insertGetId([
+            'content_key' => hash('sha256', 'product-43-name'), 'kind' => 'product', 'entity_id' => 43, 'field' => 'name',
+            'source_locale' => 'en', 'source_format' => 'plain', 'source_text' => 'Original case', 'source_hash' => $hash,
+            'is_public' => true, 'is_tombstoned' => false, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $translationId = DB::table('lgt_translations')->insertGetId([
+            'entry_id' => $entryId, 'locale' => 'fr', 'source_hash' => $hash, 'text' => 'Unused live row',
+            'status' => TranslationLibrary::APPROVED, 'version' => 1, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        foreach ([[1, 'Ancienne version'], [2, 'Nouvelle version']] as [$revision, $text]) {
+            $publicationId = DB::table('lgt_publications')->insertGetId([
+                'locale' => 'fr', 'revision' => $revision, 'state' => 'published', 'published_at' => now(), 'created_at' => now(), 'updated_at' => now(),
+            ]);
+            DB::table('lgt_publication_items')->insert([
+                'publication_id' => $publicationId, 'translation_id' => $translationId, 'translation_version' => 1,
+                'source_hash' => $hash, 'text' => $text, 'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+
+        $dictionary = (new DictionaryService)->forEntity('product', 43, 'fr');
+
+        self::assertSame(2, $dictionary['revision']);
+        self::assertSame('Nouvelle version', $dictionary['items'][hash('sha256', 'product-43-name')]);
+        self::assertSame(2, (new PublicationService)->currentRevision('fr'));
+    }
+
+    public function test_disabled_storefront_selector_exposes_no_locale_configuration_or_dictionary(): void
+    {
+        $controller = new ShopTranslationController(
+            new TranslationSettings,
+            app(\Plugin\LongosGlobalTranslate\Services\PresentationLocaleResolver::class),
+            new DictionaryService,
+        );
+
+        $config = $controller->config(\Illuminate\Http\Request::create('/global-translate/config'));
+        $dictionary = $controller->dictionary(\Illuminate\Http\Request::create('/global-translate/dictionary/product/1?locale=fr'), 'product', 1);
+
+        self::assertFalse($config->getData(true)['enabled']);
+        self::assertSame(['en'], $config->getData(true)['locales']);
+        self::assertSame('', $config->getData(true)['dictionary_url']);
+        self::assertNull($dictionary->getData(true)['revision']);
+        self::assertSame([], $dictionary->getData(true)['items']);
+    }
+
     public function test_usage_ledger_hard_stops_before_free_budget_and_preserves_uncertain_cost(): void
     {
         $accountId = DB::table('lgt_provider_accounts')->insertGetId([
@@ -116,6 +168,55 @@ class GlobalTranslationWorkflowTest extends TestCase
         self::assertSame($attempt['id'], $ledger->reserve($accountId, 1, null, 'd07c8d2a-014f-4c54-a573-6c269d2ae118')['id']);
         $this->expectException(RuntimeException::class);
         $ledger->reserve($accountId, 1);
+    }
+
+    public function test_provider_dispatch_is_durably_rate_limited_per_tenant_account(): void
+    {
+        $accountId = DB::table('lgt_provider_accounts')->insertGetId([
+            'provider' => 'baidu', 'billing_identity_hash' => hash('sha256', 'rate-limited'), 'owner_scope' => 'tenant',
+            'credentials_ciphertext' => 'not-used', 'credential_revision' => 1, 'free_quota' => 100, 'soft_cap' => 100,
+            'cycle_timezone' => 'UTC', 'qps_limit' => 4, 'enabled' => true, 'dispatch_enabled' => true,
+            'verified_at' => now(), 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $ledger = new UsageLedger;
+        $attempt = $ledger->reserve($accountId, 1, null, 'e9b6ca17-a2e7-4d62-ae3c-4a8c35791111');
+        $at = CarbonImmutable::parse('2026-11-03 12:00:00.123456', 'UTC');
+
+        $ledger->markSending($attempt['id'], $at);
+
+        self::assertSame(UsageLedger::SENDING, DB::table('lgt_attempts')->where('id', $attempt['id'])->value('state'));
+        self::assertSame(1_793_707_200_123_456, (int) DB::table('lgt_provider_accounts')->where('id', $accountId)->value('last_dispatch_at_us'));
+    }
+
+    public function test_pre_send_rate_limit_failure_releases_the_verification_reservation_without_contacting_a_provider(): void
+    {
+        $accounts = new ProviderAccountService;
+        $account = $accounts->save([
+            'provider' => 'baidu', 'billing_identity' => 'rate-limit-recovery', 'enabled' => true,
+            'free_quota' => 100, 'soft_cap' => 100, 'qps_limit' => 1,
+        ], ['appid' => 'rate-limit-app', 'secret' => 'rate-limit-secret'], 7);
+        $clock = CarbonImmutable::now('UTC');
+        $nowUs = ((int) $clock->format('U')) * 1_000_000 + (int) $clock->format('u');
+        DB::table('lgt_provider_accounts')->where('id', $account['id'])->update(['last_dispatch_at_us' => $nowUs + 3_000_000]);
+        $provider = new class implements TranslationProviderInterface
+        {
+            public function id(): string { return 'baidu'; }
+            public function validateCredentialShape(array $credentials): void {}
+            public function supports(string $sourceLocale, string $targetLocale): bool { return true; }
+            public function buildBatches(array $segments, string $sourceLocale, string $targetLocale): array { return [$segments]; }
+            public function send(TranslationProviderRequest $request, array $credentials): TranslationProviderResponse { self::fail('Provider must not be called before a rate-limit reservation is released.'); }
+            public function classifyFailure(\Throwable|TranslationProviderResponse $failure): array { return ['kind' => 'definite', 'code' => 'TEST', 'definitely_unbilled' => true]; }
+        };
+        $verification = new ProviderVerificationService($accounts, new ProviderRegistry(['baidu' => $provider]), new UsageLedger);
+
+        try {
+            $verification->verify((int) $account['id'], 7);
+            self::fail('Expected a safe pre-send rate-limit failure.');
+        } catch (RuntimeException $exception) {
+            self::assertSame('PROVIDER_RATE_LIMIT_CLOCK_SKEW', $exception->getMessage());
+        }
+
+        self::assertSame(UsageLedger::DEFINITE_FAILED, DB::table('lgt_attempts')->where('provider_account_id', $account['id'])->value('state'));
     }
 
     public function test_provider_account_secret_never_round_trips_and_source_language_cannot_change(): void
@@ -140,6 +241,9 @@ class GlobalTranslationWorkflowTest extends TestCase
             $table->dropIndex('lgt_job_item_claim');
             $table->dropColumn('claim_token');
         });
+        Schema::table('lgt_provider_accounts', function (Blueprint $table): void {
+            $table->dropColumn('last_dispatch_at_us');
+        });
 
         self::assertFalse(TranslationSchema::inspect()['ready']);
 
@@ -149,6 +253,7 @@ class GlobalTranslationWorkflowTest extends TestCase
         self::assertTrue(TranslationSchema::inspect()['ready']);
         self::assertTrue(Schema::hasTable('lgt_coverage_snapshots'));
         self::assertTrue(Schema::hasColumn('lgt_job_items', 'claim_token'));
+        self::assertTrue(Schema::hasColumn('lgt_provider_accounts', 'last_dispatch_at_us'));
     }
 
     public function test_malformed_persisted_settings_fail_closed_without_breaking_the_admin_workspace(): void

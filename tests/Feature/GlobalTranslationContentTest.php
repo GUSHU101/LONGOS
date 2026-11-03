@@ -26,6 +26,8 @@ class GlobalTranslationContentTest extends TestCase
         $upgrade->up();
         $claims = require base_path('plugins/LongosGlobalTranslate/Migrations/2026_11_02_000002_add_worker_claim_tokens.php');
         $claims->up();
+        $rateLimit = require base_path('plugins/LongosGlobalTranslate/Migrations/2026_11_03_000004_add_provider_dispatch_rate_limit.php');
+        $rateLimit->up();
         Schema::create('products', function (Blueprint $t): void {
             $t->id();
             $t->boolean('active');

@@ -28,7 +28,12 @@ final class DictionaryService
             return ['revision' => null, 'items' => []];
         }
         $locale      = TranslationSettings::locale($locale);
-        $publication = DB::table('lgt_publications')->where('locale', $locale)->where('state', 'published')->first();
+        // There is normally one active record per locale.  Sort explicitly
+        // nonetheless: a database recovered from an interrupted deployment
+        // may temporarily contain two marked rows, and presentation must
+        // deterministically use the newest immutable snapshot.
+        $publication = DB::table('lgt_publications')->where('locale', $locale)->where('state', 'published')
+            ->orderByDesc('revision')->orderByDesc('id')->first();
         if ($publication === null) {
             return ['revision' => null, 'items' => []];
         }

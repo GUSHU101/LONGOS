@@ -39,6 +39,12 @@ class Bootstrap
         });
 
         add_hook_blade('layout.master.footer.code', function ($callback, $output, $data) {
+            // The control plane is never a storefront translation target.
+            // It does not own tenant-facing content and must not receive a
+            // public locale cookie or dictionary endpoint references.
+            if (current_site() === null) {
+                return $output;
+            }
             if (! DesignService::isAppEmbedEnabled('longos_global_translate')) {
                 return $output;
             }

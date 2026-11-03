@@ -218,9 +218,11 @@ final class TranslationJobService
             $units       = array_sum(array_map(static fn (string $segment): int => TextContract::units($segment)['codepoints'], $batch));
             $reservation = $this->ledger->reserve((int) $account->id, $units, (int) $item->id);
             DB::table('lgt_job_items')->where('id', $item->id)->update(['attempt_id' => $reservation['id'], 'updated_at' => now()]);
+            $requestMarkedSending = false;
 
             try {
                 $this->ledger->markSending($reservation['id']);
+                $requestMarkedSending = true;
                 $response = $provider->send(new TranslationProviderRequest(
                     $reservation['request_uuid'], (int) $account->id, $sourceLocale, (string) $item->target_locale, $batch,
                     (string) $entry->source_hash,
@@ -240,10 +242,16 @@ final class TranslationJobService
                 $translatedSegments = [...$translatedSegments, ...$response->translations];
                 $successful[]       = ['attempt_id' => $reservation['id'], 'request_id' => (string) ($response->requestId ?? '')];
             } catch (Throwable $exception) {
-                // Any exception after markSending is not provably free. Never
-                // make a second provider request from this worker execution.
+                // Once markSending succeeds, an exception might have occurred
+                // after the provider received bytes.  Before it succeeds no
+                // external request exists, so release the reservation instead
+                // of stranding free quota in a permanent reserved state.
                 try {
-                    $this->ledger->uncertain($reservation['id'], 'WORKER_EXCEPTION');
+                    if ($requestMarkedSending) {
+                        $this->ledger->uncertain($reservation['id'], 'WORKER_EXCEPTION');
+                    } else {
+                        $this->ledger->definiteFailure($reservation['id'], 'PRE_SEND_FAILURE');
+                    }
                 } catch (Throwable) {
                     // Preserve the original error state; a later operator can
                     // reconcile the durable sending attempt.

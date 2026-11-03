@@ -30,9 +30,11 @@ final class ProviderVerificationService
         $provider    = $this->providers->get((string) $account->provider);
         $source      = 'LONGOS verification';
         $reservation = $this->ledger->reserve($accountId, 19, null, null, null, true);
+        $requestMarkedSending = false;
 
         try {
             $this->ledger->markSending($reservation['id']);
+            $requestMarkedSending = true;
             $response = $provider->send(new TranslationProviderRequest(
                 $reservation['request_uuid'], $accountId, 'en', 'fr', [$source], hash('sha256', $source), 8,
             ), $this->accounts->credentials($account));
@@ -50,10 +52,21 @@ final class ProviderVerificationService
 
             return $this->accounts->markVerified($accountId, $actorId);
         } catch (RuntimeException $exception) {
+            if (! $requestMarkedSending) {
+                try {
+                    $this->ledger->definiteFailure($reservation['id'], 'PRE_SEND_FAILURE');
+                } catch (Throwable) {
+                    // The original state remains journaled for review.
+                }
+            }
             throw $exception;
         } catch (Throwable) {
             try {
-                $this->ledger->uncertain($reservation['id'], 'VERIFICATION_EXCEPTION');
+                if ($requestMarkedSending) {
+                    $this->ledger->uncertain($reservation['id'], 'VERIFICATION_EXCEPTION');
+                } else {
+                    $this->ledger->definiteFailure($reservation['id'], 'PRE_SEND_FAILURE');
+                }
             } catch (Throwable) {
                 // The attempt has already been journaled and remains visible
                 // to an operator even if a final state update also fails.

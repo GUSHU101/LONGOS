@@ -54,9 +54,14 @@ final class AliyunProvider extends AbstractTranslationProvider
             'SourceLanguage' => $this->languageCode($request->sourceLocale),
             'TargetLanguage' => $this->languageCode($request->targetLocale), 'SourceText' => $request->segments[0],
         ];
-        $params['Signature'] = $this->signature($params, $credentials['access_key_secret']);
-        $http                = $this->client->request('GET', 'https://' . self::HOST . '/', [
-            'query' => $params, 'timeout' => $request->timeoutSeconds, 'headers' => ['Accept' => 'application/json'],
+        // Provider credentials and the signed source text must never be put
+        // into a request URL.  The RPC endpoint accepts the same canonical
+        // parameters as a POST form, where they are protected by TLS and do
+        // not leak into edge/proxy request logs, browser histories, or URL
+        // observability tools.
+        $params['Signature'] = $this->signature($params, $credentials['access_key_secret'], 'POST');
+        $http                = $this->client->request('POST', 'https://' . self::HOST . '/', [
+            'form_params' => $params, 'timeout' => $request->timeoutSeconds, 'headers' => ['Accept' => 'application/json'],
         ]);
         $payload    = json_decode((string) $http->getBody(), true) ?: [];
         $code       = (int) ($payload['Code'] ?? 0);
@@ -69,11 +74,15 @@ final class AliyunProvider extends AbstractTranslationProvider
     }
 
     /** @param array<string, string> $parameters */
-    public function signature(array $parameters, string $secret): string
+    public function signature(array $parameters, string $secret, string $method = 'POST'): string
     {
+        $method = strtoupper($method);
+        if (! in_array($method, ['GET', 'POST'], true)) {
+            throw new InvalidArgumentException('INVALID_ALIYUN_HTTP_METHOD');
+        }
         ksort($parameters, SORT_STRING);
         $canonical    = $this->encodeQuery($parameters);
-        $stringToSign = 'GET&%2F&' . rawurlencode($canonical);
+        $stringToSign = $method . '&%2F&' . rawurlencode($canonical);
 
         return base64_encode(hash_hmac('sha1', $stringToSign, $secret . '&', true));
     }

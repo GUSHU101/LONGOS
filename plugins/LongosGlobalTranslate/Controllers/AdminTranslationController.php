@@ -250,6 +250,8 @@ final class AdminTranslationController extends Controller
         $publications = $this->safeDashboardValue('publication history', fn () => DB::table('lgt_publications')->orderByDesc('published_at')->limit(24)->get(), collect(), $warnings);
         $countryRules = $this->safeDashboardValue('country defaults', fn () => DB::table('lgt_country_rules')->orderBy('country')->limit(250)->get(), collect(), $warnings);
 
+        $dispatchEnabled = collect($accounts)->contains(static fn (mixed $account): bool => (bool) data_get($account, 'dispatch_enabled', false));
+
         return [
             'settings'        => $settings,
             'accounts'        => $accounts,
@@ -260,9 +262,9 @@ final class AdminTranslationController extends Controller
             'workspace_warnings' => $warnings,
             'diagnostics'     => [
                 'mode'                  => $settings['mode'],
-                'dispatch_enabled'      => false,
+                'dispatch_enabled'      => $dispatchEnabled,
                 'paid_cap'              => 0,
-                'provider_calls'        => 'requires_operator_verification',
+                'provider_calls'        => $dispatchEnabled ? 'free_quota_only' : 'requires_operator_verification',
                 'tenant_resolved'       => current_site() !== null,
                 'core_locale_unchanged' => true,
             ],

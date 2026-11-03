@@ -97,7 +97,25 @@ final class UsageLedger
     /** Mark journaled immediately before the external HTTP request, after transaction commit. */
     public function markSending(int $attemptId, ?CarbonImmutable $now = null): void
     {
-        $this->transition($attemptId, self::RESERVED, self::SENDING, $now, 'sending');
+        DB::transaction(function () use ($attemptId, $now): void {
+            $attempt = DB::table('lgt_attempts')->where('id', $attemptId)->lockForUpdate()->first();
+            if ($attempt === null) {
+                throw new RuntimeException('ATTEMPT_NOT_FOUND');
+            }
+            if ((string) $attempt->state === self::SENDING) {
+                return;
+            }
+            if ((string) $attempt->state !== self::RESERVED) {
+                throw new RuntimeException('INVALID_ATTEMPT_TRANSITION');
+            }
+            $account = DB::table('lgt_provider_accounts')->where('id', $attempt->provider_account_id)->lockForUpdate()->first();
+            if ($account === null) {
+                throw new RuntimeException('PROVIDER_ACCOUNT_NOT_FOUND');
+            }
+
+            $effectiveNow = $this->paceAccount($account, $now);
+            $this->transition($attemptId, self::RESERVED, self::SENDING, $effectiveNow, 'sending');
+        }, 3);
     }
 
     public function commit(int $attemptId, string $providerRequestId, ?CarbonImmutable $now = null): void
@@ -216,6 +234,51 @@ final class UsageLedger
         $cap        = $configured > 0 ? min($quota, $configured) : (int) floor($quota * 0.9);
 
         return max(0, $cap);
+    }
+
+    /**
+     * Serialize dispatches for one provider account in the tenant database.
+     * Cache-based throttles are intentionally avoided: a shared cache key can
+     * cross a prefix-isolated tenant, and an eviction can create an external
+     * provider burst.  The row lock covers both the wait and timestamp write.
+     */
+    private function paceAccount(object $account, ?CarbonImmutable $now): CarbonImmutable
+    {
+        $qps = min(10, max(1, (int) $account->qps_limit));
+        $now ??= CarbonImmutable::now('UTC');
+        $nowUs = $this->epochMicroseconds($now);
+        $intervalUs = (int) ceil(1_000_000 / $qps);
+        $lastUs = max(0, (int) ($account->last_dispatch_at_us ?? 0));
+        $eligibleUs = $lastUs > 0 ? $lastUs + $intervalUs : $nowUs;
+
+        if ($eligibleUs > $nowUs) {
+            $delayUs = $eligibleUs - $nowUs;
+            // A normal per-account interval is never greater than one
+            // second.  A larger value signals a corrupt/future clock value;
+            // fail before sending instead of silently violating the limit or
+            // parking a queue worker for an unbounded time.
+            if ($delayUs > 1_000_000) {
+                throw new RuntimeException('PROVIDER_RATE_LIMIT_CLOCK_SKEW');
+            }
+            usleep($delayUs);
+            $now = CarbonImmutable::now('UTC');
+            $nowUs = $this->epochMicroseconds($now);
+            if ($eligibleUs > $nowUs) {
+                throw new RuntimeException('PROVIDER_RATE_LIMIT_WAIT_INTERRUPTED');
+            }
+        }
+
+        DB::table('lgt_provider_accounts')->where('id', $account->id)->update([
+            'last_dispatch_at_us' => max($eligibleUs, $nowUs),
+            'updated_at' => $now,
+        ]);
+
+        return $now;
+    }
+
+    private function epochMicroseconds(CarbonImmutable $time): int
+    {
+        return ((int) $time->format('U')) * 1_000_000 + (int) $time->format('u');
     }
 
     private function event(int $monthId, int $attemptId, string $event, int $units, ?int $actorId, ?string $reason, CarbonImmutable $now): void

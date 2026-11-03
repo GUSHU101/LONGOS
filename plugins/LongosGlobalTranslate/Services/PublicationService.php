@@ -97,6 +97,7 @@ final class PublicationService
 
     public function currentRevision(string $locale): ?int
     {
-        return DB::table('lgt_publications')->where('locale', TranslationSettings::locale($locale))->where('state', 'published')->value('revision');
+        return DB::table('lgt_publications')->where('locale', TranslationSettings::locale($locale))
+            ->where('state', 'published')->orderByDesc('revision')->orderByDesc('id')->value('revision');
     }
 }

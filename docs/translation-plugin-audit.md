@@ -55,3 +55,11 @@ External provider verification can incur a provider-side free-quota charge. It i
 ## Known V1 scope
 
 Rich HTML, transaction-related text, arbitrary metadata and any Builder component without a stable field marker are intentionally not published. Translating arbitrary markup safely requires a separate structural node contract, content-sanitization review, and browser regression suite. This V1 refuses to represent that as completed support.
+
+## Release hardening — 2026-11-03
+
+- Aliyun translation traffic now uses a signed TLS POST form. Credentials and source text never enter a request URL.
+- A tenant-local, row-locked QPS limiter records microsecond dispatch state before each provider call. A pre-send failure releases its reservation; a post-send failure remains uncertain and budget-occupied.
+- `2026_11_03_000004_add_provider_dispatch_rate_limit.php` makes this additive for already-deployed tenants. The normal Coolify Git release applies it; there is no manual production migration step.
+- Storefront reads fail closed while the selector is off, use the newest active publication deterministically, and ignore obsolete async language responses.
+- Release gates additionally run the full PHP suite, `npm run test:quality`, and `npm audit --omit=dev --json`.

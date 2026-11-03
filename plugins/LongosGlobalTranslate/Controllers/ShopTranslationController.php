@@ -24,6 +24,9 @@ final class ShopTranslationController extends Controller
             return $this->json($this->disabledConfig());
         }
         $settings = $this->settings->all();
+        if (! (bool) data_get($settings, 'widget.enabled', false)) {
+            return $this->json($this->disabledConfig());
+        }
         $decision = $this->locales->decide($request);
 
         return $this->json([
@@ -57,11 +60,17 @@ final class ShopTranslationController extends Controller
         if (! TranslationSchema::ready()) {
             return $this->json(['revision' => null, 'items' => []]);
         }
+        $settings = $this->settings->all();
+        // A disabled selector has no public presentation surface.  Returning
+        // an empty dictionary here keeps a previously injected, cached script
+        // from becoming an alternative content-discovery endpoint.
+        if (! (bool) data_get($settings, 'widget.enabled', false)) {
+            return $this->json(['revision' => null, 'items' => []]);
+        }
         $decision = $this->locales->decide($request);
-        $locale   = (string) $request->query('locale', $decision->locale);
+        $locale   = TranslationSettings::locale((string) $request->query('locale', $decision->locale));
         // The server retains authority over enabled locales. An arbitrary URL
         // parameter never becomes a cross-locale dictionary enumeration tool.
-        $settings = $this->settings->all();
         if (! in_array($locale, array_merge([$settings['source_locale']], $settings['enabled_locales']), true)) {
             abort(422, 'Unsupported presentation locale.');
         }

@@ -31,4 +31,15 @@ class GlobalTranslationWidgetSafetyTest extends TestCase
         self::assertStringContainsString('root.hidden = false;', $script);
         self::assertStringContainsString('hidden', $view);
     }
+
+    public function test_widget_cannot_apply_an_old_locale_response_over_a_newer_visitor_choice(): void
+    {
+        $script = file_get_contents(dirname(__DIR__, 2) . '/plugins/LongosGlobalTranslate/Static/public/widget.js');
+
+        self::assertIsString($script);
+        self::assertStringContainsString('let presentationEpoch = 0;', $script);
+        self::assertStringContainsString('const epoch = ++presentationEpoch;', $script);
+        self::assertStringContainsString('if (epoch !== presentationEpoch) return;', $script);
+        self::assertStringContainsString('document.documentElement.lang = locale;', $script);
+    }
 }

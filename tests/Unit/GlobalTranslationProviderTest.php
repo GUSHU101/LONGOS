@@ -5,6 +5,7 @@ namespace Tests\Unit;
 use GuzzleHttp\Client;
 use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
+use GuzzleHttp\Middleware;
 use GuzzleHttp\Psr7\Response;
 use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -46,6 +47,29 @@ class GlobalTranslationProviderTest extends TestCase
         self::assertTrue($failed->classifyFailure($error)['definitely_unbilled']);
     }
 
+    public function test_aliyun_uses_a_signed_post_form_so_credentials_and_text_never_enter_a_url(): void
+    {
+        $history = [];
+        $client = new Client([
+            'handler' => HandlerStack::create(new MockHandler([
+                new Response(200, ['Content-Type' => 'application/json'], json_encode(['Code' => 200, 'Data' => ['Translated' => 'Bonjour']], JSON_THROW_ON_ERROR)),
+            ])),
+            'http_errors' => false,
+        ]);
+        $stack = $client->getConfig('handler');
+        $stack->push(Middleware::history($history));
+
+        (new AliyunProvider($client))->send($this->request(['Hello']), ['access_key_id' => 'key', 'access_key_secret' => 'secret']);
+
+        self::assertCount(1, $history);
+        self::assertSame('POST', $history[0]['request']->getMethod());
+        self::assertSame('', $history[0]['request']->getUri()->getQuery());
+        $body = (string) $history[0]['request']->getBody();
+        self::assertStringContainsString('AccessKeyId=key', $body);
+        self::assertStringContainsString('SourceText=Hello', $body);
+        self::assertStringNotContainsString('secret', $body);
+    }
+
     public function test_volcengine_batches_at_both_documented_boundaries_and_parses_success(): void
     {
         $provider = new VolcengineProvider($this->client([
@@ -84,6 +108,7 @@ class GlobalTranslationProviderTest extends TestCase
         $signature  = $provider->signature($parameters, 'testsecret');
         self::assertSame($signature, $provider->signature(array_reverse($parameters, true), 'testsecret'));
         self::assertNotSame($signature, $provider->signature([...$parameters, 'SourceText' => 'A C'], 'testsecret'));
+        self::assertNotSame($signature, $provider->signature($parameters, 'testsecret', 'GET'));
         self::assertMatchesRegularExpression('/^[A-Za-z0-9+\/]{27}=$/', $signature);
     }
 

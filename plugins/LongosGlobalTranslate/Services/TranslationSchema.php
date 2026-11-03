@@ -64,7 +64,7 @@ final class TranslationSchema
             'id', 'provider', 'billing_identity_hash', 'owner_scope', 'account_tier', 'credentials_ciphertext',
             'credential_fingerprint', 'credential_revision', 'free_quota', 'soft_cap',
             'paid_cap', 'external_usage_buffer', 'cycle_timezone', 'qps_limit', 'enabled',
-            'dispatch_enabled', 'verified_at', 'verified_by', 'source_link', 'created_at', 'updated_at',
+            'last_dispatch_at_us', 'dispatch_enabled', 'verified_at', 'verified_by', 'source_link', 'created_at', 'updated_at',
         ],
         'lgt_usage_months' => [
             'id', 'provider_account_id', 'billing_cycle', 'committed_units', 'reserved_units',

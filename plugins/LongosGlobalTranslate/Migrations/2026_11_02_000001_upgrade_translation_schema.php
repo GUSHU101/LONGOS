@@ -48,6 +48,11 @@ return new class extends Migration
                 }
             });
         }
+        if (Schema::hasTable('lgt_provider_accounts') && ! Schema::hasColumn('lgt_provider_accounts', 'last_dispatch_at_us')) {
+            Schema::table('lgt_provider_accounts', function (Blueprint $t): void {
+                $t->unsignedBigInteger('last_dispatch_at_us')->default(0);
+            });
+        }
     }
 
     public function down(): void {}

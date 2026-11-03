@@ -19,6 +19,7 @@
   const csrf = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
   const contentKeyCache = new Map();
   let config = null;
+  let presentationEpoch = 0;
 
   const label = locale => {
     try {
@@ -95,22 +96,38 @@
 
   const replaceKnownNodes = async locale => {
     if (!config) return;
+    const epoch = ++presentationEpoch;
     const sourceRegions = regions();
     // Always revert every field before a new locale is applied. This avoids a
     // mixed language page when the new publication is only partially covered.
     restoreSource(sourceRegions);
-    if (locale === config.source_locale || sourceRegions.length === 0) return;
+    if (locale === config.source_locale || sourceRegions.length === 0) {
+      if (epoch === presentationEpoch && locale === config.source_locale) document.documentElement.lang = config.source_locale;
+      return;
+    }
 
     const dictionaries = await fetchDictionaries(sourceRegions, locale);
+    // An earlier initial load can finish after a visitor selects another
+    // language.  Never let that old response overwrite the newest choice.
+    if (epoch !== presentationEpoch) return;
+    let applied = 0;
     for (const region of sourceRegions) {
+      if (epoch !== presentationEpoch) return;
       const dictionary = dictionaries.get(region);
       const kind = region.dataset.lgtKind;
       const entity = Number(region.dataset.lgtEntity);
       for (const node of region.querySelectorAll('[data-lgt-field]')) {
         const key = await contentKey(kind, entity, node.dataset.lgtField);
-        if (key && typeof dictionary?.items?.[key] === 'string') node.textContent = dictionary.items[key];
+        if (key && typeof dictionary?.items?.[key] === 'string') {
+          node.textContent = dictionary.items[key];
+          applied++;
+        }
       }
     }
+    // Reflect the language actually presented to assistive technologies only
+    // after a current response has supplied translated text.  If a
+    // publication is unavailable, the page remains truthfully English.
+    if (epoch === presentationEpoch && applied > 0) document.documentElement.lang = locale;
   };
 
   const optionButton = locale => {
