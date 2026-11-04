@@ -48,16 +48,13 @@ class Bootstrap
             if (! DesignService::isAppEmbedEnabled('longos_global_translate')) {
                 return $output;
             }
-            foreach (['shop.longos_global_translate.config', 'shop.longos_global_translate.locale', 'shop.longos_global_translate.dictionary'] as $route) {
+            foreach (['shop.longos_global_translate.config', 'shop.longos_global_translate.locale', 'shop.longos_global_translate.dictionary', 'shop.longos_global_translate.interface-dictionary'] as $route) {
                 if (! app('router')->has($route)) {
                     return $output;
                 }
             }
             $routeName = (string) optional(request()->route())->getName();
-            if (str_starts_with($routeName, 'shop.checkout.')
-                || str_starts_with($routeName, 'shop.carts.')
-                || str_starts_with($routeName, 'shop.account.')
-                || in_array($routeName, ['shop.login.index', 'shop.register.index'], true)
+            if (str_starts_with($routeName, 'shop.carts.')
                 || str_contains((string) $output, 'id="longos-global-translate"')) {
                 return $output;
             }
@@ -73,7 +70,15 @@ class Bootstrap
                 return $output;
             }
 
-            return $output . view('LongosGlobalTranslate::shop.widget', compact('settings'))->render();
+            // Checkout, account and payment routes receive the same selector
+            // as the storefront.  Its commerce-interface mode can replace
+            // only reviewed, published static labels; it never reads or
+            // translates customer input, price/order fields or provider data.
+            $commerceUi = str_starts_with($routeName, 'shop.checkout.')
+                || str_starts_with($routeName, 'shop.account.')
+                || in_array($routeName, ['shop.login.index', 'shop.register.index', 'shop.forgotten.index'], true);
+
+            return $output . view('LongosGlobalTranslate::shop.widget', compact('settings', 'commerceUi'))->render();
         });
     }
 }

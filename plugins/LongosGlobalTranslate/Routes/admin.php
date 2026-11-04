@@ -7,6 +7,7 @@ Route::prefix('global-translate')->name('longos_global_translate.')
     ->middleware(['can:plugins_index', 'throttle:60,1'])->group(function (): void {
         Route::get('/', [AdminTranslationController::class, 'index'])->name('index');
         Route::get('diagnostics', [AdminTranslationController::class, 'diagnostics'])->name('diagnostics');
+        Route::get('status', [AdminTranslationController::class, 'workspaceStatus'])->name('status');
         Route::put('settings', [AdminTranslationController::class, 'saveSettings'])->name('settings.save');
         Route::put('country-rules', [AdminTranslationController::class, 'saveCountryRule'])->name('country-rules.save');
         Route::put('country-rules/recommendations', [AdminTranslationController::class, 'applyCountryRecommendations'])->name('country-rules.recommendations.apply');

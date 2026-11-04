@@ -20,6 +20,13 @@
   const contentKeyCache = new Map();
   let config = null;
   let presentationEpoch = 0;
+  let interfaceEpoch = 0;
+  let interfaceTranslations = new Map();
+  let interfaceObserver = null;
+  let interfaceApplyQueued = false;
+  let applyingInterface = false;
+  const interfaceTextOriginals = new Map();
+  const interfaceAttributeOriginals = new Map();
 
   const label = locale => {
     try {
@@ -39,15 +46,41 @@
     else toggle.focus();
   };
 
-  const request = (url, init = {}) => fetch(url, {
-    credentials: 'same-origin',
-    headers: {Accept: 'application/json', 'X-CSRF-TOKEN': csrf, ...(init.headers || {})},
-    ...init,
-  }).then(async response => {
+  const request = (url, init = {}) => {
+    // Do not spread `init` after headers: doing so used to replace the CSRF
+    // header for the POST locale preference request, which made the manual
+    // language switch fail with a 419 response on normal Laravel sessions.
+    const {headers = {}, ...options} = init;
+    return fetch(url, {
+      credentials: 'same-origin',
+      ...options,
+      headers: {
+        Accept: 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-CSRF-TOKEN': csrf,
+        ...headers,
+      },
+    }).then(async response => {
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(body.message || 'Request failed');
     return body;
-  });
+    });
+  };
+
+  const sourceLocale = () => config?.source_locale || 'en';
+  const isPublished = locale => locale === sourceLocale()
+    || (config?.published_locales || []).includes(locale);
+  const shownLocale = locale => isPublished(locale) ? locale : sourceLocale();
+  const autoExplanation = () => {
+    if (!config || config.locale_source === 'explicit') return '';
+    if (config.locale === sourceLocale()) return 'Showing the store’s original language.';
+    if (!isPublished(config.locale)) {
+      const country = config.country ? ` for ${config.country}` : '';
+      return `Language suggested${country}, but no published translation is available yet. Showing the original language.`;
+    }
+    const country = config.country ? ` for ${config.country}` : '';
+    return `Language selected automatically${country}.`;
+  };
 
   const contentKey = (kind, entity, field) => {
     if (!window.crypto?.subtle || typeof field !== 'string' || field === '') return Promise.resolve(null);
@@ -65,6 +98,99 @@
       const entity = Number(region.dataset.lgtEntity);
       return ['product', 'category', 'page', 'builder'].includes(kind) && Number.isInteger(entity) && entity > 0;
     });
+
+  const commerceUiEnabled = () => root.dataset.commerceUi === '1';
+  const normalizeInterfaceText = text => String(text || '').replace(/\s+/g, ' ').trim();
+  const safeInterfaceElement = element => {
+    if (!element || !commerceUiEnabled()) return false;
+    if (element.closest('#longos-global-translate, [data-lgt-root], script, style, noscript, template, svg, canvas, [contenteditable], [data-lgt-private], [data-lgt-transaction]')) return false;
+    // Amounts, order/customer metadata, address values and payment-provider
+    // controls must remain byte-for-byte untouched. Only known static UI
+    // labels are eligible below.
+    if (element.closest('.price, .money, .amount, .order-number, .order-id, .customer-data, .address-value, [data-price], [data-order], [data-customer], [data-payment-provider]')) return false;
+    return true;
+  };
+
+  const restoreCommerceInterface = () => {
+    applyingInterface = true;
+    interfaceTextOriginals.forEach((source, node) => {
+      if (node.isConnected) node.nodeValue = source;
+    });
+    interfaceAttributeOriginals.forEach((attributes, element) => {
+      if (!element.isConnected) return;
+      attributes.forEach((source, attribute) => element.setAttribute(attribute, source));
+    });
+    applyingInterface = false;
+  };
+
+  const applyCommerceInterfaceToDom = () => {
+    if (!commerceUiEnabled() || interfaceTranslations.size === 0) return 0;
+    let applied = 0;
+    applyingInterface = true;
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        const source = normalizeInterfaceText(node.nodeValue);
+        return source && safeInterfaceElement(node.parentElement) && interfaceTranslations.has(source)
+          ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+      },
+    });
+    const nodes = [];
+    while (walker.nextNode() && nodes.length < 500) nodes.push(walker.currentNode);
+    nodes.forEach(node => {
+      const source = interfaceTextOriginals.get(node) || node.nodeValue;
+      const translated = interfaceTranslations.get(normalizeInterfaceText(source));
+      if (!translated) return;
+      interfaceTextOriginals.set(node, source);
+      node.nodeValue = translated;
+      applied++;
+    });
+    [...document.querySelectorAll('input[placeholder], textarea[placeholder], button[aria-label], [title]')].slice(0, 300).forEach(element => {
+      if (!safeInterfaceElement(element)) return;
+      ['placeholder', 'aria-label', 'title'].forEach(attribute => {
+        if (!element.hasAttribute(attribute)) return;
+        const saved = interfaceAttributeOriginals.get(element)?.get(attribute);
+        const source = saved || element.getAttribute(attribute) || '';
+        const translated = interfaceTranslations.get(normalizeInterfaceText(source));
+        if (!translated) return;
+        if (!interfaceAttributeOriginals.has(element)) interfaceAttributeOriginals.set(element, new Map());
+        interfaceAttributeOriginals.get(element).set(attribute, source);
+        element.setAttribute(attribute, translated);
+        applied++;
+      });
+    });
+    applyingInterface = false;
+    return applied;
+  };
+
+  const observeCommerceInterface = () => {
+    if (!commerceUiEnabled() || interfaceObserver) return;
+    interfaceObserver = new MutationObserver(() => {
+      if (applyingInterface || interfaceApplyQueued || interfaceTranslations.size === 0) return;
+      interfaceApplyQueued = true;
+      requestAnimationFrame(() => {
+        interfaceApplyQueued = false;
+        applyCommerceInterfaceToDom();
+      });
+    });
+    interfaceObserver.observe(document.body, {childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['placeholder', 'aria-label', 'title']});
+  };
+
+  const replaceCommerceInterface = async locale => {
+    const epoch = ++interfaceEpoch;
+    restoreCommerceInterface();
+    interfaceTranslations = new Map();
+    if (!commerceUiEnabled() || locale === sourceLocale() || !config?.interface_dictionary_url) return {applied: 0, available: locale === sourceLocale()};
+    const dictionary = await request(`${config.interface_dictionary_url}?locale=${encodeURIComponent(locale)}`);
+    if (epoch !== interfaceEpoch) return {applied: 0, available: false};
+    Object.values(dictionary?.items || {}).forEach(item => {
+      if (item && typeof item.source === 'string' && typeof item.text === 'string' && item.text.trim() !== '') {
+        interfaceTranslations.set(normalizeInterfaceText(item.source), item.text);
+      }
+    });
+    const applied = applyCommerceInterfaceToDom();
+    observeCommerceInterface();
+    return {applied, available: applied > 0};
+  };
 
   const restoreSource = sourceRegions => {
     sourceRegions.forEach(region => region.querySelectorAll('[data-lgt-field]').forEach(node => {
@@ -102,17 +228,17 @@
     // mixed language page when the new publication is only partially covered.
     restoreSource(sourceRegions);
     if (locale === config.source_locale || sourceRegions.length === 0) {
-      if (epoch === presentationEpoch && locale === config.source_locale) document.documentElement.lang = config.source_locale;
-      return;
+      if (epoch === presentationEpoch) document.documentElement.lang = config.source_locale;
+      return {applied: 0, available: locale === config.source_locale};
     }
 
     const dictionaries = await fetchDictionaries(sourceRegions, locale);
     // An earlier initial load can finish after a visitor selects another
     // language.  Never let that old response overwrite the newest choice.
-    if (epoch !== presentationEpoch) return;
+    if (epoch !== presentationEpoch) return {applied: 0, available: false};
     let applied = 0;
     for (const region of sourceRegions) {
-      if (epoch !== presentationEpoch) return;
+      if (epoch !== presentationEpoch) return {applied: 0, available: false};
       const dictionary = dictionaries.get(region);
       const kind = region.dataset.lgtKind;
       const entity = Number(region.dataset.lgtEntity);
@@ -127,7 +253,17 @@
     // Reflect the language actually presented to assistive technologies only
     // after a current response has supplied translated text.  If a
     // publication is unavailable, the page remains truthfully English.
-    if (epoch === presentationEpoch && applied > 0) document.documentElement.lang = locale;
+    if (epoch === presentationEpoch) document.documentElement.lang = applied > 0 ? locale : config.source_locale;
+
+    return {applied, available: applied > 0};
+  };
+
+  const applyPresentation = async locale => {
+    const [content, commerce] = await Promise.all([
+      replaceKnownNodes(locale),
+      replaceCommerceInterface(locale),
+    ]);
+    return {applied: content.applied + commerce.applied, available: content.available || commerce.available};
   };
 
   const optionButton = locale => {
@@ -135,12 +271,15 @@
     const name = document.createElement('span');
     const code = document.createElement('small');
     const selected = config.locale_source === 'explicit' ? config.locale : 'auto';
+    const available = locale === 'auto' || isPublished(locale);
     button.type = 'button';
     button.className = 'lgt-widget__option';
     button.dataset.locale = locale;
     button.setAttribute('aria-pressed', String(locale === selected));
     name.textContent = locale === 'auto' ? 'Automatic' : label(locale);
-    code.textContent = locale === 'auto' ? 'AUTO' : locale.toUpperCase();
+    code.textContent = locale === 'auto' ? 'AUTO' : available ? locale.toUpperCase() : 'Not published';
+    button.disabled = !available;
+    if (!available) button.title = 'Publish the reviewed translation before visitors can switch to this language.';
     button.append(name, code);
     button.addEventListener('click', async () => {
       status.textContent = '';
@@ -159,8 +298,10 @@
         config.locale_source = saved.source;
         render();
         try {
-          await replaceKnownNodes(saved.locale);
-          status.textContent = 'Language updated.';
+          const result = await applyPresentation(saved.locale);
+          status.textContent = result?.available
+            ? 'Language updated.'
+            : 'Language saved. No published translation exists for the visible content yet.';
         } catch (_) {
           // The preference was saved, but the source language is the only
           // safe display state while a publication cannot be read.
@@ -179,7 +320,7 @@
     options.replaceChildren();
     ['auto', ...new Set([config.source_locale, ...(config.locales || [])])]
       .forEach(locale => options.append(optionButton(locale)));
-    current.textContent = (config.locale || config.source_locale).toUpperCase();
+    current.textContent = shownLocale(config.locale || config.source_locale).toUpperCase();
   };
 
   toggle.addEventListener('click', () => setOpen(!root.classList.contains('is-open')));
@@ -197,7 +338,9 @@
     render();
     root.hidden = false;
     try {
-      await replaceKnownNodes(config.locale);
+      const result = await applyPresentation(shownLocale(config.locale));
+      status.textContent = autoExplanation()
+        || (result?.available ? '' : 'No published translation exists for the visible content yet.');
     } catch (_) {
       status.textContent = 'Showing original English while translations are unavailable.';
     }

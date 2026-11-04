@@ -12,6 +12,7 @@
      data-theme="{{ $theme }}"
      data-config-url="{{ shop_route('longos_global_translate.config') }}"
      data-locale-url="{{ shop_route('longos_global_translate.locale') }}"
+     data-commerce-ui="{{ !empty($commerceUi) ? '1' : '0' }}"
      style="--lgt-bottom: {{ $bottom }}px; --lgt-mobile-bottom: {{ $mobileBottom }}px">
   <button type="button" class="lgt-widget__toggle" aria-label="{{ __('LongosGlobalTranslate::translate.choose_language') }}" aria-expanded="false" aria-controls="longos-global-translate-panel">
     <span aria-hidden="true">Aあ</span><span class="lgt-widget__current">EN</span>

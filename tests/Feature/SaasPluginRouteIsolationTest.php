@@ -123,7 +123,7 @@ class SaasPluginRouteIsolationTest extends TestCase
         $register();
         Route::getRoutes()->refreshNameLookups();
 
-        foreach (['index', 'diagnostics'] as $name) {
+        foreach (['index', 'diagnostics', 'status'] as $name) {
             $route = Route::getRoutes()->getByName(admin_name() . '.longos_global_translate.' . $name);
             self::assertNotNull($route);
             self::assertContains('admin', $route->gatherMiddleware());
@@ -216,6 +216,7 @@ class SaasPluginRouteIsolationTest extends TestCase
             '2026_11_02_000003_repair_translation_schema.php',
             '2026_11_03_000004_add_provider_dispatch_rate_limit.php',
             '2026_11_03_000005_add_provider_failover_priority.php',
+            '2026_11_04_000006_add_job_item_failure_codes.php',
         ] as $migrationFile) {
             $migration = require base_path('plugins/LongosGlobalTranslate/Migrations/' . $migrationFile);
             $migration->up();
@@ -266,6 +267,11 @@ class SaasPluginRouteIsolationTest extends TestCase
         self::assertStringNotContainsString('Presentation mode', $response->getContent());
         self::assertStringNotContainsString('Safe repair pending', $response->getContent());
 
+        $statusResponse = app(\Plugin\LongosGlobalTranslate\Controllers\AdminTranslationController::class)->workspaceStatus();
+        self::assertSame(200, $statusResponse->getStatusCode());
+        self::assertTrue($statusResponse->getData(true)['ready']);
+        self::assertArrayHasKey('jobs', $statusResponse->getData(true));
+
         $controller      = app(\Plugin\LongosGlobalTranslate\Controllers\AdminTranslationController::class);
         $countryResponse = $controller
             ->applyCountryRecommendations(Request::create('/admin/global-translate/country-rules/recommendations', 'PUT', ['countries' => ['FR', 'DE']]));
@@ -280,6 +286,27 @@ class SaasPluginRouteIsolationTest extends TestCase
         } catch (\Illuminate\Validation\ValidationException $exception) {
             self::assertArrayHasKey('countries', $exception->errors());
         }
+    }
+
+    public function test_translation_widget_preserves_csrf_for_manual_switching_and_keeps_commerce_data_outside_its_ui_dictionary(): void
+    {
+        $root   = dirname(__DIR__, 2);
+        $script = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Static/public/widget.js');
+        $boot   = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Bootstrap.php');
+        $catalog = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Services/CommerceUiCatalog.php');
+        $widget = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Views/shop/widget.blade.php');
+        $shopController = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Controllers/ShopTranslationController.php');
+
+        self::assertStringContainsString("const {headers = {}, ...options} = init", $script);
+        self::assertStringContainsString("'X-CSRF-TOKEN': csrf", $script);
+        self::assertStringContainsString('replaceCommerceInterface', $script);
+        self::assertStringContainsString('data-commerce-ui', $widget);
+        self::assertStringContainsString('shop.checkout.', $boot);
+        self::assertStringContainsString('shop.account.', $boot);
+        self::assertStringContainsString('input, addresses, SKU names, quantities, amounts, order IDs', $catalog);
+        self::assertStringNotContainsString('card number', strtolower($catalog));
+        self::assertStringNotContainsString('TranslationJobService', $shopController);
+        self::assertStringNotContainsString('ProviderRegistry', $shopController);
     }
 
     public function test_shopify_transfer_routes_are_tenant_guarded_and_follow_product_permissions(): void

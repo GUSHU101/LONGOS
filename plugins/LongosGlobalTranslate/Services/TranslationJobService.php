@@ -34,7 +34,7 @@ final class TranslationJobService
                 throw new RuntimeException('TARGET_LOCALE_NOT_ENABLED');
             }
         }
-        $kinds = array_values(array_intersect(['product', 'category', 'page', 'builder'], $kinds));
+        $kinds = array_values(array_intersect(['product', 'category', 'page', 'builder', CommerceUiCatalog::KIND], $kinds));
         if ($locales === [] || $kinds === []) {
             throw new RuntimeException('EMPTY_TRANSLATION_SCOPE');
         }
@@ -107,12 +107,12 @@ final class TranslationJobService
 
             try {
                 $this->processItem($job, $item, (string) $settings['source_locale'], $runToken);
-            } catch (Throwable) {
+            } catch (Throwable $exception) {
                 // Errors before a provider reservation (for example malformed
                 // source content) must not strand a claimed item forever. A
                 // reservation created after a provider call is always handled
                 // by processItem's conservative uncertainty path instead.
-                $this->finishItem((int) $item->id, 'failed', $runToken);
+                $this->finishItem((int) $item->id, 'failed', $runToken, $this->failureCode($exception));
             }
             if (DB::table('lgt_jobs')->where('id', $jobId)->value('status') !== 'running') {
                 break;
@@ -140,7 +140,7 @@ final class TranslationJobService
                     $attemptIds[] = (int) $item->attempt_id;
                 }
                 DB::table('lgt_job_items')->where('id', $item->id)->where('status', 'claimed')->where('claim_token', $runToken)->update([
-                    'status'  => 'failed', 'completed_at' => now(), 'claim_token' => null,
+                    'status'  => 'failed', 'failure_code' => 'WORKER_EXHAUSTED', 'completed_at' => now(), 'claim_token' => null,
                     'version' => (int) $item->version + 1, 'updated_at' => now(),
                 ]);
             }
@@ -239,14 +239,14 @@ final class TranslationJobService
                 } else {
                     // Earlier segments may already have been accepted. Never
                     // requeue the whole field and risk charging them twice.
-                    $this->finishItem($item->id, 'failed', $runToken);
+                    $this->finishItem($item->id, 'failed', $runToken, 'FREE_QUOTA_EXHAUSTED_AFTER_PARTIAL_SEGMENT');
                 }
 
                 return;
             }
             if ($result['state'] !== 'success') {
                 $this->commitSuccessfulAttempts($successful);
-                $this->finishItem($item->id, 'failed', $runToken);
+                $this->finishItem($item->id, 'failed', $runToken, (string) ($result['failure_code'] ?? 'PROCESSING_EXCEPTION'));
 
                 return;
             }
@@ -272,13 +272,13 @@ final class TranslationJobService
                     $this->ledger->commit((int) $attempt['attempt_id'], (string) $attempt['request_id']);
                 }
             }, 3);
-        } catch (Throwable) {
+        } catch (Throwable $exception) {
             // The provider has already accepted each successful batch. Commit
             // its durable cost even if a stale source or token integrity check
             // prevents a dictionary write. This blocks an unsafe automatic
             // retry and leaves a clear failed job item for an operator.
             $this->commitSuccessfulAttempts($successful);
-            $this->finishItem($item->id, 'failed', $runToken);
+            $this->finishItem($item->id, 'failed', $runToken, $this->failureCode($exception));
 
             return;
         }
@@ -292,7 +292,7 @@ final class TranslationJobService
      * their original account so a retry cannot create duplicate billable work.
      *
      * @param list<object> $accounts
-     * @return array{state:'success',translation:string,attempt:array{attempt_id:int,request_id:string},provider:string,account_id:int}|array{state:'exhausted'}|array{state:'failed'}
+     * @return array{state:'success',translation:string,attempt:array{attempt_id:int,request_id:string},provider:string,account_id:int}|array{state:'exhausted'}|array{state:'failed',failure_code:string}
      */
     private function translateSegmentWithFailover(array $accounts, string $segment, string $sourceLocale, string $targetLocale, string $sourceHash, int $jobItemId): array
     {
@@ -336,24 +336,27 @@ final class TranslationJobService
                     $this->ledger->uncertain($reservation['id'], $failure['code']);
                 }
 
-                return ['state' => 'failed'];
-            } catch (Throwable) {
+                return ['state' => 'failed', 'failure_code' => $failure['code']];
+            } catch (Throwable $exception) {
                 // Once markSending succeeds, an exception might have occurred
                 // after the provider received bytes. Before it succeeds no
                 // external request exists, so release the reservation instead
                 // of stranding free quota in a permanent reserved state.
+                $failure = isset($provider)
+                    ? $provider->classifyFailure($exception)
+                    : ['code' => 'PRE_SEND_FAILURE', 'definitely_unbilled' => true];
                 try {
                     if ($requestMarkedSending) {
-                        $this->ledger->uncertain($reservation['id'], 'WORKER_EXCEPTION');
+                        $this->ledger->uncertain($reservation['id'], $failure['definitely_unbilled'] ? 'WORKER_EXCEPTION' : $failure['code']);
                     } else {
-                        $this->ledger->definiteFailure($reservation['id'], 'PRE_SEND_FAILURE');
+                        $this->ledger->definiteFailure($reservation['id'], $failure['definitely_unbilled'] ? $failure['code'] : 'PRE_SEND_FAILURE');
                     }
                 } catch (Throwable) {
                     // Preserve the original error state; a later operator can
                     // reconcile the durable sending attempt.
                 }
 
-                return ['state' => 'failed'];
+                return ['state' => 'failed', 'failure_code' => $this->safeFailureCode((string) $failure['code'])];
             }
         }
 
@@ -436,14 +439,22 @@ final class TranslationJobService
         ]);
     }
 
-    private function finishItem(int $itemId, string $status, string $runToken): void
+    private function finishItem(int $itemId, string $status, string $runToken, ?string $failureCode = null): void
     {
-        DB::transaction(function () use ($itemId, $status, $runToken): void {
+        $failureCode = $status === 'failed' ? $this->safeFailureCode($failureCode ?: 'PROCESSING_EXCEPTION') : null;
+        DB::transaction(function () use ($itemId, $status, $runToken, $failureCode): void {
             $item = DB::table('lgt_job_items')->where('id', $itemId)->lockForUpdate()->first();
             if ($item === null || $item->status !== 'claimed' || ! hash_equals((string) $item->claim_token, $runToken)) {
                 return;
             }
-            DB::table('lgt_job_items')->where('id', $itemId)->update(['status' => $status, 'claim_token' => null, 'completed_at' => now(), 'version' => (int) $item->version + 1, 'updated_at' => now()]);
+            DB::table('lgt_job_items')->where('id', $itemId)->update([
+                'status'       => $status,
+                'failure_code' => $failureCode,
+                'claim_token'  => null,
+                'completed_at' => now(),
+                'version'      => (int) $item->version + 1,
+                'updated_at'   => now(),
+            ]);
             $job = DB::table('lgt_jobs')->where('id', $item->job_id)->lockForUpdate()->first();
             DB::table('lgt_jobs')->where('id', $item->job_id)->update([
                 'completed_items' => (int) $job->completed_items + 1,
@@ -451,6 +462,18 @@ final class TranslationJobService
                 'updated_at'      => now(),
             ]);
         }, 3);
+    }
+
+    private function failureCode(Throwable $exception): string
+    {
+        return $this->safeFailureCode($exception->getMessage());
+    }
+
+    private function safeFailureCode(string $code): string
+    {
+        $code = strtoupper(trim($code));
+
+        return preg_match('/^[A-Z0-9_]{3,96}$/', $code) === 1 ? $code : 'PROCESSING_EXCEPTION';
     }
 
     private function finishIfTerminal(int $jobId): void

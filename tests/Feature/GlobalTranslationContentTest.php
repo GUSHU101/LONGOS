@@ -30,6 +30,8 @@ class GlobalTranslationContentTest extends TestCase
         $rateLimit->up();
         $priority = require base_path('plugins/LongosGlobalTranslate/Migrations/2026_11_03_000005_add_provider_failover_priority.php');
         $priority->up();
+        $failureCodes = require base_path('plugins/LongosGlobalTranslate/Migrations/2026_11_04_000006_add_job_item_failure_codes.php');
+        $failureCodes->up();
         Schema::create('products', function (Blueprint $t): void {
             $t->id();
             $t->boolean('active');

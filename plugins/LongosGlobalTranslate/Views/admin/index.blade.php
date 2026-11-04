@@ -378,4 +378,147 @@
   }, true);
 })();
 </script>
+<script>
+(() => {
+  // Split the legacy combined "setup" screen into focused steps at runtime.
+  // Existing installations may have tenant-specific view overrides, so this
+  // keeps the server-rendered form IDs stable while making the workflow clear.
+  const setupPanels = [...document.querySelectorAll('[data-lgt-panel="setup"]')];
+  ['overview', 'providers', 'languages', 'regions'].forEach((name, index) => {
+    if (setupPanels[index]) setupPanels[index].dataset.lgtPanel = name;
+  });
+  const tabs = [
+    ['overview', '概览'], ['providers', 'API 服务商'], ['plan', '内容入库'],
+    ['library', '翻译库'], ['languages', '展示语言'], ['regions', '国家/地区'],
+    ['widget', '前台语言选择器'], ['operations', '发布与审计'],
+  ];
+  const nav = document.querySelector('.lgt-admin .nav-pills');
+  const selectPanel = name => {
+    document.querySelectorAll('[data-lgt-panel]').forEach(panel => panel.classList.toggle('active', panel.dataset.lgtPanel === name));
+    nav?.querySelectorAll('[data-lgt-tab]').forEach(tab => {
+      const active = tab.dataset.lgtTab === name;
+      tab.classList.toggle('active', active);
+      tab.setAttribute('aria-current', active ? 'page' : 'false');
+    });
+  };
+  if (nav) {
+    nav.replaceChildren();
+    tabs.forEach(([name, label]) => {
+      const button = document.createElement('button');
+      button.type = 'button'; button.className = 'nav-link'; button.dataset.lgtTab = name;
+      button.textContent = label;
+      button.addEventListener('click', () => selectPanel(name));
+      nav.append(button);
+    });
+    selectPanel('overview');
+  }
+
+  const overview = document.querySelector('[data-lgt-panel="overview"]');
+  if (overview) {
+    overview.querySelector('.badge')?.replaceChildren('本地发布模式');
+    const title = overview.querySelector('h2');
+    if (title) title.textContent = '全球翻译工作台';
+    const description = overview.querySelector('p');
+    if (description) description.textContent = '后台仅对运营人员明确选择的公开内容建立翻译库；访客页面只读取已审核、已发布的本地词典，不会在访问时调用翻译服务。';
+  }
+  const providerPanel = document.querySelector('[data-lgt-panel="providers"]');
+  if (providerPanel) {
+    const description = providerPanel.querySelector('.form-text');
+    if (description) description.textContent = '凭据仅加密保存。服务商只在运营人员创建的后台翻译任务中使用；访客访问、结账与支付流程绝不会调用服务商。';
+  }
+  const scannerPanel = document.querySelector('[data-lgt-panel="plan"]');
+  if (scannerPanel) {
+    const description = scannerPanel.querySelector('.card .form-text');
+    if (description) description.textContent = '默认仅索引公开商品、分类、页面和已发布装修模块。可额外选择“交易页固定界面文案”；客户输入、地址、商品明细、金额、订单号与支付数据始终不会被读取。';
+    if (!document.getElementById('lgt-local-dictionary-flow')) {
+      const flow = document.createElement('div');
+      flow.id = 'lgt-local-dictionary-flow'; flow.className = 'alert alert-info py-2 small';
+      const heading = document.createElement('strong'); heading.textContent = '本地词典流程：';
+      const list = document.createElement('ol'); list.className = 'mb-0 mt-1 ps-3';
+      ['选择固定公开文案并扫描。', '后台任务调用已验证的服务商翻译。', '审核译文后发布不可变版本。', '访客按 IP 国家规则或手动语言选择，只读取已发布版本。'].forEach(text => {
+        const item = document.createElement('li'); item.textContent = text; list.append(item);
+      });
+      flow.append(heading, list);
+      scannerPanel.querySelector('.card .card-body')?.prepend(flow);
+    }
+  }
+  const widgetPanel = document.querySelector('[data-lgt-panel="widget"]');
+  if (widgetPanel) {
+    const description = widgetPanel.querySelector('.form-text');
+    if (description) description.textContent = '选择器只同源读取已发布的本地词典。结账、账户与站内付款交接页仅替换审核过的固定标签；不会读取、提交或改写客户输入、地址、订单、金额或支付服务商内容。';
+  }
+
+  // The UI-label scope is injected beside the legacy scanner controls so a
+  // deployment can safely add this new opt-in scope without requiring a
+  // fragile rewrite of a tenant-customized admin view.
+  const addScope = (formId, name, id, text) => {
+    const form = document.getElementById(formId);
+    const host = form?.querySelector('fieldset, .d-flex.gap-3.flex-wrap');
+    if (!form || !host || document.getElementById(id)) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'form-check';
+    const input = document.createElement('input');
+    input.className = 'form-check-input'; input.type = 'checkbox'; input.name = name; input.value = 'commerce_ui'; input.id = id; input.checked = true;
+    const label = document.createElement('label');
+    label.className = 'form-check-label'; label.htmlFor = id; label.textContent = text;
+    wrap.append(input, label); host.append(wrap);
+  };
+  addScope('lgt-scan-form', 'scope', 'scan-commerce-ui', '结账 / 账户 / 支付页固定界面文案');
+  addScope('lgt-plan-form', 'plan_scope', 'plan-commerce-ui', '交易页固定界面文案');
+  const plan = document.getElementById('lgt-plan-form');
+  if (plan && !document.getElementById('lgt-commerce-ui-notice')) {
+    const notice = document.createElement('p');
+    notice.id = 'lgt-commerce-ui-notice'; notice.className = 'form-text col-12 mb-0';
+    notice.textContent = '该范围只包含固定按钮、标题和字段标签；姓名、地址、商品、金额、订单号及支付服务商内容不会被扫描或发送给翻译 API。';
+    plan.append(notice);
+  }
+})();
+</script>
+<script>
+(() => {
+  const endpoint = @json(admin_route('longos_global_translate.status'));
+  const operations = document.querySelector('[data-lgt-panel="operations"]');
+  const table = operations?.querySelector('.card:last-child tbody');
+  if (!operations || !table) return;
+  const heading = operations.querySelector('.card:last-child h2');
+  const refresh = document.createElement('button');
+  refresh.type = 'button'; refresh.className = 'btn btn-sm btn-outline-secondary ms-2'; refresh.textContent = '刷新状态';
+  heading?.append(refresh);
+  const labels = {planned:'待执行',queued:'排队中',scanning:'扫描中',running:'处理中',pausing:'暂停中',paused:'已暂停',completed:'已完成',partial_failed:'部分失败',failed:'失败'};
+  const render = jobs => {
+    table.replaceChildren();
+    if (!jobs.length) {
+      const row = document.createElement('tr'), cell = document.createElement('td');
+      cell.colSpan = 5; cell.className = 'text-secondary'; cell.textContent = '尚未创建翻译任务。'; row.append(cell); table.append(row); return;
+    }
+    jobs.forEach(job => {
+      const row = document.createElement('tr');
+      const cells = [job.public_id, labels[job.status] || job.status, job.mode, `${job.completed_items}/${job.total_items}；失败 ${job.failed_items}`, job.created_at ? new Date(job.created_at).toLocaleString() : '—'];
+      cells.forEach(value => { const cell = document.createElement('td'); cell.textContent = String(value); row.append(cell); });
+      if (Array.isArray(job.failure_summary) && job.failure_summary.length) {
+        row.title = job.failure_summary.map(reason => `${reason.label}（${reason.total}）`).join('\n');
+      }
+      table.append(row);
+    });
+  };
+  let pending = false;
+  const load = async () => {
+    if (pending || document.hidden) return;
+    pending = true; refresh.disabled = true;
+    try {
+      const response = await fetch(endpoint, {credentials:'same-origin', headers:{Accept:'application/json','X-Requested-With':'XMLHttpRequest'}});
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || !body.ready) throw new Error('状态暂不可用');
+      render(Array.isArray(body.jobs) ? body.jobs : []);
+    } catch (_) {
+      // The currently rendered data stays visible during a transient network
+      // failure; never replace it with a misleading empty table.
+    } finally { pending = false; refresh.disabled = false; }
+  };
+  refresh.addEventListener('click', load);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
+  window.setInterval(load, 8000);
+  load();
+})();
+</script>
 @endsection

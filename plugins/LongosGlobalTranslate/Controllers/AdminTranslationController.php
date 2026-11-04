@@ -67,6 +67,39 @@ final class AdminTranslationController extends Controller
         return $this->json($this->dashboard()['diagnostics']);
     }
 
+    /**
+     * A compact, credential-free snapshot for the admin workspace.
+     *
+     * Translation runs are intentionally asynchronous. Rendering an admin
+     * page once and expecting an operator to refresh it hides that fact and
+     * made interrupted/provider-failed runs look like the UI was frozen.
+     * This endpoint is deliberately tenant-local (the plugin route already
+     * carries the tenant/plugin/permission middleware) and exposes neither
+     * source text nor encrypted provider credentials.
+     */
+    public function workspaceStatus(): JsonResponse
+    {
+        $schema = TranslationSchema::inspect();
+        if (! $schema['ready']) {
+            return $this->json([
+                'ready'  => false,
+                'schema' => $schema,
+            ], 503);
+        }
+
+        $dashboard = $this->dashboard();
+
+        return $this->json([
+            'ready'          => true,
+            'generated_at'   => now()->toIso8601String(),
+            'diagnostics'    => $dashboard['diagnostics'],
+            'jobs'           => $dashboard['jobs'],
+            'accounts'       => $dashboard['accounts'],
+            'publications'   => count($dashboard['publications']),
+            'workspace_alerts' => $dashboard['workspace_warnings'],
+        ]);
+    }
+
     public function saveSettings(Request $request): JsonResponse
     {
         $this->requireSchema();
@@ -232,8 +265,8 @@ final class AdminTranslationController extends Controller
     public function scan(Request $request): JsonResponse
     {
         $this->requireSchema();
-        $data  = $request->validate(['scope' => ['present', 'array', 'max:4'], 'scope.*' => ['in:product,category,page,builder']]);
-        $scope = $data['scope'] ?: ['product', 'category', 'page', 'builder'];
+        $data  = $request->validate(['scope' => ['present', 'array', 'max:5'], 'scope.*' => ['in:product,category,page,builder,commerce_ui']]);
+        $scope = $data['scope'] ?: ['product', 'category', 'page', 'builder', 'commerce_ui'];
 
         return $this->json(['report' => $this->scanner->scan($scope, $this->actorId())]);
     }
@@ -244,8 +277,8 @@ final class AdminTranslationController extends Controller
         $data = $request->validate([
             'locales'   => ['required', 'array', 'min:1', 'max:24'],
             'locales.*' => ['string', 'max:24'],
-            'scope'     => ['required', 'array', 'min:1', 'max:4'],
-            'scope.*'   => ['in:product,category,page,builder'],
+            'scope'     => ['required', 'array', 'min:1', 'max:5'],
+            'scope.*'   => ['in:product,category,page,builder,commerce_ui'],
         ]);
 
         return $this->json($this->jobs->plan($data['locales'], $data['scope'], $this->actorId()), 201);
@@ -310,7 +343,7 @@ final class AdminTranslationController extends Controller
         $settings     = $this->safeDashboardValue('settings', fn (): array => $this->settings->all(), $this->defaultSettings(), $warnings);
         $latest       = $this->safeDashboardValue('coverage', fn (): mixed => DB::table('lgt_coverage_snapshots')->latest('id')->value('report'), null, $warnings);
         $accounts     = $this->safeDashboardValue('provider accounts', fn (): array => $this->accounts->publicAccounts(), [], $warnings);
-        $jobs         = $this->safeDashboardValue('job history', fn () => DB::table('lgt_jobs')->latest('id')->limit(12)->get(), collect(), $warnings);
+        $jobs         = $this->safeDashboardValue('job history', fn (): array => $this->jobSummaries(), [], $warnings);
         $publications = $this->safeDashboardValue('publication history', fn () => DB::table('lgt_publications')->orderByDesc('published_at')->limit(24)->get(), collect(), $warnings);
         $countryRules = $this->safeDashboardValue('country defaults', fn () => DB::table('lgt_country_rules')->orderBy('country')->limit(250)->get(), collect(), $warnings);
         $countries    = $this->safeDashboardValue('system countries', fn (): array => $this->countries->enabledCountries(), [], $warnings);
@@ -354,6 +387,88 @@ final class AdminTranslationController extends Controller
                 'theme'                => 'system',
             ],
         ];
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function jobSummaries(): array
+    {
+        return DB::table('lgt_jobs')->latest('id')->limit(12)->get()->map(function (object $job): array {
+            $total     = (int) $job->total_items;
+            $completed = (int) $job->completed_items;
+            $failed    = (int) $job->failed_items;
+            $reasons   = DB::table('lgt_job_items')
+                ->where('job_id', $job->id)
+                ->where('status', 'failed')
+                ->whereNotNull('failure_code')
+                ->select('failure_code', DB::raw('COUNT(*) as total'))
+                ->groupBy('failure_code')
+                ->orderByDesc('total')
+                ->limit(4)
+                ->get()
+                ->map(fn (object $reason): array => [
+                    'code'  => (string) $reason->failure_code,
+                    'label' => $this->failureLabel((string) $reason->failure_code),
+                    'total' => (int) $reason->total,
+                ])->all();
+            // Older task rows predate durable item failure codes. Preserve a
+            // useful, honest fallback rather than pretending no error exists.
+            if ($failed > 0 && $reasons === []) {
+                $reasons[] = [
+                    'code'  => 'HISTORICAL_FAILURE',
+                    'label' => '历史任务未记录细分原因；请按当前凭据重新创建一个小范围任务进行验证。',
+                    'total' => $failed,
+                ];
+            }
+
+            return [
+                'public_id'       => (string) $job->public_id,
+                'status'          => (string) $job->status,
+                'mode'            => (string) $job->mode,
+                'total_items'     => $total,
+                'completed_items' => $completed,
+                'failed_items'    => $failed,
+                'progress_percent'=> $total > 0 ? min(100, (int) floor(($completed / $total) * 100)) : 0,
+                'created_at'      => $this->isoTimestamp($job->created_at ?? null),
+                'updated_at'      => $this->isoTimestamp($job->updated_at ?? null),
+                'active'          => in_array((string) $job->status, ['queued', 'scanning', 'running', 'pausing'], true),
+                'failure_summary' => $reasons,
+            ];
+        })->all();
+    }
+
+    private function failureLabel(string $code): string
+    {
+        return match ($code) {
+            'AUTH' => '服务商凭据被拒绝，请检查 API 密钥与应用权限。',
+            'NOT_OPENED' => '服务商翻译服务尚未在该账号开通。',
+            'UNSUPPORTED_LANGUAGE' => '该服务商不支持此目标语言。',
+            'RATE_LIMIT' => '服务商请求过于频繁，请降低 QPS 或稍后再试。',
+            'BALANCE_EXHAUSTED', 'LOCAL_BUDGET_EXHAUSTED', 'FREE_QUOTA_EXHAUSTED_AFTER_PARTIAL_SEGMENT' => '可用免费额度已耗尽。',
+            'INVALID_INPUT' => '源文本不符合服务商的输入要求。',
+            'UNSAFE_TRANSLATION' => '译文包含不允许的标记，已安全拒绝。',
+            'STALE_SOURCE' => '原文在翻译期间已变更，请重新扫描。',
+            'NETWORK_AFTER_SEND', 'WORKER_EXCEPTION', 'WORKER_EXHAUSTED' => '请求结果不确定，为避免重复计费已停止自动重试。',
+            'PRE_SEND_FAILURE' => '请求在发送前失败，请检查服务商配置后重试。',
+            default => '任务处理失败；请打开任务详情或使用小范围任务验证服务商。',
+        };
+    }
+
+    private function isoTimestamp(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        if (is_object($value) && method_exists($value, 'toIso8601String')) {
+            return $value->toIso8601String();
+        }
+
+        try {
+            return now()->parse((string) $value)->toIso8601String();
+        } catch (Throwable) {
+            return (string) $value;
+        }
     }
 
     /**

@@ -57,6 +57,57 @@ final class DictionaryService
     }
 
     /**
+     * Return only the reviewed, published static interface vocabulary.
+     *
+     * Unlike a catalog dictionary this response contains no merchant content
+     * and no customer/order/payment data.  The browser uses the paired source
+     * text to replace exact static labels only; values and free text are not
+     * candidates for replacement.
+     *
+     * @return array{revision:?int,items:array<string,array{source:string,text:string}>}
+     */
+    public function forCommerceInterface(string $locale): array
+    {
+        if (! Schema::hasTable('lgt_publications') || ! Schema::hasTable('lgt_publication_items') || ! Schema::hasTable('lgt_translations') || ! Schema::hasTable('lgt_entries')) {
+            return ['revision' => null, 'items' => []];
+        }
+        $locale      = TranslationSettings::locale($locale);
+        $publication = DB::table('lgt_publications')->where('locale', $locale)->where('state', 'published')
+            ->orderByDesc('revision')->orderByDesc('id')->first();
+        if ($publication === null) {
+            return ['revision' => null, 'items' => []];
+        }
+
+        $catalog = CommerceUiCatalog::entries();
+        $items = DB::table('lgt_publication_items as i')
+            ->join('lgt_translations as t', 't.id', '=', 'i.translation_id')
+            ->join('lgt_entries as e', 'e.id', '=', 't.entry_id')
+            ->where('i.publication_id', $publication->id)
+            ->where('e.kind', CommerceUiCatalog::KIND)
+            ->where('e.entity_id', CommerceUiCatalog::ENTITY_ID)
+            ->where('e.is_public', true)
+            ->where('e.is_tombstoned', false)
+            ->whereColumn('i.source_hash', 'e.source_hash')
+            ->orderBy('e.id')
+            ->limit(200)
+            ->get(['e.field', 'e.source_text', 'e.source_hash', 'i.text'])
+            ->filter(static function (object $item) use ($catalog): bool {
+                $source = $catalog[(string) $item->field] ?? null;
+
+                return is_string($source)
+                    && hash_equals((string) $item->source_hash, ContentScanner::sourceHash($source))
+                    && hash_equals($source, (string) $item->source_text);
+            })
+            ->mapWithKeys(static fn (object $item): array => [(string) $item->field => [
+                'source' => (string) $item->source_text,
+                'text'   => (string) $item->text,
+            ]])
+            ->all();
+
+        return ['revision' => (int) $publication->revision, 'items' => $items];
+    }
+
+    /**
      * A publication is immutable, but the source entity can be hidden after
      * publishing. Re-checking one known parent row protects a storefront from
      * showing translations for a now-private product/category/page. Builder
@@ -104,6 +155,13 @@ final class DictionaryService
             } catch (\Throwable) {
                 return false;
             }
+        }
+        if ($entry->kind === CommerceUiCatalog::KIND) {
+            $source = CommerceUiCatalog::sourceFor((string) $entry->field);
+
+            return is_string($source)
+                && hash_equals((string) $entry->source_hash, ContentScanner::sourceHash($source))
+                && hash_equals((string) $entry->source_text, $source);
         }
         $source = match ($entry->kind) {
             'product'  => ['table' => 'product_descriptions', 'key' => 'product_id', 'fields' => ['name']],

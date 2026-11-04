@@ -86,7 +86,7 @@ final class TranslationSchema
         ],
         'lgt_job_items' => [
             'id', 'job_id', 'entry_id', 'target_locale', 'source_hash', 'status',
-            'claim_token', 'attempt_id', 'version', 'claimed_at', 'completed_at', 'created_at', 'updated_at',
+            'claim_token', 'attempt_id', 'failure_code', 'version', 'claimed_at', 'completed_at', 'created_at', 'updated_at',
         ],
         'lgt_publications' => [
             'id', 'locale', 'revision', 'state', 'published_by', 'published_at', 'rollback_of', 'coverage_snapshot',

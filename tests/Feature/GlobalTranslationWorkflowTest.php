@@ -15,6 +15,7 @@ use Plugin\LongosGlobalTranslate\Providers\TranslationProviderInterface;
 use Plugin\LongosGlobalTranslate\Providers\TranslationProviderRequest;
 use Plugin\LongosGlobalTranslate\Providers\TranslationProviderResponse;
 use Plugin\LongosGlobalTranslate\Services\ContentScanner;
+use Plugin\LongosGlobalTranslate\Services\CommerceUiCatalog;
 use Plugin\LongosGlobalTranslate\Services\DictionaryService;
 use Plugin\LongosGlobalTranslate\Services\ProviderAccountService;
 use Plugin\LongosGlobalTranslate\Services\ProviderVerificationService;
@@ -46,6 +47,7 @@ class GlobalTranslationWorkflowTest extends TestCase
             '2026_11_02_000003_repair_translation_schema.php',
             '2026_11_03_000004_add_provider_dispatch_rate_limit.php',
             '2026_11_03_000005_add_provider_failover_priority.php',
+            '2026_11_04_000006_add_job_item_failure_codes.php',
         ] as $migrationFile) {
             $migration = require base_path('plugins/LongosGlobalTranslate/Migrations/' . $migrationFile);
             $migration->up();
@@ -149,8 +151,38 @@ class GlobalTranslationWorkflowTest extends TestCase
         self::assertFalse($config->getData(true)['enabled']);
         self::assertSame(['en'], $config->getData(true)['locales']);
         self::assertSame('', $config->getData(true)['dictionary_url']);
+        self::assertSame('', $config->getData(true)['interface_dictionary_url']);
         self::assertNull($dictionary->getData(true)['revision']);
         self::assertSame([], $dictionary->getData(true)['items']);
+    }
+
+    public function test_reviewed_commerce_interface_labels_publish_without_exposing_transaction_values(): void
+    {
+        $scanner = new ContentScanner;
+        $report  = $scanner->scan([CommerceUiCatalog::KIND]);
+        self::assertContains(CommerceUiCatalog::KIND, $report['supported_sources']);
+        self::assertSame(count(CommerceUiCatalog::entries()), $report['found']);
+
+        $entry = DB::table('lgt_entries')
+            ->where('kind', CommerceUiCatalog::KIND)
+            ->where('entity_id', CommerceUiCatalog::ENTITY_ID)
+            ->where('field', 'checkout.order_summary')
+            ->first();
+        self::assertNotNull($entry);
+        self::assertSame('Order summary', $entry->source_text);
+        self::assertSame(0, DB::table('lgt_entries')->whereIn('kind', ['order', 'payment', 'customer', 'checkout'])->count());
+
+        $library = new TranslationLibrary;
+        $machine = $library->saveMachineResult((int) $entry->id, 'fr', (string) $entry->source_hash, 'Récapitulatif de la commande', 'baidu', 1);
+        $library->review((int) $machine['id'], (int) $machine['version'], true, 7);
+        (new PublicationService)->publish('fr', 7);
+
+        $dictionary = (new DictionaryService)->forCommerceInterface('fr');
+        self::assertSame('Order summary', $dictionary['items']['checkout.order_summary']['source']);
+        self::assertSame('Récapitulatif de la commande', $dictionary['items']['checkout.order_summary']['text']);
+
+        DB::table('lgt_entries')->where('id', $entry->id)->update(['source_text' => 'Tampered static label']);
+        self::assertSame([], (new DictionaryService)->forCommerceInterface('fr')['items']);
     }
 
     public function test_usage_ledger_hard_stops_before_free_budget_and_preserves_uncertain_cost(): void
