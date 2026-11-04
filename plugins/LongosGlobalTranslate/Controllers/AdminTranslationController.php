@@ -88,15 +88,17 @@ final class AdminTranslationController extends Controller
         }
 
         $dashboard = $this->dashboard();
+        $warnings  = [];
+        $jobs      = $this->safeDashboardValue('live job status', fn (): array => $this->jobSummaries(), [], $warnings);
 
         return $this->json([
             'ready'          => true,
             'generated_at'   => now()->toIso8601String(),
             'diagnostics'    => $dashboard['diagnostics'],
-            'jobs'           => $dashboard['jobs'],
+            'jobs'           => $jobs,
             'accounts'       => $dashboard['accounts'],
             'publications'   => count($dashboard['publications']),
-            'workspace_alerts' => $dashboard['workspace_warnings'],
+            'workspace_alerts' => array_values(array_unique([...$dashboard['workspace_warnings'], ...$warnings])),
         ]);
     }
 
@@ -343,7 +345,12 @@ final class AdminTranslationController extends Controller
         $settings     = $this->safeDashboardValue('settings', fn (): array => $this->settings->all(), $this->defaultSettings(), $warnings);
         $latest       = $this->safeDashboardValue('coverage', fn (): mixed => DB::table('lgt_coverage_snapshots')->latest('id')->value('report'), null, $warnings);
         $accounts     = $this->safeDashboardValue('provider accounts', fn (): array => $this->accounts->publicAccounts(), [], $warnings);
-        $jobs         = $this->safeDashboardValue('job history', fn (): array => $this->jobSummaries(), [], $warnings);
+        // The first page render needs database rows because the Blade history
+        // table intentionally reads object properties.  The credential-free
+        // JSON projection used by the live-poll endpoint is built separately
+        // in workspaceStatus(); mixing those contracts caused a 500 whenever
+        // a tenant already had a task history.
+        $jobs         = $this->safeDashboardValue('job history', fn () => DB::table('lgt_jobs')->latest('id')->limit(12)->get(), collect(), $warnings);
         $publications = $this->safeDashboardValue('publication history', fn () => DB::table('lgt_publications')->orderByDesc('published_at')->limit(24)->get(), collect(), $warnings);
         $countryRules = $this->safeDashboardValue('country defaults', fn () => DB::table('lgt_country_rules')->orderBy('country')->limit(250)->get(), collect(), $warnings);
         $countries    = $this->safeDashboardValue('system countries', fn (): array => $this->countries->enabledCountries(), [], $warnings);

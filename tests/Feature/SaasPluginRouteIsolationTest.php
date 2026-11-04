@@ -236,6 +236,18 @@ class SaasPluginRouteIsolationTest extends TestCase
             ['name' => 'United States', 'code' => 'US', 'sort_order' => 3, 'active' => true, 'created_at' => now(), 'updated_at' => now()],
             ['name' => 'Japan', 'code' => 'JP', 'sort_order' => 4, 'active' => false, 'created_at' => now(), 'updated_at' => now()],
         ]);
+        DB::table('lgt_jobs')->insert([
+            'public_id'       => '55c2d6d6-c754-4af3-a73b-84cbd134d001',
+            'status'          => 'failed',
+            'mode'            => 'free_only',
+            'scope'           => json_encode(['commerce_ui']),
+            'target_locales'  => json_encode(['fr']),
+            'total_items'     => 1,
+            'completed_items' => 1,
+            'failed_items'    => 1,
+            'created_at'      => now(),
+            'updated_at'      => now(),
+        ]);
 
         // Isolate the plugin view from the full authenticated admin shell.
         // The shell is independently exercised by its own feature suite; this
@@ -263,6 +275,7 @@ class SaasPluginRouteIsolationTest extends TestCase
         self::assertStringContainsString('APP ID', $response->getContent());
         self::assertStringContainsString('按系统国家/地区快捷启用语言', $response->getContent());
         self::assertStringContainsString('France', $response->getContent());
+        self::assertStringContainsString('55c2d6d6-c754-4af3-a73b-84cbd134d001', $response->getContent());
         self::assertStringNotContainsString('Japan（JP）', $response->getContent());
         self::assertStringNotContainsString('Presentation mode', $response->getContent());
         self::assertStringNotContainsString('Safe repair pending', $response->getContent());
