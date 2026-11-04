@@ -16,6 +16,10 @@ Route::prefix('global-translate')->name('longos_global_translate.')
         Route::post('providers/{provider}/dispatch', [AdminTranslationController::class, 'dispatchProvider'])->whereNumber('provider')->name('providers.dispatch');
         Route::post('scan', [AdminTranslationController::class, 'scan'])->name('scan');
         Route::post('jobs', [AdminTranslationController::class, 'plan'])->name('jobs.plan');
+        // This never replays an uncertain provider request. The controller
+        // accepts only a positive operator confirmation and the service
+        // re-queues only ledger rows proved non-billable.
+        Route::post('jobs/{job}/retry-definite', [AdminTranslationController::class, 'retryDefiniteFailures'])->whereNumber('job')->name('jobs.retry-definite');
         Route::get('translations', [AdminTranslationController::class, 'translations'])->name('translations.index');
         Route::put('translations/{translation}', [AdminTranslationController::class, 'updateTranslation'])->whereNumber('translation')->name('translations.update');
         Route::post('translations/{translation}/review', [AdminTranslationController::class, 'reviewTranslation'])->whereNumber('translation')->name('translations.review');

@@ -7,6 +7,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\TestCase;
+use Plugin\LongosGlobalTranslate\Services\CommerceUiCatalog;
 use Plugin\LongosGlobalTranslate\Services\ContentScanner;
 
 class GlobalTranslationContentTest extends TestCase
@@ -80,5 +81,19 @@ class GlobalTranslationContentTest extends TestCase
         self::assertSame(1, DB::table('lgt_translations')->where('status', 'stale')->count());
         self::assertSame(0, DB::table('lgt_translations')->where('status', 'approved')->count());
         self::assertSame(1, DB::table('lgt_translations')->where('locked', true)->where('text', 'Human text')->count());
+    }
+
+    public function test_commerce_scope_indexes_only_the_finite_static_checkout_and_account_catalog(): void
+    {
+        $report = (new ContentScanner)->scan([CommerceUiCatalog::KIND]);
+
+        self::assertSame([CommerceUiCatalog::KIND], $report['supported_sources']);
+        self::assertSame(count(CommerceUiCatalog::entries()), $report['found']);
+        self::assertSame(count(CommerceUiCatalog::entries()), DB::table('lgt_entries')
+            ->where('kind', CommerceUiCatalog::KIND)
+            ->where('entity_id', CommerceUiCatalog::ENTITY_ID)
+            ->count());
+        self::assertFalse(DB::table('lgt_entries')->where('source_text', 'like', '%@%')->exists());
+        self::assertFalse(DB::table('lgt_entries')->where('source_text', 'like', '%Card number%')->exists());
     }
 }

@@ -175,6 +175,42 @@ final class ProviderAccountService
         });
     }
 
+    /**
+     * Stop a provider that has explicitly told us that this account cannot
+     * accept work. This is deliberately narrower than generic failures: a
+     * timeout may have reached the upstream service and must remain an
+     * operator-visible uncertain attempt. The accepted reasons are either
+     * explicit pre-translation provider replies or local credential errors
+     * discovered before a request enters the sending state.
+     */
+    public function suspendDispatchForSafety(int $accountId, string $reason): void
+    {
+        $reason = strtoupper(trim($reason));
+        if (! in_array($reason, [
+            'AUTH', 'NOT_OPENED', 'BALANCE_EXHAUSTED',
+            'PROVIDER_CREDENTIALS_MISSING', 'PROVIDER_CREDENTIALS_UNREADABLE', 'INVALID_PROVIDER_CREDENTIALS',
+        ], true)) {
+            return;
+        }
+
+        DB::transaction(function () use ($accountId, $reason): void {
+            $account = DB::table('lgt_provider_accounts')->where('id', $accountId)->lockForUpdate()->first();
+            if ($account === null || ! (bool) $account->dispatch_enabled) {
+                return;
+            }
+            DB::table('lgt_provider_accounts')->where('id', $accountId)->update([
+                'dispatch_enabled' => false,
+                'updated_at'       => now(),
+            ]);
+            $this->audit('provider_dispatch_suspended', 'provider_account', $accountId, null, [
+                'dispatch_enabled' => true,
+            ], [
+                'dispatch_enabled' => false,
+                'reason'           => $reason,
+            ]);
+        }, 3);
+    }
+
     /** @return array<string, mixed> */
     private function publicAccount(array $account): array
     {

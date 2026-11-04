@@ -12,6 +12,39 @@ use Throwable;
 
 final class TranslationJobService
 {
+    /**
+     * These are explicit, pre-translation provider replies. They are safe to
+     * try on the next verified account because no translation result was
+     * accepted by the current provider.
+     */
+    private const FAILOVER_DEFINITE_FAILURES = [
+        'AUTH', 'NOT_OPENED', 'BALANCE_EXHAUSTED', 'UNSUPPORTED_LANGUAGE', 'RATE_LIMIT',
+    ];
+
+    /**
+     * Only rows with one of these item codes *and* a definite-failed ledger
+     * attempt can be manually retried. Never replay a timeout, a provider
+     * response with uncertain delivery, or an accepted result that failed a
+     * local quality/token check.
+     */
+    private const RETRYABLE_DEFINITE_FAILURES = [
+        'AUTH', 'NOT_OPENED', 'BALANCE_EXHAUSTED', 'UNSUPPORTED_LANGUAGE', 'RATE_LIMIT', 'PRE_SEND_FAILURE',
+    ];
+
+    /**
+     * Failover is also safe before `markSending()` when an account cannot be
+     * decrypted, does not have the required key shape, or is blocked by the
+     * local rate limiter. No provider has received bytes in these branches.
+     */
+    private const FAILOVER_PRE_SEND_FAILURES = [
+        'PROVIDER_CREDENTIALS_MISSING', 'PROVIDER_CREDENTIALS_UNREADABLE', 'INVALID_PROVIDER_CREDENTIALS',
+        'UNSUPPORTED_LANGUAGE', 'PROVIDER_RATE_LIMIT_CLOCK_SKEW', 'PROVIDER_RATE_LIMIT_WAIT_INTERRUPTED',
+    ];
+
+    private const SUSPEND_PRE_SEND_ACCOUNT_FAILURES = [
+        'PROVIDER_CREDENTIALS_MISSING', 'PROVIDER_CREDENTIALS_UNREADABLE', 'INVALID_PROVIDER_CREDENTIALS',
+    ];
+
     public function __construct(
         private readonly ContentScanner $scanner,
         private readonly TranslationSettings $settings,
@@ -191,6 +224,71 @@ final class TranslationJobService
         return count($ids);
     }
 
+    /**
+     * Explicitly requeue only work proven not to have produced a billable
+     * provider request. This gives an operator a recovery path after fixing
+     * credentials, enabling a service, or adding a backup provider, without
+     * turning unknown outcomes into duplicate external requests.
+     */
+    public function retryDefiniteFailures(int $jobId): int
+    {
+        $count = DB::transaction(function () use ($jobId): int {
+            $job = DB::table('lgt_jobs')->where('id', $jobId)->lockForUpdate()->first();
+            if ($job === null || ! in_array((string) $job->status, ['completed', 'partial_failed'], true)) {
+                throw new RuntimeException('JOB_NOT_RETRYABLE');
+            }
+            $items = DB::table('lgt_job_items as item')
+                ->join('lgt_attempts as attempt', 'attempt.id', '=', 'item.attempt_id')
+                ->where('item.job_id', $jobId)
+                ->where('item.status', 'failed')
+                ->whereIn('item.failure_code', self::RETRYABLE_DEFINITE_FAILURES)
+                ->where('attempt.state', UsageLedger::DEFINITE_FAILED)
+                ->lockForUpdate()
+                ->get(['item.id', 'item.version']);
+            if ($items->isEmpty()) {
+                return 0;
+            }
+            foreach ($items as $item) {
+                DB::table('lgt_job_items')->where('id', $item->id)->where('status', 'failed')->update([
+                    'status'       => 'ready',
+                    'failure_code' => null,
+                    'attempt_id'   => null,
+                    'completed_at' => null,
+                    'claim_token'  => null,
+                    'claimed_at'   => null,
+                    'version'      => (int) $item->version + 1,
+                    'updated_at'   => now(),
+                ]);
+            }
+            $count = $items->count();
+            DB::table('lgt_jobs')->where('id', $jobId)->update([
+                'status'          => 'queued',
+                'completed_items' => max(0, (int) $job->completed_items - $count),
+                'failed_items'    => max(0, (int) $job->failed_items - $count),
+                'finished_at'     => null,
+                'updated_at'      => now(),
+            ]);
+
+            return $count;
+        }, 3);
+        if ($count > 0) {
+            ProcessTranslationJob::dispatch($jobId)->afterCommit();
+        }
+
+        return $count;
+    }
+
+    public function retryableFailureCount(int $jobId): int
+    {
+        return DB::table('lgt_job_items as item')
+            ->join('lgt_attempts as attempt', 'attempt.id', '=', 'item.attempt_id')
+            ->where('item.job_id', $jobId)
+            ->where('item.status', 'failed')
+            ->whereIn('item.failure_code', self::RETRYABLE_DEFINITE_FAILURES)
+            ->where('attempt.state', UsageLedger::DEFINITE_FAILED)
+            ->count();
+    }
+
     private function processItem(object $job, object $item, string $sourceLocale, string $runToken): void
     {
         $entry = DB::table('lgt_entries')->where('id', $item->entry_id)->first();
@@ -312,11 +410,16 @@ final class TranslationJobService
 
             try {
                 $provider = $this->providers->get((string) $account->provider);
+                // A malformed or undecryptable local credential is known not
+                // to have reached the provider. Validate it before moving the
+                // reservation into the conservative `sending` state.
+                $credentials = $this->accounts->credentials($account);
+                $provider->validateCredentialShape($credentials);
                 $this->ledger->markSending($reservation['id']);
                 $requestMarkedSending = true;
                 $response             = $provider->send(new TranslationProviderRequest(
                     $reservation['request_uuid'], (int) $account->id, $sourceLocale, $targetLocale, [$segment], $sourceHash,
-                ), $this->accounts->credentials($account));
+                ), $credentials);
                 if ($response->ok && count($response->translations) === 1 && is_string($response->translations[0]) && trim($response->translations[0]) !== '') {
                     return [
                         'state'       => 'success',
@@ -326,17 +429,24 @@ final class TranslationJobService
                         'account_id'  => (int) $account->id,
                     ];
                 }
-                $failure = $provider->classifyFailure($response);
+                $failure     = $provider->classifyFailure($response);
+                $failureCode = $this->safeFailureCode((string) $failure['code']);
                 if ($failure['definitely_unbilled']) {
-                    $this->ledger->definiteFailure($reservation['id'], $failure['code']);
-                    if (in_array($failure['code'], ['BALANCE_EXHAUSTED', 'NOT_OPENED'], true)) {
+                    $this->ledger->definiteFailure($reservation['id'], $failureCode);
+                    if (in_array($failureCode, ['AUTH', 'NOT_OPENED', 'BALANCE_EXHAUSTED'], true)) {
+                        // Do not spend one failed request per source item on
+                        // an account the provider has explicitly rejected.
+                        // Re-enabling it remains an operator action.
+                        $this->accounts->suspendDispatchForSafety((int) $account->id, $failureCode);
+                    }
+                    if (in_array($failureCode, self::FAILOVER_DEFINITE_FAILURES, true)) {
                         continue;
                     }
                 } else {
-                    $this->ledger->uncertain($reservation['id'], $failure['code']);
+                    $this->ledger->uncertain($reservation['id'], $failureCode);
                 }
 
-                return ['state' => 'failed', 'failure_code' => $failure['code']];
+                return ['state' => 'failed', 'failure_code' => $failureCode];
             } catch (Throwable $exception) {
                 // Once markSending succeeds, an exception might have occurred
                 // after the provider received bytes. Before it succeeds no
@@ -345,18 +455,33 @@ final class TranslationJobService
                 $failure = isset($provider)
                     ? $provider->classifyFailure($exception)
                     : ['code' => 'PRE_SEND_FAILURE', 'definitely_unbilled' => true];
+                $exceptionCode = $this->safeFailureCode($exception->getMessage());
+                $failureCode   = $requestMarkedSending
+                    ? ($failure['definitely_unbilled'] ? 'WORKER_EXCEPTION' : $this->safeFailureCode((string) $failure['code']))
+                    // Anything raised before markSending is provably local.
+                    // Keep a structured local error where available so an
+                    // operator can repair credentials without guessing.
+                    : ($exceptionCode === 'PROCESSING_EXCEPTION' ? 'PRE_SEND_FAILURE' : $exceptionCode);
+
                 try {
                     if ($requestMarkedSending) {
-                        $this->ledger->uncertain($reservation['id'], $failure['definitely_unbilled'] ? 'WORKER_EXCEPTION' : $failure['code']);
+                        $this->ledger->uncertain($reservation['id'], $failureCode);
                     } else {
-                        $this->ledger->definiteFailure($reservation['id'], $failure['definitely_unbilled'] ? $failure['code'] : 'PRE_SEND_FAILURE');
+                        $this->ledger->definiteFailure($reservation['id'], $failureCode);
                     }
                 } catch (Throwable) {
                     // Preserve the original error state; a later operator can
                     // reconcile the durable sending attempt.
                 }
 
-                return ['state' => 'failed', 'failure_code' => $this->safeFailureCode((string) $failure['code'])];
+                if (! $requestMarkedSending && in_array($failureCode, self::SUSPEND_PRE_SEND_ACCOUNT_FAILURES, true)) {
+                    $this->accounts->suspendDispatchForSafety((int) $account->id, $failureCode);
+                }
+                if (! $requestMarkedSending && in_array($failureCode, self::FAILOVER_PRE_SEND_FAILURES, true)) {
+                    continue;
+                }
+
+                return ['state' => 'failed', 'failure_code' => $this->safeFailureCode($failureCode)];
             }
         }
 

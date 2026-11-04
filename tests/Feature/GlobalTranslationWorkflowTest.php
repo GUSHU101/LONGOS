@@ -6,10 +6,12 @@ use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use Plugin\LongosGlobalTranslate\Controllers\ShopTranslationController;
+use Plugin\LongosGlobalTranslate\Jobs\ProcessTranslationJob;
 use Plugin\LongosGlobalTranslate\Providers\ProviderRegistry;
 use Plugin\LongosGlobalTranslate\Providers\TranslationProviderInterface;
 use Plugin\LongosGlobalTranslate\Providers\TranslationProviderRequest;
@@ -48,6 +50,7 @@ class GlobalTranslationWorkflowTest extends TestCase
             '2026_11_03_000004_add_provider_dispatch_rate_limit.php',
             '2026_11_03_000005_add_provider_failover_priority.php',
             '2026_11_04_000006_add_job_item_failure_codes.php',
+            '2026_11_04_000007_backfill_job_item_failure_codes.php',
         ] as $migrationFile) {
             $migration = require base_path('plugins/LongosGlobalTranslate/Migrations/' . $migrationFile);
             $migration->up();
@@ -370,6 +373,36 @@ class GlobalTranslationWorkflowTest extends TestCase
         self::assertSame(19, (int) DB::table('lgt_usage_months')->value('committed_units'));
     }
 
+    public function test_verification_rejects_unreadable_credentials_before_reserving_or_contacting_a_provider(): void
+    {
+        $accounts = new ProviderAccountService;
+        $account = $accounts->save([
+            'provider' => 'baidu', 'billing_identity' => 'unreadable-verification', 'enabled' => true,
+            'free_quota' => 100, 'soft_cap' => 100,
+        ], ['appid' => 'verification-app', 'secret' => 'verification-secret'], 18);
+        DB::table('lgt_provider_accounts')->where('id', $account['id'])->update(['credentials_ciphertext' => 'broken-ciphertext']);
+        $provider = new class implements TranslationProviderInterface
+        {
+            public int $calls = 0;
+            public function id(): string { return 'baidu'; }
+            public function validateCredentialShape(array $credentials): void {}
+            public function supports(string $sourceLocale, string $targetLocale): bool { return true; }
+            public function buildBatches(array $segments, string $sourceLocale, string $targetLocale): array { return [$segments]; }
+            public function send(TranslationProviderRequest $request, array $credentials): TranslationProviderResponse { $this->calls++; return new TranslationProviderResponse(true, ['unexpected'], 'unexpected', null, null, 1); }
+            public function classifyFailure(\Throwable|TranslationProviderResponse $failure): array { return ['kind' => 'definite_failure', 'code' => 'TEST', 'definitely_unbilled' => true]; }
+        };
+
+        try {
+            (new ProviderVerificationService($accounts, new ProviderRegistry(['baidu' => $provider]), new UsageLedger))->verify((int) $account['id'], 18);
+            self::fail('Unreadable local credentials must fail before a controlled probe is reserved.');
+        } catch (InvalidArgumentException $exception) {
+            self::assertSame('PROVIDER_CREDENTIALS_UNREADABLE', $exception->getMessage());
+        }
+
+        self::assertSame(0, $provider->calls);
+        self::assertSame(0, DB::table('lgt_attempts')->count());
+    }
+
     public function test_missing_dispatchable_account_pauses_without_losing_or_requeuing_the_claimed_item(): void
     {
         (new TranslationSettings)->save(['mode' => TranslationSettings::MODE_FREE_ONLY, 'enabled_locales' => ['fr']]);
@@ -668,6 +701,138 @@ class GlobalTranslationWorkflowTest extends TestCase
         self::assertSame(UsageLedger::DEFINITE_FAILED, DB::table('lgt_attempts')->where('provider_account_id', $primary['id'])->where('job_item_id', DB::table('lgt_job_items')->where('entry_id', $entryId)->value('id'))->value('state'));
         self::assertSame(UsageLedger::COMMITTED, DB::table('lgt_attempts')->where('provider_account_id', $secondary['id'])->where('job_item_id', DB::table('lgt_job_items')->where('entry_id', $entryId)->value('id'))->value('state'));
         self::assertSame('volcengine', DB::table('lgt_translations')->where('entry_id', $entryId)->value('provider'));
+        self::assertFalse((bool) DB::table('lgt_provider_accounts')->where('id', $primary['id'])->value('dispatch_enabled'));
+        self::assertTrue((bool) DB::table('lgt_provider_accounts')->where('id', $secondary['id'])->value('dispatch_enabled'));
+    }
+
+    public function test_unreadable_local_credentials_fail_over_without_sending_to_the_broken_account(): void
+    {
+        (new TranslationSettings)->save(['mode' => TranslationSettings::MODE_FREE_ONLY, 'enabled_locales' => ['fr']]);
+        $accounts = new ProviderAccountService;
+        $primary = $accounts->save([
+            'provider' => 'baidu', 'billing_identity' => 'unreadable-primary', 'enabled' => true,
+            'free_quota' => 100, 'soft_cap' => 100, 'failover_priority' => 10,
+        ], ['appid' => 'primary-app', 'secret' => 'primary-secret'], 17);
+        $secondary = $accounts->save([
+            'provider' => 'aliyun', 'billing_identity' => 'healthy-secondary', 'enabled' => true,
+            'free_quota' => 100, 'soft_cap' => 100, 'failover_priority' => 20,
+        ], ['access_key_id' => 'secondary-key', 'access_key_secret' => 'secondary-secret'], 17);
+        foreach ([$primary, $secondary] as $account) {
+            $accounts->markVerified((int) $account['id'], 17);
+            $accounts->setDispatch((int) $account['id'], true, 17);
+        }
+        // Simulates an old/interrupted credential write. The runtime must
+        // prove the failure locally, release its reservation and use the next
+        // verified account without calling the broken provider.
+        DB::table('lgt_provider_accounts')->where('id', $primary['id'])->update(['credentials_ciphertext' => 'not-a-laravel-ciphertext']);
+
+        $entryId = $this->queueSingleTranslationItem('unreadable-credential-failover', 'Safe credential fallback', '740c1c0c-2ac1-4fe5-97a2-000000000001');
+        $primaryProvider = new class implements TranslationProviderInterface
+        {
+            public int $calls = 0;
+            public function id(): string { return 'baidu'; }
+            public function validateCredentialShape(array $credentials): void {}
+            public function supports(string $sourceLocale, string $targetLocale): bool { return true; }
+            public function buildBatches(array $segments, string $sourceLocale, string $targetLocale): array { return [$segments]; }
+            public function send(TranslationProviderRequest $request, array $credentials): TranslationProviderResponse { $this->calls++; return new TranslationProviderResponse(true, ['must not be used'], 'invalid-primary', null, null, 1); }
+            public function classifyFailure(\Throwable|TranslationProviderResponse $failure): array { return ['kind' => 'definite_failure', 'code' => 'AUTH', 'definitely_unbilled' => true]; }
+        };
+        $secondaryProvider = new class implements TranslationProviderInterface
+        {
+            public int $calls = 0;
+            public function id(): string { return 'aliyun'; }
+            public function validateCredentialShape(array $credentials): void {}
+            public function supports(string $sourceLocale, string $targetLocale): bool { return true; }
+            public function buildBatches(array $segments, string $sourceLocale, string $targetLocale): array { return [$segments]; }
+            public function send(TranslationProviderRequest $request, array $credentials): TranslationProviderResponse { $this->calls++; return new TranslationProviderResponse(true, ['Relais local sûr'], 'healthy-secondary', null, hash('sha256', 'healthy-secondary'), 1); }
+            public function classifyFailure(\Throwable|TranslationProviderResponse $failure): array { return ['kind' => 'definite_failure', 'code' => 'TEST', 'definitely_unbilled' => true]; }
+        };
+        $service = new TranslationJobService(new ContentScanner, new TranslationSettings, $accounts, new ProviderRegistry(['baidu' => $primaryProvider, 'aliyun' => $secondaryProvider]), new UsageLedger, new TranslationLibrary);
+        $service->process((int) DB::table('lgt_job_items')->where('entry_id', $entryId)->value('job_id'), 1, '740c1c0c-2ac1-4fe5-97a2-000000000002');
+
+        self::assertSame(0, $primaryProvider->calls);
+        self::assertSame(1, $secondaryProvider->calls);
+        self::assertSame(UsageLedger::DEFINITE_FAILED, DB::table('lgt_attempts')->where('provider_account_id', $primary['id'])->value('state'));
+        self::assertFalse((bool) DB::table('lgt_provider_accounts')->where('id', $primary['id'])->value('dispatch_enabled'));
+        self::assertSame('aliyun', DB::table('lgt_translations')->where('entry_id', $entryId)->value('provider'));
+    }
+
+    public function test_safe_retry_requeues_only_definitely_unbilled_failures(): void
+    {
+        Queue::fake();
+        $accounts = new ProviderAccountService;
+        $account = $accounts->save([
+            'provider' => 'baidu', 'billing_identity' => 'safe-retry-ledger', 'enabled' => true,
+            'free_quota' => 100, 'soft_cap' => 100,
+        ], ['appid' => 'retry-app', 'secret' => 'retry-secret'], 19);
+        $accounts->markVerified((int) $account['id'], 19);
+        $accounts->setDispatch((int) $account['id'], true, 19);
+
+        $safeEntry = $this->queueSingleTranslationItem('safe-retry-entry', 'Safe retry entry', 'bda5881d-7122-4b45-a5ea-000000000001');
+        $jobId = (int) DB::table('lgt_job_items')->where('entry_id', $safeEntry)->value('job_id');
+        $safeItem = (int) DB::table('lgt_job_items')->where('entry_id', $safeEntry)->value('id');
+        $secondEntry = DB::table('lgt_entries')->insertGetId([
+            'content_key' => hash('sha256', 'uncertain-retry-entry'), 'kind' => 'product', 'entity_id' => 99881, 'field' => 'name',
+            'source_locale' => 'en', 'source_format' => 'plain', 'source_text' => 'Uncertain retry entry', 'source_hash' => ContentScanner::sourceHash('Uncertain retry entry'),
+            'is_public' => true, 'is_tombstoned' => false, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $uncertainItem = DB::table('lgt_job_items')->insertGetId([
+            'job_id' => $jobId, 'entry_id' => $secondEntry, 'target_locale' => 'fr', 'source_hash' => ContentScanner::sourceHash('Uncertain retry entry'),
+            'status' => 'failed', 'failure_code' => 'WORKER_EXCEPTION', 'completed_at' => now(), 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('lgt_jobs')->where('id', $jobId)->update(['status' => 'partial_failed', 'total_items' => 2, 'completed_items' => 2, 'failed_items' => 2, 'finished_at' => now()]);
+
+        $ledger = new UsageLedger;
+        $safeAttempt = $ledger->reserve((int) $account['id'], 5, $safeItem);
+        $ledger->markSending($safeAttempt['id']);
+        $ledger->definiteFailure($safeAttempt['id'], 'AUTH');
+        DB::table('lgt_job_items')->where('id', $safeItem)->update(['status' => 'failed', 'failure_code' => 'AUTH', 'attempt_id' => $safeAttempt['id'], 'completed_at' => now()]);
+        $uncertainAttempt = $ledger->reserve((int) $account['id'], 5, $uncertainItem);
+        $ledger->markSending($uncertainAttempt['id']);
+        $ledger->uncertain($uncertainAttempt['id'], 'NETWORK_AFTER_SEND');
+        DB::table('lgt_job_items')->where('id', $uncertainItem)->update(['attempt_id' => $uncertainAttempt['id']]);
+
+        $service = new TranslationJobService(new ContentScanner, new TranslationSettings, $accounts, new ProviderRegistry, $ledger, new TranslationLibrary);
+        self::assertSame(1, $service->retryableFailureCount($jobId));
+        self::assertSame(1, $service->retryDefiniteFailures($jobId));
+
+        Queue::assertPushed(ProcessTranslationJob::class, fn (ProcessTranslationJob $job): bool => $job->translationJobId === $jobId);
+        self::assertSame('ready', DB::table('lgt_job_items')->where('id', $safeItem)->value('status'));
+        self::assertNull(DB::table('lgt_job_items')->where('id', $safeItem)->value('attempt_id'));
+        self::assertSame('failed', DB::table('lgt_job_items')->where('id', $uncertainItem)->value('status'));
+        self::assertSame('WORKER_EXCEPTION', DB::table('lgt_job_items')->where('id', $uncertainItem)->value('failure_code'));
+        self::assertSame('queued', DB::table('lgt_jobs')->where('id', $jobId)->value('status'));
+        self::assertSame(1, (int) DB::table('lgt_jobs')->where('id', $jobId)->value('completed_items'));
+        self::assertSame(1, (int) DB::table('lgt_jobs')->where('id', $jobId)->value('failed_items'));
+    }
+
+    public function test_failure_code_backfill_recovers_a_safe_historical_reason_from_the_ledger(): void
+    {
+        $accounts = new ProviderAccountService;
+        $account  = $accounts->save([
+            'provider' => 'baidu', 'billing_identity' => 'historical-failure-backfill', 'enabled' => true,
+            'free_quota' => 100, 'soft_cap' => 100,
+        ], ['appid' => 'history-app', 'secret' => 'history-secret'], 21);
+        $accounts->markVerified((int) $account['id'], 21);
+        $accounts->setDispatch((int) $account['id'], true, 21);
+
+        $entryId = $this->queueSingleTranslationItem('historical-failure-backfill', 'Historical failure', 'f4b4ae14-234f-4590-83da-000000000001');
+        $itemId  = (int) DB::table('lgt_job_items')->where('entry_id', $entryId)->value('id');
+        $ledger  = new UsageLedger;
+        $attempt = $ledger->reserve((int) $account['id'], 5, $itemId);
+        $ledger->markSending($attempt['id']);
+        $ledger->definiteFailure($attempt['id'], 'AUTH');
+        DB::table('lgt_job_items')->where('id', $itemId)->update([
+            'status'       => 'failed',
+            'attempt_id'   => $attempt['id'],
+            'failure_code' => null,
+            'completed_at' => now(),
+        ]);
+
+        $migration = require base_path('plugins/LongosGlobalTranslate/Migrations/2026_11_04_000007_backfill_job_item_failure_codes.php');
+        $migration->up();
+
+        self::assertSame('AUTH', DB::table('lgt_job_items')->where('id', $itemId)->value('failure_code'));
     }
 
     public function test_lost_worker_releases_only_a_pre_send_reservation_and_quarantines_a_sending_attempt(): void

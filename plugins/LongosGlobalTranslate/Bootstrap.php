@@ -2,7 +2,6 @@
 
 namespace Plugin\LongosGlobalTranslate;
 
-use Beike\Services\DesignService;
 use Plugin\LongosGlobalTranslate\Services\TranslationSchema;
 use Plugin\LongosGlobalTranslate\Services\TranslationSettings;
 
@@ -10,17 +9,6 @@ class Bootstrap
 {
     public function boot(): void
     {
-        add_hook_filter('admin.design.index.data', function (array $data): array {
-            $data['editor_app_embeds'][] = [
-                'code'            => 'longos_global_translate',
-                'name'            => trans('LongosGlobalTranslate::translate.title'),
-                'description'     => trans('LongosGlobalTranslate::translate.embed_description'),
-                'default_enabled' => false,
-            ];
-
-            return $data;
-        });
-
         add_hook_filter('admin.components.sidebar.menus', function (array $menus): array {
             if (! app('router')->has(admin_name() . '.longos_global_translate.index')
                 || ! current_user()?->can('plugins_index')) {
@@ -45,17 +33,17 @@ class Bootstrap
             if (current_site() === null) {
                 return $output;
             }
-            if (! DesignService::isAppEmbedEnabled('longos_global_translate')) {
-                return $output;
-            }
+            // `widget.enabled` is the only storefront switch.  Requiring a
+            // second, unrelated visual-builder app-embed flag made a fully
+            // configured translation library silently disappear on themes
+            // that never expose that old editor setting.
             foreach (['shop.longos_global_translate.config', 'shop.longos_global_translate.locale', 'shop.longos_global_translate.dictionary', 'shop.longos_global_translate.interface-dictionary'] as $route) {
                 if (! app('router')->has($route)) {
                     return $output;
                 }
             }
             $routeName = (string) optional(request()->route())->getName();
-            if (str_starts_with($routeName, 'shop.carts.')
-                || str_contains((string) $output, 'id="longos-global-translate"')) {
+            if (str_contains((string) $output, 'id="longos-global-translate"')) {
                 return $output;
             }
             // A previous deployment can have been interrupted between plugin
@@ -74,9 +62,14 @@ class Bootstrap
             // as the storefront.  Its commerce-interface mode can replace
             // only reviewed, published static labels; it never reads or
             // translates customer input, price/order fields or provider data.
-            $commerceUi = str_starts_with($routeName, 'shop.checkout.')
+            $commerceUi = str_starts_with($routeName, 'shop.carts.')
+                || str_starts_with($routeName, 'shop.checkout.')
                 || str_starts_with($routeName, 'shop.account.')
-                || in_array($routeName, ['shop.login.index', 'shop.register.index', 'shop.forgotten.index'], true);
+                || in_array($routeName, [
+                    'shop.login.index', 'shop.register.index', 'shop.forgotten.index',
+                    'shop.orders.pay', 'shop.orders.show',
+                    'platform-pay.show', 'platform-pay.return', 'platform-pay.cancel',
+                ], true);
 
             return $output . view('LongosGlobalTranslate::shop.widget', compact('settings', 'commerceUi'))->render();
         });

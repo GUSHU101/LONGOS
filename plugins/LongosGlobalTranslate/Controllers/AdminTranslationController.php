@@ -92,12 +92,12 @@ final class AdminTranslationController extends Controller
         $jobs      = $this->safeDashboardValue('live job status', fn (): array => $this->jobSummaries(), [], $warnings);
 
         return $this->json([
-            'ready'          => true,
-            'generated_at'   => now()->toIso8601String(),
-            'diagnostics'    => $dashboard['diagnostics'],
-            'jobs'           => $jobs,
-            'accounts'       => $dashboard['accounts'],
-            'publications'   => count($dashboard['publications']),
+            'ready'            => true,
+            'generated_at'     => now()->toIso8601String(),
+            'diagnostics'      => $dashboard['diagnostics'],
+            'jobs'             => $jobs,
+            'accounts'         => $dashboard['accounts'],
+            'publications'     => count($dashboard['publications']),
             'workspace_alerts' => array_values(array_unique([...$dashboard['workspace_warnings'], ...$warnings])),
         ]);
     }
@@ -286,6 +286,26 @@ final class AdminTranslationController extends Controller
         return $this->json($this->jobs->plan($data['locales'], $data['scope'], $this->actorId()), 201);
     }
 
+    /**
+     * Recover only provider attempts that the durable usage ledger marks as
+     * definitively unbilled. In particular, timeouts and response-validation
+     * failures remain deliberately unavailable here: retrying those might
+     * charge a provider twice.
+     */
+    public function retryDefiniteFailures(Request $request, int $job): JsonResponse
+    {
+        $this->requireSchema();
+        $request->validate(['confirm_safe_retry' => ['accepted']]);
+        $requeued = $this->jobs->retryDefiniteFailures($job);
+
+        return $this->json([
+            'requeued' => $requeued,
+            'notice'   => $requeued > 0
+                ? "已重新排队 {$requeued} 条确认未计费的失败项；不确定结果不会被重新发送。"
+                : '当前任务没有可安全重试的失败项。可能需要先修复账户，或人工处理不确定结果。',
+        ]);
+    }
+
     public function translations(Request $request): JsonResponse
     {
         $this->requireSchema();
@@ -430,35 +450,49 @@ final class AdminTranslationController extends Controller
             }
 
             return [
-                'public_id'       => (string) $job->public_id,
-                'status'          => (string) $job->status,
-                'mode'            => (string) $job->mode,
-                'total_items'     => $total,
-                'completed_items' => $completed,
-                'failed_items'    => $failed,
-                'progress_percent'=> $total > 0 ? min(100, (int) floor(($completed / $total) * 100)) : 0,
-                'created_at'      => $this->isoTimestamp($job->created_at ?? null),
-                'updated_at'      => $this->isoTimestamp($job->updated_at ?? null),
-                'active'          => in_array((string) $job->status, ['queued', 'scanning', 'running', 'pausing'], true),
-                'failure_summary' => $reasons,
+                'id'                      => (int) $job->id,
+                'public_id'               => (string) $job->public_id,
+                'status'                  => (string) $job->status,
+                'mode'                    => (string) $job->mode,
+                'total_items'             => $total,
+                'completed_items'         => $completed,
+                'failed_items'            => $failed,
+                'progress_percent'        => $total > 0 ? min(100, (int) floor(($completed / $total) * 100)) : 0,
+                'created_at'              => $this->isoTimestamp($job->created_at ?? null),
+                'updated_at'              => $this->isoTimestamp($job->updated_at ?? null),
+                'active'                  => in_array((string) $job->status, ['queued', 'scanning', 'running', 'pausing'], true),
+                'failure_summary'         => $reasons,
+                'retryable_failure_count' => $this->jobs->retryableFailureCount((int) $job->id),
             ];
         })->all();
     }
 
     private function failureLabel(string $code): string
     {
+        if (str_starts_with($code, 'BAIDU_') || str_starts_with($code, 'ALIYUN_') || str_starts_with($code, 'VOLCENGINE_')) {
+            return '服务商返回了未归类的错误；未自动重试以避免重复计费。';
+        }
+
         return match ($code) {
-            'AUTH' => '服务商凭据被拒绝，请检查 API 密钥与应用权限。',
-            'NOT_OPENED' => '服务商翻译服务尚未在该账号开通。',
+            'AUTH'                 => '服务商凭据被拒绝，请检查 API 密钥与应用权限。',
+            'NOT_OPENED'           => '服务商翻译服务尚未在该账号开通。',
             'UNSUPPORTED_LANGUAGE' => '该服务商不支持此目标语言。',
-            'RATE_LIMIT' => '服务商请求过于频繁，请降低 QPS 或稍后再试。',
+            'RATE_LIMIT'           => '服务商请求过于频繁，请降低 QPS 或稍后再试。',
             'BALANCE_EXHAUSTED', 'LOCAL_BUDGET_EXHAUSTED', 'FREE_QUOTA_EXHAUSTED_AFTER_PARTIAL_SEGMENT' => '可用免费额度已耗尽。',
-            'INVALID_INPUT' => '源文本不符合服务商的输入要求。',
+            'INVALID_INPUT'      => '源文本不符合服务商的输入要求。',
             'UNSAFE_TRANSLATION' => '译文包含不允许的标记，已安全拒绝。',
-            'STALE_SOURCE' => '原文在翻译期间已变更，请重新扫描。',
+            'STALE_SOURCE'       => '原文在翻译期间已变更，请重新扫描。',
             'NETWORK_AFTER_SEND', 'WORKER_EXCEPTION', 'WORKER_EXHAUSTED' => '请求结果不确定，为避免重复计费已停止自动重试。',
             'PRE_SEND_FAILURE' => '请求在发送前失败，请检查服务商配置后重试。',
-            default => '任务处理失败；请打开任务详情或使用小范围任务验证服务商。',
+            'PROVIDER_CREDENTIALS_MISSING', 'PROVIDER_CREDENTIALS_UNREADABLE', 'INVALID_PROVIDER_CREDENTIALS' => '服务商凭据缺失、无法解密或格式不正确；未发出翻译请求。',
+            'PROVIDER_RATE_LIMIT_CLOCK_SKEW', 'PROVIDER_RATE_LIMIT_WAIT_INTERRUPTED' => '本地 QPS 安全限制异常，未发出请求；请检查服务器时间和账户 QPS 设置。',
+            'PROTECTED_TOKEN_CHANGED'  => '服务商改写了保护占位符（链接、价格、变量等），译文已被安全拒绝，请人工审核。',
+            'UNKNOWN_PROTECTED_TOKEN'  => '译文出现非法的保护占位符，译文已被安全拒绝。',
+            'INVALID_TRANSLATION_TEXT' => '译文为空、过长或不是有效 UTF-8，已被安全拒绝。',
+            'SEGMENT_TOO_LARGE', 'ATOMIC_TOKEN_TOO_LARGE' => '源文本中含有超过服务商安全长度的不可拆分片段，请人工缩短或排除。',
+            'TRANSLATION_ROW_UNAVAILABLE', 'ENTRY_INSERT_FAILED' => '翻译库写入未完成；请稍后重试或查看系统日志。',
+            'PROCESSING_EXCEPTION' => '发生未归类的本地处理异常；为避免重复计费已停止自动重试。请查看该任务时间点的应用日志。',
+            default                => '任务处理失败；请打开任务详情或使用小范围任务验证服务商。',
         };
     }
 

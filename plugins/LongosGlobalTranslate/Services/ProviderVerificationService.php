@@ -27,17 +27,22 @@ final class ProviderVerificationService
         if ($account === null || ! $account->enabled || (int) $account->paid_cap !== 0) {
             throw new RuntimeException('PROVIDER_ACCOUNT_NOT_VERIFIABLE');
         }
-        $provider    = $this->providers->get((string) $account->provider);
-        $source      = 'LONGOS verification';
-        $reservation = $this->ledger->reserve($accountId, 19, null, null, null, true);
+        $provider = $this->providers->get((string) $account->provider);
+        // Decrypt and validate credentials before a ledger entry moves to
+        // `sending`. A failed local decrypt/shape check cannot have contacted
+        // an upstream API and must never be presented as a billable unknown.
+        $credentials = $this->accounts->credentials($account);
+        $provider->validateCredentialShape($credentials);
+        $source               = 'LONGOS verification';
+        $reservation          = $this->ledger->reserve($accountId, 19, null, null, null, true);
         $requestMarkedSending = false;
 
         try {
             $this->ledger->markSending($reservation['id']);
             $requestMarkedSending = true;
-            $response = $provider->send(new TranslationProviderRequest(
+            $response             = $provider->send(new TranslationProviderRequest(
                 $reservation['request_uuid'], $accountId, 'en', 'fr', [$source], hash('sha256', $source), 8,
-            ), $this->accounts->credentials($account));
+            ), $credentials);
             if (! $response->ok || count($response->translations) !== 1) {
                 $failure = $provider->classifyFailure($response);
                 if ($failure['definitely_unbilled']) {
@@ -59,6 +64,7 @@ final class ProviderVerificationService
                     // The original state remains journaled for review.
                 }
             }
+
             throw $exception;
         } catch (Throwable) {
             try {

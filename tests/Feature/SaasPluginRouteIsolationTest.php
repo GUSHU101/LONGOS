@@ -139,6 +139,13 @@ class SaasPluginRouteIsolationTest extends TestCase
         self::assertContains('plugin.enabled:longos_global_translate', $recommendations->gatherMiddleware());
         self::assertContains('can:plugins_index', $recommendations->gatherMiddleware());
 
+        $safeRetry = Route::getRoutes()->getByName(admin_name() . '.longos_global_translate.jobs.retry-definite');
+        self::assertNotNull($safeRetry);
+        self::assertSame(['POST'], $safeRetry->methods());
+        self::assertContains('admin', $safeRetry->gatherMiddleware());
+        self::assertContains('plugin.enabled:longos_global_translate', $safeRetry->gatherMiddleware());
+        self::assertContains('can:plugins_index', $safeRetry->gatherMiddleware());
+
         // Reproduce an interrupted historical release: its sentinel settings
         // table exists, while a dashboard table does not. The plugin must
         // return a controlled recovery response instead of querying the
@@ -217,6 +224,7 @@ class SaasPluginRouteIsolationTest extends TestCase
             '2026_11_03_000004_add_provider_dispatch_rate_limit.php',
             '2026_11_03_000005_add_provider_failover_priority.php',
             '2026_11_04_000006_add_job_item_failure_codes.php',
+            '2026_11_04_000007_backfill_job_item_failure_codes.php',
         ] as $migrationFile) {
             $migration = require base_path('plugins/LongosGlobalTranslate/Migrations/' . $migrationFile);
             $migration->up();
@@ -317,7 +325,12 @@ class SaasPluginRouteIsolationTest extends TestCase
         self::assertStringContainsString('replaceCommerceInterface', $script);
         self::assertStringContainsString('data-commerce-ui', $widget);
         self::assertStringContainsString('shop.checkout.', $boot);
+        self::assertStringContainsString('shop.carts.', $boot);
         self::assertStringContainsString('shop.account.', $boot);
+        self::assertStringContainsString("'shop.orders.pay'", $boot);
+        self::assertStringContainsString("'platform-pay.show'", $boot);
+        self::assertStringNotContainsString("DesignService::isAppEmbedEnabled('longos_global_translate')", $boot);
+        self::assertStringNotContainsString('shop.longos_global_translate.lookup', $boot);
         self::assertStringContainsString('input, addresses, SKU names, quantities, amounts, order IDs', $catalog);
         self::assertStringNotContainsString('card number', strtolower($catalog));
         self::assertStringNotContainsString('TranslationJobService', $shopController);

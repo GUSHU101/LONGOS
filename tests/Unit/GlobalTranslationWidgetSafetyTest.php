@@ -39,7 +39,7 @@ class GlobalTranslationWidgetSafetyTest extends TestCase
         self::assertIsString($script);
         self::assertStringContainsString('let presentationEpoch = 0;', $script);
         self::assertStringContainsString('const epoch = ++presentationEpoch;', $script);
-        self::assertStringContainsString('if (epoch !== presentationEpoch) return;', $script);
-        self::assertStringContainsString('document.documentElement.lang = locale;', $script);
+        self::assertStringContainsString('if (epoch !== presentationEpoch) return {applied: 0, available: false};', $script);
+        self::assertStringContainsString('document.documentElement.lang = applied > 0 ? locale : config.source_locale;', $script);
     }
 }
