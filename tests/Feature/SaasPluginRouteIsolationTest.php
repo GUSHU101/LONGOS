@@ -273,7 +273,9 @@ class SaasPluginRouteIsolationTest extends TestCase
         self::assertStringContainsString('阿里云机器翻译', $response->getContent());
         self::assertStringContainsString('secret_access_key', $response->getContent());
         self::assertStringContainsString('APP ID', $response->getContent());
-        self::assertStringContainsString('按系统国家/地区快捷启用语言', $response->getContent());
+        self::assertStringContainsString('按系统国家／地区快捷启用语言', $response->getContent());
+        self::assertStringContainsString('安全接力机制', $response->getContent());
+        self::assertStringContainsString('任务后台异步运行，此表每 8 秒自动更新', $response->getContent());
         self::assertStringContainsString('France', $response->getContent());
         self::assertStringContainsString('55c2d6d6-c754-4af3-a73b-84cbd134d001', $response->getContent());
         self::assertStringNotContainsString('Japan（JP）', $response->getContent());

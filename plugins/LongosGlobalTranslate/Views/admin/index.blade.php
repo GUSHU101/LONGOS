@@ -4,521 +4,161 @@
 
 @section('content')
 @php
-  $enabledLocales = implode(', ', (array) ($settings['enabled_locales'] ?? []));
-  $widget = (array) ($settings['widget'] ?? []);
-  $modeLabels = ['preview_only' => '仅预览', 'free_only' => '仅免费额度', 'offline_dictionary' => '仅已发布词典'];
-  $providerLabels = ['aliyun' => '阿里云', 'volcengine' => '火山引擎', 'baidu' => '百度翻译'];
-  $publicationStateLabels = ['published' => '已发布', 'superseded' => '已替换'];
-  $jobStatusLabels = ['planned' => '待执行', 'queued' => '排队中', 'running' => '处理中', 'completed' => '已完成', 'failed' => '失败', 'paused' => '已暂停'];
+    $enabledLocales = array_values(array_unique((array) ($settings['enabled_locales'] ?? [])));
+    $widget = (array) ($settings['widget'] ?? []);
+    $modeLabels = ['preview_only' => '仅预览', 'free_only' => '仅免费额度', 'offline_dictionary' => '仅已发布词典'];
+    $providerLabels = ['aliyun' => '阿里云', 'volcengine' => '火山引擎', 'baidu' => '百度翻译'];
+    $jobStatusLabels = ['planned' => '待执行', 'queued' => '排队中', 'scanning' => '扫描中', 'running' => '翻译中', 'completed' => '已完成', 'failed' => '失败', 'paused' => '已暂停', 'pausing' => '暂停中'];
+    $localeCatalog = ['ar' => '阿拉伯语', 'de' => '德语', 'es' => '西班牙语', 'fr' => '法语', 'id' => '印度尼西亚语', 'it' => '意大利语', 'ja' => '日语', 'ko' => '韩语', 'nl' => '荷兰语', 'pl' => '波兰语', 'pt' => '葡萄牙语', 'ru' => '俄语', 'th' => '泰语', 'tr' => '土耳其语', 'vi' => '越南语', 'zh-cn' => '简体中文', 'zh-tw' => '繁体中文'];
+    $verifiedAccounts = collect($accounts)->filter(static fn (array $account): bool => !empty($account['verified_at']))->count();
+    $activeJobs = collect($jobs)->filter(static fn (object $job): bool => in_array((string) $job->status, ['planned', 'queued', 'scanning', 'running', 'pausing'], true))->count();
+    $publishedLocales = collect($publications)->pluck('locale')->unique()->count();
+    $nextPanel = $enabledLocales === [] ? 'languages' : ($verifiedAccounts === 0 ? 'providers' : 'library');
+    $lgtRoutes = [
+        'settings' => admin_route('longos_global_translate.settings.save'),
+        'country' => admin_route('longos_global_translate.country-rules.save'),
+        'countryRecommendations' => admin_route('longos_global_translate.country-rules.recommendations.apply'),
+        'providers' => admin_route('longos_global_translate.providers.save'),
+        'providerBase' => rtrim(admin_route('longos_global_translate.index'), '/') . '/providers/',
+        'scan' => admin_route('longos_global_translate.scan'),
+        'plan' => admin_route('longos_global_translate.jobs.plan'),
+        'translations' => admin_route('longos_global_translate.translations.index'),
+        'translationBase' => rtrim(admin_route('longos_global_translate.index'), '/') . '/translations/',
+        'publish' => admin_route('longos_global_translate.publications.publish'),
+        'publicationBase' => rtrim(admin_route('longos_global_translate.index'), '/') . '/publications/',
+        'status' => admin_route('longos_global_translate.status'),
+    ];
 @endphp
+
 <style>
-  .lgt-admin{--lgt-primary:#155eef;--lgt-ink:#101828;--lgt-muted:#667085;--lgt-border:#e4e7ec;max-width:1440px;margin:auto}.lgt-admin .nav-pills{gap:.45rem;overflow-x:auto;flex-wrap:nowrap;padding-bottom:.35rem}.lgt-admin .nav-link{white-space:nowrap;border:1px solid var(--lgt-border);color:#344054;background:#fff}.lgt-admin .nav-link.active{border-color:var(--lgt-primary);background:var(--lgt-primary);color:#fff}.lgt-admin .lgt-tab{display:none}.lgt-admin .lgt-tab.active{display:block}.lgt-admin .lgt-stat{min-height:112px;border:1px solid var(--lgt-border);border-radius:.8rem;background:#fff}.lgt-admin .lgt-setup-lead{border:1px solid #c7d7fe;border-radius:1rem;background:linear-gradient(120deg,#f5f8ff,#fff);padding:1.5rem}.lgt-admin .lgt-status{position:sticky;bottom:1rem;z-index:4;display:none;max-width:720px;margin:1rem auto 0;box-shadow:0 .5rem 1.5rem rgba(16,24,40,.16)}.lgt-admin .lgt-table-cell{max-width:25rem;overflow-wrap:anywhere;white-space:pre-wrap}.lgt-admin .form-text{color:var(--lgt-muted)}@media(max-width:767px){.lgt-admin .card-body{padding:1rem}.lgt-admin .lgt-stat{min-height:auto}.lgt-admin .lgt-setup-lead{padding:1rem}}
+.lgt-workspace{--lgt-ink:#101828;--lgt-text:#344054;--lgt-muted:#667085;--lgt-line:#dfe5ef;--lgt-bg:#f7f9fc;--lgt-primary:#155eef;--lgt-safe:#eff8ff;max-width:1400px;margin:auto;color:var(--lgt-text)}
+.lgt-skip{position:absolute;top:-5rem;left:1rem;z-index:9999;background:#101828;color:#fff;padding:.7rem 1rem;border-radius:.5rem}.lgt-skip:focus{top:1rem;color:#fff}.lgt-workspace h1,.lgt-workspace h2,.lgt-workspace h3{color:var(--lgt-ink)}
+.lgt-hero{position:relative;overflow:hidden;border:1px solid #c5d7ff;border-radius:1.25rem;padding:clamp(1.25rem,2.7vw,2.3rem);background:radial-gradient(circle at 90% 0,#dbe8ff,transparent 34rem),linear-gradient(135deg,#f7faff,#fff)}.lgt-hero:after{content:"";position:absolute;right:-5rem;bottom:-8rem;width:19rem;height:19rem;border:2.3rem solid rgba(21,94,239,.07);border-radius:50%}
+.lgt-hero>*{position:relative;z-index:1}.lgt-eyebrow{display:inline-flex;align-items:center;gap:.45rem;padding:.3rem .65rem;border-radius:99px;background:#e8f0ff;color:#1849a9;font-weight:700;font-size:.78rem}.lgt-eyebrow:before{content:"";width:.45rem;height:.45rem;border-radius:50%;background:#2e90fa}.lgt-hero h1{font-size:clamp(1.55rem,2.7vw,2.4rem);letter-spacing:-.04em;margin:.85rem 0 .5rem;font-weight:760}.lgt-hero p{max-width:53rem;margin:0;line-height:1.7}.lgt-hero-actions{display:flex;gap:.7rem;flex-wrap:wrap;margin-top:1.2rem}.lgt-mode{display:inline-flex;align-items:center;gap:.45rem;margin-top:1rem;padding:.4rem .65rem;border:1px solid #c7d7fe;border-radius:.55rem;background:#fff;font-size:.82rem}.lgt-dot{width:.5rem;height:.5rem;border-radius:50%;background:#12b76a}.lgt-dot.warning{background:#f79009}.lgt-dot.muted{background:#98a2b3}
+.lgt-steps{display:grid;grid-template-columns:repeat(5,minmax(9rem,1fr));gap:.55rem;overflow:auto;margin:1rem 0}.lgt-step{min-width:9rem;text-align:left;border:1px solid var(--lgt-line);border-radius:.75rem;background:#fff;padding:.75rem;color:#475467}.lgt-step:hover{border-color:#9db9ff}.lgt-step[aria-current="step"]{border-color:var(--lgt-primary);background:#f3f6ff;color:#123a93;box-shadow:0 .35rem 1rem rgba(21,94,239,.1)}.lgt-step b{display:inline-grid;place-items:center;width:1.35rem;height:1.35rem;margin-right:.35rem;border-radius:50%;background:#98a2b3;color:#fff;font-size:.72rem}.lgt-step[aria-current="step"] b{background:var(--lgt-primary)}.lgt-step small{display:block;padding-left:1.7rem;margin-top:.25rem;color:var(--lgt-muted);font-size:.72rem}
+.lgt-panel[hidden]{display:none!important}.lgt-grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:1rem}.lgt-12{grid-column:span 12}.lgt-8{grid-column:span 8}.lgt-7{grid-column:span 7}.lgt-6{grid-column:span 6}.lgt-5{grid-column:span 5}.lgt-4{grid-column:span 4}.lgt-card{border:1px solid var(--lgt-line);border-radius:1rem;background:#fff;box-shadow:0 .2rem .9rem rgba(16,24,40,.035)}.lgt-card-h{display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;padding:1.15rem 1.2rem .75rem}.lgt-card-b{padding:1.1rem 1.2rem 1.25rem}.lgt-card h2{font-size:1.07rem;margin:0;font-weight:720}.lgt-desc{margin:.3rem 0 0;color:var(--lgt-muted);font-size:.88rem;line-height:1.55}
+.lgt-stat{padding:1.05rem 1.15rem;min-height:7.9rem}.lgt-stat-label{display:flex;justify-content:space-between;color:var(--lgt-muted);font-size:.85rem}.lgt-stat-value{margin:.8rem 0 .2rem;font-size:1.75rem;line-height:1;font-weight:760;letter-spacing:-.04em;color:var(--lgt-ink)}.lgt-stat-help{font-size:.78rem;color:var(--lgt-muted)}.lgt-safe{display:flex;gap:.8rem;border:1px solid #b2ddff;border-radius:.8rem;padding:1rem;background:var(--lgt-safe);color:#175cd3}.lgt-safe b{display:grid;place-items:center;flex:0 0 1.65rem;height:1.65rem;border-radius:50%;background:#d1e9ff}.lgt-safe strong{display:block;color:#1849a9}.lgt-safe p{margin:.15rem 0 0;font-size:.85rem;line-height:1.55}
+.lgt-guide{display:grid;grid-template-columns:repeat(3,1fr);gap:.65rem}.lgt-guide>div{border:1px solid var(--lgt-line);border-radius:.75rem;padding:.9rem}.lgt-guide em{font-style:normal;font-size:.76rem;color:#175cd3;font-weight:700}.lgt-guide h3{font-size:.95rem;margin:.5rem 0 .25rem}.lgt-guide p{margin:0;font-size:.82rem;line-height:1.5;color:var(--lgt-muted)}
+.lgt-fields{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:1rem}.lgt-field{grid-column:span 6}.lgt-field.third{grid-column:span 4}.lgt-field.full{grid-column:span 12}.lgt-field label,.lgt-field legend{display:block;margin-bottom:.4rem;font-size:.87rem;font-weight:650}.lgt-required:after{content:" *";color:#b42318}.lgt-field .form-text{font-size:.78rem;line-height:1.45;color:var(--lgt-muted);margin:.35rem 0 0}.lgt-field input,.lgt-field select,.lgt-field textarea{min-height:2.65rem;border-color:#d0d5dd;border-radius:.55rem}.lgt-field textarea{min-height:7rem}.lgt-field input:focus,.lgt-field select:focus,.lgt-field textarea:focus,.lgt-step:focus-visible{outline:3px solid rgba(46,144,250,.3);outline-offset:2px;box-shadow:none}
+.lgt-languages{display:grid;grid-template-columns:repeat(auto-fill,minmax(9rem,1fr));gap:.5rem}.lgt-check{display:flex;gap:.5rem;align-items:center;min-height:2.7rem;border:1px solid var(--lgt-line);border-radius:.6rem;padding:.5rem .6rem;cursor:pointer}.lgt-check:hover{border-color:#98b4ff;background:#f8faff}.lgt-check input,.lgt-country input,.lgt-scope input{accent-color:var(--lgt-primary)}.lgt-check small{display:block;color:var(--lgt-muted);font-size:.72rem}
+.lgt-country-tools{display:flex;gap:.65rem;align-items:end;justify-content:space-between;flex-wrap:wrap}.lgt-country-search{flex:1 1 18rem;max-width:34rem}.lgt-country-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));gap:.5rem;max-height:22rem;overflow:auto;padding:.55rem;border:1px solid var(--lgt-line);border-radius:.75rem;background:#fafcff}.lgt-country{display:flex;gap:.55rem;align-items:flex-start;border:1px solid var(--lgt-line);border-radius:.58rem;padding:.65rem;background:#fff;cursor:pointer}.lgt-country strong,.lgt-country small{display:block}.lgt-country strong{font-size:.84rem}.lgt-country small{font-size:.73rem;color:var(--lgt-muted)}
+.lgt-disclosure{border:1px solid var(--lgt-line);border-radius:.75rem;background:#fff}.lgt-disclosure summary{padding:.9rem 1rem;cursor:pointer;font-weight:650;font-size:.9rem}.lgt-disclosure[open] summary{border-bottom:1px solid var(--lgt-line)}.lgt-disclosure>div{padding:1rem}.lgt-scope-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:.55rem}.lgt-scope{display:flex;align-items:flex-start;gap:.5rem;border:1px solid var(--lgt-line);border-radius:.65rem;padding:.7rem;cursor:pointer}.lgt-scope strong,.lgt-scope small{display:block}.lgt-scope strong{font-size:.84rem}.lgt-scope small{font-size:.72rem;color:var(--lgt-muted);line-height:1.35}.lgt-action{display:flex;gap:.65rem;align-items:center;flex-wrap:wrap;margin-top:1rem}
+.lgt-table-wrap{overflow:auto;border:1px solid var(--lgt-line);border-radius:.75rem}.lgt-table{width:100%;min-width:45rem;border-collapse:collapse}.lgt-table th,.lgt-table td{padding:.72rem .78rem;text-align:left;vertical-align:top;border-bottom:1px solid var(--lgt-line);font-size:.84rem}.lgt-table th{background:#f8fafc;color:#475467;font-size:.76rem}.lgt-table tr:last-child td{border-bottom:0}.lgt-cell{max-width:23rem;white-space:pre-wrap;overflow-wrap:anywhere}.lgt-empty{text-align:center;color:var(--lgt-muted);padding:1.3rem!important}.lgt-state{display:inline-flex;border-radius:99px;padding:.2rem .45rem;background:#ecfdf3;color:#027a48;font-size:.74rem;font-weight:650}.lgt-state.neutral{background:#f2f4f7;color:#475467}.lgt-state.warning{background:#fffaeb;color:#b54708}.lgt-failure{display:block;margin-top:.3rem;color:#b42318;font-size:.73rem;line-height:1.35}.lgt-scan{display:grid;grid-template-columns:repeat(4,1fr);gap:.6rem;margin-top:1rem}.lgt-scan>div{background:var(--lgt-bg);border-radius:.65rem;padding:.75rem}.lgt-scan b{display:block;font-size:1.2rem;color:var(--lgt-ink)}.lgt-scan span{font-size:.74rem;color:var(--lgt-muted)}
+.lgt-live{display:inline-flex;gap:.35rem;align-items:center;color:var(--lgt-muted);font-size:.77rem}.lgt-toast{display:none;position:fixed;right:1.2rem;bottom:1.2rem;z-index:1100;max-width:min(34rem,calc(100vw - 2rem));padding:.85rem 1rem;border:1px solid #a6f4c5;border-radius:.7rem;background:#ecfdf3;color:#027a48;box-shadow:0 1rem 2rem rgba(16,24,40,.16)}.lgt-toast.show{display:block}.lgt-toast.error{border-color:#fecdca;background:#fef3f2;color:#b42318}
+@media(max-width:1080px){.lgt-8,.lgt-7,.lgt-6,.lgt-5,.lgt-4{grid-column:span 12}.lgt-guide{grid-template-columns:1fr}}@media(max-width:700px){.lgt-field,.lgt-field.third{grid-column:span 12}.lgt-languages{grid-template-columns:repeat(2,1fr)}.lgt-country-list{grid-template-columns:1fr}.lgt-scan{grid-template-columns:repeat(2,1fr)}.lgt-hero-actions .btn{width:100%}}
 </style>
-<style>
-  .lgt-country-picker{display:grid;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));gap:.5rem;max-height:21rem;overflow:auto;background:#fcfcfd}
-  .lgt-country-option{display:flex;align-items:flex-start;gap:.55rem;padding:.65rem .75rem;border:1px solid var(--lgt-border);border-radius:.6rem;background:#fff;cursor:pointer}
-  .lgt-country-option:hover{border-color:var(--lgt-primary);background:#f5f8ff}.lgt-country-option input{margin-top:.2rem}.lgt-country-option small{display:block;color:var(--lgt-muted)}
-  @media(max-width:767px){.lgt-country-picker{grid-template-columns:1fr;max-height:18rem}}
-</style>
-<main class="lgt-admin py-3" aria-labelledby="lgt-title">
-  <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-4">
-    <div><h1 id="lgt-title" class="h3 mb-1">{{ __('LongosGlobalTranslate::translate.title') }}</h1><p class="text-secondary mb-0">{{ __('LongosGlobalTranslate::translate.preview') }}</p></div>
-    <span class="badge text-bg-light border px-3 py-2">{{ __('LongosGlobalTranslate::translate.mode') }}：{{ $modeLabels[$settings['mode']] ?? $settings['mode'] }}</span>
-  </div>
-  <nav class="nav nav-pills mb-4" aria-label="翻译工作区">
-    <button class="nav-link active" type="button" data-lgt-tab="setup">基础配置</button><button class="nav-link" type="button" data-lgt-tab="plan">翻译任务</button><button class="nav-link" type="button" data-lgt-tab="library">翻译库</button><button class="nav-link" type="button" data-lgt-tab="widget">前台语言选择器</button><button class="nav-link" type="button" data-lgt-tab="operations">发布与审计</button>
+
+<a href="#lgt-main" class="lgt-skip">跳到翻译工作台主内容</a>
+<main id="lgt-main" class="lgt-workspace py-3" aria-labelledby="lgt-title">
+  <header class="lgt-hero"><span class="lgt-eyebrow">租户独立 · 本地词典优先</span><h1 id="lgt-title">LONGOS 全球翻译工作台</h1><p>通过五个清晰步骤建立、审核并发布翻译库。客户访问前台时只读取已发布的本地快照；翻译服务商仅在后台处理已公开且已允许的文本。</p><div class="lgt-hero-actions"><button class="btn btn-primary" type="button" data-lgt-go="{{ $nextPanel }}">{{ $nextPanel === 'languages' ? '先选择展示语言' : ($nextPanel === 'providers' ? '配置翻译服务商' : '扫描并建立翻译库') }}</button><button class="btn btn-outline-primary" type="button" data-lgt-go="publish">查看发布与前台状态</button></div><div class="lgt-mode"><span class="lgt-dot {{ $diagnostics['dispatch_enabled'] ? '' : 'warning' }}"></span>当前模式：<strong>{{ $modeLabels[$settings['mode']] ?? $settings['mode'] }}</strong> · {{ $diagnostics['dispatch_enabled'] ? '已明确授权服务商派发' : '服务商派发保持关闭' }}</div></header>
+
+  <nav class="lgt-steps" aria-label="翻译配置步骤">
+    <button type="button" class="lgt-step" data-lgt-go="overview" aria-current="step"><b>1</b>安全边界<small>先了解数据范围</small></button>
+    <button type="button" class="lgt-step" data-lgt-go="languages"><b>2</b>语言策略<small>语言、地区与回退</small></button>
+    <button type="button" class="lgt-step" data-lgt-go="providers"><b>3</b>服务商与额度<small>加密保存并验证</small></button>
+    <button type="button" class="lgt-step" data-lgt-go="library"><b>4</b>翻译库<small>扫描、任务和审核</small></button>
+    <button type="button" class="lgt-step" data-lgt-go="publish"><b>5</b>发布与前台<small>快照、切换与回滚</small></button>
   </nav>
 
-  <section class="lgt-tab active" data-lgt-panel="setup"><div class="lgt-setup-lead mb-3"><div class="row align-items-center g-3"><div class="col-lg"><span class="badge text-bg-primary mb-2">第一步</span><h2 class="h4 mb-2">配置语言与翻译 API</h2><p class="mb-0 text-secondary">先添加展示语言，再保存 API 凭据。凭据会加密保存；未完成验证与授权前，系统不会发送任何商品文本。</p></div><div class="col-lg-auto"><span class="small text-secondary d-block">源语言</span><strong>英语（已锁定）</strong></div></div></div><div class="row g-3">
-    <div class="col-12 col-md-6 col-xl-3"><div class="lgt-stat p-3"><div class="small text-secondary">展示模式</div><strong class="d-block fs-5 mt-2">{{ $modeLabels[$diagnostics['mode']] ?? $diagnostics['mode'] }}</strong><span class="small text-secondary">不会改写核心源语言</span></div></div>
-    <div class="col-12 col-md-6 col-xl-3"><div class="lgt-stat p-3"><div class="small text-secondary">已审核条目</div><strong class="d-block fs-5 mt-2">{{ (int) ($latest_coverage['approved'] ?? 0) }}</strong><span class="small text-secondary">只有已审核内容可以发布</span></div></div>
-    <div class="col-12 col-md-6 col-xl-3"><div class="lgt-stat p-3"><div class="small text-secondary">待更新条目</div><strong class="d-block fs-5 mt-2">{{ (int) ($latest_coverage['stale'] ?? 0) }}</strong><span class="small text-secondary">源文本变更后需要重新翻译</span></div></div>
-    <div class="col-12 col-md-6 col-xl-3"><div class="lgt-stat p-3"><div class="small text-secondary">服务商派发</div><strong class="d-block fs-5 mt-2">{{ $diagnostics['dispatch_enabled'] ? '已启用免费额度派发' : '默认关闭' }}</strong><span class="small text-secondary">V1 永不产生超额付费</span></div></div>
-  </div><div class="card mt-3"><div class="card-body"><h2 class="h5">安全发布流程</h2><ol class="mb-0 ps-3"><li>仅扫描已公开的受支持内容字段。</li><li>逐项审核或人工修订目标语言文本。</li><li>按语言发布不可变的版本快照。</li><li>通过快照创建新版本进行回滚，不覆盖历史。</li></ol></div></div></section>
+  <section class="lgt-panel" data-lgt-panel="overview">
+    <div class="lgt-grid">
+      <article class="lgt-card lgt-stat lgt-4"><div class="lgt-stat-label">启用展示语言 <i class="lgt-dot {{ $enabledLocales === [] ? 'muted' : '' }}"></i></div><div id="lgt-enabled-count" class="lgt-stat-value">{{ count($enabledLocales) }}</div><div class="lgt-stat-help">英语源语言保持锁定，不会被改写</div></article>
+      <article class="lgt-card lgt-stat lgt-4"><div class="lgt-stat-label">已验证服务商 <i class="lgt-dot {{ $verifiedAccounts === 0 ? 'warning' : '' }}"></i></div><div class="lgt-stat-value">{{ $verifiedAccounts }}</div><div class="lgt-stat-help">验证后仍需管理员手动开启派发</div></article>
+      <article class="lgt-card lgt-stat lgt-4"><div class="lgt-stat-label">已发布语言版本 <i class="lgt-dot {{ $publishedLocales === 0 ? 'muted' : '' }}"></i></div><div class="lgt-stat-value">{{ $publishedLocales }}</div><div class="lgt-stat-help">前台只读不可变本地快照</div></article>
+      <div class="lgt-12 lgt-safe"><b>✓</b><div><strong>客户、订单、地址、支付资料和访客输入绝不会进入翻译任务。</strong><p>允许处理的仅是商品、分类、公开页面、已发布装修组件，以及插件内置的有限固定界面标签。结账、账户和支付页通过本地词典展示译文，不会把客户数据发送到翻译 API。</p></div></div>
+      <section class="lgt-card lgt-12"><div class="lgt-card-h"><div><h2>建议操作路径</h2><p class="lgt-desc">每次发布建立不可变快照；恢复历史版本会创建新版本，绝不覆盖记录。</p></div></div><div class="lgt-card-b"><div class="lgt-guide"><div><em>准备</em><h3>选择展示语言</h3><p>直接从系统启用的国家／地区批量建议语言，手动选择永远优先。</p></div><div><em>验证</em><h3>连接服务商</h3><p>每个平台显示自己的真实凭据字段。加密保存后仍需要受控验证。</p></div><div><em>发布</em><h3>扫描、审核、上架</h3><p>只处理白名单公开内容。审核通过后按语言发布给前台使用。</p></div></div></div></section>
+    </div>
+  </section>
 
-  <section class="lgt-tab" data-lgt-panel="setup"><div class="row g-3"><div class="col-12 col-xl-7"><div class="card"><div class="card-body"><h2 class="h5">翻译 API 服务商</h2><p class="form-text">凭据仅加密保存，页面与接口不会回传。重新保存后必须重新验证，派发保持关闭。</p>
-  <form id="lgt-provider-form" class="row g-3" novalidate><div class="col-md-4"><label class="form-label" for="lgt-provider">翻译服务商</label><select id="lgt-provider" class="form-select">@foreach($providerProfiles as $providerCode => $profile)<option value="{{ $providerCode }}">{{ $profile['label'] }}</option>@endforeach</select><div class="form-text" id="lgt-provider-quota-help">V1 仅允许免费额度范围内派发。</div></div><div class="col-md-8"><label class="form-label" for="lgt-billing">账户标识</label><input id="lgt-billing" class="form-control" required maxlength="255" autocomplete="off" aria-describedby="lgt-billing-help"><div class="form-text" id="lgt-billing-help">仅作租户内识别，保存前会散列处理。</div></div><div class="col-md-6"><label class="form-label" id="lgt-key-one-label" for="lgt-key-one">AccessKey ID</label><input id="lgt-key-one" class="form-control" required autocomplete="off" aria-describedby="lgt-key-one-help"><div class="form-text" id="lgt-key-one-help"></div></div><div class="col-md-6"><label class="form-label" id="lgt-key-two-label" for="lgt-key-two">AccessKey Secret</label><input id="lgt-key-two" type="password" class="form-control" required autocomplete="new-password" aria-describedby="lgt-key-two-help"><div class="form-text" id="lgt-key-two-help"></div></div><div class="col-md-4"><label class="form-label" for="lgt-free-quota">本周期免费字符额度</label><input id="lgt-free-quota" class="form-control" type="number" min="0" value="0"><div class="form-text">填 0 表示禁止派发。</div></div><div class="col-md-4"><label class="form-label" for="lgt-soft-cap">本地安全上限</label><input id="lgt-soft-cap" class="form-control" type="number" min="0" value="0"><div class="form-text">建议小于或等于免费额度。</div></div><div class="col-md-4"><label class="form-label" for="lgt-qps">每秒请求上限（QPS）</label><input id="lgt-qps" class="form-control" type="number" min="1" max="10" value="1"><div class="form-text">按服务商后台限额填写，建议从 1 开始。</div></div><div class="col-12"><div class="form-check"><input class="form-check-input" type="checkbox" id="lgt-provider-enabled"><label class="form-check-label" for="lgt-provider-enabled">保存为已启用（仍需完成验证后才可派发）</label></div></div><div class="col-12"><button class="btn btn-primary" type="submit">加密保存 API 配置</button></div></form>
-  </div></div></div><div class="col-12 col-xl-5"><div class="card"><div class="card-body"><h2 class="h5">已配置账户</h2><p class="form-text">验证只会向服务商发送一次小请求，费用会记入本地账本；系统不会自动验证或自动派发。</p><div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>服务商</th><th>凭据</th><th>验证状态</th><th>派发状态</th><th>操作</th></tr></thead><tbody>@forelse($accounts as $account)<tr><td>{{ $providerLabels[$account['provider']] ?? $account['provider'] }}</td><td>{{ $account['credentials_configured'] ? '已配置' : '未配置' }}</td><td>{{ $account['verified_at'] ?: '未验证' }}</td><td>{{ $account['dispatch_enabled'] ? '已开启' : '已关闭' }}</td><td class="text-nowrap">@if(!$account['verified_at'])<button type="button" class="btn btn-sm btn-outline-primary lgt-verify-provider" data-id="{{ $account['id'] }}">验证</button>@else<button type="button" class="btn btn-sm btn-outline-secondary lgt-dispatch-provider" data-id="{{ $account['id'] }}" data-enabled="{{ $account['dispatch_enabled'] ? '0' : '1' }}">{{ $account['dispatch_enabled'] ? '关闭派发' : '开启派发' }}</button>@endif</td></tr>@empty<tr><td colspan="5" class="text-secondary">尚未配置翻译服务商账户。</td></tr>@endforelse</tbody></table></div></div></div></div></div></section>
+  <section id="lgt-languages-panel" class="lgt-panel" data-lgt-panel="languages" hidden>
+    <div class="lgt-grid">
+      <section class="lgt-card lgt-12"><div class="lgt-card-h"><div><h2>展示语言设置</h2><p class="lgt-desc">先定义访客可选择的语言，再关联国家／地区。访客手动选择的语言始终优先。</p></div><span class="badge text-bg-light border">英语（en）为锁定源语言</span></div><div class="lgt-card-b"><form id="lgt-settings-form" novalidate><div class="lgt-fields"><div class="lgt-field third"><label for="lgt-mode">展示模式</label><select id="lgt-mode" class="form-select"><option value="preview_only" @selected(($settings['mode'] ?? '') === 'preview_only')>仅预览，不调用 API</option><option value="free_only" @selected(($settings['mode'] ?? '') === 'free_only')>仅使用免费额度</option><option value="offline_dictionary" @selected(($settings['mode'] ?? '') === 'offline_dictionary')>仅使用已发布词典</option></select><p class="form-text">正式上线推荐“仅已发布词典”。</p></div><div class="lgt-field third"><label for="lgt-source">原始语言</label><input id="lgt-source" class="form-control" value="{{ $settings['source_locale'] ?? 'en' }}" readonly><p class="form-text">锁定以保护源内容与多租户一致性。</p></div><div class="lgt-field third"><label>自动建议顺序</label><div class="form-control bg-light d-flex align-items-center">手动选择 → 国家／地区 → 浏览器语言</div><p class="form-text">国家／地区只使用可信边缘提供的国家代码；不读取客户资料。</p></div><div class="lgt-field full"><fieldset><legend>启用的展示语言</legend><input id="lgt-locales" type="hidden" value="{{ implode(',', $enabledLocales) }}"><div class="lgt-languages">@foreach($localeCatalog as $code => $label)<label class="lgt-check"><input name="enabled_locale" type="checkbox" value="{{ $code }}" @checked(in_array($code, $enabledLocales, true))><span>{{ $label }}<small>{{ $code }}</small></span></label>@endforeach</div><p class="form-text">这些语言会同步给任务、发布版本和前台选择器；没有启用的语言不能进入任务。</p></fieldset></div><div class="lgt-field full"><div class="form-check"><input id="lgt-accept-language" type="checkbox" class="form-check-input" @checked($settings['accept_language_enabled'] ?? false)><label class="form-check-label" for="lgt-accept-language">访客没有手动选择且无可信地区规则时，允许以浏览器语言作为回退</label></div></div></div><div class="lgt-action"><button class="btn btn-primary" type="submit">保存语言策略</button><span class="small text-secondary">保存不会自动翻译或改写任何内容。</span></div></form></div></section>
+      <section class="lgt-card lgt-8"><div class="lgt-card-h"><div><h2>按系统国家／地区快捷启用语言</h2><p class="lgt-desc">直接读取系统设置中的已启用国家／地区。只会添加所选规则，不会删除已有手工配置。</p></div></div><div class="lgt-card-b"><div class="lgt-country-tools"><div class="lgt-country-search"><label class="visually-hidden" for="lgt-country-search">搜索国家或地区</label><input id="lgt-country-search" class="form-control" type="search" placeholder="搜索国家名称或 ISO 代码，例如 France、FR"></div><div class="small text-secondary"><span id="lgt-country-summary">正在准备…</span> <button id="lgt-country-clear" class="btn btn-link btn-sm p-0 ms-2" type="button">清空</button></div></div><div id="lgt-country-list" class="lgt-country-list mt-3" aria-live="polite"></div><p id="lgt-country-empty" class="form-text" hidden>没有匹配的已启用国家／地区。</p><div class="lgt-action"><button id="lgt-country-apply" type="button" class="btn btn-outline-primary" disabled>应用所选国家的语言建议</button><span class="small text-secondary">访客手动选择仍然优先。</span></div></div></section>
+      <section class="lgt-4"><details class="lgt-disclosure"><summary>高级：单个国家语言覆盖</summary><div><p class="lgt-desc mb-3">用于覆盖系统建议。目标语言必须先在上方启用。</p><form id="lgt-country-rule-form" novalidate><div class="mb-3"><label class="form-label" for="lgt-country">国家／地区代码</label><input id="lgt-country" class="form-control text-uppercase" maxlength="2" placeholder="FR" required></div><div class="mb-3"><label class="form-label" for="lgt-country-locale">展示语言代码</label><input id="lgt-country-locale" class="form-control" maxlength="24" placeholder="fr" required></div><div class="form-check mb-3"><input id="lgt-country-enabled" class="form-check-input" type="checkbox" checked><label class="form-check-label" for="lgt-country-enabled">启用默认规则</label></div><button class="btn btn-outline-primary w-100" type="submit">保存覆盖</button></form></div></details></section>
+      <section class="lgt-card lgt-12"><div class="lgt-card-h"><div><h2>当前国家默认规则</h2><p class="lgt-desc">规则只用于初始语言建议，不会覆盖客户手动选择。</p></div></div><div class="lgt-table-wrap"><table class="lgt-table"><thead><tr><th>国家／地区</th><th>展示语言</th><th>状态</th></tr></thead><tbody id="lgt-country-rules">@forelse($countryRules as $rule)<tr><td>{{ $rule->country }}</td><td>{{ $rule->locale }}</td><td>{{ $rule->enabled ? '已启用' : '已停用' }}</td></tr>@empty<tr><td class="lgt-empty" colspan="3">尚未设置国家默认语言。</td></tr>@endforelse</tbody></table></div></section>
+    </div>
+  </section>
 
-  <section class="lgt-tab" data-lgt-panel="plan"><div class="card"><div class="card-body"><h2 class="h5">扫描可公开翻译内容</h2><p class="form-text">仅索引已启用商品、分类、页面及已发布的受支持装修模块。订单、客户资料、结账、支付、评论和在线聊天均不会被读取。</p><form id="lgt-scan-form" class="d-flex flex-wrap gap-3 align-items-center"><fieldset class="d-flex flex-wrap gap-3"><legend class="visually-hidden">内容范围</legend>@foreach(['product'=>'商品','category'=>'分类','page'=>'页面','builder'=>'已发布装修模块'] as $key=>$name)<div class="form-check"><input class="form-check-input" type="checkbox" name="scope" value="{{ $key }}" id="scan-{{ $key }}" checked><label class="form-check-label" for="scan-{{ $key }}">{{ $name }}</label></div>@endforeach</fieldset><button class="btn btn-outline-primary" type="submit">立即扫描</button></form><pre id="lgt-scan-result" class="bg-light border rounded p-3 mt-3 mb-0 small" hidden></pre></div></div><div class="card mt-3"><div class="card-body"><h2 class="h5">创建翻译任务</h2><p class="form-text">仅预览模式绝不会调用服务商。仅免费额度模式在没有单独完成验证并获准派发的账户时会安全暂停。</p><form id="lgt-plan-form" class="row g-3"><div class="col-md-6"><label class="form-label" for="lgt-plan-locales">目标语言</label><input id="lgt-plan-locales" class="form-control" value="{{ $enabledLocales }}" placeholder="fr, de, es" required><div class="form-text">填写已启用语言代码，并以英文逗号分隔。</div></div><div class="col-md-6"><label class="form-label">扫描范围</label><div class="d-flex gap-3 flex-wrap pt-2">@foreach(['product'=>'商品','category'=>'分类','page'=>'页面','builder'=>'装修模块'] as $key=>$name)<div class="form-check"><input class="form-check-input" type="checkbox" value="{{ $key }}" name="plan_scope" id="plan-{{ $key }}" checked><label class="form-check-label" for="plan-{{ $key }}">{{ $name }}</label></div>@endforeach</div></div><div class="col-12"><button class="btn btn-primary" type="submit">创建安全任务</button></div></form></div></div></section>
+  <section class="lgt-panel" data-lgt-panel="providers" hidden>
+    <div class="lgt-grid">
+      <section class="lgt-card lgt-7"><div class="lgt-card-h"><div><h2>翻译 API 服务商</h2><p class="lgt-desc">不同平台使用各自的凭据格式。凭据仅在保存时提交并立即加密，页面、日志和状态接口均不会回传密钥。</p></div></div><div class="lgt-card-b"><form id="lgt-provider-form" novalidate><div class="lgt-fields"><div class="lgt-field"><label class="lgt-required" for="lgt-provider">翻译服务商</label><select id="lgt-provider" class="form-select">@foreach($providerProfiles as $code => $profile)<option value="{{ $code }}">{{ $profile['label'] }}</option>@endforeach</select><p id="lgt-quota-help" class="form-text"></p></div><div class="lgt-field"><label class="lgt-required" for="lgt-billing">账户标识</label><input id="lgt-billing" class="form-control" maxlength="255" placeholder="例如：生产环境 RAM 用户" autocomplete="off" required><p id="lgt-billing-help" class="form-text"></p></div><div class="lgt-field"><label id="lgt-key-one-label" class="lgt-required" for="lgt-key-one"></label><input id="lgt-key-one" class="form-control" autocomplete="off" required><p id="lgt-key-one-help" class="form-text"></p></div><div class="lgt-field"><label id="lgt-key-two-label" class="lgt-required" for="lgt-key-two"></label><input id="lgt-key-two" class="form-control" type="password" autocomplete="new-password" required><p id="lgt-key-two-help" class="form-text"></p></div><div class="lgt-field third"><label for="lgt-free-quota">本周期免费字符额度</label><input id="lgt-free-quota" class="form-control" type="number" min="0" value="0"><p class="form-text">填 0 表示不能派发。</p></div><div class="lgt-field third"><label for="lgt-soft-cap">本地安全上限</label><input id="lgt-soft-cap" class="form-control" type="number" min="0" value="0"><p class="form-text">建议不超过免费额度。</p></div><div class="lgt-field third"><label for="lgt-qps">每秒请求上限</label><input id="lgt-qps" class="form-control" type="number" min="1" max="10" value="1"><p class="form-text">建议从 1 开始。</p></div><div class="lgt-field full"><details class="lgt-disclosure"><summary>高级额度与故障转移设置</summary><div><div class="lgt-fields"><div class="lgt-field third"><label for="lgt-priority">故障转移优先级</label><input id="lgt-priority" class="form-control" type="number" min="1" max="1000" value="100"><p class="form-text">数字越小越优先；额度耗尽时自动尝试下一个已验证账户。</p></div><div class="lgt-field third"><label for="lgt-buffer">外部用量缓冲</label><input id="lgt-buffer" class="form-control" type="number" min="0" value="0"></div><div class="lgt-field third"><label for="lgt-timezone">额度周期时区</label><select id="lgt-timezone" class="form-select"><option value="UTC">UTC</option><option value="Asia/Shanghai">Asia/Shanghai</option><option value="America/Los_Angeles">America/Los_Angeles</option></select></div><div class="lgt-field"><label for="lgt-tier">套餐备注</label><input id="lgt-tier" class="form-control" maxlength="48" placeholder="例如：免费版"></div><div class="lgt-field"><label for="lgt-console-link">服务商控制台链接（可选）</label><input id="lgt-console-link" class="form-control" type="url" maxlength="512" placeholder="https://…"></div></div></div></details></div><div class="lgt-field full"><div class="form-check"><input id="lgt-provider-enabled" class="form-check-input" type="checkbox"><label class="form-check-label" for="lgt-provider-enabled">保存为可验证账户（派发仍保持关闭）</label></div></div></div><div class="lgt-action"><button type="submit" class="btn btn-primary">加密保存并进入验证</button><span class="small text-secondary">不会自动扣费、验证或派发。</span></div></form></div></section>
+      <section class="lgt-card lgt-5"><div class="lgt-card-h"><div><h2>安全接力机制</h2><p class="lgt-desc">第一家免费额度用完后，系统只会向下一家已验证、已授权、且仍在安全额度内的账户接力。</p></div></div><div class="lgt-card-b"><ol class="lgt-desc ps-3 mb-0" style="line-height:1.9"><li><strong>保存：</strong>凭据加密，派发默认关闭。</li><li><strong>验证：</strong>管理员确认后执行一次小请求。</li><li><strong>开启：</strong>按优先级接力，不使用付费额度。</li><li><strong>暂停：</strong>结果不确定时为避免重复计费安全暂停。</li></ol><div class="lgt-safe mt-3"><b>i</b><div><strong>不会自动产生超额付费</strong><p>付费额度固定为 0。服务商或额度条件不满足时，任务会暂停并记录可处理原因。</p></div></div></div></section>
+      <section class="lgt-card lgt-12"><div class="lgt-card-h"><div><h2>已配置账户与接力顺序</h2><p class="lgt-desc">必须先验证，再明确开启派发。</p></div></div><div class="lgt-table-wrap"><table class="lgt-table"><thead><tr><th>优先级</th><th>服务商</th><th>凭据</th><th>验证</th><th>派发</th><th>操作</th></tr></thead><tbody>@forelse($accounts as $account)<tr><td>{{ $account['failover_priority'] ?? 100 }}</td><td>{{ $providerLabels[$account['provider']] ?? $account['provider'] }}</td><td>{{ $account['credentials_configured'] ? '已加密配置' : '未配置' }}</td><td>@if($account['verified_at'])<span class="lgt-state">已验证</span>@else<span class="lgt-state warning">待验证</span>@endif</td><td>@if($account['dispatch_enabled'])<span class="lgt-state">已开启</span>@else<span class="lgt-state neutral">已关闭</span>@endif</td><td>@if(!$account['verified_at'])<button type="button" class="btn btn-sm btn-outline-primary lgt-verify" data-id="{{ $account['id'] }}">验证账户</button>@else<button type="button" class="btn btn-sm btn-outline-secondary lgt-dispatch" data-id="{{ $account['id'] }}" data-enable="{{ $account['dispatch_enabled'] ? '0' : '1' }}">{{ $account['dispatch_enabled'] ? '关闭派发' : '开启派发' }}</button>@endif</td></tr>@empty<tr><td class="lgt-empty" colspan="6">尚未配置服务商账户。</td></tr>@endforelse</tbody></table></div></section>
+    </div>
+  </section>
 
-  <section class="lgt-tab" data-lgt-panel="library"><div class="card"><div class="card-body"><div class="d-flex flex-wrap justify-content-between gap-2"><div><h2 class="h5 mb-1">翻译库</h2><p class="form-text mb-0">人工操作会进行乐观锁版本校验；已锁定的条目不会被机器翻译结果覆盖。</p></div><button id="lgt-load-library" class="btn btn-outline-primary" type="button">加载最新 100 条</button></div><div class="table-responsive mt-3"><table class="table table-sm align-middle"><thead><tr><th>源内容</th><th>语言</th><th>状态</th><th>译文</th><th>审核</th></tr></thead><tbody id="lgt-library-items"><tr><td colspan="5" class="text-secondary">加载条目后即可审核与修订。</td></tr></tbody></table></div></div></div></section>
+  <section class="lgt-panel" data-lgt-panel="library" hidden>
+    <div class="lgt-grid">
+      <section class="lgt-card lgt-12"><div class="lgt-card-h"><div><h2>扫描可公开翻译内容</h2><p class="lgt-desc">只扫描显式白名单字段。勾选固定界面文案时，也只会扫描插件内置静态目录，不包含任何客户、订单、结账填写内容或支付资料。</p></div></div><div class="lgt-card-b"><form id="lgt-scan-form"><div class="lgt-scope-grid">@foreach(['product'=>['商品','已启用商品名称'],'category'=>['分类','公开分类名称'],'page'=>['页面','公开页面标题'],'builder'=>['装修模块','已发布受支持的纯文本字段'],'commerce_ui'=>['结账／账户／支付固定界面文案','有限静态标签，不含客户数据']] as $key=>[$label,$help])<label class="lgt-scope"><input type="checkbox" name="scope" value="{{ $key }}" @checked($key !== 'commerce_ui')><span><strong>{{ $label }}</strong><small>{{ $help }}</small></span></label>@endforeach</div><div class="lgt-action"><button class="btn btn-outline-primary" type="submit">扫描并更新索引</button><span class="small text-secondary">扫描本身不调用外部翻译服务。</span></div></form><div id="lgt-scan-result" class="lgt-scan" hidden aria-live="polite"></div><p id="lgt-scan-note" class="form-text" hidden></p></div></section>
+      <section class="lgt-card lgt-6"><div class="lgt-card-h"><div><h2>创建翻译任务</h2><p class="lgt-desc">任务只处理已启用的目标语言。不能安全派发时会暂停，不会产生超额付费。</p></div></div><div class="lgt-card-b"><form id="lgt-plan-form"><div class="lgt-field full"><label for="lgt-plan-locales" class="lgt-required">本次目标语言</label><select id="lgt-plan-locales" class="form-select" multiple size="6">@foreach($localeCatalog as $code=>$label)<option value="{{ $code }}" @selected(in_array($code, $enabledLocales, true)) @disabled(!in_array($code, $enabledLocales, true))>{{ $label }}（{{ $code }}）</option>@endforeach</select><p class="form-text">按住 Ctrl／⌘ 可多选；必须先在语言策略中启用。</p></div><fieldset class="mt-3"><legend class="form-label">任务范围</legend><div class="lgt-scope-grid">@foreach(['product'=>'商品','category'=>'分类','page'=>'页面','builder'=>'装修模块','commerce_ui'=>'固定界面文案'] as $key=>$label)<label class="lgt-scope"><input type="checkbox" name="plan_scope" value="{{ $key }}" @checked($key !== 'commerce_ui')><span><strong>{{ $label }}</strong></span></label>@endforeach</div></fieldset><div class="lgt-action"><button class="btn btn-primary" type="submit">创建安全翻译任务</button></div></form></div></section>
+      <section class="lgt-card lgt-6"><div class="lgt-card-h"><div><h2>翻译库</h2><p class="lgt-desc">可在此审核、修订并锁定译文。所有修改使用版本校验，防止覆盖别人的审核结果。</p></div><button id="lgt-library-load" class="btn btn-outline-primary btn-sm" type="button">加载最新条目</button></div><div class="lgt-card-b pt-0"><div class="lgt-table-wrap"><table class="lgt-table"><thead><tr><th>内容</th><th>语言</th><th>状态</th><th>译文</th><th>操作</th></tr></thead><tbody id="lgt-library-items"><tr><td class="lgt-empty" colspan="5">加载后即可开始审核。</td></tr></tbody></table></div></div></section>
+      <section class="lgt-12"><details id="lgt-editor" class="lgt-disclosure"><summary>人工修订</summary><div><p class="lgt-desc mb-3">先从翻译库点击“修订”载入条目。锁定后的人工译文不会被机器结果覆盖。</p><form id="lgt-manual-form"><div class="lgt-fields"><div class="lgt-field third"><label for="lgt-manual-id">翻译条目 ID</label><input id="lgt-manual-id" class="form-control" readonly required></div><div class="lgt-field third"><label for="lgt-manual-version">当前版本</label><input id="lgt-manual-version" class="form-control" readonly required></div><div class="lgt-field third"><label>&nbsp;</label><div class="form-check pt-2"><input id="lgt-manual-lock" class="form-check-input" type="checkbox"><label class="form-check-label" for="lgt-manual-lock">锁定人工译文</label></div></div><div class="lgt-field full"><label for="lgt-manual-text" class="lgt-required">前台展示译文</label><textarea id="lgt-manual-text" class="form-control" maxlength="100000" required></textarea><p class="form-text">只保存纯文本。品牌名称、SKU 等不需要翻译的内容请保留原样。</p></div></div><div class="lgt-action"><button class="btn btn-primary" type="submit">保存人工修订</button></div></form></div></details></section>
+    </div>
+  </section>
 
-  <section class="lgt-tab" data-lgt-panel="setup"><div class="card mt-3"><div class="card-body"><h2 class="h5">展示语言设置</h2><form id="lgt-settings-form" class="row g-3"><div class="col-md-4"><label class="form-label" for="lgt-mode">运行模式</label><select id="lgt-mode" class="form-select"><option value="preview_only" @selected($settings['mode']==='preview_only')>仅预览，不调用 API</option><option value="free_only" @selected($settings['mode']==='free_only')>仅使用免费额度</option><option value="offline_dictionary" @selected($settings['mode']==='offline_dictionary')>仅使用已发布词典</option></select></div><div class="col-md-4"><label class="form-label" for="lgt-source">原始语言</label><input id="lgt-source" class="form-control" value="{{ $settings['source_locale'] }}" readonly aria-describedby="lgt-source-help"><div id="lgt-source-help" class="form-text">原始英文已锁定；插件仅替换前台展示文本。</div></div><div class="col-md-4"><label class="form-label" for="lgt-locales">启用的展示语言</label><input id="lgt-locales" class="form-control" value="{{ $enabledLocales }}" placeholder="fr, de, es"><div class="form-text">用逗号分隔，例如：fr, de, es。</div></div><div class="col-12"><div class="form-check"><input class="form-check-input" type="checkbox" id="lgt-accept-language" @checked($settings['accept_language_enabled'])><label class="form-check-label" for="lgt-accept-language">仅在访客未手动选择且无可信国家规则时，使用浏览器语言偏好</label></div></div><div class="col-12"><button class="btn btn-primary" type="submit">保存语言设置</button></div></form></div></div></section>
-
-  <section class="lgt-tab" data-lgt-panel="widget"><div class="card"><div class="card-body"><h2 class="h5">前台语言选择器</h2><p class="form-text">还需在装修模块中启用插件嵌入。选择器只会同源读取受限词典，且不会在购物车、结账、登录或账户页面加载。</p><form id="lgt-widget-form" class="row g-3"><div class="col-12"><div class="form-check"><input class="form-check-input" type="checkbox" id="lgt-widget-enabled" @checked($widget['enabled'] ?? false)><label class="form-check-label" for="lgt-widget-enabled">启用前台语言选择器</label></div></div><div class="col-md-4"><label class="form-label" for="lgt-position">显示位置</label><select id="lgt-position" class="form-select"><option value="right" @selected(($widget['position']??'right')==='right')>右下角</option><option value="left" @selected(($widget['position']??'right')==='left')>左下角</option></select></div><div class="col-md-4"><label class="form-label" for="lgt-bottom">桌面端底部间距</label><input id="lgt-bottom" class="form-control" type="number" min="16" max="240" value="{{ $widget['bottom_offset'] ?? 84 }}"></div><div class="col-md-4"><label class="form-label" for="lgt-mobile-bottom">移动端底部间距</label><input id="lgt-mobile-bottom" class="form-control" type="number" min="16" max="260" value="{{ $widget['mobile_bottom_offset'] ?? 88 }}"></div><div class="col-md-4"><label class="form-label" for="lgt-theme">外观主题</label><select id="lgt-theme" class="form-select"><option value="system" @selected(($widget['theme']??'system')==='system')>跟随系统</option><option value="light" @selected(($widget['theme']??'system')==='light')>浅色</option><option value="dark" @selected(($widget['theme']??'system')==='dark')>深色</option></select></div><div class="col-12"><button class="btn btn-primary" type="submit">保存选择器设置</button></div></form></div></div></section>
-
-  <section class="lgt-tab" data-lgt-panel="operations"><div class="card mb-3"><div class="card-body"><h2 class="h5">不可变发布版本</h2><form id="lgt-publish-form" class="d-flex flex-wrap align-items-end gap-2"><div><label class="form-label" for="lgt-publish-locale">语言代码</label><input id="lgt-publish-locale" class="form-control" placeholder="fr" required></div><button class="btn btn-primary" type="submit">发布已审核版本</button></form><div class="table-responsive mt-3"><table class="table table-sm"><thead><tr><th>语言</th><th>版本</th><th>状态</th><th>发布时间</th><th>回滚</th></tr></thead><tbody>@forelse($publications as $publication)<tr><td>{{ $publication->locale }}</td><td>{{ $publication->revision }}</td><td>{{ $publicationStateLabels[$publication->state] ?? $publication->state }}</td><td>{{ $publication->published_at }}</td><td>@if(in_array($publication->state,['published','superseded'],true))<button type="button" class="btn btn-sm btn-outline-secondary lgt-rollback" data-id="{{ $publication->id }}" data-locale="{{ $publication->locale }}">恢复此版本</button>@endif</td></tr>@empty<tr><td colspan="5" class="text-secondary">尚未发布任何翻译版本。</td></tr>@endforelse</tbody></table></div></div></div><div class="card"><div class="card-body"><h2 class="h5">最近任务与安全状态</h2><div class="table-responsive"><table class="table table-sm"><thead><tr><th>ID</th><th>状态</th><th>模式</th><th>进度</th><th>创建时间</th></tr></thead><tbody>@forelse($jobs as $job)<tr><td>{{ $job->public_id }}</td><td>{{ $jobStatusLabels[$job->status] ?? $job->status }}</td><td>{{ $modeLabels[$job->mode] ?? $job->mode }}</td><td>{{ $job->completed_items }}/{{ $job->total_items }}；失败 {{ $job->failed_items }}</td><td>{{ $job->created_at }}</td></tr>@empty<tr><td colspan="5" class="text-secondary">尚未创建翻译任务。</td></tr>@endforelse</tbody></table></div><pre class="bg-light border rounded p-3 mb-0 small" aria-label="技术诊断信息">{{ json_encode($diagnostics, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES) }}</pre></div></div></section>
-  <section class="lgt-tab" data-lgt-panel="library"><div class="card mt-3"><div class="card-body"><h2 class="h5">人工修订</h2><p class="form-text">使用当前条目版本保存。每次修订都会形成可审计版本，也可锁定译文以阻止后续机器翻译覆盖。</p><form id="lgt-manual-form" class="row g-3"><div class="col-md-3"><label class="form-label" for="lgt-manual-id">翻译条目 ID</label><input id="lgt-manual-id" class="form-control" type="number" min="1" required readonly></div><div class="col-md-3"><label class="form-label" for="lgt-manual-version">当前版本</label><input id="lgt-manual-version" class="form-control" type="number" min="1" required readonly></div><div class="col-md-6 d-flex align-items-end"><div class="form-check mb-2"><input id="lgt-manual-lock" class="form-check-input" type="checkbox"><label class="form-check-label" for="lgt-manual-lock">锁定此人工译文</label></div></div><div class="col-12"><label class="form-label" for="lgt-manual-text">前台展示译文</label><textarea id="lgt-manual-text" class="form-control" rows="5" maxlength="100000" required></textarea><div class="form-text">V1 契约不接受或重建 HTML，仅保存纯文本展示内容。</div></div><div class="col-12"><button class="btn btn-primary" type="submit">保存人工修订</button></div></form></div></div></section>
-
-  <section class="lgt-tab" data-lgt-panel="setup"><div class="card mt-3"><div class="card-body"><h2 class="h5">按系统国家/地区快捷启用语言</h2><p class="form-text">此列表直接读取“系统设置 → 国家/地区”中已启用的项目。多选后，系统会去重启用对应的展示语言，并为所选国家创建可信默认语言规则；不会删除任何已有手工配置。</p><div class="row g-3"><div class="col-lg-6"><label class="form-label" for="lgt-country-search">搜索已启用国家/地区</label><input id="lgt-country-search" class="form-control" type="search" placeholder="输入国家名称或 ISO 代码，例如 France、FR" autocomplete="off"><div class="form-text">仅显示插件支持推荐语言的国家/地区。</div></div><div class="col-lg-6"><div class="d-flex justify-content-between align-items-end gap-2 h-100"><p id="lgt-country-selection-summary" class="mb-0 text-secondary">正在加载系统国家/地区…</p><button id="lgt-country-clear" class="btn btn-sm btn-outline-secondary" type="button">清空选择</button></div></div><div class="col-12"><div id="lgt-country-options" class="lgt-country-picker border rounded p-2" aria-live="polite"></div><p id="lgt-country-empty" class="form-text mb-0" hidden>没有符合条件的已启用国家/地区，或这些国家暂没有受支持的推荐语言。</p></div><div class="col-12"><button id="lgt-apply-country-recommendations" class="btn btn-primary" type="button" disabled>应用所选国家的语言建议</button><div class="form-text">保存后会更新“启用的展示语言”和下方国家默认语言列表。访客手动选择的语言始终优先。</div></div></div><hr class="my-4"><h3 class="h6">单个国家/地区自定义覆盖</h3><p class="form-text">当系统推荐语言不符合您的运营计划时，可在此手动指定。该语言必须已在“展示语言设置”中启用。</p><form id="lgt-country-rule-form" class="row g-3"><div class="col-md-4"><label class="form-label" for="lgt-country">国家/地区代码</label><input id="lgt-country" class="form-control text-uppercase" maxlength="2" pattern="[A-Za-z]{2}" placeholder="FR" required></div><div class="col-md-5"><label class="form-label" for="lgt-country-locale">展示语言代码</label><input id="lgt-country-locale" class="form-control" maxlength="24" placeholder="fr" required></div><div class="col-md-3 d-flex align-items-end"><div class="form-check mb-2"><input id="lgt-country-enabled" class="form-check-input" type="checkbox" checked><label class="form-check-label" for="lgt-country-enabled">启用</label></div></div><div class="col-12"><button class="btn btn-outline-primary" type="submit">保存自定义国家语言</button></div></form><div class="table-responsive mt-3"><table class="table table-sm mb-0"><thead><tr><th>国家/地区</th><th>语言</th><th>状态</th></tr></thead><tbody>@forelse($countryRules as $rule)<tr><td>{{ $rule->country }}</td><td>{{ $rule->locale }}</td><td>{{ $rule->enabled ? '已启用' : '已停用' }}</td></tr>@empty<tr><td colspan="3" class="text-secondary">尚未保存国家默认语言。</td></tr>@endforelse</tbody></table></div></div></div></section>
-
-  <div id="lgt-status" class="lgt-status alert" role="status" aria-live="polite"></div>
+  <section class="lgt-panel" data-lgt-panel="publish" hidden>
+    <div class="lgt-grid">
+      <section class="lgt-card lgt-5"><div class="lgt-card-h"><div><h2>不可变发布版本</h2><p class="lgt-desc">发布只会打包该语言已审核的本地译文。结账、账户和支付固定界面在访问时同样只读取此快照。</p></div></div><div class="lgt-card-b"><form id="lgt-publish-form"><label for="lgt-publish-locale" class="form-label">选择要发布的语言</label><select id="lgt-publish-locale" class="form-select" required><option value="">请选择语言</option>@foreach($localeCatalog as $code=>$label)<option value="{{ $code }}" @disabled(!in_array($code, $enabledLocales, true))>{{ $label }}（{{ $code }}）{{ in_array($code, $enabledLocales, true) ? '' : ' · 未启用' }}</option>@endforeach</select><div class="lgt-action"><button class="btn btn-primary" type="submit">发布新版本</button></div></form></div></section>
+      <section class="lgt-card lgt-7"><div class="lgt-card-h"><div><h2>前台语言选择器</h2><p class="lgt-desc">让访客手动切换已发布语言。地区与浏览器语言仅用于首次建议。</p></div></div><div class="lgt-card-b"><form id="lgt-widget-form"><div class="lgt-fields"><div class="lgt-field third"><label>启用状态</label><div class="form-check pt-2"><input id="lgt-widget-enabled" class="form-check-input" type="checkbox" @checked($widget['enabled'] ?? false)><label class="form-check-label" for="lgt-widget-enabled">显示语言选择器</label></div></div><div class="lgt-field third"><label for="lgt-position">桌面端位置</label><select id="lgt-position" class="form-select"><option value="right" @selected(($widget['position'] ?? 'right') === 'right')>右下角</option><option value="left" @selected(($widget['position'] ?? '') === 'left')>左下角</option></select></div><div class="lgt-field third"><label for="lgt-theme">显示主题</label><select id="lgt-theme" class="form-select"><option value="system" @selected(($widget['theme'] ?? 'system') === 'system')>跟随系统</option><option value="light" @selected(($widget['theme'] ?? '') === 'light')>浅色</option><option value="dark" @selected(($widget['theme'] ?? '') === 'dark')>深色</option></select></div><div class="lgt-field"><label for="lgt-bottom">桌面端底部间距</label><input id="lgt-bottom" type="number" class="form-control" min="16" max="240" value="{{ $widget['bottom_offset'] ?? 84 }}"></div><div class="lgt-field"><label for="lgt-mobile-bottom">移动端底部间距</label><input id="lgt-mobile-bottom" type="number" class="form-control" min="16" max="260" value="{{ $widget['mobile_bottom_offset'] ?? 88 }}"><p class="form-text">避免与客服与底部导航重叠。</p></div></div><div class="lgt-action"><button class="btn btn-outline-primary" type="submit">保存前台选择器设置</button></div></form></div></section>
+      <section class="lgt-card lgt-12"><div class="lgt-card-h"><div><h2>已发布版本</h2><p class="lgt-desc">恢复历史版本会创建一个新版本，保留完整审计历史。</p></div></div><div class="lgt-table-wrap"><table class="lgt-table"><thead><tr><th>语言</th><th>版本</th><th>状态</th><th>发布时间</th><th>操作</th></tr></thead><tbody>@forelse($publications as $publication)<tr><td>{{ $publication->locale }}</td><td>{{ $publication->revision }}</td><td>{{ $publication->status === 'published' ? '当前版本' : '历史版本' }}</td><td>{{ $publication->published_at }}</td><td><button type="button" class="btn btn-sm btn-outline-secondary lgt-rollback" data-id="{{ $publication->id }}" data-locale="{{ $publication->locale }}">恢复为新版本</button></td></tr>@empty<tr><td class="lgt-empty" colspan="5">尚未发布任何语言版本。</td></tr>@endforelse</tbody></table></div></section>
+      <section class="lgt-card lgt-12"><div class="lgt-card-h"><div><h2>最近任务与安全状态</h2><p class="lgt-desc">任务后台异步运行，此表每 8 秒自动更新，不需要手动刷新。</p></div><span class="lgt-live"><i class="lgt-dot"></i><span id="lgt-live">正在连接实时状态…</span></span></div><div class="lgt-table-wrap"><table class="lgt-table"><thead><tr><th>ID</th><th>状态</th><th>模式</th><th>进度</th><th>更新时间</th></tr></thead><tbody id="lgt-jobs">@forelse($jobs as $job)<tr><td>{{ $job->public_id }}</td><td>{{ $jobStatusLabels[$job->status] ?? $job->status }}</td><td>{{ $modeLabels[$job->mode] ?? $job->mode }}</td><td>{{ $job->completed_items }}/{{ $job->total_items }}；失败 {{ $job->failed_items }}</td><td>{{ $job->updated_at }}</td></tr>@empty<tr><td class="lgt-empty" colspan="5">尚未创建翻译任务。</td></tr>@endforelse</tbody></table></div></section>
+    </div>
+  </section>
+  <div id="lgt-toast" class="lgt-toast" role="status" aria-live="polite" aria-atomic="true"></div>
 </main>
 
 <script>
-(() => { <?php $lgtRoutes = ['settings' => admin_route('longos_global_translate.settings.save'), 'provider' => admin_route('longos_global_translate.providers.save'), 'scan' => admin_route('longos_global_translate.scan'), 'plan' => admin_route('longos_global_translate.jobs.plan'), 'translations' => admin_route('longos_global_translate.translations.index'), 'publish' => admin_route('longos_global_translate.publications.publish'), 'rollback' => rtrim(admin_route('longos_global_translate.index'), '/') . '/publications/']; ?>const routes=<?php echo json_encode($lgtRoutes, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>; const csrf=document.querySelector('meta[name="csrf-token"]')?.content||''; const status=document.getElementById('lgt-status'); const inform=(message,error=false)=>{status.textContent=message;status.className=`lgt-status alert ${error?'alert-danger':'alert-success'}`;status.style.display='block'}; const api=async(url,method='GET',body)=>{const response=await fetch(url,{method,credentials:'same-origin',headers:{Accept:'application/json','Content-Type':'application/json','X-CSRF-TOKEN':csrf},body:body?JSON.stringify(body):undefined});const payload=await response.json().catch(()=>({}));if(!response.ok)throw new Error(payload.message||Object.values(payload.errors||{}).flat()[0]||'Request failed');return payload}; document.querySelectorAll('[data-lgt-tab]').forEach(button=>button.addEventListener('click',()=>{document.querySelectorAll('[data-lgt-tab]').forEach(item=>item.classList.toggle('active',item===button));document.querySelectorAll('[data-lgt-panel]').forEach(panel=>panel.classList.toggle('active',panel.dataset.lgtPanel===button.dataset.lgtTab))})); const csv=value=>value.split(',').map(item=>item.trim()).filter(Boolean); const settingsPayload=()=>({mode:document.getElementById('lgt-mode').value,source_locale:document.getElementById('lgt-source').value,enabled_locales:csv(document.getElementById('lgt-locales').value),accept_language_enabled:document.getElementById('lgt-accept-language').checked,widget:{enabled:document.getElementById('lgt-widget-enabled').checked,position:document.getElementById('lgt-position').value,bottom_offset:Number(document.getElementById('lgt-bottom').value),mobile_bottom_offset:Number(document.getElementById('lgt-mobile-bottom').value),theme:document.getElementById('lgt-theme').value}}); document.getElementById('lgt-settings-form').addEventListener('submit',async event=>{event.preventDefault();try{await api(routes.settings,'PUT',settingsPayload());inform('Language policy saved.')}catch(error){inform(error.message,true)}});document.getElementById('lgt-widget-form').addEventListener('submit',async event=>{event.preventDefault();try{await api(routes.settings,'PUT',settingsPayload());inform('Storefront selector settings saved. Enable the app embed to display it.')}catch(error){inform(error.message,true)}});document.getElementById('lgt-provider-form').addEventListener('submit',async event=>{event.preventDefault();const provider=document.getElementById('lgt-provider').value,first=document.getElementById('lgt-key-one').value,second=document.getElementById('lgt-key-two').value,credentials=provider==='aliyun'?{access_key_id:first,access_key_secret:second}:provider==='volcengine'?{access_key_id:first,secret_access_key:second}:{appid:first,secret:second};try{const result=await api(routes.provider,'POST',{provider,billing_identity:document.getElementById('lgt-billing').value,free_quota:Number(document.getElementById('lgt-free-quota').value),soft_cap:Number(document.getElementById('lgt-soft-cap').value),qps_limit:Number(document.getElementById('lgt-qps').value),enabled:document.getElementById('lgt-provider-enabled').checked,credentials});event.target.reset();inform(result.notice)}catch(error){inform(error.message,true)}});document.getElementById('lgt-scan-form').addEventListener('submit',async event=>{event.preventDefault();const scope=[...event.currentTarget.querySelectorAll('input[name="scope"]:checked')].map(item=>item.value);try{const result=await api(routes.scan,'POST',{scope});const output=document.getElementById('lgt-scan-result');output.textContent=JSON.stringify(result.report,null,2);output.hidden=false;inform('Scan completed.')}catch(error){inform(error.message,true)}});document.getElementById('lgt-plan-form').addEventListener('submit',async event=>{event.preventDefault();const scope=[...event.currentTarget.querySelectorAll('input[name="plan_scope"]:checked')].map(item=>item.value);try{const result=await api(routes.plan,'POST',{locales:csv(document.getElementById('lgt-plan-locales').value),scope});inform(`Plan ${result.job.public_id||result.job.id} created safely.`)}catch(error){inform(error.message,true)}});document.getElementById('lgt-load-library').addEventListener('click',async()=>{try{const result=await api(routes.translations),body=document.getElementById('lgt-library-items');body.replaceChildren();result.items.forEach(item=>{const row=document.createElement('tr'),source=document.createElement('td'),locale=document.createElement('td'),state=document.createElement('td'),text=document.createElement('td'),actions=document.createElement('td'),approve=document.createElement('button');source.className=text.className='lgt-table-cell';source.textContent=`${item.kind} #${item.entity_id} · ${item.field}\n${item.source_text}`;locale.textContent=item.locale;state.textContent=item.status+(item.locked?' · locked':'');text.textContent=item.text||'—';approve.type='button';approve.className='btn btn-sm btn-outline-primary';approve.textContent='Approve';approve.disabled=!item.text||item.status==='approved';approve.addEventListener('click',async()=>{try{await api(`${routes.translations}/${item.id}/review`,'POST',{version:item.version,approved:true});inform('Translation approved; refresh the library to see the new version.')}catch(error){inform(error.message,true)}});actions.append(approve);row.append(source,locale,state,text,actions);body.append(row)});if(!result.items.length)body.innerHTML='<tr><td colspan="5" class="text-secondary">No translation rows yet.</td></tr>'}catch(error){inform(error.message,true)}});document.getElementById('lgt-publish-form').addEventListener('submit',async event=>{event.preventDefault();try{const result=await api(routes.publish,'POST',{locale:document.getElementById('lgt-publish-locale').value});inform(`Published immutable revision ${result.publication.revision}. Reload to view history.`)}catch(error){inform(error.message,true)}});document.querySelectorAll('.lgt-rollback').forEach(button=>button.addEventListener('click',async()=>{if(!confirm(`Restore publication ${button.dataset.id}? This creates a new immutable revision.`))return;try{const result=await api(`${routes.rollback}${button.dataset.id}/rollback`,'POST',{locale:button.dataset.locale});inform(`Restored as revision ${result.publication.revision}. Reload to view history.`)}catch(error){inform(error.message,true)}})); })();
-</script>
-<script>
 (() => {
-  const base = @json(rtrim(admin_route('longos_global_translate.index'), '/') . '/providers/');
+  'use strict';
+  const routes = @json($lgtRoutes);
+  const profiles = @json($providerProfiles), countries = @json($countries), modeLabels = @json($modeLabels), jobStatusLabels = @json($jobStatusLabels);
   const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
-  const status = document.getElementById('lgt-status');
-  const message = (text, error = false) => { status.textContent = text; status.className = `lgt-status alert ${error ? 'alert-danger' : 'alert-success'}`; status.style.display = 'block'; };
-  const post = async (url, payload) => { const response = await fetch(url, {method:'POST', credentials:'same-origin', headers:{Accept:'application/json','Content-Type':'application/json','X-CSRF-TOKEN':csrf}, body:JSON.stringify(payload)}); const body = await response.json().catch(()=>({})); if (!response.ok) throw new Error(body.message || Object.values(body.errors || {}).flat()[0] || '请求失败，请检查填写内容与网络连接后重试。'); return body; };
-  document.querySelectorAll('.lgt-verify-provider').forEach(button => button.addEventListener('click', async () => {
-    if (!confirm('是否向该服务商发送一次小型验证请求？该请求可能消耗免费额度，并会记录在本地账本中。')) return;
-    try { const result = await post(`${base}${button.dataset.id}/verify`, {confirm_provider_charge:true}); message(result.notice); button.disabled = true; } catch (error) { message(error.message, true); }
-  }));
-  document.querySelectorAll('.lgt-dispatch-provider').forEach(button => button.addEventListener('click', async () => {
-    const enabled = button.dataset.enabled === '1';
-    if (enabled && !confirm('是否为仅免费额度任务开启服务商派发？系统仍会禁止产生超额付费。')) return;
-    try { const result = await post(`${base}${button.dataset.id}/dispatch`, {enabled, confirm_dispatch: enabled}); message(result.notice || (enabled ? '已开启服务商派发。' : '已关闭服务商派发。')); button.disabled = true; } catch (error) { message(error.message, true); }
-  }));
-})();
-</script>
-<script>
-(() => {
-  const routes = {
-    translations: @json(admin_route('longos_global_translate.translations.index')),
-    update: @json(rtrim(admin_route('longos_global_translate.index'), '/') . '/translations/'),
-    countryRule: @json(admin_route('longos_global_translate.country-rules.save')),
-  };
-  const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
-  const status = document.getElementById('lgt-status');
-  const inform = (text, error = false) => {
-    status.textContent = text;
-    status.className = `lgt-status alert ${error ? 'alert-danger' : 'alert-success'}`;
-    status.style.display = 'block';
-  };
-  const api = async (url, method = 'GET', payload) => {
-    const response = await fetch(url, {
-      method,
-      credentials: 'same-origin',
-      headers: {Accept: 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf},
-      body: payload === undefined ? undefined : JSON.stringify(payload),
-    });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(body.message || Object.values(body.errors || {}).flat()[0] || '请求失败，请检查填写内容与网络连接后重试。');
-    return body;
-  };
-  const manual = {
-    id: document.getElementById('lgt-manual-id'),
-    version: document.getElementById('lgt-manual-version'),
-    text: document.getElementById('lgt-manual-text'),
-    lock: document.getElementById('lgt-manual-lock'),
-  };
-  const selectForManualEdit = item => {
-    manual.id.value = String(item.id);
-    manual.version.value = String(item.version);
-    manual.text.value = item.text || '';
-    manual.lock.checked = Boolean(item.locked);
-    manual.text.focus();
-    inform(`已载入翻译条目 #${item.id}，可以开始人工修订。`);
-  };
-  const load = document.getElementById('lgt-load-library');
-  load.addEventListener('click', async event => {
-    // This capture listener replaces the lightweight initial renderer with an
-    // editor-aware one while preserving a single, CSRF-protected data path.
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    try {
-      const result = await api(routes.translations);
-      const body = document.getElementById('lgt-library-items');
-      body.replaceChildren();
-      if (!result.items.length) {
-        const row = document.createElement('tr');
-        const cell = document.createElement('td');
-        cell.colSpan = 5; cell.className = 'text-secondary'; cell.textContent = '暂时没有可审核的翻译条目。';
-        row.append(cell); body.append(row); return;
-      }
-      result.items.forEach(item => {
-        const row = document.createElement('tr');
-        const source = document.createElement('td');
-        const locale = document.createElement('td');
-        const state = document.createElement('td');
-        const text = document.createElement('td');
-        const actions = document.createElement('td');
-        source.className = text.className = 'lgt-table-cell';
-        const kindLabels = {product: '商品', category: '分类', page: '页面', builder: '装修模块'};
-        const statusLabels = {pending: '待处理', queued: '排队中', translating: '翻译中', translated: '待审核', approved: '已审核', stale: '待更新', failed: '失败'};
-        const qualityLabels = {SOURCE_ECHO: '疑似未翻译原文', REPEATED_OUTPUT: '疑似重复输出', LENGTH_OUTLIER: '长度异常', TRUNCATED_OUTPUT: '疑似截断', EMPTY_OUTPUT: '空译文'};
-        source.textContent = `${kindLabels[item.kind] || item.kind} #${item.entity_id} · ${item.field}\n${item.source_text}`;
-        locale.textContent = item.locale;
-        state.textContent = (statusLabels[item.status] || item.status) + (item.quality_code ? ` · ${qualityLabels[item.quality_code] || item.quality_code}` : '') + (item.locked ? ' · 已锁定' : '');
-        text.textContent = item.text || '—';
-        const edit = document.createElement('button');
-        edit.type = 'button'; edit.className = 'btn btn-sm btn-outline-secondary me-1'; edit.textContent = '修订';
-        edit.addEventListener('click', () => selectForManualEdit(item));
-        const approve = document.createElement('button');
-        approve.type = 'button'; approve.className = 'btn btn-sm btn-outline-primary'; approve.textContent = '审核通过';
-        approve.disabled = !item.text || item.status === 'approved';
-        approve.addEventListener('click', async () => {
-          try {
-            await api(`${routes.update}${item.id}/review`, 'POST', {version: item.version, approved: true});
-            inform('译文已审核通过；发布前请重新加载翻译库确认最新版本。');
-          } catch (error) { inform(error.message, true); }
-        });
-        actions.append(edit, approve); row.append(source, locale, state, text, actions); body.append(row);
-      });
-    } catch (error) { inform(error.message, true); }
-  }, true);
-  document.getElementById('lgt-manual-form').addEventListener('submit', async event => {
-    event.preventDefault();
-    try {
-      const result = await api(`${routes.update}${manual.id.value}`, 'PUT', {
-        version: Number(manual.version.value), text: manual.text.value, lock: manual.lock.checked,
-      });
-      manual.version.value = String(result.translation.version);
-      manual.lock.checked = Boolean(result.translation.locked);
-      inform('人工修订已保存。请审核确认后再发布新的不可变版本。');
-    } catch (error) { inform(error.message, true); }
-  });
-  document.getElementById('lgt-country-rule-form').addEventListener('submit', async event => {
-    event.preventDefault();
-    try {
-      const result = await api(routes.countryRule, 'PUT', {
-        country: document.getElementById('lgt-country').value.trim(),
-        locale: document.getElementById('lgt-country-locale').value.trim(),
-        enabled: document.getElementById('lgt-country-enabled').checked,
-      });
-      inform(`国家默认语言 ${result.rule.country} → ${result.rule.locale} 已保存。刷新页面后可查看最新列表。`);
-    } catch (error) { inform(error.message, true); }
-  });
-})();
-</script>
-<script>
-(() => {
-  const status = document.getElementById('lgt-status');
-  if (!status) return;
+  const $ = (s,p=document) => p.querySelector(s), $$ = (s,p=document) => [...p.querySelectorAll(s)];
+  const toast = $('#lgt-toast'); let toastTimer;
+  const notify = (text,error=false) => { clearTimeout(toastTimer); toast.textContent=text; toast.classList.toggle('error',error); toast.classList.add('show'); toastTimer=setTimeout(()=>toast.classList.remove('show'),error?7000:4500); };
+  const api = async (url,method='GET',body) => { const r=await fetch(url,{method,credentials:'same-origin',headers:{Accept:'application/json','Content-Type':'application/json','X-CSRF-TOKEN':csrf},body:body===undefined?undefined:JSON.stringify(body)}); const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(Object.values(d.errors||{}).flat().find(Boolean)||d.message||'请求未完成，请检查填写内容后重试。'); return d; };
+  const busy = async (button,work) => { const label=button.textContent; button.disabled=true; button.textContent='处理中…'; try{return await work();}finally{button.disabled=false;button.textContent=label;} };
 
-  const localizeMessage = value => {
-    const exact = {
-      'Language policy saved.': '语言策略已保存。',
-      'Storefront selector settings saved. Enable the app embed to display it.': '前台语言选择器已保存。请同时在装修模块中启用插件嵌入。',
-      'Scan completed.': '扫描已完成。',
-      'Request failed': '请求失败，请检查填写内容与网络连接后重试。',
-      'Translation approved; refresh the library to see the new version.': '译文已审核通过；请刷新翻译库查看最新版本。',
-      'No translation rows yet.': '暂时没有可审核的翻译条目。',
-    };
-    if (exact[value]) return exact[value];
-    let match = value.match(/^Plan (.+) created safely\.$/);
-    if (match) return `翻译任务 ${match[1]} 已安全创建。`;
-    match = value.match(/^Published immutable revision (.+)\. Reload to view history\.$/);
-    if (match) return `不可变版本 ${match[1]} 已发布。刷新页面可查看历史记录。`;
-    match = value.match(/^Restored as revision (.+)\. Reload to view history\.$/);
-    if (match) return `已恢复为版本 ${match[1]}。刷新页面可查看历史记录。`;
-    return value;
-  };
+  const showPanel = (name, scroll=false) => { const target=$(`[data-lgt-panel="${name}"]`); if(!target)return; $$('[data-lgt-panel]').forEach(p=>p.hidden=p!==target); $$('.lgt-step').forEach(b=>b.toggleAttribute('aria-current',b.dataset.lgtGo===name)); if(scroll)target.scrollIntoView({behavior:'smooth',block:'start'}); };
+  $$('[data-lgt-go]').forEach(b=>b.addEventListener('click',()=>showPanel(b.dataset.lgtGo,true)));
 
-  new MutationObserver(() => {
-    const localized = localizeMessage(status.textContent.trim());
-    if (localized !== status.textContent) status.textContent = localized;
-  }).observe(status, {childList: true, characterData: true, subtree: true});
+  const checks=$$('input[name="enabled_locale"]');
+  const enabled=()=>checks.filter(x=>x.checked).map(x=>x.value);
+  const syncLocales=()=>{const list=enabled();$('#lgt-locales').value=list.join(',');$('#lgt-enabled-count').textContent=list.length;$$('#lgt-plan-locales option').forEach(o=>{o.disabled=!list.includes(o.value);o.selected=list.includes(o.value);});$$('#lgt-publish-locale option').forEach(o=>{if(o.value)o.disabled=!list.includes(o.value);});};
+  checks.forEach(x=>x.addEventListener('change',syncLocales));syncLocales();
+  const settingsPayload=()=>({mode:$('#lgt-mode').value,source_locale:$('#lgt-source').value,enabled_locales:enabled(),accept_language_enabled:$('#lgt-accept-language').checked,widget:{enabled:$('#lgt-widget-enabled').checked,position:$('#lgt-position').value,bottom_offset:Number($('#lgt-bottom').value),mobile_bottom_offset:Number($('#lgt-mobile-bottom').value),theme:$('#lgt-theme').value}});
+  $('#lgt-settings-form').addEventListener('submit',async e=>{e.preventDefault();const b=$('button[type="submit"]',e.currentTarget);await busy(b,async()=>{await api(routes.settings,'PUT',settingsPayload());notify('语言策略已保存。现在可配置服务商或使用已有本地词典。');}).catch(x=>notify(x.message,true));});
+  $('#lgt-widget-form').addEventListener('submit',async e=>{e.preventDefault();const b=$('button[type="submit"]',e.currentTarget);await busy(b,async()=>{await api(routes.settings,'PUT',settingsPayload());notify('前台语言选择器设置已保存。前台只读取已发布本地词典。');}).catch(x=>notify(x.message,true));});
 
-  const nativeConfirm = window.confirm.bind(window);
-  window.confirm = value => nativeConfirm(
-    String(value).replace(
-      /^Restore publication (.+)\? This creates a new immutable revision\.$/,
-      '确认恢复发布记录 $1 吗？此操作会创建新的不可变版本。',
-    ),
-  );
-})();
-</script>
-<script>
-(() => {
-  const providerProfiles = @json($providerProfiles);
-  const provider = document.getElementById('lgt-provider');
-  const firstKey = document.getElementById('lgt-key-one');
-  const secondKey = document.getElementById('lgt-key-two');
-  const updateProviderProfile = (clearCredentials = false) => {
-    const profile = providerProfiles[provider.value];
-    if (!profile) return;
-    const [first, second] = profile.credential_fields;
-    document.getElementById('lgt-key-one-label').textContent = first.label;
-    document.getElementById('lgt-key-two-label').textContent = second.label;
-    document.getElementById('lgt-key-one-help').textContent = first.help;
-    document.getElementById('lgt-key-two-help').textContent = second.help;
-    document.getElementById('lgt-billing-help').textContent = profile.account_help;
-    document.getElementById('lgt-provider-quota-help').textContent = profile.quota_help;
-    firstKey.placeholder = first.placeholder;
-    secondKey.placeholder = second.placeholder;
-    firstKey.name = `credentials[${first.key}]`;
-    secondKey.name = `credentials[${second.key}]`;
-    if (clearCredentials) {
-      firstKey.value = '';
-      secondKey.value = '';
-    }
-  };
-  provider.addEventListener('change', () => updateProviderProfile(true));
-  document.getElementById('lgt-provider-form').addEventListener('reset', () => window.setTimeout(() => updateProviderProfile(), 0));
-  updateProviderProfile();
-})();
-</script>
-<script>
-(() => {
-  const countries = @json($countries);
-  const applyUrl = @json(admin_route('longos_global_translate.country-rules.recommendations.apply'));
-  const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
-  const search = document.getElementById('lgt-country-search');
-  const options = document.getElementById('lgt-country-options');
-  const summary = document.getElementById('lgt-country-selection-summary');
-  const empty = document.getElementById('lgt-country-empty');
-  const clear = document.getElementById('lgt-country-clear');
-  const apply = document.getElementById('lgt-apply-country-recommendations');
-  const status = document.getElementById('lgt-status');
-  const selected = new Set();
-  const selectedCountries = () => countries.filter(country => selected.has(country.code));
-  const showStatus = (text, error = false) => {
-    status.textContent = text;
-    status.className = `lgt-status alert ${error ? 'alert-danger' : 'alert-success'}`;
-    status.style.display = 'block';
-  };
-  const render = () => {
-    const keyword = search.value.trim().toLocaleLowerCase();
-    const visible = countries.filter(country => country.locale && `${country.name} ${country.code} ${country.locale} ${country.locale_label}`.toLocaleLowerCase().includes(keyword));
-    options.replaceChildren();
-    visible.forEach(country => {
-      const label = document.createElement('label');
-      const checkbox = document.createElement('input');
-      const text = document.createElement('span');
-      label.className = 'lgt-country-option';
-      checkbox.type = 'checkbox'; checkbox.value = country.code; checkbox.checked = selected.has(country.code);
-      checkbox.addEventListener('change', () => { checkbox.checked ? selected.add(country.code) : selected.delete(country.code); render(); });
-      text.textContent = `${country.name}（${country.code}）`;
-      const hint = document.createElement('small'); hint.textContent = `推荐：${country.locale_label}（${country.locale}）`;
-      text.append(hint); label.append(checkbox, text); options.append(label);
-    });
-    const languageCount = new Set(selectedCountries().map(country => country.locale)).size;
-    summary.textContent = selected.size === 0 ? `可选国家/地区：${countries.filter(country => country.locale).length} 个` : `已选择 ${selected.size} 个国家/地区，将启用 ${languageCount} 种去重语言`;
-    empty.hidden = visible.length !== 0;
-    apply.disabled = selected.size === 0;
-  };
-  search.addEventListener('input', render);
-  clear.addEventListener('click', () => { selected.clear(); render(); search.focus(); });
-  apply.addEventListener('click', async () => {
-    const countryCodes = [...selected];
-    if (countryCodes.length === 0) return;
-    apply.disabled = true;
-    apply.textContent = '正在保存联动设置…';
-    try {
-      const response = await fetch(applyUrl, {method: 'PUT', credentials: 'same-origin', headers: {Accept: 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf}, body: JSON.stringify({countries: countryCodes})});
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.message || Object.values(payload.errors || {}).flat()[0] || '保存失败，请检查所选国家/地区后重试。');
-      const locales = payload.settings?.enabled_locales || [];
-      document.getElementById('lgt-locales').value = locales.join(', ');
-      document.getElementById('lgt-plan-locales').value = locales.join(', ');
-      showStatus(payload.notice || '国家/地区与展示语言已联动保存。');
-      selected.clear(); render();
-    } catch (error) {
-      showStatus(error.message, true);
-    } finally {
-      apply.textContent = '应用所选国家的语言建议';
-      apply.disabled = selected.size === 0;
-    }
-  });
-  render();
-})();
-</script>
-<script>
-(() => {
-  const form = document.getElementById('lgt-provider-form');
-  const qps = document.getElementById('lgt-qps');
-  if (!form || !qps || document.getElementById('lgt-failover-priority')) return;
+  const provider=$('#lgt-provider'),key1=$('#lgt-key-one'),key2=$('#lgt-key-two');
+  const profile=clear=>{const p=profiles[provider.value];if(!p)return;const[a,b]=p.credential_fields;$('#lgt-key-one-label').textContent=a.label;$('#lgt-key-two-label').textContent=b.label;$('#lgt-key-one-help').textContent=a.help;$('#lgt-key-two-help').textContent=b.help;$('#lgt-billing-help').textContent=p.account_help;$('#lgt-quota-help').textContent=p.quota_help;key1.placeholder=a.placeholder;key2.placeholder=b.placeholder;key1.dataset.key=a.key;key2.dataset.key=b.key;if(clear){key1.value='';key2.value='';}};
+  provider.addEventListener('change',()=>profile(true));profile(false);
+  $('#lgt-provider-form').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget;if(!form.reportValidity())return;const b=$('button[type="submit"]',form);await busy(b,async()=>{const d=await api(routes.providers,'POST',{provider:provider.value,billing_identity:$('#lgt-billing').value.trim(),account_tier:$('#lgt-tier').value.trim(),free_quota:Number($('#lgt-free-quota').value||0),soft_cap:Number($('#lgt-soft-cap').value||0),external_usage_buffer:Number($('#lgt-buffer').value||0),cycle_timezone:$('#lgt-timezone').value,qps_limit:Number($('#lgt-qps').value||1),failover_priority:Number($('#lgt-priority').value||100),enabled:$('#lgt-provider-enabled').checked,source_link:$('#lgt-console-link').value.trim(),credentials:{[key1.dataset.key]:key1.value,[key2.dataset.key]:key2.value}});form.reset();profile(false);notify(d.notice||'API 凭据已加密保存，请完成验证。');setTimeout(()=>location.reload(),900);}).catch(x=>notify(x.message,true));});
 
-  const column = document.createElement('div');
-  column.className = 'col-md-4';
-  column.innerHTML = '<label class="form-label" for="lgt-failover-priority">自动切换优先级</label><input id="lgt-failover-priority" class="form-control" type="number" min="1" max="1000" value="100" required><div class="form-text">数字越小越优先；本账号免费额度耗尽后自动切换到下一已验证账号。</div>';
-  qps.closest('.col-md-4')?.insertAdjacentElement('afterend', column);
+  const picked=new Set(), list=$('#lgt-country-list');
+  const updateCountry=()=>{$('#lgt-country-summary').textContent=`已选择 ${picked.size} 个国家／地区`;$ ('#lgt-country-apply').disabled=!picked.size;};
+  const renderCountries=()=>{const q=$('#lgt-country-search').value.trim().toLocaleLowerCase();const rows=countries.filter(c=>c.locale&&`${c.name} ${c.code} ${c.locale}`.toLocaleLowerCase().includes(q));list.replaceChildren();rows.forEach(c=>{const l=document.createElement('label'),i=document.createElement('input'),s=document.createElement('span'),strong=document.createElement('strong'),small=document.createElement('small');l.className='lgt-country';i.type='checkbox';i.value=c.code;i.checked=picked.has(c.code);i.addEventListener('change',()=>{i.checked?picked.add(c.code):picked.delete(c.code);updateCountry();});strong.textContent=`${c.name}（${c.code}）`;small.textContent=`推荐：${c.locale_label}（${c.locale}）`;s.append(strong,small);l.append(i,s);list.append(l);});$('#lgt-country-empty').hidden=rows.length!==0;};
+  $('#lgt-country-search').addEventListener('input',renderCountries);$('#lgt-country-clear').addEventListener('click',()=>{picked.clear();renderCountries();updateCountry();});renderCountries();updateCountry();
+  $('#lgt-country-apply').addEventListener('click',async e=>{await busy(e.currentTarget,async()=>{const d=await api(routes.countryRecommendations,'PUT',{countries:[...picked]});checks.forEach(i=>i.checked=(d.settings.enabled_locales||[]).includes(i.value));syncLocales();picked.clear();renderCountries();updateCountry();notify(d.notice||'国家／地区语言建议已保存。');}).catch(x=>notify(x.message,true));});
+  $('#lgt-country-rule-form').addEventListener('submit',async e=>{e.preventDefault();const f=e.currentTarget;if(!f.reportValidity())return;const b=$('button[type="submit"]',f);await busy(b,async()=>{const d=await api(routes.country,'PUT',{country:$('#lgt-country').value.trim(),locale:$('#lgt-country-locale').value.trim(),enabled:$('#lgt-country-enabled').checked});const body=$('#lgt-country-rules');if($('.lgt-empty',body))body.replaceChildren();const r=document.createElement('tr');[d.rule.country,d.rule.locale,d.rule.enabled?'已启用':'已停用'].forEach(v=>{const c=document.createElement('td');c.textContent=v;r.append(c);});body.prepend(r);f.reset();$('#lgt-country-enabled').checked=true;notify('国家默认语言已保存。');}).catch(x=>notify(x.message,true));});
 
-  // This document-capture handler replaces the legacy submit handler so
-  // priority is part of the same encrypted credential save operation, never
-  // a second partial update. It runs before the form's bubble-phase handler.
-  document.addEventListener('submit', async event => {
-    if (event.target !== form) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    const provider = document.getElementById('lgt-provider').value;
-    const first = document.getElementById('lgt-key-one').value;
-    const second = document.getElementById('lgt-key-two').value;
-    const credentials = provider === 'aliyun'
-      ? {access_key_id: first, access_key_secret: second}
-      : provider === 'volcengine'
-        ? {access_key_id: first, secret_access_key: second}
-        : {appid: first, secret: second};
-    const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
-    const endpoint = @json(admin_route('longos_global_translate.providers.save'));
-    const status = document.getElementById('lgt-status');
-    try {
-      const response = await fetch(endpoint, {
-        method: 'POST', credentials: 'same-origin',
-        headers: {Accept: 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf},
-        body: JSON.stringify({
-          provider,
-          billing_identity: document.getElementById('lgt-billing').value,
-          free_quota: Number(document.getElementById('lgt-free-quota').value),
-          soft_cap: Number(document.getElementById('lgt-soft-cap').value),
-          qps_limit: Number(document.getElementById('lgt-qps').value),
-          failover_priority: Number(document.getElementById('lgt-failover-priority').value),
-          enabled: document.getElementById('lgt-provider-enabled').checked,
-          credentials,
-        }),
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.message || Object.values(body.errors || {}).flat()[0] || '保存失败，请检查 API 凭据和额度设置。');
-      form.reset();
-      status.textContent = `${body.notice || 'API 配置已保存。'} 自动切换优先级：${body.account.failover_priority}。`;
-      status.className = 'lgt-status alert alert-success';
-      status.style.display = 'block';
-    } catch (error) {
-      status.textContent = error.message;
-      status.className = 'lgt-status alert alert-danger';
-      status.style.display = 'block';
-    }
-  }, true);
-})();
-</script>
-<script>
-(() => {
-  // Split the legacy combined "setup" screen into focused steps at runtime.
-  // Existing installations may have tenant-specific view overrides, so this
-  // keeps the server-rendered form IDs stable while making the workflow clear.
-  const setupPanels = [...document.querySelectorAll('[data-lgt-panel="setup"]')];
-  ['overview', 'providers', 'languages', 'regions'].forEach((name, index) => {
-    if (setupPanels[index]) setupPanels[index].dataset.lgtPanel = name;
-  });
-  const tabs = [
-    ['overview', '概览'], ['providers', 'API 服务商'], ['plan', '内容入库'],
-    ['library', '翻译库'], ['languages', '展示语言'], ['regions', '国家/地区'],
-    ['widget', '前台语言选择器'], ['operations', '发布与审计'],
-  ];
-  const nav = document.querySelector('.lgt-admin .nav-pills');
-  const selectPanel = name => {
-    document.querySelectorAll('[data-lgt-panel]').forEach(panel => panel.classList.toggle('active', panel.dataset.lgtPanel === name));
-    nav?.querySelectorAll('[data-lgt-tab]').forEach(tab => {
-      const active = tab.dataset.lgtTab === name;
-      tab.classList.toggle('active', active);
-      tab.setAttribute('aria-current', active ? 'page' : 'false');
-    });
-  };
-  if (nav) {
-    nav.replaceChildren();
-    tabs.forEach(([name, label]) => {
-      const button = document.createElement('button');
-      button.type = 'button'; button.className = 'nav-link'; button.dataset.lgtTab = name;
-      button.textContent = label;
-      button.addEventListener('click', () => selectPanel(name));
-      nav.append(button);
-    });
-    selectPanel('overview');
-  }
+  const scopes=(form,name)=>$$(`input[name="${name}"]:checked`,form).map(x=>x.value);
+  const showScan=r=>{const out=$('#lgt-scan-result');out.replaceChildren();[['发现公开条目',r.found],['原文有变更',r.changed],['已审核译文',r.approved],['待重新翻译',r.stale]].forEach(([label,value])=>{const d=document.createElement('div'),b=document.createElement('b'),s=document.createElement('span');b.textContent=String(value||0);s.textContent=label;d.append(b,s);out.append(d);});out.hidden=false;const n=$('#lgt-scan-note'),notes=[];if((r.unsupported_components||[]).length)notes.push(`未纳入扫描的装修组件：${r.unsupported_components.join('、')}`);if((r.errors||[]).length)notes.push(`扫描提示：${r.errors.join('、')}`);n.textContent=notes.join('；');n.hidden=!notes.length;};
+  $('#lgt-scan-form').addEventListener('submit',async e=>{e.preventDefault();const b=$('button[type="submit"]',e.currentTarget);await busy(b,async()=>{const d=await api(routes.scan,'POST',{scope:scopes(e.currentTarget,'scope')});showScan(d.report||{});notify('扫描完成，现在可创建翻译任务。');}).catch(x=>notify(x.message,true));});
+  $('#lgt-plan-form').addEventListener('submit',async e=>{e.preventDefault();const locales=[...$('#lgt-plan-locales').selectedOptions].map(o=>o.value),scope=scopes(e.currentTarget,'plan_scope');if(!locales.length){notify('请先启用并选择至少一种目标语言。',true);return;}if(!scope.length){notify('请至少选择一类公开内容。',true);return;}const b=$('button[type="submit"]',e.currentTarget);await busy(b,async()=>{const d=await api(routes.plan,'POST',{locales,scope});notify(`翻译任务 ${d.job?.public_id||d.job?.id||''} 已创建，状态会自动更新。`);showPanel('publish',true);refresh();}).catch(x=>notify(x.message,true));});
 
-  const overview = document.querySelector('[data-lgt-panel="overview"]');
-  if (overview) {
-    overview.querySelector('.badge')?.replaceChildren('本地发布模式');
-    const title = overview.querySelector('h2');
-    if (title) title.textContent = '全球翻译工作台';
-    const description = overview.querySelector('p');
-    if (description) description.textContent = '后台仅对运营人员明确选择的公开内容建立翻译库；访客页面只读取已审核、已发布的本地词典，不会在访问时调用翻译服务。';
-  }
-  const providerPanel = document.querySelector('[data-lgt-panel="providers"]');
-  if (providerPanel) {
-    const description = providerPanel.querySelector('.form-text');
-    if (description) description.textContent = '凭据仅加密保存。服务商只在运营人员创建的后台翻译任务中使用；访客访问、结账与支付流程绝不会调用服务商。';
-  }
-  const scannerPanel = document.querySelector('[data-lgt-panel="plan"]');
-  if (scannerPanel) {
-    const description = scannerPanel.querySelector('.card .form-text');
-    if (description) description.textContent = '默认仅索引公开商品、分类、页面和已发布装修模块。可额外选择“交易页固定界面文案”；客户输入、地址、商品明细、金额、订单号与支付数据始终不会被读取。';
-    if (!document.getElementById('lgt-local-dictionary-flow')) {
-      const flow = document.createElement('div');
-      flow.id = 'lgt-local-dictionary-flow'; flow.className = 'alert alert-info py-2 small';
-      const heading = document.createElement('strong'); heading.textContent = '本地词典流程：';
-      const list = document.createElement('ol'); list.className = 'mb-0 mt-1 ps-3';
-      ['选择固定公开文案并扫描。', '后台任务调用已验证的服务商翻译。', '审核译文后发布不可变版本。', '访客按 IP 国家规则或手动语言选择，只读取已发布版本。'].forEach(text => {
-        const item = document.createElement('li'); item.textContent = text; list.append(item);
-      });
-      flow.append(heading, list);
-      scannerPanel.querySelector('.card .card-body')?.prepend(flow);
-    }
-  }
-  const widgetPanel = document.querySelector('[data-lgt-panel="widget"]');
-  if (widgetPanel) {
-    const description = widgetPanel.querySelector('.form-text');
-    if (description) description.textContent = '选择器只同源读取已发布的本地词典。结账、账户与站内付款交接页仅替换审核过的固定标签；不会读取、提交或改写客户输入、地址、订单、金额或支付服务商内容。';
-  }
+  const kind=v=>({product:'商品',category:'分类',page:'页面',builder:'装修模块',commerce_ui:'固定界面文案'})[v]||v;
+  const renderLibrary=items=>{const body=$('#lgt-library-items');body.replaceChildren();if(!items.length){body.innerHTML='<tr><td class="lgt-empty" colspan="5">暂时没有可审核的翻译条目。</td></tr>';return;}items.forEach(i=>{const r=document.createElement('tr'),a=document.createElement('td'),b=document.createElement('td'),c=document.createElement('td'),d=document.createElement('td'),e=document.createElement('td');a.className=d.className='lgt-cell';a.textContent=`${kind(i.kind)} #${i.entity_id} · ${i.field}\n${i.source_text}`;b.textContent=i.locale;c.textContent=`${({pending:'待处理',queued:'排队中',translating:'翻译中',translated:'待审核',approved:'已审核',stale:'待更新',failed:'失败'})[i.status]||i.status}${i.locked?' · 已锁定':''}`;d.textContent=i.text||'—';const edit=document.createElement('button'),approve=document.createElement('button');edit.type=approve.type='button';edit.className='btn btn-sm btn-outline-secondary me-1';approve.className='btn btn-sm btn-outline-primary';edit.textContent='修订';approve.textContent='审核通过';approve.disabled=!i.text||i.status==='approved';edit.addEventListener('click',()=>{$('#lgt-manual-id').value=i.id;$('#lgt-manual-version').value=i.version;$('#lgt-manual-text').value=i.text||'';$('#lgt-manual-lock').checked=!!i.locked;$('#lgt-editor').open=true;$('#lgt-manual-text').focus();});approve.addEventListener('click',async()=>{await busy(approve,async()=>{await api(`${routes.translationBase}${i.id}/review`,'POST',{version:i.version,approved:true});notify('译文已审核通过，请重新加载确认结果。');}).catch(x=>notify(x.message,true));});e.append(edit,approve);r.append(a,b,c,d,e);body.append(r);});};
+  $('#lgt-library-load').addEventListener('click',async e=>{await busy(e.currentTarget,async()=>{const d=await api(routes.translations);renderLibrary(d.items||[]);}).catch(x=>notify(x.message,true));});
+  $('#lgt-manual-form').addEventListener('submit',async e=>{e.preventDefault();const f=e.currentTarget;if(!f.reportValidity()||!$('#lgt-manual-id').value){notify('请先从翻译库中选择一个条目。',true);return;}const b=$('button[type="submit"]',f);await busy(b,async()=>{const d=await api(`${routes.translationBase}${$('#lgt-manual-id').value}`,'PUT',{version:Number($('#lgt-manual-version').value),text:$('#lgt-manual-text').value,lock:$('#lgt-manual-lock').checked});$('#lgt-manual-version').value=d.translation.version;notify('人工修订已保存，请审核通过后再发布。');}).catch(x=>notify(x.message,true));});
 
-  // The UI-label scope is injected beside the legacy scanner controls so a
-  // deployment can safely add this new opt-in scope without requiring a
-  // fragile rewrite of a tenant-customized admin view.
-  const addScope = (formId, name, id, text) => {
-    const form = document.getElementById(formId);
-    const host = form?.querySelector('fieldset, .d-flex.gap-3.flex-wrap');
-    if (!form || !host || document.getElementById(id)) return;
-    const wrap = document.createElement('div');
-    wrap.className = 'form-check';
-    const input = document.createElement('input');
-    input.className = 'form-check-input'; input.type = 'checkbox'; input.name = name; input.value = 'commerce_ui'; input.id = id; input.checked = true;
-    const label = document.createElement('label');
-    label.className = 'form-check-label'; label.htmlFor = id; label.textContent = text;
-    wrap.append(input, label); host.append(wrap);
-  };
-  addScope('lgt-scan-form', 'scope', 'scan-commerce-ui', '结账 / 账户 / 支付页固定界面文案');
-  addScope('lgt-plan-form', 'plan_scope', 'plan-commerce-ui', '交易页固定界面文案');
-  const plan = document.getElementById('lgt-plan-form');
-  if (plan && !document.getElementById('lgt-commerce-ui-notice')) {
-    const notice = document.createElement('p');
-    notice.id = 'lgt-commerce-ui-notice'; notice.className = 'form-text col-12 mb-0';
-    notice.textContent = '该范围只包含固定按钮、标题和字段标签；姓名、地址、商品、金额、订单号及支付服务商内容不会被扫描或发送给翻译 API。';
-    plan.append(notice);
-  }
-})();
-</script>
-<script>
-(() => {
-  const endpoint = @json(admin_route('longos_global_translate.status'));
-  const operations = document.querySelector('[data-lgt-panel="operations"]');
-  const table = operations?.querySelector('.card:last-child tbody');
-  if (!operations || !table) return;
-  const heading = operations.querySelector('.card:last-child h2');
-  const refresh = document.createElement('button');
-  refresh.type = 'button'; refresh.className = 'btn btn-sm btn-outline-secondary ms-2'; refresh.textContent = '刷新状态';
-  heading?.append(refresh);
-  const labels = {planned:'待执行',queued:'排队中',scanning:'扫描中',running:'处理中',pausing:'暂停中',paused:'已暂停',completed:'已完成',partial_failed:'部分失败',failed:'失败'};
-  const render = jobs => {
-    table.replaceChildren();
-    if (!jobs.length) {
-      const row = document.createElement('tr'), cell = document.createElement('td');
-      cell.colSpan = 5; cell.className = 'text-secondary'; cell.textContent = '尚未创建翻译任务。'; row.append(cell); table.append(row); return;
-    }
-    jobs.forEach(job => {
-      const row = document.createElement('tr');
-      const cells = [job.public_id, labels[job.status] || job.status, job.mode, `${job.completed_items}/${job.total_items}；失败 ${job.failed_items}`, job.created_at ? new Date(job.created_at).toLocaleString() : '—'];
-      cells.forEach(value => { const cell = document.createElement('td'); cell.textContent = String(value); row.append(cell); });
-      if (Array.isArray(job.failure_summary) && job.failure_summary.length) {
-        row.title = job.failure_summary.map(reason => `${reason.label}（${reason.total}）`).join('\n');
-      }
-      table.append(row);
-    });
-  };
-  let pending = false;
-  const load = async () => {
-    if (pending || document.hidden) return;
-    pending = true; refresh.disabled = true;
-    try {
-      const response = await fetch(endpoint, {credentials:'same-origin', headers:{Accept:'application/json','X-Requested-With':'XMLHttpRequest'}});
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok || !body.ready) throw new Error('状态暂不可用');
-      render(Array.isArray(body.jobs) ? body.jobs : []);
-    } catch (_) {
-      // The currently rendered data stays visible during a transient network
-      // failure; never replace it with a misleading empty table.
-    } finally { pending = false; refresh.disabled = false; }
-  };
-  refresh.addEventListener('click', load);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
-  window.setInterval(load, 8000);
-  load();
+  $('#lgt-publish-form').addEventListener('submit',async e=>{e.preventDefault();const f=e.currentTarget;if(!f.reportValidity())return;const b=$('button[type="submit"]',f);await busy(b,async()=>{const d=await api(routes.publish,'POST',{locale:$('#lgt-publish-locale').value});notify(`已发布 ${d.publication.locale} 的不可变版本 ${d.publication.revision}。`);setTimeout(()=>location.reload(),900);}).catch(x=>notify(x.message,true));});
+  $$('.lgt-rollback').forEach(b=>b.addEventListener('click',async()=>{if(!confirm(`确认将 ${b.dataset.locale} 的历史版本恢复为新的不可变版本吗？`))return;await busy(b,async()=>{const d=await api(`${routes.publicationBase}${b.dataset.id}/rollback`,'POST',{locale:b.dataset.locale});notify(`已创建恢复版本 ${d.publication.revision}。`);setTimeout(()=>location.reload(),900);}).catch(x=>notify(x.message,true));}));
+  $$('.lgt-verify').forEach(b=>b.addEventListener('click',async()=>{if(!confirm('确认发送一次小型验证请求吗？该请求可能消耗免费额度。'))return;await busy(b,async()=>{const d=await api(`${routes.providerBase}${b.dataset.id}/verify`,'POST',{confirm_provider_charge:true});notify(d.notice||'账户验证成功。');setTimeout(()=>location.reload(),900);}).catch(x=>notify(x.message,true));}));
+  $$('.lgt-dispatch').forEach(b=>b.addEventListener('click',async()=>{const enabled=b.dataset.enable==='1';if(enabled&&!confirm('确认开启该账户的免费额度派发吗？系统仍会禁止超额付费。'))return;await busy(b,async()=>{const d=await api(`${routes.providerBase}${b.dataset.id}/dispatch`,'POST',{enabled,confirm_dispatch:enabled});notify(d.notice||'派发状态已保存。');setTimeout(()=>location.reload(),900);}).catch(x=>notify(x.message,true));}));
+
+  const renderJobs=jobs=>{const body=$('#lgt-jobs');if(!body)return;body.replaceChildren();if(!jobs.length){body.innerHTML='<tr><td class="lgt-empty" colspan="5">尚未创建翻译任务。</td></tr>';return;}jobs.forEach(j=>{const r=document.createElement('tr'),id=document.createElement('td'),state=document.createElement('td'),mode=document.createElement('td'),progress=document.createElement('td'),time=document.createElement('td');id.textContent=j.public_id;state.textContent=jobStatusLabels[j.status]||j.status;mode.textContent=modeLabels[j.mode]||j.mode;progress.textContent=`${j.completed_items}/${j.total_items}；失败 ${j.failed_items}`;(j.failure_summary||[]).forEach(x=>{const e=document.createElement('span');e.className='lgt-failure';e.textContent=`${x.total} 条：${x.label}`;progress.append(e);});time.textContent=j.updated_at||j.created_at||'—';r.append(id,state,mode,progress,time);body.append(r);});};
+  const refresh=async()=>{if(document.hidden)return;try{const d=await api(routes.status);if(!d.ready)return;renderJobs(d.jobs||[]);$('#lgt-live').textContent=`自动更新于 ${new Date(d.generated_at).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`;}catch(_){$('#lgt-live').textContent='实时状态暂不可用，页面数据未被修改。';}};refresh();setInterval(refresh,8000);
 })();
 </script>
 @endsection
