@@ -13,6 +13,8 @@ use Plugin\LongosGlobalTranslate\Services\TranslationSettings;
 
 final class ShopTranslationController extends Controller
 {
+    private const PLUGIN_RELEASE = '1.5.0';
+
     public function __construct(
         private readonly TranslationSettings $settings,
         private readonly PresentationLocaleResolver $locales,
@@ -56,10 +58,11 @@ final class ShopTranslationController extends Controller
             ->join('lgt_publication_items as pi', 'pi.translation_id', '=', 't.id')
             ->whereIn('pi.publication_id', $currentPublicationIds)
             ->where('e.kind', 'builder')->where('e.is_public', true)->where('e.is_tombstoned', false)
+            ->whereColumn('pi.source_hash', 'e.source_hash')
             ->distinct()->limit(16)->pluck('e.entity_id')->map(static fn ($id): string => (string) $id)->all();
 
         return $this->json([
-            'plugin_release' => '1.5.0',
+            'plugin_release' => self::PLUGIN_RELEASE,
             'enabled'        => (bool) data_get($settings, 'widget.enabled', false),
             'source_locale'  => $settings['source_locale'],
             'locales'        => array_values(array_unique(array_merge([$settings['source_locale']], $settings['enabled_locales']))),
@@ -187,6 +190,7 @@ final class ShopTranslationController extends Controller
     private function disabledConfig(): array
     {
         return [
+            'plugin_release' => self::PLUGIN_RELEASE,
             'enabled'        => false,
             'source_locale'  => 'en',
             'locales'        => ['en'],

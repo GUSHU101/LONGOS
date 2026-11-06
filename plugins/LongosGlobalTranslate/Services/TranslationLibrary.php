@@ -85,14 +85,19 @@ final class TranslationLibrary
             }
             $nextVersion = $expectedVersion + 1;
             DB::table('lgt_translations')->where('id', $translationId)->update([
-                'text'         => $text,
-                'status'       => self::NEEDS_REVIEW,
-                'locked'       => $lock || (bool) $translation->locked,
-                'locked_by'    => $lock ? $actorId : $translation->locked_by,
-                'locked_at'    => $lock ? now() : $translation->locked_at,
-                'quality_code' => TranslationQualityGate::evaluate($text, (string) $entry->source_text),
-                'version'      => $nextVersion,
-                'updated_at'   => now(),
+                'text'                => $text,
+                'status'              => self::NEEDS_REVIEW,
+                // A manual edit is no longer machine output. Clearing the
+                // attribution prevents automatic publishing from silently
+                // approving a merchant-authored revision.
+                'provider'            => null,
+                'provider_account_id' => null,
+                'locked'              => $lock || (bool) $translation->locked,
+                'locked_by'           => $lock ? $actorId : $translation->locked_by,
+                'locked_at'           => $lock ? now() : $translation->locked_at,
+                'quality_code'        => TranslationQualityGate::evaluate($text, (string) $entry->source_text),
+                'version'             => $nextVersion,
+                'updated_at'          => now(),
             ]);
             $this->version($translationId, $nextVersion, (string) $entry->source_hash, $text, self::NEEDS_REVIEW, 'human_edit', $actorId);
 

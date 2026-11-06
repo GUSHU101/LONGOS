@@ -140,6 +140,89 @@ class GlobalTranslationWorkflowTest extends TestCase
         self::assertSame(2, (new PublicationService)->currentRevision('fr'));
     }
 
+    public function test_batch_dictionary_returns_only_current_public_entries_and_exposes_the_exact_public_source_for_safe_theme_fallback(): void
+    {
+        $settings = new TranslationSettings;
+        $settings->save([
+            ...$settings->all(),
+            'enabled_locales' => ['fr'],
+            'widget' => ['enabled' => true, 'position' => 'right', 'bottom_offset' => 84, 'mobile_bottom_offset' => 88, 'theme' => 'system'],
+        ]);
+
+        DB::table('products')->insert(['id' => 44, 'active' => true]);
+        DB::table('product_descriptions')->insert(['product_id' => 44, 'locale' => 'en', 'name' => 'Public travel case']);
+        $hash = ContentScanner::sourceHash('Public travel case');
+        $entryId = DB::table('lgt_entries')->insertGetId([
+            'content_key' => hash('sha256', 'product-44-name'), 'kind' => 'product', 'entity_id' => 44, 'field' => 'name',
+            'source_locale' => 'en', 'source_format' => 'plain', 'source_text' => 'Public travel case', 'source_hash' => $hash,
+            'is_public' => true, 'is_tombstoned' => false, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $translationId = DB::table('lgt_translations')->insertGetId([
+            'entry_id' => $entryId, 'locale' => 'fr', 'source_hash' => $hash, 'text' => 'Étui de voyage public',
+            'status' => TranslationLibrary::APPROVED, 'version' => 1, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $publicationId = DB::table('lgt_publications')->insertGetId([
+            'locale' => 'fr', 'revision' => 1, 'state' => 'published', 'published_at' => now(), 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('lgt_publication_items')->insert([
+            'publication_id' => $publicationId, 'translation_id' => $translationId, 'translation_version' => 1,
+            'source_hash' => $hash, 'text' => 'Étui de voyage public', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $controller = new ShopTranslationController(
+            $settings,
+            app(\Plugin\LongosGlobalTranslate\Services\PresentationLocaleResolver::class),
+            new DictionaryService,
+        );
+        $response = $controller->batchDictionary(\Illuminate\Http\Request::create('/global-translate/dictionary/batch', 'GET', [
+            'locale' => 'fr', 'entities' => 'product:44,product:999999',
+        ]));
+        $dictionary = $response->getData(true)['dictionaries']['product:44'];
+
+        self::assertSame('Étui de voyage public', $dictionary['items'][hash('sha256', 'product-44-name')]);
+        self::assertSame('Étui de voyage public', $dictionary['fields']['name']);
+        self::assertSame('Public travel case', $dictionary['sources'][hash('sha256', 'product-44-name')]);
+        self::assertArrayNotHasKey('product:999999', $response->getData(true)['dictionaries']);
+
+        DB::table('product_descriptions')->where('product_id', 44)->update(['name' => 'Changed after publication']);
+        $stale = $controller->batchDictionary(\Illuminate\Http\Request::create('/global-translate/dictionary/batch', 'GET', [
+            'locale' => 'fr', 'entities' => 'product:44',
+        ]));
+        self::assertSame([], $stale->getData(true)['dictionaries']);
+    }
+
+    public function test_quick_publish_approves_only_safe_machine_results_and_keeps_human_edits_for_explicit_review(): void
+    {
+        DB::table('products')->insert(['id' => 45, 'active' => true]);
+        DB::table('products')->insert(['id' => 46, 'active' => true]);
+        DB::table('product_descriptions')->insert(['product_id' => 45, 'locale' => 'en', 'name' => 'Machine source']);
+        DB::table('product_descriptions')->insert(['product_id' => 46, 'locale' => 'en', 'name' => 'Human source']);
+        $library = new TranslationLibrary;
+
+        $machineEntry = DB::table('lgt_entries')->insertGetId([
+            'content_key' => hash('sha256', 'product-45-name'), 'kind' => 'product', 'entity_id' => 45, 'field' => 'name',
+            'source_locale' => 'en', 'source_format' => 'plain', 'source_text' => 'Machine source', 'source_hash' => ContentScanner::sourceHash('Machine source'),
+            'is_public' => true, 'is_tombstoned' => false, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $humanEntry = DB::table('lgt_entries')->insertGetId([
+            'content_key' => hash('sha256', 'product-46-name'), 'kind' => 'product', 'entity_id' => 46, 'field' => 'name',
+            'source_locale' => 'en', 'source_format' => 'plain', 'source_text' => 'Human source', 'source_hash' => ContentScanner::sourceHash('Human source'),
+            'is_public' => true, 'is_tombstoned' => false, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $machine = $library->saveMachineResult($machineEntry, 'fr', ContentScanner::sourceHash('Machine source'), 'Source automatique', 'baidu', 10);
+        $human = $library->saveMachineResult($humanEntry, 'fr', ContentScanner::sourceHash('Human source'), 'Source humaine', 'baidu', 10);
+        $library->edit((int) $human['id'], (int) $human['version'], 'Texte révisé manuellement', 11, true);
+
+        $result = (new PublicationService)->publishReady('fr', 12, $library);
+
+        self::assertSame(1, $result['auto_approved']);
+        self::assertSame(1, $result['publication']['coverage']['approved']);
+        self::assertSame(TranslationLibrary::APPROVED, DB::table('lgt_translations')->where('id', $machine['id'])->value('status'));
+        self::assertSame(TranslationLibrary::NEEDS_REVIEW, DB::table('lgt_translations')->where('id', $human['id'])->value('status'));
+        self::assertNull(DB::table('lgt_translations')->where('id', $human['id'])->value('provider'));
+        self::assertSame('auto_basic_check', DB::table('lgt_translation_versions')->where('translation_id', $machine['id'])->orderByDesc('id')->value('reason'));
+    }
+
     public function test_disabled_storefront_selector_exposes_no_locale_configuration_or_dictionary(): void
     {
         $controller = new ShopTranslationController(
@@ -153,7 +236,9 @@ class GlobalTranslationWorkflowTest extends TestCase
 
         self::assertFalse($config->getData(true)['enabled']);
         self::assertSame(['en'], $config->getData(true)['locales']);
+        self::assertSame('1.5.0', $config->getData(true)['plugin_release']);
         self::assertSame('', $config->getData(true)['dictionary_url']);
+        self::assertSame('', $config->getData(true)['batch_dictionary_url']);
         self::assertSame('', $config->getData(true)['interface_dictionary_url']);
         self::assertNull($dictionary->getData(true)['revision']);
         self::assertSame([], $dictionary->getData(true)['items']);
@@ -511,6 +596,11 @@ class GlobalTranslationWorkflowTest extends TestCase
         self::assertSame('completed', DB::table('lgt_job_items')->where('job_id', $jobId)->value('status'));
         self::assertNull(DB::table('lgt_job_items')->where('job_id', $jobId)->value('claim_token'));
         self::assertSame('Étui protégé', DB::table('lgt_translations')->where('entry_id', $entryId)->value('text'));
+        self::assertSame(TranslationLibrary::APPROVED, DB::table('lgt_translations')->where('entry_id', $entryId)->value('status'));
+        self::assertSame(1, DB::table('lgt_publications')->where('locale', 'fr')->where('state', 'published')->count());
+        self::assertTrue((bool) (new TranslationSettings)->all()['widget']['enabled']);
+        $plan = json_decode((string) DB::table('lgt_jobs')->where('id', $jobId)->value('plan'), true);
+        self::assertSame('published', $plan['auto_publication']['state']);
     }
 
     public function test_local_free_quota_exhaustion_fails_over_to_the_next_verified_provider_in_priority_order(): void

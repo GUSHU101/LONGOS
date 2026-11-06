@@ -14,7 +14,7 @@ class GlobalTranslationWidgetSafetyTest extends TestCase
         self::assertStringNotContainsString('.innerHTML', $script);
         self::assertStringContainsString('restoreSource(sourceRegions);', $script);
         self::assertLessThan(
-            strpos($script, 'const dictionaries = await fetchDictionaries(sourceRegions, locale);'),
+            strpos($script, 'const [dictionaries, fallbackApplied] = await Promise.all(['),
             strpos($script, 'restoreSource(sourceRegions);'),
             'The old locale must be cleared before any new dictionary is read.'
         );
@@ -27,7 +27,11 @@ class GlobalTranslationWidgetSafetyTest extends TestCase
 
         self::assertIsString($script);
         self::assertIsString($view);
-        self::assertStringContainsString('Math.min(4, sourceRegions.length)', $script);
+        self::assertStringContainsString('Math.min(4,sourceRegions.length)', $script);
+        self::assertStringContainsString('batch_dictionary_url', $script);
+        self::assertStringContainsString('safeFallbackParent', $script);
+        self::assertStringContainsString('[data-lgt-private]', $script);
+        self::assertStringContainsString('sensitivePath()', $script);
         self::assertStringContainsString('root.hidden = false;', $script);
         self::assertStringContainsString('hidden', $view);
     }
@@ -40,6 +44,7 @@ class GlobalTranslationWidgetSafetyTest extends TestCase
         self::assertStringContainsString('let presentationEpoch = 0;', $script);
         self::assertStringContainsString('const epoch = ++presentationEpoch;', $script);
         self::assertStringContainsString('if (epoch !== presentationEpoch) return {applied: 0, available: false};', $script);
-        self::assertStringContainsString('document.documentElement.lang = applied > 0 ? locale : config.source_locale;', $script);
+        self::assertStringContainsString('let applyEpoch = 0;', $script);
+        self::assertStringContainsString('if (epoch === applyEpoch) document.documentElement.lang', $script);
     }
 }

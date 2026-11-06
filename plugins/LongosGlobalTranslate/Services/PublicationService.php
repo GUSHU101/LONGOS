@@ -94,6 +94,8 @@ final class PublicationService
                 ->whereColumn('t.source_hash', 'e.source_hash')
                 ->where('e.is_public', true)->where('e.is_tombstoned', false)
                 ->whereNotNull('t.text')
+                ->whereNotNull('t.provider')
+                ->where('t.locked', false)
                 ->orderBy('t.id')->limit(5001)->get(['t.id', 't.version']);
             if ($eligible->count() > 5000) {
                 throw ValidationException::withMessages([
@@ -185,5 +187,33 @@ final class PublicationService
     {
         return DB::table('lgt_publications')->where('locale', TranslationSettings::locale($locale))
             ->where('state', 'published')->orderByDesc('revision')->orderByDesc('id')->value('revision');
+    }
+
+    /**
+     * Whether a locale has either an approved current translation or a safe,
+     * machine-produced result that publishReady() may approve. Used by the
+     * asynchronous worker to avoid treating an empty job as a publication
+     * failure.
+     */
+    public function hasPublishableTranslations(string $locale): bool
+    {
+        $locale = TranslationSettings::locale($locale);
+
+        return DB::table('lgt_translations as t')
+            ->join('lgt_entries as e', 'e.id', '=', 't.entry_id')
+            ->where('t.locale', $locale)
+            ->whereColumn('t.source_hash', 'e.source_hash')
+            ->where('e.is_public', true)->where('e.is_tombstoned', false)
+            ->whereNotNull('t.text')
+            ->where(function ($query): void {
+                $query->where('t.status', TranslationLibrary::APPROVED)
+                    ->orWhere(function ($machine): void {
+                        $machine->where('t.status', TranslationLibrary::TRANSLATED)
+                            ->whereNull('t.quality_code')
+                            ->whereNotNull('t.provider')
+                            ->where('t.locked', false);
+                    });
+            })
+            ->exists();
     }
 }

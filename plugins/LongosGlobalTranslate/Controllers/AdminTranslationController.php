@@ -148,6 +148,9 @@ final class AdminTranslationController extends Controller
             'enabled_locales'             => ['present', 'array', 'max:24'],
             'enabled_locales.*'           => ['string', 'max:24'],
             'accept_language_enabled'     => ['boolean'],
+            'publication'                 => ['nullable', 'array'],
+            'publication.auto_publish_safe' => ['boolean'],
+            'publication.auto_enable_widget' => ['boolean'],
             'widget'                      => ['required', 'array'],
             'widget.enabled'              => ['boolean'],
             'widget.position'             => ['required', 'string'],
@@ -581,6 +584,7 @@ final class AdminTranslationController extends Controller
             'source_locale'           => 'en',
             'enabled_locales'         => [],
             'accept_language_enabled' => false,
+            'publication'             => ['auto_publish_safe' => true, 'auto_enable_widget' => true],
             'widget'                  => [
                 'enabled'              => false,
                 'position'             => 'right',
@@ -624,6 +628,10 @@ final class AdminTranslationController extends Controller
                 ];
             }
 
+            $plan = json_decode((string) ($job->plan ?? ''), true);
+            $autoPublication = is_array($plan) && is_array($plan['auto_publication'] ?? null)
+                ? $plan['auto_publication'] : null;
+
             return [
                 'id'                      => (int) $job->id,
                 'public_id'               => (string) $job->public_id,
@@ -638,6 +646,7 @@ final class AdminTranslationController extends Controller
                 'active'                  => in_array((string) $job->status, ['queued', 'scanning', 'running', 'pausing'], true),
                 'failure_summary'         => $reasons,
                 'retryable_failure_count' => $this->jobs->retryableFailureCount((int) $job->id),
+                'auto_publication'        => $autoPublication,
             ];
         })->all();
     }

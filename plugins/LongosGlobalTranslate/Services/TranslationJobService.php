@@ -52,6 +52,7 @@ final class TranslationJobService
         private readonly ProviderRegistry $providers,
         private readonly UsageLedger $ledger,
         private readonly TranslationLibrary $library,
+        private readonly ?PublicationService $publications = null,
     ) {}
 
     /** @param list<string> $locales @param list<string> $kinds
@@ -716,11 +717,94 @@ final class TranslationJobService
         if (DB::table('lgt_job_items')->where('job_id', $jobId)->where('status', 'claimed')->exists()) {
             return;
         }
-        $this->setJobStatus($jobId, (int) ($job->failed_items ?? 0) > 0 ? 'partial_failed' : 'completed', true);
+        $terminalStatus = (int) ($job->failed_items ?? 0) > 0 ? 'partial_failed' : 'completed';
+        $this->setJobStatus($jobId, $terminalStatus, true);
+        $this->autoPublishSafeResults($jobId);
     }
 
     private function setJobStatus(int $jobId, string $status, bool $finished = false): void
     {
         DB::table('lgt_jobs')->where('id', $jobId)->update(['status' => $status, 'started_at' => $status === 'running' ? now() : DB::raw('started_at'), 'finished_at' => $finished ? now() : DB::raw('finished_at'), 'updated_at' => now()]);
+    }
+
+    /**
+     * Turn a terminal job into a usable storefront dictionary without asking
+     * an operator to repeat an approval action. The publication service still
+     * applies the same source-hash, quality, machine-attribution and lock
+     * rules as the explicit admin action. A partial job therefore publishes
+     * only its safe results and leaves rejected output visible for review.
+     */
+    private function autoPublishSafeResults(int $jobId): void
+    {
+        $settings = $this->settings->all();
+        if (! (bool) ($settings['publication']['auto_publish_safe'] ?? true)) {
+            return;
+        }
+        $job = DB::table('lgt_jobs')->where('id', $jobId)->first(['id', 'target_locales', 'plan']);
+        if ($job === null) {
+            return;
+        }
+        $locales = json_decode((string) $job->target_locales, true);
+        if (! is_array($locales)) {
+            return;
+        }
+        $publisher = $this->publications ?? new PublicationService;
+        $published = [];
+        $failures  = [];
+        foreach (array_values(array_unique($locales)) as $locale) {
+            if (! is_string($locale)) {
+                continue;
+            }
+            try {
+                $locale = TranslationSettings::locale($locale);
+                if (! $publisher->hasPublishableTranslations($locale)) {
+                    continue;
+                }
+                $result = $publisher->publishReady($locale, null, $this->library);
+                $published[] = [
+                    'locale' => $locale,
+                    'revision' => (int) $result['publication']['revision'],
+                    'approved' => (int) $result['publication']['coverage']['approved'],
+                ];
+            } catch (Throwable $exception) {
+                // Translation is already terminal at this point. Keep its
+                // results intact and expose a bounded operational result in
+                // the job plan rather than incorrectly marking every item as
+                // failed or leaking provider messages to the storefront.
+                $failures[] = ['locale' => (string) $locale, 'code' => $this->safeFailureCode($exception->getMessage())];
+            }
+        }
+        if ($published !== [] && (bool) ($settings['publication']['auto_enable_widget'] ?? true)
+            && ! (bool) ($settings['widget']['enabled'] ?? false)) {
+            $latest = $this->settings->all();
+            $this->settings->save([
+                ...$latest,
+                'widget' => [...(array) $latest['widget'], 'enabled' => true],
+            ]);
+        }
+        $this->recordAutoPublication($jobId, $published, $failures);
+    }
+
+    /** @param list<array<string,int|string>> $published @param list<array<string,string>> $failures */
+    private function recordAutoPublication(int $jobId, array $published, array $failures): void
+    {
+        DB::transaction(function () use ($jobId, $published, $failures): void {
+            $job = DB::table('lgt_jobs')->where('id', $jobId)->lockForUpdate()->first(['id', 'plan']);
+            if ($job === null) {
+                return;
+            }
+            $plan = json_decode((string) $job->plan, true);
+            $plan = is_array($plan) ? $plan : [];
+            $plan['auto_publication'] = [
+                'state' => $failures === [] ? ($published === [] ? 'no_safe_results' : 'published') : 'partial',
+                'published' => $published,
+                'failures' => $failures,
+                'completed_at' => now()->toIso8601String(),
+            ];
+            DB::table('lgt_jobs')->where('id', $jobId)->update([
+                'plan' => json_encode($plan, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'updated_at' => now(),
+            ]);
+        }, 3);
     }
 }

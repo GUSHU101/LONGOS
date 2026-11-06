@@ -26,6 +26,13 @@ final class TranslationSettings
             'source_locale'           => 'en',
             'enabled_locales'         => [],
             'accept_language_enabled' => false,
+            'publication'             => [
+                // A completed job may have a few quarantined items. Publish
+                // only the safe machine results that passed every local gate
+                // so the storefront can use the usable portion immediately.
+                'auto_publish_safe'   => true,
+                'auto_enable_widget'  => true,
+            ],
             'widget'                  => [
                 'enabled'              => false,
                 'position'             => 'right',
@@ -58,6 +65,7 @@ final class TranslationSettings
                 'source_locale'           => 'en',
                 'enabled_locales'         => [],
                 'accept_language_enabled' => false,
+                'publication'             => ['auto_publish_safe' => true, 'auto_enable_widget' => true],
                 'widget'                  => ['enabled' => false, 'position' => 'right', 'bottom_offset' => 84, 'mobile_bottom_offset' => 88, 'theme' => 'system'],
             ]);
         }
@@ -119,6 +127,7 @@ final class TranslationSettings
             throw new InvalidArgumentException('TOO_MANY_LOCALES');
         }
         $widget   = is_array($settings['widget'] ?? null) ? $settings['widget'] : [];
+        $publication = is_array($settings['publication'] ?? null) ? $settings['publication'] : [];
         $position = (string) ($widget['position'] ?? 'right');
         if (! in_array($position, ['left', 'right'], true)) {
             throw new InvalidArgumentException('INVALID_WIDGET_POSITION');
@@ -133,6 +142,10 @@ final class TranslationSettings
             'source_locale'           => $sourceLocale,
             'enabled_locales'         => array_values(array_filter($locales, static fn (string $locale): bool => $locale !== $sourceLocale)),
             'accept_language_enabled' => (bool) ($settings['accept_language_enabled'] ?? false),
+            'publication'             => [
+                'auto_publish_safe'  => (bool) ($publication['auto_publish_safe'] ?? true),
+                'auto_enable_widget' => (bool) ($publication['auto_enable_widget'] ?? true),
+            ],
             'widget'                  => [
                 'enabled'              => (bool) ($widget['enabled'] ?? false),
                 'position'             => $position,

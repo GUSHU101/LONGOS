@@ -78,7 +78,11 @@ final class TextContract
         $quotedTerms = array_values(array_map(static fn (string $term): string => preg_quote($term, '~'), array_keys($replacements)));
         $termPattern = $quotedTerms === [] ? '(?!)' : '(?:' . implode('|', $quotedTerms) . ')';
         $masked      = preg_replace_callback('~' . $termPattern . '|https?://[^\s<>]+|[\w.+-]+@[\w.-]+\.[a-z]{2,}|\{\{[^{}]+\}\}|\{[\w]+\}|(?<!\w):[a-zA-Z_]+|%[sd]|[$€£]?\d+(?:[.,]\d+)*(?:%|\s?(?:kg|cm|mm|GB|TB))?~u', function (array $match) use (&$tokens, $nonce, $replacements): string {
-            $token          = '__LGT_' . $nonce . '_' . count($tokens) . '_' . substr(hash('sha256', $match[0]), 0, 8) . '__';
+            // Bracketed, delimiter-separated markers survive the common
+            // normalisation performed by translation providers much better
+            // than a run of underscores. The nonce and digest still make a
+            // marker unguessable and bind it to this exact source fragment.
+            $token          = '[[LGT:' . $nonce . ':' . count($tokens) . ':' . substr(hash('sha256', $match[0]), 0, 8) . ']]';
             $tokens[$token] = $replacements[$match[0]] ?? $match[0];
 
             return $token;
@@ -89,13 +93,19 @@ final class TextContract
 
     public static function restore(string $translated, array $tokens): string
     {
+        // Providers occasionally add spaces, replace underscores with dashes,
+        // or change the case of an otherwise intact marker. That is a
+        // formatting-only change, not a source-integrity failure. Canonicalise
+        // only markers that retain the per-request nonce, ordinal *and* digest;
+        // a missing, duplicated or materially changed marker is still rejected.
+        $translated = self::normaliseProviderTokenVariants($translated, $tokens);
         foreach ($tokens as $token => $value) {
             if (substr_count($translated, $token) !== 1) {
                 throw new InvalidArgumentException('PROTECTED_TOKEN_CHANGED');
             }
         }
         $unknownTokenScan = str_replace(array_keys($tokens), '', $translated);
-        if (preg_match('/__LGT_[A-Fa-f0-9]{24}_[0-9]+_[A-Fa-f0-9]{8}__/', $unknownTokenScan) === 1) {
+        if (preg_match('~(?:__|\[\[)LGT(?:_|:)[A-Fa-f0-9]{24}(?:_|:)[0-9]+(?:_|:)[A-Fa-f0-9]{8}(?:__|\]\])~i', $unknownTokenScan) === 1) {
             throw new InvalidArgumentException('UNKNOWN_PROTECTED_TOKEN');
         }
         if (trim($translated) === '' || str_contains($translated, '<') || str_contains($translated, '>')) {
@@ -103,6 +113,46 @@ final class TextContract
         }
 
         return strtr($translated, $tokens);
+    }
+
+    /**
+     * Restore a marker to its exact canonical spelling when a provider made a
+     * harmless typography adjustment. This accepts neither a different nonce
+     * nor a different digest, so it cannot turn a provider-created value into
+     * a valid protected token.
+     *
+     * @param array<string,string> $tokens
+     */
+    private static function normaliseProviderTokenVariants(string $translated, array $tokens): string
+    {
+        foreach (array_keys($tokens) as $token) {
+            $parts = self::tokenParts($token);
+            if ($parts === null) {
+                continue;
+            }
+            [$nonce, $ordinal, $digest] = $parts;
+            $separator = '[\\s_:\\-：]*';
+            $pattern = '~(?<![[:alnum:]])(?:__|\[\[|\[)?' . $separator
+                . 'LGT' . $separator . preg_quote($nonce, '~') . $separator
+                . preg_quote($ordinal, '~') . $separator . preg_quote($digest, '~')
+                . $separator . '(?:__|\]\]|\])?(?![[:alnum:]])~iu';
+            $candidate = preg_replace($pattern, $token, $translated, -1, $count);
+            if ($candidate !== null && $count === 1) {
+                $translated = $candidate;
+            }
+        }
+
+        return $translated;
+    }
+
+    /** @return array{0:string,1:string,2:string}|null */
+    private static function tokenParts(string $token): ?array
+    {
+        if (preg_match('~^(?:__LGT_|\[\[LGT:)([a-f0-9]{24})[_:]([0-9]+)[_:]([a-f0-9]{8})(?:__|\]\])$~i', $token, $matches) !== 1) {
+            return null;
+        }
+
+        return [$matches[1], $matches[2], $matches[3]];
     }
 
     /** @param list<string> $atomicTokens @return list<string> */
