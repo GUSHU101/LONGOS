@@ -12,6 +12,7 @@ Route::prefix('global-translate')->name('longos_global_translate.')
         Route::put('country-rules', [AdminTranslationController::class, 'saveCountryRule'])->name('country-rules.save');
         Route::put('country-rules/recommendations', [AdminTranslationController::class, 'applyCountryRecommendations'])->name('country-rules.recommendations.apply');
         Route::post('providers', [AdminTranslationController::class, 'saveProvider'])->name('providers.save');
+        Route::put('providers/{provider}', [AdminTranslationController::class, 'updateProvider'])->whereNumber('provider')->name('providers.update');
         Route::post('providers/{provider}/verify', [AdminTranslationController::class, 'verifyProvider'])->whereNumber('provider')->name('providers.verify');
         Route::post('providers/{provider}/dispatch', [AdminTranslationController::class, 'dispatchProvider'])->whereNumber('provider')->name('providers.dispatch');
         Route::post('scan', [AdminTranslationController::class, 'scan'])->name('scan');

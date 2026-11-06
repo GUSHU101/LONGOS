@@ -410,6 +410,70 @@ class GlobalTranslationWorkflowTest extends TestCase
         (new TranslationSettings)->save(['source_locale' => 'fr']);
     }
 
+    public function test_provider_account_limits_can_be_edited_without_reentering_or_rotating_credentials(): void
+    {
+        $accounts = new ProviderAccountService;
+        $account  = $accounts->save([
+            'provider' => 'baidu',
+            'billing_identity' => 'editable-quota-account',
+            'account_tier' => '旧免费套餐',
+            'enabled' => true,
+            'free_quota' => 1_000,
+            'soft_cap' => 900,
+            'qps_limit' => 1,
+            'failover_priority' => 20,
+        ], ['appid' => 'app-id', 'secret' => 'secret-value'], 4);
+        $accounts->markVerified((int) $account['id'], 4);
+        $accounts->setDispatch((int) $account['id'], true, 4);
+        $before = DB::table('lgt_provider_accounts')->where('id', $account['id'])->first();
+
+        $updated = $accounts->update((int) $account['id'], [
+            'account_tier' => '新免费套餐',
+            'free_quota' => 8_000,
+            'soft_cap' => 7_500,
+            'external_usage_buffer' => 200,
+            'cycle_timezone' => 'Asia/Shanghai',
+            'qps_limit' => 3,
+            'failover_priority' => 5,
+            'enabled' => true,
+            'source_link' => 'https://fanyi-api.baidu.com/',
+        ], [], 5);
+        $after = DB::table('lgt_provider_accounts')->where('id', $account['id'])->first();
+
+        self::assertSame('新免费套餐', $updated['account_tier']);
+        self::assertSame(8_000, (int) $updated['free_quota']);
+        self::assertSame(7_500, (int) $updated['soft_cap']);
+        self::assertSame(3, (int) $updated['qps_limit']);
+        self::assertTrue((bool) $updated['credentials_configured']);
+        self::assertTrue((bool) $updated['dispatch_enabled']);
+        self::assertNotEmpty($updated['verified_at']);
+        self::assertArrayNotHasKey('credentials_ciphertext', $updated);
+        self::assertSame($before->credentials_ciphertext, $after->credentials_ciphertext);
+        self::assertSame((int) $before->credential_revision, (int) $after->credential_revision);
+    }
+
+    public function test_rotating_provider_credentials_requires_a_fresh_verification_before_dispatch(): void
+    {
+        $accounts = new ProviderAccountService;
+        $account  = $accounts->save([
+            'provider' => 'baidu', 'billing_identity' => 'credential-rotation-account', 'enabled' => true, 'free_quota' => 1_000,
+        ], ['appid' => 'old-app-id', 'secret' => 'old-secret'], 4);
+        $accounts->markVerified((int) $account['id'], 4);
+        $accounts->setDispatch((int) $account['id'], true, 4);
+        $before = DB::table('lgt_provider_accounts')->where('id', $account['id'])->first();
+
+        $updated = $accounts->update((int) $account['id'], ['enabled' => true], [
+            'appid' => 'new-app-id', 'secret' => 'new-secret',
+        ], 5);
+        $after = DB::table('lgt_provider_accounts')->where('id', $account['id'])->first();
+
+        self::assertFalse((bool) $updated['dispatch_enabled']);
+        self::assertNull($updated['verified_at']);
+        self::assertSame((int) $before->credential_revision + 1, (int) $after->credential_revision);
+        self::assertNotSame($before->credentials_ciphertext, $after->credentials_ciphertext);
+        self::assertSame(['appid' => 'new-app-id', 'secret' => 'new-secret'], $accounts->credentials($after));
+    }
+
     public function test_schema_repair_restores_an_interrupted_plugin_migration_without_dropping_data(): void
     {
         Schema::drop('lgt_coverage_snapshots');

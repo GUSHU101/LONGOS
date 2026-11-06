@@ -253,29 +253,38 @@ final class AdminTranslationController extends Controller
     public function saveProvider(Request $request): JsonResponse
     {
         $this->requireSchema();
-        $data = $request->validate([
-            'provider'              => ['required', 'in:aliyun,volcengine,baidu'],
-            'billing_identity'      => ['required', 'string', 'max:255'],
-            'account_tier'          => ['nullable', 'string', 'max:48'],
-            'free_quota'            => ['nullable', 'integer', 'min:0', 'max:10000000000'],
-            'soft_cap'              => ['nullable', 'integer', 'min:0', 'max:10000000000'],
-            'external_usage_buffer' => ['nullable', 'integer', 'min:0', 'max:10000000000'],
-            'cycle_timezone'        => ['nullable', 'string', 'max:64'],
-            'qps_limit'             => ['nullable', 'integer', 'min:1', 'max:10'],
-            'failover_priority'     => ['nullable', 'integer', 'min:1', 'max:1000'],
-            'enabled'               => ['boolean'],
-            'source_link'           => ['nullable', 'url', 'max:512'],
-            'credentials'           => ['required', 'array'],
-            'credentials.*'         => ['nullable', 'string', 'max:1024'],
-        ]);
+        $data = $request->validate($this->providerRules(true));
         /** @var array<string, string> $credentials */
-        $credentials = array_filter((array) $data['credentials'], static fn (mixed $value): bool => is_string($value));
+        $credentials = $this->submittedCredentials((array) $data['credentials']);
         $account     = $this->accounts->save($data, $credentials, $this->actorId());
 
         return $this->json([
             'account' => $account,
             'notice'  => 'API 凭据已加密保存，派发保持关闭。请先由管理员完成受控验证，再显式开启内容派发。',
         ], 201);
+    }
+
+    /**
+     * Change quota, priority and other operational limits without sending an
+     * existing credential back to the browser. Provider and account identity
+     * deliberately remain immutable: they key the durable usage ledger and
+     * audit history. A newly supplied complete credential pair replaces the
+     * encrypted pair and consequently requires a fresh verification.
+     */
+    public function updateProvider(Request $request, int $provider): JsonResponse
+    {
+        $this->requireSchema();
+        $data = $request->validate($this->providerRules(false));
+        /** @var array<string, string> $credentials */
+        $credentials = $this->submittedCredentials((array) ($data['credentials'] ?? []));
+        $account     = $this->accounts->update($provider, $data, $credentials, $this->actorId());
+
+        return $this->json([
+            'account' => $account,
+            'notice'  => $credentials === []
+                ? '服务商额度与运行设置已更新；已加密凭据和当前验证状态未被回传或改写。'
+                : '新的 API 凭据已加密保存。为保护额度，已关闭派发并需要重新验证。',
+        ]);
     }
 
     public function verifyProvider(Request $request, int $provider): JsonResponse
@@ -502,6 +511,32 @@ final class AdminTranslationController extends Controller
         $data = $request->validate(['locale' => ['required', 'string', 'max:24']]);
 
         return $this->json(['publication' => $this->publications->rollback($data['locale'], $publication, $this->actorId())], 201);
+    }
+
+    /** @return array<string, array<int, string>> */
+    private function providerRules(bool $creating): array
+    {
+        return [
+            'provider'              => $creating ? ['required', 'in:aliyun,volcengine,baidu'] : ['prohibited'],
+            'billing_identity'      => $creating ? ['required', 'string', 'max:255'] : ['prohibited'],
+            'account_tier'          => ['nullable', 'string', 'max:48'],
+            'free_quota'            => ['nullable', 'integer', 'min:0', 'max:10000000000'],
+            'soft_cap'              => ['nullable', 'integer', 'min:0', 'max:10000000000'],
+            'external_usage_buffer' => ['nullable', 'integer', 'min:0', 'max:10000000000'],
+            'cycle_timezone'        => ['nullable', 'string', 'max:64'],
+            'qps_limit'             => ['nullable', 'integer', 'min:1', 'max:10'],
+            'failover_priority'     => ['nullable', 'integer', 'min:1', 'max:1000'],
+            'enabled'               => ['boolean'],
+            'source_link'           => ['nullable', 'url', 'max:512'],
+            'credentials'           => $creating ? ['required', 'array'] : ['nullable', 'array'],
+            'credentials.*'         => ['nullable', 'string', 'max:1024'],
+        ];
+    }
+
+    /** @param array<string, mixed> $credentials @return array<string, string> */
+    private function submittedCredentials(array $credentials): array
+    {
+        return array_filter($credentials, static fn (mixed $value): bool => is_string($value) && trim($value) !== '');
     }
 
     /**
