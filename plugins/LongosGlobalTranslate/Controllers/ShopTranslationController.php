@@ -13,7 +13,7 @@ use Plugin\LongosGlobalTranslate\Services\TranslationSettings;
 
 final class ShopTranslationController extends Controller
 {
-    private const PLUGIN_RELEASE = '1.5.1';
+    private const PLUGIN_RELEASE = '1.5.2';
 
     public function __construct(
         private readonly TranslationSettings $settings,

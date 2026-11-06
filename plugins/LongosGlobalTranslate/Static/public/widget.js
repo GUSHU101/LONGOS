@@ -77,7 +77,7 @@
   };
 
   const debugEnabled = new URLSearchParams(window.location.search).get('lgt_debug') === '1';
-  const widgetRelease = '1.5.1';
+  const widgetRelease = '1.5.2';
   const debug = (event, details = {}) => { if (debugEnabled) console.info('[LONGOS Translate]', event, details); };
   const sensitivePath = () => /(?:^|\/)(?:cart|carts|checkout|checkouts|account|accounts|orders|payment|pay|login|register|password)(?:\/|$)/i.test(window.location.pathname);
   const sourceLocale = () => config?.source_locale || 'en';
@@ -117,13 +117,23 @@
 
   const commerceUiEnabled = () => root.dataset.commerceUi === '1';
   const normalizeInterfaceText = text => String(text || '').replace(/\s+/g, ' ').trim();
-  const safeInterfaceElement = element => {
+  const safeInterfaceElement = (element, attribute = '') => {
     if (!element || !commerceUiEnabled()) return false;
-    if (element.closest('#longos-global-translate, [data-lgt-root], script, style, noscript, template, svg, canvas, [contenteditable], [data-lgt-private], [data-lgt-transaction]')) return false;
+    // A public-content root can contain both a merchant field (for example a
+    // product title) and fixed UI such as “Add to cart”. Protect the marked
+    // dynamic field itself, not the whole region, so the adjacent reviewed
+    // static labels still receive their published translations.
+    if (element.closest('#longos-global-translate, [data-lgt-field], script, style, noscript, template, svg, canvas, [contenteditable], [data-lgt-private], [data-lgt-transaction]')) return false;
+    // Native form values are always private. A text input or textarea is
+    // eligible only for its authored placeholder, never for a value, option,
+    // selected country, autocomplete result or merchant-provided default.
+    if (element.matches('select, option, output, [role="textbox"]')) return false;
+    if (element.matches('input, textarea') && attribute !== 'placeholder') return false;
     // Amounts, order/customer metadata, address values and payment-provider
     // controls must remain byte-for-byte untouched. Only known static UI
     // labels are eligible below.
-    if (element.closest('.price, .money, .amount, .order-number, .order-id, .customer-data, .address-value, [data-price], [data-order], [data-customer], [data-payment-provider]')) return false;
+    if (element.closest('.price, .money, .amount, .order-number, .order-id, .customer-data, .address-value, .product-name, .product-option, .payment-method, .payment-description, .payment-brand-list, .delivery-name, .delivery-description, [data-price], [data-order], [data-customer], [data-payment-provider], [data-address-value]')) return false;
+    if (element.closest('a[href*="/products/"], a[href*="/orders/"], [data-lgt-dynamic], iframe')) return false;
     return true;
   };
 
@@ -151,7 +161,10 @@
       },
     });
     const nodes = [];
-    while (walker.nextNode() && nodes.length < 500) nodes.push(walker.currentNode);
+    // The dictionary itself is finite and public. Use a generous hard cap so
+    // a full desktop navigation/footer, checkout and account page is covered
+    // without allowing an unbounded mutation workload on hostile markup.
+    while (walker.nextNode() && nodes.length < 1200) nodes.push(walker.currentNode);
     nodes.forEach(node => {
       const source = interfaceTextOriginals.get(node) || node.nodeValue;
       const translated = interfaceTranslations.get(normalizeInterfaceText(source));
@@ -160,10 +173,10 @@
       node.nodeValue = translated;
       applied++;
     });
-    [...document.querySelectorAll('input[placeholder], textarea[placeholder], button[aria-label], [title]')].slice(0, 300).forEach(element => {
-      if (!safeInterfaceElement(element)) return;
+    [...document.querySelectorAll('input[placeholder], textarea[placeholder], button[aria-label], [title]')].slice(0, 800).forEach(element => {
       ['placeholder', 'aria-label', 'title'].forEach(attribute => {
         if (!element.hasAttribute(attribute)) return;
+        if (!safeInterfaceElement(element, attribute)) return;
         const saved = interfaceAttributeOriginals.get(element)?.get(attribute);
         const source = saved || element.getAttribute(attribute) || '';
         const translated = interfaceTranslations.get(normalizeInterfaceText(source));
@@ -249,7 +262,7 @@
   const normalizeText = value => String(value || '').replace(/\s+/gu, ' ').trim();
   const safeFallbackParent = parent => {
     if (!parent || !parent.matches('h1,h2,h3,h4,h5,h6,p,span,strong,a,small,div,li,label')) return false;
-    if (commerceUiEnabled() || sensitivePath()) return false;
+    if (sensitivePath()) return false;
     if (parent.closest('#longos-global-translate, [data-lgt-root], form, [contenteditable], script, style, noscript, template, svg, canvas, iframe, [data-lgt-private], [data-lgt-transaction], .price, .money, .amount, .review, .reviews, [data-review], [data-order], [data-payment-provider], button')) return false;
     return true;
   };
@@ -326,7 +339,7 @@
 
   const loadFallback = async (locale, epoch) => {
     const entities = fallbackEntities();
-    if (commerceUiEnabled() || sensitivePath() || !entities.length || !config.batch_dictionary_url) return 0;
+    if (sensitivePath() || !entities.length || !config.batch_dictionary_url) return 0;
     const params = new URLSearchParams({locale, entities: entities.map(e => `${e.kind}:${e.entity}`).join(',')});
     const response = await request(`${config.batch_dictionary_url}?${params}`).catch(() => null);
     // Never inject an old response after a visitor switched languages.

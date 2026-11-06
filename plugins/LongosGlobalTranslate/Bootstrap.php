@@ -58,18 +58,14 @@ class Bootstrap
                 return $output;
             }
 
-            // Checkout, account and payment routes receive the same selector
-            // as the storefront.  Its commerce-interface mode can replace
-            // only reviewed, published static labels; it never reads or
-            // translates customer input, price/order fields or provider data.
-            $commerceUi = str_starts_with($routeName, 'shop.carts.')
-                || str_starts_with($routeName, 'shop.checkout.')
-                || str_starts_with($routeName, 'shop.account.')
-                || in_array($routeName, [
-                    'shop.login.index', 'shop.register.index', 'shop.forgotten.index',
-                    'shop.orders.pay', 'shop.orders.show',
-                    'platform-pay.show', 'platform-pay.return', 'platform-pay.cancel',
-                ], true);
+            // Every public shop route uses the same published static-label
+            // dictionary.  The browser applies an exact allowlist only, so
+            // broad route coverage does not turn this into a DOM scraper and
+            // cannot submit customer, order, address, amount or payment data
+            // to a translation provider.  Platform-hosted payment pages are
+            // included explicitly because they do not share the shop prefix.
+            $commerceUi = str_starts_with($routeName, 'shop.')
+                || str_starts_with($routeName, 'platform-pay.');
 
             return $output . view('LongosGlobalTranslate::shop.widget', compact('settings', 'commerceUi'))->render();
         });

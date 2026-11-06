@@ -95,7 +95,11 @@ final class DictionaryService
             ->where('e.is_tombstoned', false)
             ->whereColumn('i.source_hash', 'e.source_hash')
             ->orderBy('e.id')
-            ->limit(200)
+            // The limit comes only from a checked-in finite catalog, not from
+            // database content. Never impose a lower arbitrary cap: doing so
+            // would silently omit valid fixed labels from a future default
+            // theme while offering no privacy benefit.
+            ->limit(max(1, count($catalog)))
             ->get(['e.field', 'e.source_text', 'e.source_hash', 'i.text'])
             ->filter(static function (object $item) use ($catalog): bool {
                 $source = $catalog[(string) $item->field] ?? null;

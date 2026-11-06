@@ -36,6 +36,21 @@ class GlobalTranslationWidgetSafetyTest extends TestCase
         self::assertStringContainsString('hidden', $view);
     }
 
+    public function test_interface_dictionary_reaches_fixed_labels_inside_public_content_regions_but_not_merchant_fields(): void
+    {
+        $script = file_get_contents(dirname(__DIR__, 2) . '/plugins/LongosGlobalTranslate/Static/public/widget.js');
+
+        self::assertIsString($script);
+        self::assertStringContainsString('[data-lgt-field]', $script);
+        self::assertStringContainsString('Protect the marked', $script);
+        self::assertStringContainsString("safeFallbackParent", $script);
+        // Entity fallback remains outside a region because that route handles
+        // merchant text. The interface dictionary has a narrower, static-only
+        // rule and must be able to reach fixed chrome inside the same region.
+        self::assertStringContainsString('[data-lgt-root], form', $script);
+        self::assertStringNotContainsString('#longos-global-translate, [data-lgt-root], script', $script);
+    }
+
     public function test_widget_cannot_apply_an_old_locale_response_over_a_newer_visitor_choice(): void
     {
         $script = file_get_contents(dirname(__DIR__, 2) . '/plugins/LongosGlobalTranslate/Static/public/widget.js');

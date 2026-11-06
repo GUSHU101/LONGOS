@@ -22,7 +22,7 @@
     </div>
     <div class="stripe-card w-max-600">
       <div class="mb-3">
-        <label class="mb-2" for="stripe-cardholder-name">Cardholder Name</label>
+        <label class="mb-2" for="stripe-cardholder-name">{{ __('Stripe::common.cardholder_name') }}</label>
         <input id="stripe-cardholder-name" type="text" autocomplete="cc-name" maxlength="191"
                :class="['form-control', errors.cardholderName ? 'border-danger' : '']"
                v-model.trim="cardholderName" @input="errors.cardholderName = ''"
@@ -49,7 +49,7 @@
 
     <button class="btn btn-primary btn-lg" type="button" :disabled="submitting || !ready"
             @click="submitPayment" :aria-busy="submitting ? 'true' : 'false'">
-      <span v-if="submitting">Processing…</span>
+      <span v-if="submitting">{{ __('Stripe::common.inline_processing') }}</span>
       <span v-else>{{ __('Stripe::common.btn_submit') }}</span>
     </button>
     <div v-if="setupError" class="text-danger mt-3" role="alert">@{{ setupError }}</div>

@@ -38,7 +38,8 @@ final class ContentScanner
         // Keep console/default scans backwards-compatible and catalog-only.
         // The separately labelled commerce UI scope is opt-in from the admin
         // workspace, so an operator consciously chooses to translate the
-        // fixed checkout/account labels after reviewing the safety notice.
+        // finite public storefront-label catalog after reviewing the safety
+        // notice.
         $scope ??= [...array_keys(self::SOURCES), 'builder'];
         $report = [
             'supported_sources'      => [], 'found' => 0, 'changed' => 0, 'translated' => 0,
@@ -78,14 +79,24 @@ final class ContentScanner
             $this->scanBuilder($report);
         }
         if (in_array(CommerceUiCatalog::KIND, $scope, true)) {
-            // Only the finite static-label catalog is indexed.  This is the
-            // sole route through which checkout/account UI text can reach a
+            // Only the finite static-label catalog is indexed. This is the
+            // sole route through which public storefront UI text can reach a
             // provider; customer-entered or transaction-derived values are
             // deliberately absent from this scanner.
             $report['supported_sources'][] = CommerceUiCatalog::KIND;
+            $seen = [];
             foreach (CommerceUiCatalog::entries() as $field => $source) {
-                $this->record(CommerceUiCatalog::KIND, CommerceUiCatalog::ENTITY_ID, $field, $source, 'en', 'plain', 'catalog:v1', $report);
+                $this->record(CommerceUiCatalog::KIND, CommerceUiCatalog::ENTITY_ID, $field, $source, 'en', 'plain', 'catalog:v2', $report);
+                $seen[] = hash('sha256', implode(':', ['lgt-content-v2', CommerceUiCatalog::KIND, CommerceUiCatalog::ENTITY_ID, $field, 'en']));
             }
+            // A deployment can remove or rename an obsolete default-theme
+            // label. Keep old rows out of future jobs and publications rather
+            // than leaving an unbounded historical interface catalog behind.
+            DB::table('lgt_entries')
+                ->where('kind', CommerceUiCatalog::KIND)
+                ->where('entity_id', CommerceUiCatalog::ENTITY_ID)
+                ->whereNotIn('content_key', $seen ?: ['__never__'])
+                ->update(['is_public' => false, 'is_tombstoned' => true, 'updated_at' => now()]);
         }
         $report['translated'] = DB::table('lgt_translations')->whereIn('status', [TranslationLibrary::TRANSLATED, TranslationLibrary::NEEDS_REVIEW, TranslationLibrary::APPROVED])->count();
         $report['approved']   = DB::table('lgt_translations')->where('status', TranslationLibrary::APPROVED)->count();

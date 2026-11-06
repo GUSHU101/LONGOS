@@ -238,7 +238,7 @@ class GlobalTranslationWorkflowTest extends TestCase
 
         self::assertFalse($config->getData(true)['enabled']);
         self::assertSame(['en'], $config->getData(true)['locales']);
-        self::assertSame('1.5.1', $config->getData(true)['plugin_release']);
+        self::assertSame('1.5.2', $config->getData(true)['plugin_release']);
         self::assertSame('', $config->getData(true)['dictionary_url']);
         self::assertSame('', $config->getData(true)['batch_dictionary_url']);
         self::assertSame('', $config->getData(true)['interface_dictionary_url']);

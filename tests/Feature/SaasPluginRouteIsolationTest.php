@@ -324,11 +324,8 @@ class SaasPluginRouteIsolationTest extends TestCase
         self::assertStringContainsString("'X-CSRF-TOKEN': csrf", $script);
         self::assertStringContainsString('replaceCommerceInterface', $script);
         self::assertStringContainsString('data-commerce-ui', $widget);
-        self::assertStringContainsString('shop.checkout.', $boot);
-        self::assertStringContainsString('shop.carts.', $boot);
-        self::assertStringContainsString('shop.account.', $boot);
-        self::assertStringContainsString("'shop.orders.pay'", $boot);
-        self::assertStringContainsString("'platform-pay.show'", $boot);
+        self::assertStringContainsString("str_starts_with(\$routeName, 'shop.')", $boot);
+        self::assertStringContainsString("str_starts_with(\$routeName, 'platform-pay.')", $boot);
         self::assertStringNotContainsString("DesignService::isAppEmbedEnabled('longos_global_translate')", $boot);
         self::assertStringNotContainsString('shop.longos_global_translate.lookup', $boot);
         self::assertStringContainsString('input, addresses, SKU names, quantities, amounts, order IDs', $catalog);
