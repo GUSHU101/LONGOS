@@ -251,21 +251,24 @@ final class UsageLedger
         $lastUs = max(0, (int) ($account->last_dispatch_at_us ?? 0));
         $eligibleUs = $lastUs > 0 ? $lastUs + $intervalUs : $nowUs;
 
-        if ($eligibleUs > $nowUs) {
+        // usleep() may return a few microseconds early on busy hosts. A
+        // single wake-up check used to turn that harmless scheduler jitter
+        // into RATE_LIMIT failures and left otherwise valid translation jobs
+        // partially failed. Never send early; retry the bounded remainder.
+        for ($wakeups = 0; $eligibleUs > $nowUs; $wakeups++) {
             $delayUs = $eligibleUs - $nowUs;
             // A normal per-account interval is never greater than one
-            // second.  A larger value signals a corrupt/future clock value;
-            // fail before sending instead of silently violating the limit or
-            // parking a queue worker for an unbounded time.
+            // second. A larger value signals a corrupt/future clock value;
+            // fail before sending instead of parking a worker indefinitely.
             if ($delayUs > 1_000_000) {
                 throw new RuntimeException('PROVIDER_RATE_LIMIT_CLOCK_SKEW');
             }
-            usleep($delayUs);
-            $now = CarbonImmutable::now('UTC');
-            $nowUs = $this->epochMicroseconds($now);
-            if ($eligibleUs > $nowUs) {
+            if ($wakeups >= 4) {
                 throw new RuntimeException('PROVIDER_RATE_LIMIT_WAIT_INTERRUPTED');
             }
+            usleep(max(1, $delayUs));
+            $now = CarbonImmutable::now('UTC');
+            $nowUs = $this->epochMicroseconds($now);
         }
 
         DB::table('lgt_provider_accounts')->where('id', $account->id)->update([

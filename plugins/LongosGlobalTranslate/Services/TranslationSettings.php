@@ -25,6 +25,7 @@ final class TranslationSettings
             'mode'                    => self::MODE_PREVIEW,
             'source_locale'           => 'en',
             'enabled_locales'         => [],
+            'geo_auto_switch_enabled' => true,
             'accept_language_enabled' => false,
             'publication'             => [
                 // A completed job may have a few quarantined items. Publish
@@ -64,6 +65,7 @@ final class TranslationSettings
                 'mode'                    => self::MODE_PREVIEW,
                 'source_locale'           => 'en',
                 'enabled_locales'         => [],
+                'geo_auto_switch_enabled' => true,
                 'accept_language_enabled' => false,
                 'publication'             => ['auto_publish_safe' => true, 'auto_enable_widget' => true],
                 'widget'                  => ['enabled' => false, 'position' => 'right', 'bottom_offset' => 84, 'mobile_bottom_offset' => 88, 'theme' => 'system'],
@@ -141,6 +143,7 @@ final class TranslationSettings
             'mode'                    => $mode,
             'source_locale'           => $sourceLocale,
             'enabled_locales'         => array_values(array_filter($locales, static fn (string $locale): bool => $locale !== $sourceLocale)),
+            'geo_auto_switch_enabled' => (bool) ($settings['geo_auto_switch_enabled'] ?? true),
             'accept_language_enabled' => (bool) ($settings['accept_language_enabled'] ?? false),
             'publication'             => [
                 'auto_publish_safe'  => (bool) ($publication['auto_publish_safe'] ?? true),

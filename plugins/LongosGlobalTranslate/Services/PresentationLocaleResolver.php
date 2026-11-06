@@ -14,7 +14,11 @@ final class PresentationLocaleResolver
 {
     public const COOKIE = 'longos_presentation_locale';
 
-    public function __construct(private readonly TranslationSettings $settings, private readonly VisitorCurrencyService $visitorCurrency) {}
+    public function __construct(
+        private readonly TranslationSettings $settings,
+        private readonly VisitorCurrencyService $visitorCurrency,
+        private readonly CountryLocaleCatalog $countries,
+    ) {}
 
     public function decide(Request $request): PresentationLocaleDecision
     {
@@ -28,10 +32,28 @@ final class PresentationLocaleResolver
         // The existing service itself verifies the proxy before trusting a
         // country header and never changes money when countryCode() is used.
         $country = $this->visitorCurrency->countryCode($request);
-        if ($country !== null && Schema::hasTable('lgt_country_rules')) {
-            $rule = DB::table('lgt_country_rules')->where('country', $country)->where('enabled', true)->value('locale');
-            if (is_string($rule) && isset($enabled[$rule])) {
-                return new PresentationLocaleDecision($rule, 'geo', $country, false);
+        if ($country !== null && (bool) ($settings['geo_auto_switch_enabled'] ?? true)) {
+            if (Schema::hasTable('lgt_country_rules')) {
+                $rule = DB::table('lgt_country_rules')->where('country', $country)->where('enabled', true)->value('locale');
+                if (is_string($rule)) {
+                    try {
+                        $rule = TranslationSettings::locale($rule);
+                    } catch (\InvalidArgumentException) {
+                        $rule = null;
+                    }
+                }
+                if (is_string($rule) && isset($enabled[$rule])) {
+                    return new PresentationLocaleDecision($rule, 'geo_rule', $country, false);
+                }
+            }
+
+            // Country rules let an operator override a region deliberately.
+            // When no explicit rule exists, use the built-in country catalogue
+            // directly so a first-time visitor is translated from trusted IP
+            // data without needing to open or confirm anything in the widget.
+            $suggested = $this->countries->suggestedLocale($country);
+            if ($suggested !== null && isset($enabled[$suggested])) {
+                return new PresentationLocaleDecision($suggested, 'geo_catalog', $country, false);
             }
         }
         if ((bool) $settings['accept_language_enabled']) {

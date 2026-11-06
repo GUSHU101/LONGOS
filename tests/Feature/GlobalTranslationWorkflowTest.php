@@ -3,8 +3,10 @@
 namespace Tests\Feature;
 
 use Carbon\CarbonImmutable;
+use Beike\Services\CloudflareIpRangeService;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
@@ -236,12 +238,45 @@ class GlobalTranslationWorkflowTest extends TestCase
 
         self::assertFalse($config->getData(true)['enabled']);
         self::assertSame(['en'], $config->getData(true)['locales']);
-        self::assertSame('1.5.0', $config->getData(true)['plugin_release']);
+        self::assertSame('1.5.1', $config->getData(true)['plugin_release']);
         self::assertSame('', $config->getData(true)['dictionary_url']);
         self::assertSame('', $config->getData(true)['batch_dictionary_url']);
         self::assertSame('', $config->getData(true)['interface_dictionary_url']);
         self::assertNull($dictionary->getData(true)['revision']);
         self::assertSame([], $dictionary->getData(true)['items']);
+    }
+
+    public function test_trusted_visitor_ip_automatically_applies_an_enabled_catalog_language_without_confirmation(): void
+    {
+        $settings = new TranslationSettings;
+        $settings->save([
+            ...$settings->all(),
+            'enabled_locales' => ['fr', 'ja'],
+            'geo_auto_switch_enabled' => true,
+        ]);
+        config(['currency.trust_cdn_country_headers' => true]);
+
+        $request = Request::create('/products/44');
+        $request->headers->set('CF-IPCountry', 'JP');
+        $request->attributes->set(CloudflareIpRangeService::REQUEST_ATTRIBUTE, true);
+
+        $resolver = app(\Plugin\LongosGlobalTranslate\Services\PresentationLocaleResolver::class);
+        $decision = $resolver->decide($request);
+
+        self::assertSame('ja', $decision->locale);
+        self::assertSame('geo_catalog', $decision->source);
+        self::assertSame('JP', $decision->country);
+        self::assertFalse($decision->fallback);
+
+        // An explicit tenant rule remains the only intentional override of
+        // the catalogue; the visitor still receives it automatically.
+        DB::table('lgt_country_rules')->insert([
+            'country' => 'JP', 'locale' => 'fr', 'enabled' => true,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $ruleDecision = $resolver->decide($request);
+        self::assertSame('fr', $ruleDecision->locale);
+        self::assertSame('geo_rule', $ruleDecision->source);
     }
 
     public function test_reviewed_commerce_interface_labels_publish_without_exposing_transaction_values(): void

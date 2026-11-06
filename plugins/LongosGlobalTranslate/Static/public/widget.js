@@ -77,7 +77,7 @@
   };
 
   const debugEnabled = new URLSearchParams(window.location.search).get('lgt_debug') === '1';
-  const widgetRelease = '1.5.0';
+  const widgetRelease = '1.5.1';
   const debug = (event, details = {}) => { if (debugEnabled) console.info('[LONGOS Translate]', event, details); };
   const sensitivePath = () => /(?:^|\/)(?:cart|carts|checkout|checkouts|account|accounts|orders|payment|pay|login|register|password)(?:\/|$)/i.test(window.location.pathname);
   const sourceLocale = () => config?.source_locale || 'en';
@@ -92,7 +92,7 @@
       return `Language suggested${country}, but no published translation is available yet. Showing the original language.`;
     }
     const country = config.country ? ` for ${config.country}` : '';
-    return `Language selected automatically${country}.`;
+    return `Language was applied automatically from the visitor’s region${country}.`;
   };
 
   const contentKey = (kind, entity, field) => {

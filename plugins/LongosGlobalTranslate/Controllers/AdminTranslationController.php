@@ -147,6 +147,7 @@ final class AdminTranslationController extends Controller
             'source_locale'               => ['required', 'string', 'max:24'],
             'enabled_locales'             => ['present', 'array', 'max:24'],
             'enabled_locales.*'           => ['string', 'max:24'],
+            'geo_auto_switch_enabled'     => ['boolean'],
             'accept_language_enabled'     => ['boolean'],
             'publication'                 => ['nullable', 'array'],
             'publication.auto_publish_safe' => ['boolean'],
