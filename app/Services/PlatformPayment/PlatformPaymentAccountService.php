@@ -79,6 +79,29 @@ final class PlatformPaymentAccountService
     }
 
     /**
+     * Return a bounded probe batch without loading the entire account pool.
+     * Circuit-open accounts remain in this list: a successful OAuth probe is
+     * the only automatic way to close their circuit before its timeout.
+     *
+     * @return Collection<int, PlatformPaymentAccount>
+     */
+    public function enabledPaypalAccountsForHealth(int $limit): Collection
+    {
+        if (! $this->schemaReady()) {
+            return new Collection;
+        }
+
+        return PlatformPaymentAccount::query()
+            ->paypal()
+            ->enabled()
+            ->orderByRaw('CASE WHEN last_health_checked_at IS NULL THEN 0 ELSE 1 END')
+            ->orderBy('last_health_checked_at')
+            ->orderBy('id')
+            ->limit(max(1, min(500, $limit)))
+            ->get();
+    }
+
+    /**
      * Reserve the least-recently-used active PayPal account.  The caller is
      * already in the central session transaction, so the row lock and the
      * session insert commit together.
@@ -152,21 +175,21 @@ final class PlatformPaymentAccountService
     {
         return $this->accounts()->map(static function (PlatformPaymentAccount $account): array {
             return [
-                'id'                    => (int) $account->id,
-                'uuid'                  => (string) $account->uuid,
-                'label'                 => (string) $account->label,
-                'mode'                  => (string) $account->api_mode,
-                'client_id_suffix'      => self::suffix((string) $account->client_id),
-                'merchant_id'           => (string) $account->merchant_id,
-                'callback_host'         => (string) $account->callback_host,
-                'enabled'               => (bool) $account->enabled,
-                'rotation_weight'       => (int) $account->rotation_weight,
-                'rotation_count'        => (int) $account->rotation_count,
-                'last_selected_at'      => $account->last_selected_at?->toIso8601String(),
-                'health_status'         => (string) $account->health_status,
-                'consecutive_failures'  => (int) $account->consecutive_failures,
-                'circuit_open_until'    => $account->circuit_open_until?->toIso8601String(),
-                'last_health_checked_at'=> $account->last_health_checked_at?->toIso8601String(),
+                'id'                     => (int) $account->id,
+                'uuid'                   => (string) $account->uuid,
+                'label'                  => (string) $account->label,
+                'mode'                   => (string) $account->api_mode,
+                'client_id_suffix'       => self::suffix((string) $account->client_id),
+                'merchant_id'            => (string) $account->merchant_id,
+                'callback_host'          => (string) $account->callback_host,
+                'enabled'                => (bool) $account->enabled,
+                'rotation_weight'        => (int) $account->rotation_weight,
+                'rotation_count'         => (int) $account->rotation_count,
+                'last_selected_at'       => $account->last_selected_at?->toIso8601String(),
+                'health_status'          => (string) $account->health_status,
+                'consecutive_failures'   => (int) $account->consecutive_failures,
+                'circuit_open_until'     => $account->circuit_open_until?->toIso8601String(),
+                'last_health_checked_at' => $account->last_health_checked_at?->toIso8601String(),
             ];
         })->all();
     }
@@ -213,17 +236,17 @@ final class PlatformPaymentAccountService
         $changingCredentials = (string) $account->api_mode !== (string) $values['api_mode']
             || ! hash_equals((string) $account->client_id, trim((string) $values['client_id']))
             || strtoupper((string) $account->merchant_id) !== strtoupper(trim((string) ($values['merchant_id'] ?? '')))
-            || trim((string) ($values['secret'] ?? '')) !== '';
+            || trim((string) ($values['secret'] ?? ''))   !== '';
         if ($changingCredentials && $this->hasOpenSessions($account)) {
             throw new RuntimeException('该账户仍有进行中或待对账的支付，不能修改密钥、环境或商户标识。请先等待对账完成。');
         }
 
         $fields = [
-            'label'       => trim((string) $values['label']),
-            'api_mode'    => (string) $values['api_mode'],
-            'client_id'   => trim((string) $values['client_id']),
-            'merchant_id' => strtoupper(trim((string) ($values['merchant_id'] ?? ''))),
-            'enabled'     => filter_var($values['enabled'] ?? false, FILTER_VALIDATE_BOOLEAN),
+            'label'           => trim((string) $values['label']),
+            'api_mode'        => (string) $values['api_mode'],
+            'client_id'       => trim((string) $values['client_id']),
+            'merchant_id'     => strtoupper(trim((string) ($values['merchant_id'] ?? ''))),
+            'enabled'         => filter_var($values['enabled'] ?? false, FILTER_VALIDATE_BOOLEAN),
             'rotation_weight' => max(1, min(100, (int) ($values['rotation_weight'] ?? 1))),
         ];
         if (trim((string) ($values['secret'] ?? '')) !== '') {
@@ -240,10 +263,10 @@ final class PlatformPaymentAccountService
     {
         $ready = $status === 'ready';
         $account->forceFill([
-            'health_status'        => $ready ? 'ready' : (in_array($status, ['ready', 'failed'], true) ? 'failed' : 'unknown'),
-            'consecutive_failures' => $ready ? 0 : (int) $account->consecutive_failures,
-            'circuit_open_until'   => $ready ? null : $account->circuit_open_until,
-            'last_health_checked_at'=> now('UTC'),
+            'health_status'          => $ready ? 'ready' : (in_array($status, ['ready', 'failed'], true) ? 'failed' : 'unknown'),
+            'consecutive_failures'   => $ready ? 0 : (int) $account->consecutive_failures,
+            'circuit_open_until'     => $ready ? null : $account->circuit_open_until,
+            'last_health_checked_at' => now('UTC'),
         ])->save();
     }
 
@@ -261,10 +284,10 @@ final class PlatformPaymentAccountService
             }
             $failures = min(65535, (int) $locked->consecutive_failures + 1);
             $locked->forceFill([
-                'health_status'         => 'failed',
-                'consecutive_failures'  => $failures,
-                'circuit_open_until'    => $failures >= 3 ? now('UTC')->addMinutes(10) : $locked->circuit_open_until,
-                'last_health_checked_at'=> now('UTC'),
+                'health_status'          => 'failed',
+                'consecutive_failures'   => $failures,
+                'circuit_open_until'     => $failures >= 3 ? now('UTC')->addMinutes(10) : $locked->circuit_open_until,
+                'last_health_checked_at' => now('UTC'),
             ])->save();
         }, 3);
     }
@@ -334,7 +357,7 @@ final class PlatformPaymentAccountService
 
     private function publishCallbackDomain(PlatformPaymentAccount $account): void
     {
-        $site = $this->controlSite();
+        $site   = $this->controlSite();
         $domain = Domain::query()->where('host', $account->callback_host)->first();
         if ($domain && (int) $domain->site_id !== (int) $site->id) {
             throw new RuntimeException('自动生成的回传域名已被其他站点占用。');

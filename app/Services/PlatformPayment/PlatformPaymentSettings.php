@@ -97,7 +97,7 @@ class PlatformPaymentSettings
                 }
             })->filter()->values()->all();
             $hasManagedAccounts = $accounts->hasManagedPaypalAccounts();
-            $paypalAccounts = $hasManagedAccounts ? $managedAccounts : [$legacyPaypal];
+            $paypalAccounts     = $hasManagedAccounts ? $managedAccounts : [$legacyPaypal];
 
             return [
                 'control_site_id' => (int) $control->id,
@@ -128,7 +128,7 @@ class PlatformPaymentSettings
     public function configuredProviders(?array $settings = null): array
     {
         $settings  ??= $this->snapshot();
-        $providers     = [];
+        $providers      = [];
         $paypalAccounts = is_array($settings['paypal_accounts'] ?? null)
             ? $settings['paypal_accounts']
             : [$settings['paypal'] ?? []];
@@ -150,7 +150,7 @@ class PlatformPaymentSettings
     /** @param array<string, mixed> $paypal */
     public function validPaypalConfiguration(array $paypal): bool
     {
-        $merchant = strtoupper(trim((string) ($paypal['merchant_id'] ?? '')));
+        $merchant      = strtoupper(trim((string) ($paypal['merchant_id'] ?? '')));
         $merchantValid = $merchant === '' || preg_match('/^[2-9A-HJ-NP-Z]{13}$/', $merchant) === 1;
 
         return ($paypal['api_mode'] ?? 'rest') === 'rest'
@@ -270,7 +270,7 @@ class PlatformPaymentSettings
             }
         }
         if (in_array('paypal', $providers, true) && ! $this->canClaimPaypalForSession($session, $snapshot)
-            && ! (hash_equals((string) $session->provider, 'paypal') && $session->provider_order_id)) {
+                                                 && ! (hash_equals((string) $session->provider, 'paypal') && $session->provider_order_id)) {
             $providers = array_values(array_filter($providers, static fn (string $provider): bool => $provider !== 'paypal'));
         }
 
@@ -394,7 +394,10 @@ class PlatformPaymentSettings
             $schema = Schema::connection('saas');
             if (! $schema->hasTable('saas_platform_payment_sessions')
                 || ! $schema->hasColumn('saas_platform_payment_sessions', 'active_key')
-                || ! $schema->hasColumn('saas_platform_payment_sessions', 'timestamps_utc')) {
+                || ! $schema->hasColumn('saas_platform_payment_sessions', 'timestamps_utc')
+                || ! $schema->hasColumn('saas_platform_payment_sessions', 'payment_account_id')
+                || ! $schema->hasColumn('saas_platform_payment_sessions', 'callback_host')
+                || ! $schema->hasTable('saas_platform_payment_accounts')) {
                 return ['LONGOS 平台支付控制库尚未完成升级。'];
             }
         } catch (\Throwable $e) {

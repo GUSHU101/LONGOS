@@ -298,6 +298,7 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertMatchesRegularExpression('/\n  longos-image-cache:\s*\n/', $compose);
         self::assertStringContainsString("DB::connection(\$controlConnection)->select('SELECT 1')", $health);
         self::assertStringContainsString("['status' => 'degraded'], 503", $health);
+        self::assertStringContainsString("'saas_platform_payment_accounts'", $health);
         self::assertStringContainsString("['settings', 'sessions', 'admin_users']", $health);
         self::assertStringContainsString('http://127.0.0.1/admin/login', $this->read('.github/workflows/ci.yml'));
         self::assertFileExists($this->root . '/database/migrations/2026_10_20_000000_create_sessions_table.php');

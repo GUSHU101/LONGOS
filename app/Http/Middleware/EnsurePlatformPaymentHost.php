@@ -23,12 +23,29 @@ class EnsurePlatformPaymentHost
         // managed receiver account additionally owns one platform-generated
         // callback host. It is still routed to the control site, but only
         // the payment middleware is allowed to serve from that alias.
+        $callbackPaymentRequest = self::isSessionPaymentRequest($request);
         abort_unless(
             $this->tenants->isControlHost($request->getHost())
-                || $this->accounts->isCallbackHost($request->getHost()),
+                || ($callbackPaymentRequest && $this->accounts->isCallbackHost($request->getHost())),
             404,
         );
 
         return $next($request);
+    }
+
+    /**
+     * Account callback aliases must not become alternate hosts for webhooks
+     * or future payment endpoints. Only a capability-token session route can
+     * retain an account alias in the browser; all other Platform Pay routes
+     * require the canonical control host.
+     */
+    public static function isSessionPaymentRequest(Request $request): bool
+    {
+        $path = trim($request->path(), '/');
+
+        return preg_match(
+            '#^_longos/pay/[a-f0-9]{64}(?:/(?:status|paypal/(?:create|capture)|stripe/(?:intent|complete)|return/(?:paypal|stripe)|cancel))?$#D',
+            $path,
+        ) === 1;
     }
 }

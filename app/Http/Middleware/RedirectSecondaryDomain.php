@@ -39,7 +39,8 @@ class RedirectSecondaryDomain
         // other paths retain normal canonical-domain redirects, so adding an
         // account never turns a callback hostname into a second public admin
         // or storefront origin.
-        if ($request->is('_longos/pay/*') && $this->paymentAccounts->isCallbackHost($host)) {
+        if (EnsurePlatformPaymentHost::isSessionPaymentRequest($request)
+            && $this->paymentAccounts->isCallbackHost($host)) {
             return $next($request);
         }
 

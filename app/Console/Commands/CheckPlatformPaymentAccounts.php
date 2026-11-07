@@ -33,8 +33,9 @@ class CheckPlatformPaymentAccounts extends Command
         $ready   = 0;
         $failed  = 0;
 
-        foreach ($accounts->accounts()->where('enabled', true)->take($limit) as $account) {
+        foreach ($accounts->enabledPaypalAccountsForHealth($limit) as $account) {
             $checked++;
+
             try {
                 // snapshotForPaypalAccount uses the exact account credential
                 // without changing the routing order. The gateway constructor
