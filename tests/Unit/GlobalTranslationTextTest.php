@@ -42,12 +42,12 @@ class GlobalTranslationTextTest extends TestCase
         $protected = TextContract::protect('Hello :name, your price is $39.99.');
         $token     = array_key_first($protected['tokens']);
         self::assertNotNull($token);
-        self::assertMatchesRegularExpression('/^\[\[LGT:([a-f0-9]{24}):(\d+):([a-f0-9]{8})\]\]$/i', $token);
-        preg_match('/^\[\[LGT:([a-f0-9]{24}):(\d+):([a-f0-9]{8})\]\]$/i', $token, $parts);
+        self::assertMatchesRegularExpression('/^LGTX([a-f0-9]{24})X(\d+)X([a-f0-9]{8})$/i', $token);
+        preg_match('/^LGTX([a-f0-9]{24})X(\d+)X([a-f0-9]{8})$/i', $token, $parts);
 
         // This mirrors provider output that has made the opaque token more
         // readable but has not changed its nonce, ordinal or source digest.
-        $variant = '[ lgt - ' . strtoupper($parts[1]) . ' _ ' . $parts[2] . ' : ' . strtoupper($parts[3]) . ' ]';
+        $variant = 'lgtx ' . strtoupper($parts[1]) . ' - x ' . $parts[2] . ' _ x ' . strtoupper($parts[3]);
         $translated = str_replace($token, $variant, $protected['text']);
 
         self::assertSame('Hello :name, your price is $39.99.', TextContract::restore($translated, $protected['tokens']));
@@ -58,8 +58,8 @@ class GlobalTranslationTextTest extends TestCase
         $protected = TextContract::protect('Hello :name');
         $token     = array_key_first($protected['tokens']);
         self::assertNotNull($token);
-        $lastDigestCharacter = substr($token, -3, 1);
-        $changed = substr($token, 0, -3) . ($lastDigestCharacter === '0' ? '1' : '0') . ']]';
+        $lastDigestCharacter = substr($token, -1);
+        $changed = substr($token, 0, -1) . ($lastDigestCharacter === '0' ? '1' : '0');
 
         $this->expectException(InvalidArgumentException::class);
         TextContract::restore(str_replace($token, $changed, $protected['text']), $protected['tokens']);
@@ -86,5 +86,14 @@ class GlobalTranslationTextTest extends TestCase
         self::assertSame('REPEATED_OUTPUT', TranslationQualityGate::evaluate('bonjour bonjour bonjour', 'Enjoy free worldwide shipping on every order today'));
         self::assertSame('TRUNCATED_OUTPUT', TranslationQualityGate::evaluate('好', str_repeat('A clear product promise. ', 5)));
         self::assertNull(TranslationQualityGate::evaluate('Profitez de la livraison gratuite dans le monde entier.', 'Enjoy free worldwide shipping on every order today'));
+        self::assertSame(
+            'TARGET_SCRIPT_MISSING',
+            TranslationQualityGate::evaluate(
+                'Get reliable worldwide shipping, secure checkout, and easy returns for every order today.',
+                'Enjoy reliable worldwide shipping, secure checkout, and easy returns for every order today.',
+                'zh-cn',
+            ),
+        );
+        self::assertNull(TranslationQualityGate::evaluate('适用于每笔订单的可靠全球配送、安全结账和轻松退货。', 'Enjoy reliable worldwide shipping, secure checkout, and easy returns for every order today.', 'zh-cn'));
     }
 }

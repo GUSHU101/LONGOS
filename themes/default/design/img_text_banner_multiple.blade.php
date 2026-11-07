@@ -1,10 +1,10 @@
 <section class="module-item {{ $design ? 'module-item-design' : ''}}" id="module-{{ $module_id }}" @include('design.partials.section_style')>
   <div class="module-info banner-magnify-hover module-img-text-banner-multiple ">
     @if ($content['title'])
-    <div class="module-title">{{ $content['title'] }} <div class="wave-line"></div></div>
+    <div class="module-title" data-lgt-field="module.{{ $module_id }}.title">{{ $content['title'] }} <div class="wave-line"></div></div>
     @endif
     @if ($content['sub_title'])
-    <div class="module-sub-title">{{ $content['sub_title'] }}</div>
+    <div class="module-sub-title" data-lgt-field="module.{{ $module_id }}.sub_title">{{ $content['sub_title'] }}</div>
     @endif
     <div class="{{ $content['module_size'] ?? 'container-fluid' }}">
       <div class="row g-2 g-lg-4">
@@ -16,10 +16,10 @@
             </div>
             <div class="text-wrap">
               @if ($image['sub_text'])
-              <p class="text-center text-sub-title">{{ $image['sub_text'] }}</p>
+              <p class="text-center text-sub-title" data-lgt-field="module.{{ $module_id }}.images.{{ $loop->index }}.sub_text">{{ $image['sub_text'] }}</p>
               @endif
               @if ($image['text'])
-              <p class="text-center text-title">{{ $image['text'] }}</p>
+              <p class="text-center text-title" data-lgt-field="module.{{ $module_id }}.images.{{ $loop->index }}.text">{{ $image['text'] }}</p>
               @endif
               @if ($image['url'] ?? false)
                 <span class="btn">{{ __('common.view_details') }}</span>

@@ -18,7 +18,7 @@ final class TranslationJobService
      * accepted by the current provider.
      */
     private const FAILOVER_DEFINITE_FAILURES = [
-        'AUTH', 'NOT_OPENED', 'BALANCE_EXHAUSTED', 'UNSUPPORTED_LANGUAGE', 'RATE_LIMIT',
+        'AUTH', 'NOT_OPENED', 'BALANCE_EXHAUSTED', 'UNSUPPORTED_LANGUAGE', 'RATE_LIMIT', 'NETWORK_CONNECT_FAILED',
     ];
 
     /**
@@ -28,7 +28,7 @@ final class TranslationJobService
      * local quality/token check.
      */
     private const RETRYABLE_DEFINITE_FAILURES = [
-        'AUTH', 'NOT_OPENED', 'BALANCE_EXHAUSTED', 'UNSUPPORTED_LANGUAGE', 'RATE_LIMIT', 'PRE_SEND_FAILURE',
+        'AUTH', 'NOT_OPENED', 'BALANCE_EXHAUSTED', 'UNSUPPORTED_LANGUAGE', 'RATE_LIMIT', 'PRE_SEND_FAILURE', 'NETWORK_CONNECT_FAILED',
     ];
 
     /**
@@ -68,7 +68,7 @@ final class TranslationJobService
                 throw new RuntimeException('TARGET_LOCALE_NOT_ENABLED');
             }
         }
-        $kinds = array_values(array_intersect(['product', 'category', 'page', 'builder', CommerceUiCatalog::KIND], $kinds));
+        $kinds = array_values(array_intersect(['product', 'category', 'page', 'page_category', 'builder', ContentScanner::CHROME_KIND, CommerceUiCatalog::KIND], $kinds));
         if ($locales === [] || $kinds === []) {
             throw new RuntimeException('EMPTY_TRANSLATION_SCOPE');
         }
@@ -126,6 +126,20 @@ final class TranslationJobService
                     foreach ($jobItems as $item) {
                         $queuedByPair[(int) $item->entry_id . ':' . $item->target_locale] = (string) $item->source_hash;
                     }
+                    // A task may be recreated after an operator fixes a
+                    // provider. Do not silently replay an unchanged source
+                    // that has an unresolved request from *another* task:
+                    // it could already have been accepted and billed.
+                    $uncertainByPair = [];
+                    $uncertainAttempts = DB::table('lgt_attempts as attempt')
+                        ->join('lgt_job_items as prior_item', 'prior_item.id', '=', 'attempt.job_item_id')
+                        ->whereIn('prior_item.entry_id', $entryIds)
+                        ->whereIn('prior_item.target_locale', $locales)
+                        ->where('attempt.state', UsageLedger::UNCERTAIN)
+                        ->get(['prior_item.entry_id', 'prior_item.target_locale', 'prior_item.source_hash']);
+                    foreach ($uncertainAttempts as $attempt) {
+                        $uncertainByPair[(int) $attempt->entry_id . ':' . $attempt->target_locale . ':' . $attempt->source_hash] = true;
+                    }
                     $rows = [];
                     foreach ($entries as $entry) {
                         foreach ($locales as $locale) {
@@ -140,6 +154,10 @@ final class TranslationJobService
                             // A locked source requires deliberate human action;
                             // a provider result would be discarded anyway.
                             if ($translation !== null && (bool) $translation->locked) {
+                                $deferredChanges++;
+                                continue;
+                            }
+                            if (isset($uncertainByPair[$pair . ':' . $entry->source_hash])) {
                                 $deferredChanges++;
                                 continue;
                             }
@@ -403,6 +421,16 @@ final class TranslationJobService
 
             return;
         }
+        // Build the rules/terminology/context profile before any provider is
+        // called. This profile is derived solely from an allowlisted public
+        // field contract; it can never contain customer, order, checkout,
+        // payment or visitor values.
+        $translationContext = CommerceTranslationProfile::context(
+            $sourceLocale,
+            (string) $item->target_locale,
+            (string) $entry->kind,
+            (string) $entry->field,
+        );
         $prepared           = TextContract::protect((string) $entry->source_text, $this->protectedTerms($sourceLocale, (string) $item->target_locale));
         $segments           = TextContract::segments($prepared['text'], 4500, 4800, array_keys($prepared['tokens']));
         $successful         = [];
@@ -421,6 +449,7 @@ final class TranslationJobService
                 (string) $item->target_locale,
                 (string) $entry->source_hash,
                 (int) $item->id,
+                $translationContext,
             );
             if ($result['state'] === 'exhausted') {
                 $this->commitSuccessfulAttempts($successful);
@@ -488,7 +517,7 @@ final class TranslationJobService
      * @param list<object> $accounts
      * @return array{state:'success',translation:string,attempt:array{attempt_id:int,request_id:string},provider:string,account_id:int}|array{state:'exhausted'}|array{state:'failed',failure_code:string}
      */
-    private function translateSegmentWithFailover(array $accounts, string $segment, string $sourceLocale, string $targetLocale, string $sourceHash, int $jobItemId): array
+    private function translateSegmentWithFailover(array $accounts, string $segment, string $sourceLocale, string $targetLocale, string $sourceHash, int $jobItemId, array $translationContext): array
     {
         $units = TextContract::units($segment)['codepoints'];
         foreach ($accounts as $account) {
@@ -515,6 +544,7 @@ final class TranslationJobService
                 $requestMarkedSending = true;
                 $response             = $provider->send(new TranslationProviderRequest(
                     $reservation['request_uuid'], (int) $account->id, $sourceLocale, $targetLocale, [$segment], $sourceHash,
+                    context: $translationContext,
                 ), $credentials);
                 if ($response->ok && count($response->translations) === 1 && is_string($response->translations[0]) && trim($response->translations[0]) !== '') {
                     return [
@@ -552,15 +582,17 @@ final class TranslationJobService
                     ? $provider->classifyFailure($exception)
                     : ['code' => 'PRE_SEND_FAILURE', 'definitely_unbilled' => true];
                 $exceptionCode = $this->safeFailureCode($exception->getMessage());
+                $definitelyUnbilled = ($failure['kind'] ?? null) === 'definite_failure'
+                    && (bool) ($failure['definitely_unbilled'] ?? false);
                 $failureCode   = $requestMarkedSending
-                    ? ($failure['definitely_unbilled'] ? 'WORKER_EXCEPTION' : $this->safeFailureCode((string) $failure['code']))
+                    ? $this->safeFailureCode((string) $failure['code'])
                     // Anything raised before markSending is provably local.
                     // Keep a structured local error where available so an
                     // operator can repair credentials without guessing.
                     : ($exceptionCode === 'PROCESSING_EXCEPTION' ? 'PRE_SEND_FAILURE' : $exceptionCode);
 
                 try {
-                    if ($requestMarkedSending) {
+                    if ($requestMarkedSending && ! $definitelyUnbilled) {
                         $this->ledger->uncertain($reservation['id'], $failureCode);
                     } else {
                         $this->ledger->definiteFailure($reservation['id'], $failureCode);
@@ -572,6 +604,9 @@ final class TranslationJobService
 
                 if (! $requestMarkedSending && in_array($failureCode, self::SUSPEND_PRE_SEND_ACCOUNT_FAILURES, true)) {
                     $this->accounts->suspendDispatchForSafety((int) $account->id, $failureCode);
+                }
+                if ($definitelyUnbilled && in_array($failureCode, self::FAILOVER_DEFINITE_FAILURES, true)) {
+                    continue;
                 }
                 if (! $requestMarkedSending && in_array($failureCode, self::FAILOVER_PRE_SEND_FAILURES, true)) {
                     continue;
@@ -600,7 +635,7 @@ final class TranslationJobService
     /** @return array<string, string> Exact source term => protected replacement. */
     private function protectedTerms(string $sourceLocale, string $targetLocale): array
     {
-        return DB::table('lgt_glossary_terms')
+        $tenantTerms = DB::table('lgt_glossary_terms')
             ->where('source_locale', $sourceLocale)
             ->where('protect', true)
             ->where(static function ($query) use ($targetLocale): void {
@@ -619,6 +654,12 @@ final class TranslationJobService
 
                 return $terms;
             }, []);
+
+        // The platform-maintained commerce profile provides safe defaults;
+        // an explicitly saved tenant term wins on the same exact source
+        // phrase. Both routes stay local and are masked before the external
+        // MT call, so a provider cannot alter a protected commercial term.
+        return array_replace(CommerceTranslationProfile::protectedTerms($sourceLocale, $targetLocale), $tenantTerms);
     }
 
     /** @return list<object> */

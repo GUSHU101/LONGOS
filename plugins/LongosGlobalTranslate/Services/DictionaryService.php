@@ -13,12 +13,12 @@ final class DictionaryService
      * or query an arbitrary private id. Source visibility and the frozen
      * publication source hash are rechecked for every response.
      *
-     * @return array{revision:?int,items:array<string,string>}
+     * @return array{revision:?int,items:array<string,string>,fields?:array<string,string>,field_sources?:array<string,string>,sources?:array<string,string>}
      */
-    public function forEntity(string $kind, int $entityId, string $locale, int $limit = 128): array
+    public function forEntity(string $kind, int $entityId, string $locale, int $limit = 1200): array
     {
         $kind = strtolower(trim($kind));
-        if (! in_array($kind, ['product', 'category', 'page', 'builder'], true) || $entityId < 1) {
+        if (! in_array($kind, ['product', 'category', 'page', 'page_category', 'builder', ContentScanner::CHROME_KIND], true) || $entityId < 1) {
             return ['revision' => null, 'items' => []];
         }
         if (! Schema::hasTable('lgt_publications') || ! Schema::hasTable('lgt_publication_items') || ! Schema::hasTable('lgt_translations') || ! Schema::hasTable('lgt_entries')) {
@@ -47,7 +47,11 @@ final class DictionaryService
             ->where('e.is_tombstoned', false)
             ->whereColumn('i.source_hash', 'e.source_hash')
             ->orderBy('e.id')
-            ->limit(min(200, max(1, $limit)))
+            // A product/page rich-text body has one validated dictionary
+            // record per visible text node. Do not silently truncate it at a
+            // small card-oriented limit, otherwise the lower half of a
+            // product description becomes permanently untranslated.
+            ->limit(min(1200, max(1, $limit)))
             ->get(['e.content_key', 'e.source_text', 'e.source_hash', 'e.source_format', 'e.source_revision', 'e.kind', 'e.entity_id', 'e.field', 'i.text'])
             ->filter(fn (object $item): bool => $this->sourceIsStillCurrent($item));
 
@@ -58,6 +62,7 @@ final class DictionaryService
             'revision' => (int) $publication->revision,
             'items' => $items->mapWithKeys(static fn (object $item): array => [(string) $item->content_key => (string) $item->text])->all(),
             'fields' => $items->mapWithKeys(static fn (object $item): array => [(string) $item->field => (string) $item->text])->all(),
+            'field_sources' => $items->mapWithKeys(static fn (object $item): array => [(string) $item->field => (string) $item->source_text])->all(),
             'sources' => $items->mapWithKeys(static fn (object $item): array => [(string) $item->content_key => (string) $item->source_text])->all(),
         ];
     }
@@ -126,10 +131,14 @@ final class DictionaryService
      */
     private function entityIsStillPublic(string $kind, int $entityId): bool
     {
+        if ($kind === ContentScanner::CHROME_KIND) {
+            return $entityId === ContentScanner::CHROME_ENTITY_ID;
+        }
         $table = match ($kind) {
-            'product'  => 'products',
-            'category' => 'categories',
-            'page'     => 'pages',
+            'product'       => 'products',
+            'category'      => 'categories',
+            'page'          => 'pages',
+            'page_category' => 'page_categories',
             default    => null,
         };
         if ($table === null) {
@@ -166,6 +175,21 @@ final class DictionaryService
                 return false;
             }
         }
+        if ($entry->kind === ContentScanner::CHROME_KIND) {
+            try {
+                $state = BuilderStateService::published();
+                if (! hash_equals((string) $entry->source_revision, 'published:' . (int) ($state['version'] ?? 0))) {
+                    return false;
+                }
+                $source = ContentScanner::chromeTextFields($state)[(string) $entry->field] ?? null;
+
+                return is_string($source)
+                    && hash_equals((string) $entry->source_hash, ContentScanner::sourceHash($source, (string) $entry->source_format))
+                    && hash_equals((string) $entry->source_text, $source);
+            } catch (\Throwable) {
+                return false;
+            }
+        }
         if ($entry->kind === CommerceUiCatalog::KIND) {
             $source = CommerceUiCatalog::sourceFor((string) $entry->field);
 
@@ -174,19 +198,50 @@ final class DictionaryService
                 && hash_equals((string) $entry->source_text, $source);
         }
         $source = match ($entry->kind) {
-            'product'  => ['table' => 'product_descriptions', 'key' => 'product_id', 'fields' => ['name']],
-            'category' => ['table' => 'category_descriptions', 'key' => 'category_id', 'fields' => ['name']],
-            'page'     => ['table' => 'page_descriptions', 'key' => 'page_id', 'fields' => ['title']],
+            'product'       => ['table' => 'product_descriptions', 'key' => 'product_id', 'fields' => ['name'], 'html_fields' => ['content']],
+            'category'      => ['table' => 'category_descriptions', 'key' => 'category_id', 'fields' => ['name'], 'html_fields' => ['content']],
+            'page'          => ['table' => 'page_descriptions', 'key' => 'page_id', 'fields' => ['title', 'summary'], 'html_fields' => ['content']],
+            'page_category' => ['table' => 'page_category_descriptions', 'key' => 'page_category_id', 'fields' => ['title', 'summary'], 'html_fields' => []],
             default    => null,
         };
-        if ($source === null || ! in_array((string) $entry->field, $source['fields'], true) || ! Schema::hasTable($source['table']) || ! Schema::hasColumn($source['table'], (string) $entry->field)) {
+        if ($source === null || ! Schema::hasTable($source['table'])) {
             return false;
         }
-        $current = DB::table($source['table'])
-            ->where($source['key'], $entry->entity_id)
-            ->where('locale', 'en')
-            ->value((string) $entry->field);
+        $field = (string) $entry->field;
+        if ($entry->kind === 'product' && str_starts_with($field, 'variables.')) {
+            if (! Schema::hasTable('products') || ! Schema::hasColumn('products', 'variables')) {
+                return false;
+            }
+            $variables = DB::table('products')->where('id', $entry->entity_id)->value('variables');
+            $current = ContentScanner::productVariableFields($variables)[$field] ?? null;
 
-        return is_string($current) && hash_equals((string) $entry->source_hash, ContentScanner::sourceHash($current, (string) $entry->source_format));
+            return is_string($current) && hash_equals((string) $entry->source_hash, ContentScanner::sourceHash($current, (string) $entry->source_format));
+        }
+        if (in_array($field, $source['fields'], true) && Schema::hasColumn($source['table'], $field)) {
+            $current = DB::table($source['table'])
+                ->where($source['key'], $entry->entity_id)
+                ->where('locale', 'en')
+                ->value($field);
+
+            return is_string($current) && hash_equals((string) $entry->source_hash, ContentScanner::sourceHash($current, (string) $entry->source_format));
+        }
+        foreach ($source['html_fields'] ?? [] as $htmlField) {
+            if (! str_starts_with($field, $htmlField . '.node.') || ! Schema::hasColumn($source['table'], $htmlField)) {
+                continue;
+            }
+            $html = DB::table($source['table'])
+                ->where($source['key'], $entry->entity_id)
+                ->where('locale', 'en')
+                ->value($htmlField);
+            if (! is_string($html)) {
+                return false;
+            }
+            $fields  = ContentScanner::htmlTextFields($htmlField, $html);
+            $current = $fields[$field] ?? null;
+
+            return is_string($current) && hash_equals((string) $entry->source_hash, ContentScanner::sourceHash($current, (string) $entry->source_format));
+        }
+
+        return false;
     }
 }

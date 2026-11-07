@@ -19,8 +19,8 @@
   <div class="{{ $moduleSize }} auto-product-feed__inner" style="--feed-columns-desktop: {{ $desktopColumns }}; --feed-columns-tablet: {{ $tabletColumns }}; --feed-columns-mobile: {{ $mobileColumns }};">
     @if ($title !== '' || $subtitle !== '')
       <header class="auto-product-feed__header">
-        @if ($title !== '')<h2 class="module-title mb-0">{{ $title }}</h2>@endif
-        @if ($subtitle !== '')<p>{{ $subtitle }}</p>@endif
+        @if ($title !== '')<h2 class="module-title mb-0" data-lgt-field="module.{{ $module_id }}.title">{{ $title }}</h2>@endif
+        @if ($subtitle !== '')<p data-lgt-field="module.{{ $module_id }}.sub_title">{{ $subtitle }}</p>@endif
       </header>
     @endif
 

@@ -19,6 +19,9 @@ final class ProviderRegistry
             'aliyun'     => new AliyunProvider,
             'volcengine' => new VolcengineProvider,
             'baidu'      => new BaiduProvider,
+            'deepl'      => new DeepLProvider,
+            'google'     => new GoogleCloudProvider,
+            'azure'      => new AzureTranslatorProvider,
             default      => throw new InvalidArgumentException('UNKNOWN_PROVIDER'),
         };
     }

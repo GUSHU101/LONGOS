@@ -387,7 +387,7 @@
                 </summary>
                 <div class="product-information-disclosure__panel" id="product-description">
                   @hook('shop.product.description.tabs.content.before')
-                  <div class="rich-text-editor-content">{!! $product['description'] !!}</div>
+                  <div class="rich-text-editor-content" data-lgt-richtext="content">{!! $product['description'] !!}</div>
                 </div>
               </details>
               @if ($product['attributes'])

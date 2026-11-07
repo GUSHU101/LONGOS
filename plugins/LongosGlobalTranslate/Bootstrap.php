@@ -4,11 +4,25 @@ namespace Plugin\LongosGlobalTranslate;
 
 use Plugin\LongosGlobalTranslate\Services\TranslationSchema;
 use Plugin\LongosGlobalTranslate\Services\TranslationSettings;
+use Plugin\LongosGlobalTranslate\Services\PublishedProductVariantLocalizer;
 
 class Bootstrap
 {
     public function boot(): void
     {
+        // Product option names are public merchant catalog labels, but they
+        // are rendered by Vue after the normal DOM dictionary pass. Supply
+        // their reviewed, frozen translations in the initial payload instead
+        // of altering select values in the browser. SKU indexes, inventory,
+        // prices and every shopper-entered value remain untouched.
+        add_hook_filter('resource.product.detail', function (array $payload): array {
+            if (current_site() === null) {
+                return $payload;
+            }
+
+            return app(PublishedProductVariantLocalizer::class)->localize($payload, request());
+        });
+
         add_hook_filter('admin.components.sidebar.menus', function (array $menus): array {
             if (! app('router')->has(admin_name() . '.longos_global_translate.index')
                 || ! current_user()?->can('plugins_index')) {

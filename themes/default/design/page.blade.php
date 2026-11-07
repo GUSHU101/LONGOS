@@ -9,13 +9,13 @@
       @if ($content['items'])
         <div class="builder-section-grid builder-section-grid--desktop-{{ $content['columns_desktop'] ?? 4 }} builder-section-grid--tablet-{{ $content['columns_tablet'] ?? 2 }} builder-section-grid--mobile-{{ $content['columns_mobile'] ?? 1 }}">
           @foreach ($content['items'] as $item)
-          <div>
+          <div @if(!empty($item['id'])) data-lgt-root data-lgt-kind="page" data-lgt-entity="{{ (int) $item['id'] }}" @endif>
             <div class="pages-wrap">
               <div class="image"><a href="{{ (isset($item['url']) ? $item['url'] : shop_route('pages.show', [$item['id']])) }}">@if(!empty($item['image']))<img src="{{ $item['image'] }}" class="img-fluid seo-img" loading="lazy" decoding="async" alt="{{ $item['title'] ?? '' }}">@else<span class="page-image-placeholder" aria-hidden="true">LONGOS</span>@endif</a>
               </div>
               <div class="page-info">
-                <div class="pages-title"><a href="{{ $item['url'] }}">{{ $item['title'] ?? '' }}</a></div>
-                <div class="pages-summary">{{ $item['summary'] ?? '' }}</div>
+                <div class="pages-title"><a href="{{ $item['url'] }}" data-lgt-field="title">{{ $item['title'] ?? '' }}</a></div>
+                <div class="pages-summary" data-lgt-field="summary">{{ $item['summary'] ?? '' }}</div>
                 <div class="pages-view"><a href="{{ $item['url'] }}">{{ __('shop/account.check_details') }}<i class="bi bi-arrow-right-short" aria-hidden="true"></i></a></div>
               </div>
             </div>

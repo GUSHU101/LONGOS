@@ -5,13 +5,13 @@
       <div class="shopify-collection-list__viewport" @if(!empty($content['swipe_on_mobile'])) tabindex="0" aria-label="Swipe through collections" @endif>
         <ul class="shopify-collection-list__grid">
           @forelse($content['categories'] as $category)
-            <li class="shopify-collection-list__item">
+            <li class="shopify-collection-list__item" @if(!empty($category['id'])) data-lgt-root data-lgt-kind="category" data-lgt-entity="{{ (int) $category['id'] }}" @endif>
               @if(!empty($category['url']))<a class="shopify-collection-list__card" href="{{ $category['url'] }}" aria-label="{{ $category['name'] ?: __('shop/design.collection') }}">
               @else<div class="shopify-collection-list__card">@endif
                 <div class="shopify-collection-list__media">
                   @if(!empty($category['image']))<img src="{{ $category['image'] }}" alt="" loading="lazy" decoding="async">@else<div class="shopify-collection-list__placeholder" aria-hidden="true"></div>@endif
                 </div>
-                <h3>{{ $category['name'] ?: __('shop/design.collection') }}</h3>
+                <h3 data-lgt-field="name">{{ $category['name'] ?: __('shop/design.collection') }}</h3>
               @if(!empty($category['url']))</a>@else</div>@endif
             </li>
           @empty

@@ -9,7 +9,7 @@ use InvalidArgumentException;
 
 final class ProviderAccountService
 {
-    public const PROVIDERS = ['aliyun', 'volcengine', 'baidu'];
+    public const PROVIDERS = ['aliyun', 'volcengine', 'baidu', 'deepl', 'google', 'azure'];
 
     /**
      * The API credential contract is provider-specific. Keep this metadata
@@ -47,6 +47,32 @@ final class ProviderAccountService
                 ],
                 'account_help' => '建议填写百度翻译应用名称或账户标识，便于区分额度。',
                 'quota_help'   => '填写本计费周期可安全使用的免费字符额度；V1 不会产生超额付费。',
+            ],
+            'deepl' => [
+                'label'             => 'DeepL API',
+                'credential_fields' => [
+                    ['key' => 'auth_key', 'label' => 'DeepL Auth Key', 'placeholder' => '输入 DeepL API 密钥', 'help' => '在 DeepL API 控制台创建；只会加密保存。', 'input_type' => 'password'],
+                    ['key' => 'api_plan', 'label' => 'API 计划', 'placeholder' => 'free 或 pro', 'help' => 'DeepL API Free 填 free；DeepL API Pro 填 pro。该值只决定官方 API 域名。', 'input_type' => 'text'],
+                ],
+                'account_help' => '建议填写 DeepL API 项目或密钥用途，便于区分额度。',
+                'quota_help'   => '填写该密钥本计费周期可安全使用的字符数；系统不会突破本地上限。',
+            ],
+            'google' => [
+                'label'             => 'Google Cloud Translation（Basic v2）',
+                'credential_fields' => [
+                    ['key' => 'api_key', 'label' => 'Google Cloud API Key', 'placeholder' => '输入受限制的 API Key', 'help' => '仅使用已限制到 Cloud Translation API 的服务器端 API Key；不会写入 URL。', 'input_type' => 'password'],
+                ],
+                'account_help' => '建议填写 Google Cloud 项目或密钥用途，便于区分额度。',
+                'quota_help'   => '填写该 API Key 可安全使用的字符额度；系统只使用本地限额内的请求。',
+            ],
+            'azure' => [
+                'label'             => 'Microsoft Azure Translator',
+                'credential_fields' => [
+                    ['key' => 'subscription_key', 'label' => 'Azure Translator Key', 'placeholder' => '输入 Translator Key', 'help' => '来自 Azure Translator 或 AI Services 资源的密钥；只会加密保存。', 'input_type' => 'password'],
+                    ['key' => 'region', 'label' => '资源区域', 'placeholder' => 'global 或 eastus', 'help' => '全局 Translator 资源填 global；区域或多服务资源填 Azure 资源区域，例如 eastus。', 'input_type' => 'text'],
+                ],
+                'account_help' => '建议填写 Azure 订阅、资源名称或用途，便于区分额度。',
+                'quota_help'   => '填写该 Azure 资源本周期可安全使用的字符额度；本地上限始终优先。',
             ],
         ];
     }

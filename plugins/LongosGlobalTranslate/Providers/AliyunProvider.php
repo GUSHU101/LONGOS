@@ -54,6 +54,16 @@ final class AliyunProvider extends AbstractTranslationProvider
             'SourceLanguage' => $this->languageCode($request->sourceLocale),
             'TargetLanguage' => $this->languageCode($request->targetLocale), 'SourceText' => $request->segments[0],
         ];
+        // TranslateGeneral explicitly supports a Context parameter. The
+        // value is a short, code-owned field profile (never the source text
+        // itself and never visitor/checkout/order data) produced by
+        // CommerceTranslationProfile. This gives the engine target grammar,
+        // retail tone and field semantics while TextContract separately
+        // protects exact product terminology and placeholders.
+        $context = trim((string) ($request->context['prompt'] ?? ''));
+        if ($context !== '') {
+            $params['Context'] = $context;
+        }
         // Provider credentials and the signed source text must never be put
         // into a request URL.  The RPC endpoint accepts the same canonical
         // parameters as a POST form, where they are protected by TLS and do

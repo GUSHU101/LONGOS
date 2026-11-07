@@ -3,15 +3,22 @@
 namespace Tests\Unit;
 
 use GuzzleHttp\Client;
+use GuzzleHttp\Exception\ConnectException;
+use GuzzleHttp\Exception\TransferException;
 use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Middleware;
+use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
 use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Plugin\LongosGlobalTranslate\Providers\AliyunProvider;
+use Plugin\LongosGlobalTranslate\Providers\AzureTranslatorProvider;
 use Plugin\LongosGlobalTranslate\Providers\BaiduProvider;
+use Plugin\LongosGlobalTranslate\Providers\DeepLProvider;
+use Plugin\LongosGlobalTranslate\Providers\GoogleCloudProvider;
+use Plugin\LongosGlobalTranslate\Providers\ProviderRegistry;
 use Plugin\LongosGlobalTranslate\Providers\TranslationProviderRequest;
 use Plugin\LongosGlobalTranslate\Providers\VolcengineProvider;
 
@@ -19,7 +26,7 @@ class GlobalTranslationProviderTest extends TestCase
 {
     public static function supportCases(): iterable
     {
-        foreach ([AliyunProvider::class, VolcengineProvider::class, BaiduProvider::class] as $provider) {
+        foreach ([AliyunProvider::class, VolcengineProvider::class, BaiduProvider::class, DeepLProvider::class, GoogleCloudProvider::class, AzureTranslatorProvider::class] as $provider) {
             yield $provider . ' supports en-fr' => [$provider, 'en', 'fr', true];
             yield $provider . ' supports en-us-de' => [$provider, 'en-US', 'de', true];
             yield $provider . ' rejects same language' => [$provider, 'en', 'en', false];
@@ -29,7 +36,7 @@ class GlobalTranslationProviderTest extends TestCase
 
     public static function storefrontTargetLocales(): iterable
     {
-        foreach ([AliyunProvider::class, VolcengineProvider::class, BaiduProvider::class] as $provider) {
+        foreach ([AliyunProvider::class, VolcengineProvider::class, BaiduProvider::class, DeepLProvider::class, GoogleCloudProvider::class, AzureTranslatorProvider::class] as $provider) {
             foreach (['ar', 'de', 'es', 'fr', 'id', 'it', 'ja', 'ko', 'nl', 'pl', 'pt', 'ru', 'th', 'tr', 'vi', 'zh-cn', 'zh-tw'] as $locale) {
                 yield $provider . ' supports storefront target ' . $locale => [$provider, $locale];
             }
@@ -100,6 +107,90 @@ class GlobalTranslationProviderTest extends TestCase
         self::assertStringContainsString('AccessKeyId=key', $body);
         self::assertStringContainsString('SourceText=Hello', $body);
         self::assertStringNotContainsString('secret', $body);
+    }
+
+    public function test_aliyun_receives_the_safe_commerce_context_when_its_api_supports_it(): void
+    {
+        $history = [];
+        $provider = new AliyunProvider($this->recordingClient($history, ['Code' => 200, 'Data' => ['Translated' => 'Bonjour']]));
+        $request = new TranslationProviderRequest(
+            '8224d0b9-ae7e-4f7a-9634-9eed9263b42a', 1, 'en', 'fr', ['Phone case'], hash('sha256', 'Phone case'), 4,
+            ['kind' => 'product', 'field' => 'name', 'domain' => 'product title', 'prompt' => 'Cross-border e-commerce storefront. Field type: product title.', 'profile_version' => 'test'],
+        );
+
+        $provider->send($request, ['access_key_id' => 'key', 'access_key_secret' => 'secret']);
+        parse_str((string) $history[0]['request']->getBody(), $fields);
+
+        self::assertSame('Cross-border e-commerce storefront. Field type: product title.', $fields['Context']);
+        self::assertSame('Phone case', $fields['SourceText']);
+    }
+
+    public function test_standard_endpoints_keep_context_out_of_the_source_copy_when_the_api_has_no_context_field(): void
+    {
+        $request = new TranslationProviderRequest(
+            '8224d0b9-ae7e-4f7a-9634-9eed9263b42a', 1, 'en', 'fr', ['Phone case'], hash('sha256', 'Phone case'), 4,
+            ['kind' => 'product', 'field' => 'name', 'domain' => 'product title', 'prompt' => 'INTERNAL RULE: never become source text', 'profile_version' => 'test'],
+        );
+
+        $baiduHistory = [];
+        (new BaiduProvider($this->recordingClient($baiduHistory, ['trans_result' => [['dst' => 'Bonjour']]])))
+            ->send($request, ['appid' => 'id', 'secret' => 'secret']);
+        parse_str((string) $baiduHistory[0]['request']->getBody(), $baiduFields);
+        self::assertSame('Phone case', $baiduFields['q']);
+        self::assertStringNotContainsString('INTERNAL+RULE', (string) $baiduHistory[0]['request']->getBody());
+
+        $volcHistory = [];
+        (new VolcengineProvider($this->recordingClient($volcHistory, ['ResponseMetadata' => ['RequestId' => 'request'], 'TranslationList' => [['Translation' => 'Bonjour']]])))
+            ->send($request, ['access_key_id' => 'key', 'secret_access_key' => 'secret']);
+        $volcBody = json_decode((string) $volcHistory[0]['request']->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame(['Phone case'], $volcBody['TextList']);
+        self::assertStringNotContainsString('INTERNAL RULE', (string) $volcHistory[0]['request']->getBody());
+    }
+
+    public function test_extended_provider_registry_exposes_only_concrete_supported_adapters(): void
+    {
+        $registry = new ProviderRegistry;
+
+        self::assertInstanceOf(DeepLProvider::class, $registry->get('deepl'));
+        self::assertInstanceOf(GoogleCloudProvider::class, $registry->get('google'));
+        self::assertInstanceOf(AzureTranslatorProvider::class, $registry->get('azure'));
+    }
+
+    public function test_deepl_uses_its_free_endpoint_and_formal_context_without_leaking_the_key_to_the_url(): void
+    {
+        $history = [];
+        $request = new TranslationProviderRequest(
+            '8224d0b9-ae7e-4f7a-9634-9eed9263b42a', 1, 'en', 'fr', ['Phone case'], hash('sha256', 'Phone case'), 4,
+            ['kind' => 'product', 'field' => 'name', 'domain' => 'product title', 'prompt' => 'Retail product title; preserve terminology.', 'profile_version' => 'test'],
+        );
+        $response = (new DeepLProvider($this->recordingClient($history, ['translations' => [['text' => 'Coque de téléphone']]])))
+            ->send($request, ['auth_key' => 'deepl-secret', 'api_plan' => 'free']);
+
+        self::assertTrue($response->ok);
+        self::assertSame('api-free.deepl.com', $history[0]['request']->getUri()->getHost());
+        self::assertSame('', $history[0]['request']->getUri()->getQuery());
+        self::assertSame('DeepL-Auth-Key deepl-secret', $history[0]['request']->getHeaderLine('Authorization'));
+        $body = json_decode((string) $history[0]['request']->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame(['Phone case'], $body['text']);
+        self::assertSame('Retail product title; preserve terminology.', $body['context']);
+    }
+
+    public function test_google_and_azure_keep_credentials_in_headers_and_parse_documented_response_shapes(): void
+    {
+        $googleHistory = [];
+        $google = new GoogleCloudProvider($this->recordingClient($googleHistory, ['data' => ['translations' => [['translatedText' => 'Bonjour &amp; merci']]]]));
+        $googleResult = $google->send($this->request(['Hello & thanks']), ['api_key' => 'google-secret']);
+        self::assertSame(['Bonjour & merci'], $googleResult->translations);
+        self::assertSame('google-secret', $googleHistory[0]['request']->getHeaderLine('X-Goog-Api-Key'));
+        self::assertSame('', $googleHistory[0]['request']->getUri()->getQuery());
+
+        $azureHistory = [];
+        $azure = new AzureTranslatorProvider($this->recordingClient($azureHistory, [['translations' => [['text' => 'Bonjour']]]]));
+        $azureResult = $azure->send($this->request(['Hello']), ['subscription_key' => 'azure-secret', 'region' => 'eastus']);
+        self::assertSame(['Bonjour'], $azureResult->translations);
+        self::assertSame('azure-secret', $azureHistory[0]['request']->getHeaderLine('Ocp-Apim-Subscription-Key'));
+        self::assertSame('eastus', $azureHistory[0]['request']->getHeaderLine('Ocp-Apim-Subscription-Region'));
+        self::assertStringContainsString('to=fr', $azureHistory[0]['request']->getUri()->getQuery());
     }
 
     public function test_volcengine_batches_at_both_documented_boundaries_and_parses_success(): void
@@ -186,6 +277,24 @@ class GlobalTranslationProviderTest extends TestCase
         $volcResponse = $volc->send($this->request(['Hello']), ['access_key_id' => 'key', 'secret_access_key' => 'secret']);
         self::assertSame('VOLCENGINE_-500', $volcResponse->errorCode);
         self::assertFalse($volc->classifyFailure($volcResponse)['definitely_unbilled']);
+    }
+
+    public function test_connection_setup_failure_is_safe_but_an_ambiguous_transfer_is_not(): void
+    {
+        $provider = new BaiduProvider;
+
+        $connection = $provider->classifyFailure(new ConnectException(
+            'Could not connect to translation provider',
+            new Request('POST', 'https://api.example.test/translate'),
+        ));
+        self::assertSame('definite_failure', $connection['kind']);
+        self::assertSame('NETWORK_CONNECT_FAILED', $connection['code']);
+        self::assertTrue($connection['definitely_unbilled']);
+
+        $ambiguous = $provider->classifyFailure(new TransferException('The response timed out after write'));
+        self::assertSame('uncertain', $ambiguous['kind']);
+        self::assertSame('NETWORK_AFTER_SEND', $ambiguous['code']);
+        self::assertFalse($ambiguous['definitely_unbilled']);
     }
 
     public function test_aliyun_signature_uses_canonical_sorted_query_and_changes_when_input_changes(): void

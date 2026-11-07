@@ -16,10 +16,10 @@
                 href="{{ $menu['link'] }}"
                 target="{{ !empty($menu['new_window']) ? '_blank' : '_self' }}"
                 @if (!empty($menu['new_window'])) rel="noopener noreferrer" @endif>
-                <span class="mobile-nav__label">{{ $menu['name'] }}</span>
+                <span class="mobile-nav__label" data-lgt-field="menu.menus.{{ $key }}.name">{{ $menu['name'] }}</span>
                 @if (!empty($menu['badge']['name']))
                   <span class="mobile-nav__badge" style="--badge-bg: {{ $menu['badge']['bg_color'] }}; --badge-color: {{ $menu['badge']['text_color'] }};">
-                    {{ $menu['badge']['name'] }}
+                    <span data-lgt-field="menu.menus.{{ $key }}.badge.name">{{ $menu['badge']['name'] }}</span>
                   </span>
                 @endif
               </a>
@@ -31,17 +31,17 @@
                 data-bs-target="#{{ $menuPanelId }}"
                 aria-controls="{{ $menuPanelId }}"
                 aria-expanded="false">
-                <span class="mobile-nav__label">{{ $menu['name'] }}</span>
+                <span class="mobile-nav__label" data-lgt-field="menu.menus.{{ $key }}.name">{{ $menu['name'] }}</span>
                 @if (!empty($menu['badge']['name']))
                   <span class="mobile-nav__badge" style="--badge-bg: {{ $menu['badge']['bg_color'] }}; --badge-color: {{ $menu['badge']['text_color'] }};">
-                    {{ $menu['badge']['name'] }}
+                    <span data-lgt-field="menu.menus.{{ $key }}.badge.name">{{ $menu['badge']['name'] }}</span>
                   </span>
                 @endif
                 <i class="bi bi-chevron-down mobile-nav__disclosure-icon" aria-hidden="true"></i>
               </button>
             @else
               <span class="mobile-nav__link mobile-nav__link--static">
-                <span class="mobile-nav__label">{{ $menu['name'] }}</span>
+                <span class="mobile-nav__label" data-lgt-field="menu.menus.{{ $key }}.name">{{ $menu['name'] }}</span>
               </span>
             @endif
 
@@ -61,13 +61,13 @@
 
           @if ($hasChildren)
             <div class="accordion-collapse collapse mobile-nav__subpanel" id="{{ $menuPanelId }}" data-bs-parent="#menu-accordion">
-              @foreach ($menu['children_group'] as $group)
+              @foreach ($menu['children_group'] as $groupIndex => $group)
                 @php
                   $groupType = $group['type'] ?? 'link';
                 @endphp
                 <section class="mobile-nav__group">
                   @if (!empty($group['name']))
-                    <h3 class="mobile-nav__group-title">{{ $group['name'] }}</h3>
+                    <h3 class="mobile-nav__group-title" data-lgt-field="menu.menus.{{ $key }}.childrenGroup.{{ $groupIndex }}.name">{{ $group['name'] }}</h3>
                   @endif
 
                   @if ($groupType === 'image')
@@ -80,7 +80,7 @@
                     </a>
                   @else
                     <ul class="mobile-nav__children">
-                      @foreach (($group['children'] ?? []) as $children)
+                      @foreach (($group['children'] ?? []) as $childIndex => $children)
                         @if (!is_array($children['link']['text'] ?? null) && !empty($children['link']['text']))
                           <li>
                             <a
@@ -88,7 +88,7 @@
                               href="{{ $children['link']['link'] ?: '#' }}"
                               target="{{ !empty($children['link']['new_window']) ? '_blank' : '_self' }}"
                               @if (!empty($children['link']['new_window'])) rel="noopener noreferrer" @endif>
-                              <span>{{ $children['link']['text'] }}</span>
+                              <span data-lgt-field="menu.menus.{{ $key }}.childrenGroup.{{ $groupIndex }}.children.{{ $childIndex }}.link.text">{{ $children['link']['text'] }}</span>
                               <i class="bi bi-chevron-right" aria-hidden="true"></i>
                             </a>
                           </li>

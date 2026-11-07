@@ -16,11 +16,11 @@
           @if (isset($menu['new_window']) && $menu['new_window']) rel="noopener noreferrer" @endif
           href="{{ $menu['link'] ?: '#' }}"
           @if ($hasChildren) aria-haspopup="true" aria-expanded="false" aria-controls="{{ $menuDropdownId }}" @endif>
-          {{ $menu['name'] }}
+          <span data-lgt-field="menu.menus.{{ $loop->index }}.name">{{ $menu['name'] }}</span>
           @if (isset($menu['badge']) && $menu['badge']['name'])
             <span class="badge"
               style="background-color: {{ $menu['badge']['bg_color'] }}; color: {{ $menu['badge']['text_color'] }}; border-color: {{ $menu['badge']['bg_color'] }}">
-              {{ $menu['badge']['name'] }}
+              <span data-lgt-field="menu.menus.{{ $loop->index }}.badge.name">{{ $menu['badge']['name'] }}</span>
             </span>
           @endif
           @if ($hasChildren)
@@ -35,10 +35,10 @@
               <div class="card-body">
                 <div class="container desktop-menu__container">
                   <div class="desktop-menu__grid">
-                    @forelse ($menu['children_group'] as $group)
+                    @forelse ($menu['children_group'] as $groupIndex => $group)
                       <div class="desktop-menu__group">
                         @if ($group['name'])
-                          <div class="mb-3 fw-bold group-name">{{ $group['name'] }}</div>
+                          <div class="mb-3 fw-bold group-name" data-lgt-field="menu.menus.{{ $loop->parent->index }}.childrenGroup.{{ $groupIndex }}.name">{{ $group['name'] }}</div>
                         @endif
                         @if ($group['type'] == 'image')
                           <a
@@ -48,14 +48,14 @@
                               class="img-fluid"></a>
                         @else
                           <ul class="nav flex-column ul-children">
-                            @foreach ($group['children'] as $children)
+                            @foreach ($group['children'] as $childIndex => $children)
                               @if (!is_array($children['link']['text']) && $children['link']['text'])
                                 <li class="nav-item">
                                   <a
                                   target="{{ isset($children['link']['new_window']) && $children['link']['new_window'] ? '_blank' : '_self' }}"
                                   @if (isset($children['link']['new_window']) && $children['link']['new_window']) rel="noopener noreferrer" @endif
                                   class="nav-link px-0"
-                                    href="{{ $children['link']['link'] ?: '#' }}">{{ $children['link']['text'] }}</a>
+                                    href="{{ $children['link']['link'] ?: '#' }}" data-lgt-field="menu.menus.{{ $loop->parent->parent->index }}.childrenGroup.{{ $groupIndex }}.children.{{ $childIndex }}.link.text">{{ $children['link']['text'] }}</a>
                                 </li>
                               @endif
                             @endforeach

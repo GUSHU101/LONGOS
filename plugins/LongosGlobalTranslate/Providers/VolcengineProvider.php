@@ -65,6 +65,10 @@ final class VolcengineProvider extends AbstractTranslationProvider
             throw new InvalidArgumentException('VOLCENGINE_REQUEST_MUST_BE_ONE_BATCH');
         }
         $started = hrtime(true);
+        // TranslateText does not document a contextual-instruction property.
+        // Sending a prompt as source copy would corrupt translation output, so
+        // this endpoint receives only protected public text. The common
+        // local grammar/term profile still runs before and after this call.
         $body    = json_encode([
             'SourceLanguage' => $this->languageCode($request->sourceLocale),
             'TargetLanguage' => $this->languageCode($request->targetLocale),

@@ -62,9 +62,9 @@ class GlobalTranslationContentTest extends TestCase
             DB::table('product_descriptions')->insert(['product_id' => $id, 'locale' => 'en', 'name' => 'Case ' . $id, 'content' => '<p>Original text</p>']);
         }
         $scanner = new ContentScanner;
-        self::assertSame(1000, $scanner->scan()['found']);
-        self::assertSame(0, $scanner->scan()['changed']);
-        self::assertSame(1000, DB::table('lgt_entries')->count());
+        self::assertSame(2000, $scanner->scan(['product'])['found']);
+        self::assertSame(0, $scanner->scan(['product'])['changed']);
+        self::assertSame(2000, DB::table('lgt_entries')->count());
         self::assertFalse(DB::table('lgt_entries')->where('entity_id', 1001)->exists());
     }
 
@@ -73,14 +73,14 @@ class GlobalTranslationContentTest extends TestCase
         DB::table('products')->insert(['id' => 1, 'active' => true]);
         DB::table('product_descriptions')->insert(['product_id' => 1, 'locale' => 'en', 'name' => 'Case', 'content' => 'Body']);
         $scanner = new ContentScanner;
-        $scanner->scan();
+        $scanner->scan(['product']);
         foreach (DB::table('lgt_entries')->get() as $entry) {
             DB::table('lgt_translations')->insert(['entry_id' => $entry->id, 'locale' => 'fr', 'source_hash' => $entry->source_hash, 'text' => 'Human text', 'locked' => true, 'status' => 'approved']);
         }
         DB::table('product_descriptions')->where('product_id', 1)->update(['name' => 'New case']);
-        self::assertSame(1, $scanner->scan()['changed']);
+        self::assertSame(1, $scanner->scan(['product'])['changed']);
         self::assertSame(1, DB::table('lgt_translations')->where('status', 'stale')->count());
-        self::assertSame(0, DB::table('lgt_translations')->where('status', 'approved')->count());
+        self::assertSame(1, DB::table('lgt_translations')->where('status', 'approved')->count());
         self::assertSame(1, DB::table('lgt_translations')->where('locked', true)->where('text', 'Human text')->count());
     }
 
@@ -99,6 +99,18 @@ class GlobalTranslationContentTest extends TestCase
         // rendered token/value template is ever admitted to the catalog.
         self::assertFalse(DB::table('lgt_entries')->where('source_text', 'like', '%:order%')->exists());
         self::assertFalse(DB::table('lgt_entries')->where('source_text', 'like', '%:amount%')->exists());
+    }
+
+    public function test_default_global_scan_always_includes_the_value_free_storefront_interface_catalog(): void
+    {
+        $report = (new ContentScanner)->scan();
+
+        self::assertContains(CommerceUiCatalog::KIND, $report['supported_sources']);
+        self::assertSame(count(CommerceUiCatalog::entries()), DB::table('lgt_entries')
+            ->where('kind', CommerceUiCatalog::KIND)
+            ->where('entity_id', CommerceUiCatalog::ENTITY_ID)
+            ->count());
+        self::assertFalse(DB::table('lgt_entries')->where('source_text', 'like', '%@%')->exists());
     }
 
     public function test_commerce_catalog_covers_default_storefront_surfaces_without_dynamic_templates(): void

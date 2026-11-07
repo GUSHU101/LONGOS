@@ -18,7 +18,7 @@
           padding: {{ $content['scroll_text']['padding'] }}px 0;
           ">
           <div class="scroll-info">
-            <span class="scroll-text">{{ $content['scroll_text']['text'] }}</span>
+            <span class="scroll-text" data-lgt-field="module.{{ $module_id }}.scroll_text.text">{{ $content['scroll_text']['text'] }}</span>
           </div>
         </div>
       @endif
@@ -49,13 +49,13 @@
                 <div class="container-fluid content-wrap {{ $image['text_position'] }}">
                   <div class="text-wrap" data-swiper-parallax-y="-100" data-swiper-parallax-duration="1000" data-swiper-parallax-opacity="0.5" >
                     @if ($image['sub_title'])
-                      <div class="sub-title">{{ $image['sub_title'] }}</div>
+                      <div class="sub-title" data-lgt-field="module.{{ $module_id }}.images.{{ $loop->index }}.sub_title">{{ $image['sub_title'] }}</div>
                     @endif
                     @if ($image['title'])
-                      <h2 class="title">{{ $image['title'] }}</h2>
+                      <h2 class="title" data-lgt-field="module.{{ $module_id }}.images.{{ $loop->index }}.title">{{ $image['title'] }}</h2>
                     @endif
                     @if ($image['description'])
-                      <p class="description">{{ $image['description'] }}</p>
+                      <p class="description" data-lgt-field="module.{{ $module_id }}.images.{{ $loop->index }}.description">{{ $image['description'] }}</p>
                     @endif
                     @if ($image['link']['link'])
                       <a href="{{ $image['link']['link'] }}" class="btn" @if(!empty($image['link']['new_window'])) target="_blank" rel="noopener noreferrer" @endif>{{ __('shop/account.check_details') }}</a>

@@ -10,7 +10,7 @@ Route::prefix('global-translate')->name('longos_global_translate.')
         Route::get('dictionary/interface', [ShopTranslationController::class, 'interfaceDictionary'])->name('interface-dictionary');
         Route::get('dictionary/batch', [ShopTranslationController::class, 'batchDictionary'])->name('dictionary-batch');
         Route::get('dictionary/{kind}/{entityId}', [ShopTranslationController::class, 'dictionary'])
-            ->whereIn('kind', ['product', 'category', 'page', 'builder'])
+            ->whereIn('kind', ['product', 'category', 'page', 'page_category', 'builder', 'chrome'])
             ->whereNumber('entityId')
             ->name('dictionary');
     });

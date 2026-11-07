@@ -36,6 +36,15 @@
   let applyingInterface = false;
   const interfaceTextOriginals = new Map();
   const interfaceAttributeOriginals = new Map();
+  // Rich merchant bodies are not inserted as HTML. We keep the original text
+  // node and replace it only with a reviewed dictionary string for the same
+  // server-verified node path.
+  const richTextOriginals = new Map();
+  // Some compatible themes do not carry a field marker for every published
+  // merchant field. A second exact-source pass covers those known roots
+  // without ever querying a provider from the browser or touching a
+  // form/payment/customer value.
+  const publishedTextOriginals = new Map();
 
   const label = locale => {
     try {
@@ -77,7 +86,12 @@
   };
 
   const debugEnabled = new URLSearchParams(window.location.search).get('lgt_debug') === '1';
-  const widgetRelease = '1.5.3';
+  const widgetRelease = '1.5.6';
+  // Render every public root on a normal catalogue/listing page. Requests
+  // remain bounded and are split into server-validated batches below, so a
+  // long collection cannot silently stop translating after the first screen.
+  const MAX_PUBLIC_REGIONS = 240;
+  const DICTIONARY_BATCH_SIZE = 72;
   const debug = (event, details = {}) => { if (debugEnabled) console.info('[LONGOS Translate]', event, details); };
   const sensitivePath = () => /(?:^|\/)(?:cart|carts|checkout|checkouts|account|accounts|orders|payment|pay|login|register|password)(?:\/|$)/i.test(window.location.pathname);
   const sourceLocale = () => config?.source_locale || 'en';
@@ -105,13 +119,17 @@
     return contentKeyCache.get(input);
   };
 
-  const regions = () => [...document.querySelectorAll('[data-lgt-root]')].slice(0, 30)
+  // A product grid, navigation/footer and a page-builder landing page can
+  // legitimately contain more than 48 public roots. Keep the batch bounded
+  // while covering a full desktop storefront rather than silently leaving
+  // later cards in the source language.
+  const regions = () => [...document.querySelectorAll('[data-lgt-root]')].slice(0, MAX_PUBLIC_REGIONS)
     .filter(region => {
       const kind = region.dataset.lgtKind;
       // Builder IDs are unsigned 60-bit integers, larger than JS's safe
       // Number range. Never coerce them through Number() or the URL/hash changes.
       const entity = region.dataset.lgtEntity || '';
-      return ['product', 'category', 'page', 'builder'].includes(kind)
+      return ['product', 'category', 'page', 'page_category', 'builder', 'chrome'].includes(kind)
         && /^\d{1,20}$/.test(entity) && !/^0+$/.test(entity);
     });
 
@@ -226,18 +244,130 @@
       if (!Object.prototype.hasOwnProperty.call(node.dataset, 'lgtOriginal')) node.dataset.lgtOriginal = node.textContent || '';
       node.textContent = node.dataset.lgtOriginal;
     }));
+    richTextOriginals.forEach((source, node) => {
+      if (node.isConnected) node.nodeValue = source;
+    });
+    publishedTextOriginals.forEach((source, node) => {
+      if (node.isConnected) node.nodeValue = source;
+    });
+    publishedTextOriginals.clear();
+  };
+
+  const richTextNodes = container => {
+    const nodes = [];
+    if (!container) return nodes;
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        const parent = node.parentElement;
+        if (!parent || parent.closest('script, style, noscript, template, svg, canvas, [contenteditable], [data-lgt-private], [data-lgt-transaction]')) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return normalizeText(node.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+      },
+    });
+    // Match the server dictionary ceiling. A long policy/product body must
+    // not translate only its first 320 text nodes while the remaining
+    // reviewed entries are already available locally.
+    while (walker.nextNode() && nodes.length < 1200) nodes.push(walker.currentNode);
+    return nodes;
+  };
+
+  const replaceRichTextNodes = (region, dictionary) => {
+    let applied = 0;
+    region.querySelectorAll('[data-lgt-richtext]').forEach(container => {
+      const base = container.dataset.lgtRichtext;
+      if (!base) return;
+      richTextNodes(container).forEach((node, index) => {
+        const field = `${base}.node.${index}`;
+        const source = dictionary?.field_sources?.[field];
+        const translated = dictionary?.fields?.[field];
+        // The source check prevents an out-of-date publication from being
+        // applied after a merchant changes HTML between scans.
+        if (typeof source !== 'string' || typeof translated !== 'string' || !translated.trim()
+          || normalizeText(node.nodeValue) !== normalizeText(source)) return;
+        richTextOriginals.set(node, node.nodeValue || '');
+        node.nodeValue = translated;
+        applied++;
+      });
+    });
+    return applied;
+  };
+
+  const safePublishedTextNode = (node, region) => {
+    const parent = node?.parentElement;
+    if (!parent || parent.closest('[data-lgt-field], [data-lgt-richtext], script, style, noscript, template, svg, canvas, iframe, form, input, textarea, select, option, output, [contenteditable], [data-lgt-private], [data-lgt-transaction], [data-payment-provider], [data-address-value], [data-customer], [data-order]')) return false;
+    // A parent Builder root must never apply an exact text match inside a
+    // nested product/category/page/chrome root. Each nested root has its own
+    // checked server dictionary and visibility guard.
+    const nearestRoot = parent.closest('[data-lgt-root]');
+    if (nearestRoot && nearestRoot !== region) return false;
+    // Action captions are deliberately translated only through the finite
+    // interface catalog or an explicit field marker. Do not replace a
+    // runtime/cart action by coincidence.
+    if (parent.closest('button, [role="button"]')) return false;
+    return true;
+  };
+
+  const replacePublishedTextNodes = (region, dictionary) => {
+    const kind = region.dataset.lgtKind;
+    if (!['product', 'category', 'page', 'page_category', 'builder', 'chrome'].includes(kind) || !dictionary?.field_sources || !dictionary?.fields) return 0;
+    const matches = new Map();
+    const ambiguous = new Set();
+    Object.entries(dictionary.field_sources).forEach(([field, source]) => {
+      const translated = dictionary.fields[field];
+      const normalized = normalizeText(source);
+      if ((kind === 'builder' && !field.startsWith('module.')) || typeof translated !== 'string' || !translated.trim() || normalized.length < 2 || normalized.length > 4000) return;
+      if (matches.has(normalized) && matches.get(normalized) !== translated) ambiguous.add(normalized);
+      else matches.set(normalized, translated);
+    });
+    ambiguous.forEach(source => matches.delete(source));
+    if (!matches.size) return 0;
+
+    const nodes = [];
+    const walker = document.createTreeWalker(region, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        return safePublishedTextNode(node, region) && matches.has(normalizeText(node.nodeValue))
+          ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+      },
+    });
+    while (walker.nextNode() && nodes.length < 600) nodes.push(walker.currentNode);
+    nodes.forEach(node => {
+      const original = node.nodeValue || '';
+      const translated = matches.get(normalizeText(original));
+      if (!translated || original === translated) return;
+      const leading = original.match(/^\s*/u)?.[0] || '';
+      const trailing = original.match(/\s*$/u)?.[0] || '';
+      publishedTextOriginals.set(node, original);
+      node.nodeValue = `${leading}${translated}${trailing}`;
+    });
+    return nodes.length;
   };
 
   const fetchDictionaries = async (sourceRegions, locale) => {
     const results = new Map();
     if (!sourceRegions.length) return results;
-    const keys = [...new Set(sourceRegions.map(region => `${region.dataset.lgtKind}:${region.dataset.lgtEntity}`))].slice(0, 30);
+    const keys = [...new Set(sourceRegions.map(region => `${region.dataset.lgtKind}:${region.dataset.lgtEntity}`))].slice(0, MAX_PUBLIC_REGIONS);
     if (config?.batch_dictionary_url) {
-      const params = new URLSearchParams({locale, entities:keys.join(',')});
-      const batch = await request(`${config.batch_dictionary_url}?${params}`).catch(() => null);
-      if (batch?.dictionaries) {
+      const batches = [];
+      for (let offset = 0; offset < keys.length; offset += DICTIONARY_BATCH_SIZE) {
+        batches.push(keys.slice(offset, offset + DICTIONARY_BATCH_SIZE));
+      }
+      // Keep only two in flight. This covers long product grids quickly while
+      // remaining well below the public route's rate limit.
+      const responses = [];
+      for (let offset = 0; offset < batches.length; offset += 2) {
+        const pair = await Promise.all(batches.slice(offset, offset + 2).map(batch => {
+          const params = new URLSearchParams({locale, entities: batch.join(',')});
+          return request(`${config.batch_dictionary_url}?${params}`).catch(() => null);
+        }));
+        responses.push(...pair);
+      }
+      const dictionaries = Object.assign({}, ...responses
+        .filter(batch => batch && typeof batch.dictionaries === 'object')
+        .map(batch => batch.dictionaries));
+      if (Object.keys(dictionaries).length > 0) {
         sourceRegions.forEach(region => {
-          results.set(region, batch.dictionaries[`${region.dataset.lgtKind}:${region.dataset.lgtEntity}`] || null);
+          results.set(region, dictionaries[`${region.dataset.lgtKind}:${region.dataset.lgtEntity}`] || null);
         });
         return results;
       }
@@ -271,25 +401,25 @@
     const ids = new Map();
     const add = (kind, entity) => {
       const id = String(entity || '');
-      if (!/^\d{1,20}$/.test(id) || /^0+$/.test(id) || ids.size >= 48) return;
+      if (!/^\d{1,20}$/.test(id) || /^0+$/.test(id) || ids.size >= MAX_PUBLIC_REGIONS) return;
       ids.set(`${kind}:${id}`, {kind, entity: id});
     };
-    const path = pathname => pathname.match(/\/(products|categories|pages)\/(\d+)(?:\/|$)/i);
+    const path = pathname => pathname.match(/\/(products|categories|pages|page_categories)\/(\d+)(?:\/|$)/i);
     const register = pathname => {
       const match = path(pathname);
-      if (match) add(({products:'product', categories:'category', pages:'page'})[match[1].toLowerCase()], match[2]);
+      if (match) add(({products:'product', categories:'category', pages:'page', page_categories:'page_category'})[match[1].toLowerCase()], match[2]);
     };
     register(window.location.pathname);
     // Category/search listings often contain links to many public products.
     // All queried IDs remain subject to a server-side visibility check.
-    for (const anchor of [...document.querySelectorAll('a[href]')].slice(0, 220)) {
+    for (const anchor of [...document.querySelectorAll('a[href]')].slice(0, 600)) {
       try {
         const url = new URL(anchor.getAttribute('href'), window.location.href);
         if (url.origin === window.location.origin) register(url.pathname);
       } catch (_) { /* invalid href; ignore */ }
-      if (ids.size >= 32) break;
+      if (ids.size >= 120) break;
     }
-    (config?.builder_entities || []).slice(0, 16).forEach(id => add('builder', id));
+    (config?.builder_entities || []).slice(0, MAX_PUBLIC_REGIONS).forEach(id => add('builder', id));
     return [...ids.values()];
   };
 
@@ -340,12 +470,20 @@
   const loadFallback = async (locale, epoch) => {
     const entities = fallbackEntities();
     if (sensitivePath() || !entities.length || !config.batch_dictionary_url) return 0;
-    const params = new URLSearchParams({locale, entities: entities.map(e => `${e.kind}:${e.entity}`).join(',')});
-    const response = await request(`${config.batch_dictionary_url}?${params}`).catch(() => null);
+    const batches = [];
+    for (let offset = 0; offset < entities.length; offset += DICTIONARY_BATCH_SIZE) {
+      batches.push(entities.slice(offset, offset + DICTIONARY_BATCH_SIZE));
+    }
+    const responses = await Promise.all(batches.map(batch => {
+      const params = new URLSearchParams({locale, entities: batch.map(e => `${e.kind}:${e.entity}`).join(',')});
+      return request(`${config.batch_dictionary_url}?${params}`).catch(() => null);
+    }));
     // Never inject an old response after a visitor switched languages.
     if (epoch !== presentationEpoch) return 0;
     const matches = new Map(), ambiguous = new Set();
-    Object.values(response?.dictionaries || {}).forEach(dictionary => {
+    Object.values(Object.assign({}, ...responses
+      .filter(response => response && typeof response.dictionaries === 'object')
+      .map(response => response.dictionaries))).forEach(dictionary => {
       Object.entries(dictionary?.sources || {}).forEach(([key, source]) => {
         const text = dictionary?.items?.[key];
         const normalized = normalizeText(source);
@@ -399,6 +537,8 @@
           applied++;
         }
       }
+      applied += replaceRichTextNodes(region, dictionary);
+      applied += replacePublishedTextNodes(region, dictionary);
     }
 
     return {applied, available: applied > 0};

@@ -9,7 +9,7 @@
   <div class="module-info module-tab-product ">
     <div class="{{ $content['module_size'] ?? 'container-fluid' }}">
       @if ($content['title'] ?? false)
-        <h2 class="section-heading" id="module-heading-{{ $module_id }}">{{ $content['title'] }}</h2>
+        <h2 class="section-heading" id="module-heading-{{ $module_id }}" data-lgt-field="module.{{ $module_id }}.title">{{ $content['title'] }}</h2>
       @endif
       @if ($content['tabs'] ?? false)
         <div class="nav justify-content-center" role="tablist" aria-label="{{ $content['title'] ?? __('common.all') }}">
@@ -17,7 +17,7 @@
           @php
             $tabActive = $design ? $editableTabsValue == $key : $loop->first;
           @endphp
-          <button class="nav-link {{ $tabActive ? 'active' : '' }}" id="tab-product-trigger-{{ $module_id }}-{{ $loop->index }}" data-bs-target="#tab-product-{{ $module_id }}-{{ $loop->index }}" data-bs-toggle="tab" type="button" role="tab" aria-controls="tab-product-{{ $module_id }}-{{ $loop->index }}" aria-selected="{{ $tabActive ? 'true' : 'false' }}">{{ $tabs['title'] ?: __('shop/design.unnamed_group') }}</button>
+          <button class="nav-link {{ $tabActive ? 'active' : '' }}" id="tab-product-trigger-{{ $module_id }}-{{ $loop->index }}" data-bs-target="#tab-product-{{ $module_id }}-{{ $loop->index }}" data-bs-toggle="tab" type="button" role="tab" aria-controls="tab-product-{{ $module_id }}-{{ $loop->index }}" aria-selected="{{ $tabActive ? 'true' : 'false' }}" data-lgt-field="module.{{ $module_id }}.tabs.{{ $loop->index }}.title">{{ $tabs['title'] ?: __('shop/design.unnamed_group') }}</button>
           @endforeach
         </div>
         <div class="tab-content">

@@ -6,14 +6,14 @@
           <div class="text-wrap {{ $content['text_position'] == 'left' ? 'align-items-start text-start' : ($content['text_position'] == 'center' ? 'align-items-center text-center' : 'align-items-end text-end') }}" style="background-color: {{ $content['bg_color'] }}; color: {{ $content['text_color'] ?? '#222' }}">
             <div style="max-width: {{ $content['text_max_width'] ?? '1900' }}px">
               @if ($content['title'])
-                <h2 class="title">{{ $content['title'] }}</h2>
+                <h2 class="title" data-lgt-field="module.{{ $module_id }}.title">{{ $content['title'] }}</h2>
               @endif
               @if ($content['sub_title'])
-              <div class="fs-4 sub-title mb-4">{{ $content['sub_title'] }}</div>
+              <div class="fs-4 sub-title mb-4" data-lgt-field="module.{{ $module_id }}.sub_title">{{ $content['sub_title'] }}</div>
               @endif
-              <p class="description">{{ $content['description'] }}</p>
+              <p class="description" data-lgt-field="module.{{ $module_id }}.description">{{ $content['description'] }}</p>
               @if ($content['link'])
-                <a href="{{ $content['link'] }}" class="btn btn-lg" style="background-color: {{ $content['btn_bg'] ?? '#fd560f' }}; color: {{ $content['btn_color'] ?? '#fff' }}">{{ $content['button_text'] }}</a>
+                <a href="{{ $content['link'] }}" class="btn btn-lg" data-lgt-field="module.{{ $module_id }}.button_text" style="background-color: {{ $content['btn_bg'] ?? '#fd560f' }}; color: {{ $content['btn_color'] ?? '#fff' }}">{{ $content['button_text'] }}</a>
               @endif
             </div>
           </div>

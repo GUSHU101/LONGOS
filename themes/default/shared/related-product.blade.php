@@ -7,7 +7,7 @@
   $imageMedium = $responsiveSources->first(fn ($source) => (int) $source['width'] >= 560)['url'] ?? $sourceImage;
   $priceId = 'related-product-price-' . (int) $product['id'];
 @endphp
-<article class="related-product-card">
+<article class="related-product-card" data-lgt-root data-lgt-kind="product" data-lgt-entity="{{ (int) $product['id'] }}">
   <a class="related-product-card__media" href="{{ $product['url'] }}">
     <img
       src="{{ $imageMedium }}"
@@ -22,7 +22,7 @@
   </a>
 
   <div class="related-product-card__body">
-    <h3><a href="{{ $product['url'] }}">{{ $product['name_format'] }}</a></h3>
+    <h3><a href="{{ $product['url'] }}" data-lgt-field="name">{{ $product['name_format'] }}</a></h3>
     @hookwrapper('product_list.item.price')
     @if ((system_setting('base.show_price_after_login') and current_customer()) or !system_setting('base.show_price_after_login'))
       <div class="related-product-card__price" id="{{ $priceId }}">

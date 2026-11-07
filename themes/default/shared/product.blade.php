@@ -13,7 +13,7 @@
   $secondaryImage = $cardImages[1] ?? '';
   $secondarySrcset = $buildSrcset($cardImageSrcsets[1] ?? []);
 @endphp
-<article class="product-wrap {{ request('style_list') ?? '' }} {{ $style_list ?? '' }}">
+<article class="product-wrap {{ request('style_list') ?? '' }} {{ $style_list ?? '' }}" data-lgt-root data-lgt-kind="product" data-lgt-entity="{{ (int) $product['id'] }}">
   <div class="image">
     @hook('product_list.item.image.tag')
 
@@ -86,7 +86,7 @@
   </div>
   <div class="product-bottom-info">
     @hook('product_list.item.name.before')
-    <h3 class="product-name"><a href="{{ $product['url'] }}">{{ $product['name_format'] }}</a></h3>
+    <h3 class="product-name"><a href="{{ $product['url'] }}" data-lgt-field="name">{{ $product['name_format'] }}</a></h3>
 
     @hookwrapper('product_list.item.price')
     @if ((system_setting('base.show_price_after_login') and current_customer()) or !system_setting('base.show_price_after_login'))

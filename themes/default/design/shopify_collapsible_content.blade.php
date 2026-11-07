@@ -17,7 +17,7 @@
                 </summary>
                 <div class="shopify-collapsible-content__body" role="region" aria-labelledby="shopify-collapsible-summary-{{ $module_id }}-{{ $loop->iteration }}">
                   @if(!empty($block['html'])){!! $block['html'] !!}@endif
-                  @if(!empty($block['page_html'])){!! $block['page_html'] !!}@endif
+                  @if(!empty($block['page_html']))<div @if(!empty($block['page_id'])) data-lgt-root data-lgt-kind="page" data-lgt-entity="{{ (int) $block['page_id'] }}" @endif data-lgt-richtext="content">{!! $block['page_html'] !!}</div>@endif
                 </div>
               </details>
             @empty

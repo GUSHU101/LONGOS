@@ -47,6 +47,11 @@ final class BaiduProvider extends AbstractTranslationProvider
             throw new InvalidArgumentException('INVALID_BAIDU_REQUEST');
         }
         $started = hrtime(true);
+        // The documented general endpoint has no structured context field.
+        // Keep the source payload byte-for-byte limited to the already
+        // protected public segment: never concatenate a rule prompt into q.
+        // Locale rules and approved terminology are applied upstream by the
+        // shared CommerceTranslationProfile/TextContract pipeline.
         $q       = $request->segments[0];
         $salt    = bin2hex(random_bytes(12));
         // Sign the exact UTF-8 source before form encoding, per the public API contract.

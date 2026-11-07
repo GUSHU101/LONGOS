@@ -14,17 +14,17 @@
         <div class="card mb-4 shadow-sm h-min-600">
           <div class="card-body">
             @foreach ($active_pages as $page)
-              <div class="post-item">
+              <div class="post-item" data-lgt-root data-lgt-kind="page" data-lgt-entity="{{ (int) $page->id }}">
                 @if ($page->image)
                 <a class="image rounded-2" href="{{ shop_route('pages.show', [$page->id]) }}">
                   <img src="{{ image_resize($page->image, 200, 200) }}" class="img-fluid seo-img" alt="{{ $page->description->title }}">
                 </a>
                 @endif
                 <div class="post-info">
-                  <h5 class="card-title mb-2"><a class="text-black" href="{{ shop_route('pages.show', [$page->id]) }}">{{ $page->description->title }}</a></h5>
+                  <h5 class="card-title mb-2"><a class="text-black" href="{{ shop_route('pages.show', [$page->id]) }}" data-lgt-field="title">{{ $page->description->title }}</a></h5>
                   <p class="fs-6 mb-3 text-secondary">{{ $page->created_at }}</p>
                   @if ($page->description->summary)
-                    <p class="card-text mb-3">{{ $page->description->summary ?? '' }}</p>
+                    <p class="card-text mb-3" data-lgt-field="summary">{{ $page->description->summary ?? '' }}</p>
                   @endif
                   <div class="text-danger"><a href="{{ shop_route('pages.show', [$page->id]) }}">{{ __('shop/account.check_details') }}<i class="bi bi-arrow-right-short"></i></a></div>
                 </div>
@@ -47,9 +47,9 @@
             <div class="card-body">
               <ul class="list-group list-group-flush">
                 @foreach ($active_page_categories as $category)
-                  <li class="list-group-item p-0">
+                  <li class="list-group-item p-0" data-lgt-root data-lgt-kind="page_category" data-lgt-entity="{{ (int) $category->id }}">
                     <a href="{{ shop_route('page_categories.show', [$category->id]) }}"
-                      class="p-2 list-group-item-action nav-link">{{ $category->description->title }}</a>
+                      class="p-2 list-group-item-action nav-link" data-lgt-field="title">{{ $category->description->title }}</a>
                   </li>
                 @endforeach
               </ul>

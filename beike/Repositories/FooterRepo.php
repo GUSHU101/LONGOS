@@ -307,7 +307,7 @@ class FooterRepo
         foreach ($contentLinkKeys as $contentLinkKey) {
             $links                                              = $content[$contentLinkKey]['links'] ?? [];
             $footerSetting['content'][$contentLinkKey]['title'] = self::localizedText($content[$contentLinkKey]['title'] ?? '');
-            $links                                              = collect($links)->map(function ($link) {
+            $links                                              = collect($links)->map(function ($link, $index) {
                 $fallbackText = self::localizedText($link['text'] ?? '');
 
                 try {
@@ -327,6 +327,11 @@ class FooterRepo
 
                 $link['link'] = is_string($link['link'] ?? null) ? $link['link'] : '';
                 $link['text'] = is_scalar($link['text'] ?? null) ? (string) $link['text'] : $fallbackText;
+                // Keep the published settings array position available to
+                // the storefront marker. It is presentation metadata only;
+                // URL/value fields remain outside Global Translate's source
+                // allowlist.
+                $link['_lgt_index'] = is_int($index) || ctype_digit((string) $index) ? (int) $index : 0;
 
                 return $link;
             })->toArray();
@@ -336,6 +341,7 @@ class FooterRepo
         foreach ($footerSetting['services']['items'] as $index => $item) {
             $footerSetting['services']['items'][$index]['title']     = self::localizedText($item['title'] ?? '');
             $footerSetting['services']['items'][$index]['sub_title'] = self::localizedText($item['sub_title'] ?? '');
+            $footerSetting['services']['items'][$index]['_lgt_index'] = $index;
         }
 
         $copyright = self::sanitizeRichText(self::localizedText($footerSetting['bottom']['copyright'] ?? ''));

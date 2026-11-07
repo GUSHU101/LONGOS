@@ -1,4 +1,4 @@
-<header>
+<header data-lgt-root data-lgt-kind="chrome" data-lgt-entity="1">
   @php
     // Keep this as a full Blade PHP block. A compact directive
     // cannot safely parse the nested system_setting() call plus array access
@@ -27,9 +27,9 @@
           @endphp
           @if ($announcementTitle !== '')
             @if ($announcementUrl)
-              <a class="store-announcement-bar__item" href="{{ $announcementUrl }}" @if(($announcement['link']['new_window'] ?? false) === true) target="_blank" rel="noopener noreferrer" @endif>{{ $announcementTitle }}</a>
+              <a class="store-announcement-bar__item" data-lgt-field="header.header_ads.items.{{ $loop->index }}.title" href="{{ $announcementUrl }}" @if(($announcement['link']['new_window'] ?? false) === true) target="_blank" rel="noopener noreferrer" @endif>{{ $announcementTitle }}</a>
             @else
-              <span class="store-announcement-bar__item">{{ $announcementTitle }}</span>
+              <span class="store-announcement-bar__item" data-lgt-field="header.header_ads.items.{{ $loop->index }}.title">{{ $announcementTitle }}</span>
             @endif
           @endif
         @endforeach

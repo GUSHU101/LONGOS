@@ -4,6 +4,7 @@ namespace Plugin\LongosGlobalTranslate\Providers;
 
 use GuzzleHttp\Client;
 use GuzzleHttp\ClientInterface;
+use GuzzleHttp\Exception\ConnectException;
 use GuzzleHttp\Exception\TransferException;
 use InvalidArgumentException;
 use Plugin\LongosGlobalTranslate\Services\TextContract;
@@ -62,6 +63,13 @@ abstract class AbstractTranslationProvider implements TranslationProviderInterfa
     /** @return array{kind:string,code:string,definitely_unbilled:bool} */
     public function classifyFailure(\Throwable|TranslationProviderResponse $failure): array
     {
+        if ($failure instanceof ConnectException) {
+            // Guzzle raises ConnectException only while opening the transport
+            // connection (DNS/TCP/TLS setup). At that point no HTTP request
+            // body can have reached the translation provider, so this is safe
+            // to fail over without risking a duplicate paid translation.
+            return ['kind' => 'definite_failure', 'code' => 'NETWORK_CONNECT_FAILED', 'definitely_unbilled' => true];
+        }
         if ($failure instanceof TransferException) {
             // A transfer exception can occur after a request left the process.
             return ['kind' => 'uncertain', 'code' => 'NETWORK_AFTER_SEND', 'definitely_unbilled' => false];

@@ -926,6 +926,17 @@ class DesignService
         if (preg_match('/^[a-z][a-z0-9_-]{0,63}$/', $moduleCode)) {
             $attributes[] = 'data-builder-module-code="' . e($moduleCode) . '"';
         }
+        // Every rendered Builder section has a stable, public identity. The
+        // optional LONGOS Global Translate plugin uses it to request only the
+        // already-published dictionary for this section; without that plugin
+        // these data attributes have no behavioural effect. Preserve existing
+        // component roots to avoid duplicate dictionary reads.
+        if ($moduleId !== '' && ! str_contains($html, 'data-lgt-root')) {
+            $translateEntity = (int) hexdec(substr(hash('sha256', 'lgt-builder:' . $moduleId), 0, 15));
+            $attributes[]    = 'data-lgt-root';
+            $attributes[]    = 'data-lgt-kind="builder"';
+            $attributes[]    = 'data-lgt-entity="' . $translateEntity . '"';
+        }
 
         // Layout controls live on the stable wrapper so every native and
         // plugin-contributed section gets identical spacing/anchor behavior.
@@ -1207,7 +1218,12 @@ class DesignService
             $content['categories'] = $paginator->getCollection()->map(static function (\Beike\Models\Category $category): array {
                 $description = $category->description;
 
-                return ['name' => is_scalar($description?->name) ? mb_substr(trim(strip_tags((string) $description->name)), 0, 500) : '', 'image' => $category->image ? self::safeImageSource(image_origin($category->image)) : '', 'url' => self::safeStorefrontUrl((string) $category->url)];
+                return [
+                    'id'    => (int) $category->id,
+                    'name'  => is_scalar($description?->name) ? mb_substr(trim(strip_tags((string) $description->name)), 0, 500) : '',
+                    'image' => $category->image ? self::safeImageSource(image_origin($category->image)) : '',
+                    'url'   => self::safeStorefrontUrl((string) $category->url),
+                ];
             })->all();
             $content['pagination'] = ['previous' => self::safeStorefrontUrl((string) ($paginator->previousPageUrl() ?? '')), 'next' => self::safeStorefrontUrl((string) ($paginator->nextPageUrl() ?? '')), 'current' => $paginator->currentPage(), 'last' => $paginator->lastPage()];
         } catch (\Throwable) {
@@ -1361,6 +1377,7 @@ class DesignService
                 // indicator remains the accessible control affordance.
                 'icon'      => preg_match('/^[a-z_]{1,40}$/', $icon) ? $icon : 'none',
                 'html'      => self::sanitizeShopifyRichText(self::localizedValue($block['row_content'] ?? '')),
+                'page_id'   => $page['id'],
                 'page_html' => $page['html'],
                 'page_url'  => $page['url'],
             ];
@@ -1518,6 +1535,7 @@ class DesignService
                 : (is_scalar($description?->content) ? (string) $description->content : '');
 
             return [
+                'id'      => (int) $page->id,
                 'title'   => is_scalar($description?->title) ? mb_substr(trim(strip_tags((string) $description->title)), 0, 500) : '',
                 'summary' => mb_substr(trim(strip_tags($summary)), 0, 320),
                 'image'   => $page->image ? self::safeImageSource(image_origin($page->image)) : '',
@@ -1612,15 +1630,16 @@ class DesignService
     {
         $id = filter_var($pageId, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
         if (! $id) {
-            return ['title' => '', 'html' => '', 'url' => ''];
+            return ['id' => null, 'title' => '', 'html' => '', 'url' => ''];
         }
         $page = \Beike\Models\Page::query()->with('description')->where('active', true)->find($id);
         if (! $page) {
-            return ['title' => '', 'html' => '', 'url' => ''];
+            return ['id' => null, 'title' => '', 'html' => '', 'url' => ''];
         }
         $description = $page->description;
 
         return [
+            'id'    => (int) $page->id,
             'title' => is_scalar($description?->title) ? mb_substr(trim(strip_tags((string) $description->title)), 0, 500) : '',
             'html'  => self::sanitizeShopifyRichText(is_scalar($description?->content) ? (string) $description->content : ''),
             'url'   => self::safeStorefrontUrl((string) $page->url),

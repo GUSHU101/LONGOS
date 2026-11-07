@@ -326,8 +326,8 @@ final class AdminTranslationController extends Controller
     public function scan(Request $request): JsonResponse
     {
         $this->requireSchema();
-        $data  = $request->validate(['scope' => ['present', 'array', 'max:5'], 'scope.*' => ['in:product,category,page,builder,commerce_ui']]);
-        $scope = $data['scope'] ?: ['product', 'category', 'page', 'builder', 'commerce_ui'];
+        $data  = $request->validate(['scope' => ['present', 'array', 'max:7'], 'scope.*' => ['in:product,category,page,page_category,builder,chrome,commerce_ui']]);
+        $scope = $this->normalizeScope($data['scope'] ?: ['product', 'category', 'page', 'page_category', 'builder', 'chrome', 'commerce_ui']);
 
         return $this->json(['report' => $this->scanner->scan($scope, $this->actorId())]);
     }
@@ -338,11 +338,11 @@ final class AdminTranslationController extends Controller
         $data = $request->validate([
             'locales'   => ['required', 'array', 'min:1', 'max:24'],
             'locales.*' => ['string', 'max:24'],
-            'scope'     => ['required', 'array', 'min:1', 'max:5'],
-            'scope.*'   => ['in:product,category,page,builder,commerce_ui'],
+            'scope'     => ['required', 'array', 'min:1', 'max:7'],
+            'scope.*'   => ['in:product,category,page,page_category,builder,chrome,commerce_ui'],
         ]);
 
-        return $this->json($this->jobs->plan($data['locales'], $data['scope'], $this->actorId()), 201);
+        return $this->json($this->jobs->plan($data['locales'], $this->normalizeScope($data['scope']), $this->actorId()), 201);
     }
 
     /**
@@ -375,7 +375,7 @@ final class AdminTranslationController extends Controller
         $data = $request->validate([
             'locale' => ['nullable', 'string', 'max:24'],
             'status' => ['nullable', 'in:pending,translated,needs_review,approved,stale'],
-            'kind'   => ['nullable', 'in:product,category,page,builder,commerce_ui'],
+            'kind'   => ['nullable', 'in:product,category,page,page_category,builder,chrome,commerce_ui'],
             'q'      => ['nullable', 'string', 'max:100'],
             'page'   => ['nullable', 'integer', 'min:1', 'max:500'],
         ]);
@@ -526,7 +526,7 @@ final class AdminTranslationController extends Controller
     private function providerRules(bool $creating): array
     {
         return [
-            'provider'              => $creating ? ['required', 'in:aliyun,volcengine,baidu'] : ['prohibited'],
+            'provider'              => $creating ? ['required', 'in:' . implode(',', ProviderAccountService::PROVIDERS)] : ['prohibited'],
             'billing_identity'      => $creating ? ['required', 'string', 'max:255'] : ['prohibited'],
             'account_tier'          => ['nullable', 'string', 'max:48'],
             'free_quota'            => ['nullable', 'integer', 'min:0', 'max:10000000000'],
@@ -787,6 +787,26 @@ final class AdminTranslationController extends Controller
     private function actorId(): ?int
     {
         return current_user()?->id ? (int) current_user()->id : null;
+    }
+
+    /**
+     * Header/menu/footer copy belongs to the same immutable published visual
+     * state as Builder modules. Keep it coupled to Builder runs so an
+     * operator cannot accidentally publish a translated homepage whose
+     * navigation remains in the old language. Explicit chrome-only runs are
+     * still supported for a small navigation/footer correction.
+     *
+     * @param list<string> $scope
+     * @return list<string>
+     */
+    private function normalizeScope(array $scope): array
+    {
+        $scope = array_values(array_unique($scope));
+        if (in_array('builder', $scope, true) && ! in_array('chrome', $scope, true)) {
+            $scope[] = 'chrome';
+        }
+
+        return $scope;
     }
 
     /** @param array<string, mixed> $before @param array<string, mixed> $after */

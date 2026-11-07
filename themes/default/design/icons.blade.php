@@ -12,10 +12,10 @@
 <section class="module-item {{ $design ? 'module-item-design' : ''}}" id="module-{{ $module_id }}" @if(!empty($content['title'])) aria-labelledby="module-heading-{{ $module_id }}" @endif @include('design.partials.section_style')>
   <div class="module-info module-icons module-icons--{{ $content['style_variant'] ?? 'minimal' }} {{ $imageOnly ? 'module-icons--image-only' : '' }}">
     @if ($content['title'])
-    <h2 class="module-title" id="module-heading-{{ $module_id }}">{{ $content['title'] }} <span class="wave-line" aria-hidden="true"></span></h2>
+    <h2 class="module-title" id="module-heading-{{ $module_id }}" data-lgt-field="module.{{ $module_id }}.title">{{ $content['title'] }} <span class="wave-line" aria-hidden="true"></span></h2>
     @endif
     @if ($content['sub_title'])
-    <div class="module-sub-title">{{ $content['sub_title'] }}</div>
+    <div class="module-sub-title" data-lgt-field="module.{{ $module_id }}.sub_title">{{ $content['sub_title'] }}</div>
     @endif
     <div class="{{ $content['module_size'] ?? 'container-fluid' }}">
       <div class="builder-section-grid builder-section-grid--desktop-{{ $content['columns_desktop'] ?? 4 }} builder-section-grid--tablet-{{ $content['columns_tablet'] ?? 2 }} {{ $mobileGridClass }}">
@@ -26,10 +26,10 @@
               @if(!empty($image['image']))<img src="{{ $image['image'] }}" loading="lazy" decoding="async" class="img-fluid seo-img" alt="{{ $image['image_alt'] ?? ''}}">@else<span class="module-icons__fallback" aria-hidden="true">✓</span>@endif
             </div>
             @if ($image['text'])
-            <p class="text-center text-dark mt-2 mb-0 title">{{ $image['text'] }}</p>
+            <p class="text-center text-dark mt-2 mb-0 title" data-lgt-field="module.{{ $module_id }}.images.{{ $loop->index }}.text">{{ $image['text'] }}</p>
             @endif
             @if ($image['sub_text'])
-            <p class="text-center text-secondary mt-2 mb-0 sub-title">{{ $image['sub_text'] }}</p>
+            <p class="text-center text-secondary mt-2 mb-0 sub-title" data-lgt-field="module.{{ $module_id }}.images.{{ $loop->index }}.sub_text">{{ $image['sub_text'] }}</p>
             @endif
           @if (!empty($image['url']))</a>@else</div>@endif
         </div>

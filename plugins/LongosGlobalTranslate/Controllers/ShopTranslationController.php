@@ -13,7 +13,7 @@ use Plugin\LongosGlobalTranslate\Services\TranslationSettings;
 
 final class ShopTranslationController extends Controller
 {
-    private const PLUGIN_RELEASE = '1.5.3';
+    private const PLUGIN_RELEASE = '1.5.6';
 
     public function __construct(
         private readonly TranslationSettings $settings,
@@ -59,7 +59,7 @@ final class ShopTranslationController extends Controller
             ->whereIn('pi.publication_id', $currentPublicationIds)
             ->where('e.kind', 'builder')->where('e.is_public', true)->where('e.is_tombstoned', false)
             ->whereColumn('pi.source_hash', 'e.source_hash')
-            ->distinct()->limit(16)->pluck('e.entity_id')->map(static fn ($id): string => (string) $id)->all();
+            ->distinct()->limit(240)->pluck('e.entity_id')->map(static fn ($id): string => (string) $id)->all();
 
         return $this->json([
             'plugin_release'           => self::PLUGIN_RELEASE,
@@ -134,19 +134,19 @@ final class ShopTranslationController extends Controller
         }
         $data = $request->validate([
             'locale'   => ['required', 'string', 'max:24'],
-            'entities' => ['required', 'string', 'max:2500'],
+            'entities' => ['required', 'string', 'max:4000'],
         ]);
         $locale = TranslationSettings::locale($data['locale']);
         if (! in_array($locale, array_merge([$settings['source_locale']], $settings['enabled_locales']), true)) {
             abort(422, 'Unsupported presentation locale.');
         }
         $keys = array_values(array_unique(explode(',', (string) $data['entities'])));
-        if (count($keys) > 48) {
+        if (count($keys) > 72) {
             abort(422, 'Too many entities.');
         }
         $dictionaries = [];
         foreach ($keys as $key) {
-            if (! preg_match('/^(product|category|page|builder):([1-9][0-9]{0,18})$/D', $key, $matches)) {
+            if (! preg_match('/^(product|category|page|page_category|builder|chrome):([1-9][0-9]{0,18})$/D', $key, $matches)) {
                 abort(422, 'Invalid public entity.');
             }
             $id = filter_var($matches[2], FILTER_VALIDATE_INT);

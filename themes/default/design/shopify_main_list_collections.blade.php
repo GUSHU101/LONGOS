@@ -3,7 +3,7 @@
     <h2>{{ $content['title'] }}</h2>
     <ul class="shopify-collection-directory__grid" role="list">
       @forelse($content['categories'] as $category)
-        <li><a href="{{ $category['url'] }}" aria-label="{{ $category['name'] ?: __('shop/design.collection') }}"><div class="shopify-collection-directory__media">@if($category['image'])<img src="{{ $category['image'] }}" alt="" loading="lazy" decoding="async">@else<div aria-hidden="true"></div>@endif</div><h3>{{ $category['name'] ?: __('shop/design.collection') }}</h3></a></li>
+        <li @if(!empty($category['id'])) data-lgt-root data-lgt-kind="category" data-lgt-entity="{{ (int) $category['id'] }}" @endif><a href="{{ $category['url'] }}" aria-label="{{ $category['name'] ?: __('shop/design.collection') }}"><div class="shopify-collection-directory__media">@if($category['image'])<img src="{{ $category['image'] }}" alt="" loading="lazy" decoding="async">@else<div aria-hidden="true"></div>@endif</div><h3 data-lgt-field="name">{{ $category['name'] ?: __('shop/design.collection') }}</h3></a></li>
       @empty
         @if($design)<li class="shopify-collection-directory__empty">{{ __('shop/design.empty.shopify_collection_directory') }}</li>@endif
       @endforelse

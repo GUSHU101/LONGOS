@@ -5,13 +5,13 @@
       <div class="shopify-featured-blog__viewport" tabindex="0" aria-label="Featured articles">
         <ul class="shopify-featured-blog__grid">
           @forelse($content['articles'] as $article)
-            <li class="shopify-featured-blog__item">
+            <li class="shopify-featured-blog__item" @if(!empty($article['id'])) data-lgt-root data-lgt-kind="page" data-lgt-entity="{{ (int) $article['id'] }}" @endif>
               <article class="shopify-featured-blog__card">
                 @if(!empty($content['show_image']))<div class="shopify-featured-blog__media">@if(!empty($article['image']))<img src="{{ $article['image'] }}" alt="" loading="lazy" decoding="async">@else<div class="shopify-featured-blog__placeholder" aria-hidden="true"></div>@endif</div>@endif
                 <div class="shopify-featured-blog__content">
                   @if(!empty($content['show_date']) || (!empty($content['show_author']) && !empty($article['author'])))<p class="shopify-featured-blog__meta">@if(!empty($content['show_date']) && !empty($article['date']))<time datetime="{{ $article['date'] }}">{{ $article['date'] }}</time>@endif @if(!empty($content['show_author']) && !empty($article['author']))<span>{{ $article['author'] }}</span>@endif</p>@endif
-                  @if(!empty($article['title']))<h3>@if(!empty($article['url']))<a href="{{ $article['url'] }}">{{ $article['title'] }}</a>@else{{ $article['title'] }}@endif</h3>@endif
-                  @if(!empty($article['summary']))<p class="shopify-featured-blog__summary">{{ $article['summary'] }}</p>@endif
+                  @if(!empty($article['title']))<h3>@if(!empty($article['url']))<a href="{{ $article['url'] }}" data-lgt-field="title">{{ $article['title'] }}</a>@else<span data-lgt-field="title">{{ $article['title'] }}</span>@endif</h3>@endif
+                  @if(!empty($article['summary']))<p class="shopify-featured-blog__summary" data-lgt-field="summary">{{ $article['summary'] }}</p>@endif
                   @if(!empty($article['url']))<a class="shopify-featured-blog__read" href="{{ $article['url'] }}">{{ __('shop/design.read_article') }} <span aria-hidden="true">→</span></a>@endif
                 </div>
               </article>

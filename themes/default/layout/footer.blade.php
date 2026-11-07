@@ -14,10 +14,14 @@
     is_array($store_policies ?? null) ? $store_policies : [],
     static fn ($policy) => is_array($policy) && !empty($policy['url']) && !empty($policy['title'])
   ));
-  $serviceItems = array_values(array_filter(
-    is_array($footer_content['services']['items'] ?? null) ? $footer_content['services']['items'] : [],
-    static fn ($item) => is_array($item) && ($item['show'] ?? true) !== false && trim((string) ($item['title'] ?? '')) !== ''
-  ));
+  $serviceItems = [];
+  foreach ((is_array($footer_content['services']['items'] ?? null) ? $footer_content['services']['items'] : []) as $serviceIndex => $item) {
+    if (!is_array($item) || ($item['show'] ?? true) === false || trim((string) ($item['title'] ?? '')) === '') {
+      continue;
+    }
+    $item['_lgt_index'] = $item['_lgt_index'] ?? $serviceIndex;
+    $serviceItems[] = $item;
+  }
   $showProtection = !empty($footer_content['services']['enable']) && !empty($serviceItems);
 
   $customGroups = [];
@@ -28,7 +32,7 @@
       static fn ($link) => is_array($link) && !empty($link['link']) && trim((string) ($link['text'] ?? '')) !== ''
     ));
     if (trim((string) ($group['title'] ?? '')) !== '' && $links) {
-      $customGroups[] = ['title' => (string) $group['title'], 'links' => $links];
+      $customGroups[] = ['key' => $groupKey, 'title' => (string) $group['title'], 'links' => $links];
     }
   }
 
@@ -45,7 +49,7 @@
   $contactDialogId = 'longos-footer-contact-dialog';
 @endphp
 
-<footer class="site-footer longos-footer" data-longos-footer>
+<footer class="site-footer longos-footer" data-longos-footer data-lgt-root data-lgt-kind="chrome" data-lgt-entity="1">
   @hook('footer.before')
   <div class="longos-footer__inner footer-shell container-fluid">
     <section class="longos-footer__top" aria-label="{{ site_brand_name() }}">
@@ -85,7 +89,7 @@
           @foreach (array_slice($serviceItems, 0, 4) as $item)
             <span class="longos-footer__protection-item" role="listitem">
               <i class="bi bi-check2" aria-hidden="true"></i>
-              <span><strong>{{ $item['title'] }}</strong>@if(!empty($item['sub_title']))<small>{{ $item['sub_title'] }}</small>@endif</span>
+              <span><strong data-lgt-field="footer.services.items.{{ $item['_lgt_index'] }}.title">{{ $item['title'] }}</strong>@if(!empty($item['sub_title']))<small data-lgt-field="footer.services.items.{{ $item['_lgt_index'] }}.sub_title">{{ $item['sub_title'] }}</small>@endif</span>
             </span>
           @endforeach
         </div>
@@ -120,11 +124,11 @@
       @foreach ($customGroups as $groupIndex => $group)
         <section class="longos-footer__column footer-link-wrap">
           <h2 class="longos-footer__heading">
-            <span>{{ $group['title'] }}</span>
+            <span data-lgt-field="footer.content.{{ $group['key'] }}.title">{{ $group['title'] }}</span>
             <button class="footer-toggle" type="button" aria-expanded="false" aria-controls="longos-footer-custom-{{ $groupIndex }}" aria-label="{{ $group['title'] }}"><i class="bi bi-plus-lg" aria-hidden="true"></i></button>
           </h2>
           <nav id="longos-footer-custom-{{ $groupIndex }}" class="longos-footer__links footer-collapsible" aria-label="{{ $group['title'] }}">
-            @foreach ($group['links'] as $link)<a href="{{ $link['link'] }}" @if(!empty($link['new_window'])) target="_blank" rel="noopener noreferrer" @endif>{{ $link['text'] }}</a>@endforeach
+            @foreach ($group['links'] as $link)<a href="{{ $link['link'] }}" data-lgt-field="footer.content.{{ $group['key'] }}.links.{{ $link['_lgt_index'] ?? $loop->index }}.text" @if(!empty($link['new_window'])) target="_blank" rel="noopener noreferrer" @endif>{{ $link['text'] }}</a>@endforeach
           </nav>
         </section>
       @endforeach

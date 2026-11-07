@@ -53,7 +53,7 @@
                       cx="12" cy="12" r="3"></circle></svg> {{ __('page_category.views') }}: {{ $page->views }}</span>
               </div>
             @endif
-            <div class="rich-text-editor-content">{!! $page_format['content'] !!}</div>
+            <div class="rich-text-editor-content" data-lgt-richtext="content">{!! $page_format['content'] !!}</div>
 
 
             @if ($products)

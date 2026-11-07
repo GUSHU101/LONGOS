@@ -16,24 +16,24 @@
       <div class="col-lg-9 col-12">
         <div class="card mb-4 shadow-sm h-min-600">
           <div class="card-body">
-            <div class="mb-4">
-              <h3>{{ $category->description->title }}</h3>
-              <div>{{ $category->description->summary }}</div>
+            <div class="mb-4" data-lgt-root data-lgt-kind="page_category" data-lgt-entity="{{ (int) $category->id }}">
+              <h3 data-lgt-field="title">{{ $category->description->title }}</h3>
+              <div data-lgt-field="summary">{{ $category->description->summary }}</div>
             </div>
             @if ($category_pages->count() > 0)
               @foreach ($category_pages as $page)
-                <div class="post-item">
+                <div class="post-item" data-lgt-root data-lgt-kind="page" data-lgt-entity="{{ (int) $page->id }}">
                   @if ($page->image)
                   <a class="image rounded-2" href="{{ shop_route('pages.show', [$page->id]) }}">
                     <img src="{{ image_origin($page->image) }}" class="img-fluid seo-img" alt="{{ $page->description->title }}">
                   </a>
                   @endif
                   <div class="post-info">
-                    <h5 class="card-title mb-2"><a class="text-black"
+                    <h5 class="card-title mb-2"><a class="text-black" data-lgt-field="title"
                         href="{{ type_route('page', $page) }}">{{ $page->description->title }}</a></h5>
                     <p class="fs-6 mb-3 text-secondary">{{ $page->created_at }}</p>
                     @if ($page->description->summary)
-                      <p class="card-text mb-4 text-summary">{{ $page->description->summary ?? '' }}</p>
+                      <p class="card-text mb-4 text-summary" data-lgt-field="summary">{{ $page->description->summary ?? '' }}</p>
                     @endif
                     <div class="text-danger"><a
                         href="{{ type_route('page', $page) }}">{{ __('shop/account.check_details') }}<i
@@ -63,9 +63,9 @@
             <div class="card-body">
               <ul class="list-group list-group-flush">
                 @foreach ($active_page_categories as $category)
-                  <li class="list-group-item p-0">
+                  <li class="list-group-item p-0" data-lgt-root data-lgt-kind="page_category" data-lgt-entity="{{ (int) $category->id }}">
                     <a href="{{ type_route('page_category', $category) }}"
-                      class="p-2 list-group-item-action nav-link">{{ $category->description->title }}</a>
+                      class="p-2 list-group-item-action nav-link" data-lgt-field="title">{{ $category->description->title }}</a>
                   </li>
                 @endforeach
               </ul>

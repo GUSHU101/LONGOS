@@ -78,11 +78,14 @@ final class TextContract
         $quotedTerms = array_values(array_map(static fn (string $term): string => preg_quote($term, '~'), array_keys($replacements)));
         $termPattern = $quotedTerms === [] ? '(?!)' : '(?:' . implode('|', $quotedTerms) . ')';
         $masked      = preg_replace_callback('~' . $termPattern . '|https?://[^\s<>]+|[\w.+-]+@[\w.-]+\.[a-z]{2,}|\{\{[^{}]+\}\}|\{[\w]+\}|(?<!\w):[a-zA-Z_]+|%[sd]|[$€£]?\d+(?:[.,]\d+)*(?:%|\s?(?:kg|cm|mm|GB|TB))?~u', function (array $match) use (&$tokens, $nonce, $replacements): string {
-            // Bracketed, delimiter-separated markers survive the common
-            // normalisation performed by translation providers much better
-            // than a run of underscores. The nonce and digest still make a
-            // marker unguessable and bind it to this exact source fragment.
-            $token          = '[[LGT:' . $nonce . ':' . count($tokens) . ':' . substr(hash('sha256', $match[0]), 0, 8) . ']]';
+            // Translation engines routinely turn brackets, underscores and
+            // punctuation into typographic variants. A single opaque ASCII
+            // word has proved far more stable across all supported engines:
+            // it is neither a translatable word nor markup. The nonce,
+            // ordinal and digest still bind it to this exact source fragment,
+            // and restore() still rejects a missing, duplicated or altered
+            // marker. Example: LGTX8a…f1X0Xc8…42.
+            $token          = 'LGTX' . $nonce . 'X' . count($tokens) . 'X' . substr(hash('sha256', $match[0]), 0, 8);
             $tokens[$token] = $replacements[$match[0]] ?? $match[0];
 
             return $token;
@@ -105,7 +108,7 @@ final class TextContract
             }
         }
         $unknownTokenScan = str_replace(array_keys($tokens), '', $translated);
-        if (preg_match('~(?:__|\[\[)LGT(?:_|:)[A-Fa-f0-9]{24}(?:_|:)[0-9]+(?:_|:)[A-Fa-f0-9]{8}(?:__|\]\])~i', $unknownTokenScan) === 1) {
+        if (preg_match('~(?:LGTX[A-Fa-f0-9]{24}X[0-9]+X[A-Fa-f0-9]{8}|(?:__|\[\[)LGT(?:_|:)[A-Fa-f0-9]{24}(?:_|:)[0-9]+(?:_|:)[A-Fa-f0-9]{8}(?:__|\]\]))~i', $unknownTokenScan) === 1) {
             throw new InvalidArgumentException('UNKNOWN_PROTECTED_TOKEN');
         }
         if (trim($translated) === '' || str_contains($translated, '<') || str_contains($translated, '>')) {
@@ -131,11 +134,19 @@ final class TextContract
                 continue;
             }
             [$nonce, $ordinal, $digest] = $parts;
+            // Current LGTX markers contain only letters/numbers, but permit
+            // harmless whitespace and case normalisation. The legacy branch
+            // remains so an in-flight worker created by the prior release
+            // can finish safely during a rolling Coolify deployment.
+            $currentPattern = '~(?<![[:alnum:]])LGTX[\\s_-]*' . preg_quote($nonce, '~')
+                . '[\\s_-]*X[\\s_-]*' . preg_quote($ordinal, '~')
+                . '[\\s_-]*X[\\s_-]*' . preg_quote($digest, '~') . '(?![[:alnum:]])~iu';
             $separator = '[\\s_:\\-：]*';
-            $pattern = '~(?<![[:alnum:]])(?:__|\[\[|\[)?' . $separator
+            $legacyPattern = '~(?<![[:alnum:]])(?:__|\[\[|\[)?' . $separator
                 . 'LGT' . $separator . preg_quote($nonce, '~') . $separator
                 . preg_quote($ordinal, '~') . $separator . preg_quote($digest, '~')
                 . $separator . '(?:__|\]\]|\])?(?![[:alnum:]])~iu';
+            $pattern = str_starts_with($token, 'LGTX') ? $currentPattern : $legacyPattern;
             $candidate = preg_replace($pattern, $token, $translated, -1, $count);
             if ($candidate !== null && $count === 1) {
                 $translated = $candidate;
@@ -148,7 +159,7 @@ final class TextContract
     /** @return array{0:string,1:string,2:string}|null */
     private static function tokenParts(string $token): ?array
     {
-        if (preg_match('~^(?:__LGT_|\[\[LGT:)([a-f0-9]{24})[_:]([0-9]+)[_:]([a-f0-9]{8})(?:__|\]\])$~i', $token, $matches) !== 1) {
+        if (preg_match('~^(?:LGTX|(?:__LGT_|\[\[LGT:))([a-f0-9]{24})(?:X|[_:])([0-9]+)(?:X|[_:])([a-f0-9]{8})(?:__|\]\])?$~i', $token, $matches) !== 1) {
             return null;
         }
 
