@@ -269,12 +269,13 @@ class SaasPluginRouteIsolationTest extends TestCase
 
         self::assertSame(200, $response->getStatusCode());
         self::assertStringContainsString('翻译 API 服务商', $response->getContent());
-        self::assertStringContainsString('展示语言设置', $response->getContent());
         self::assertStringContainsString('id="lgt-provider-form"', $response->getContent());
         self::assertStringContainsString('id="lgt-provider-cancel"', $response->getContent());
         self::assertStringContainsString('lgt-provider-edit', $response->getContent());
         self::assertStringContainsString('id="lgt-settings-form"', $response->getContent());
-        self::assertStringContainsString('展示模式', $response->getContent());
+        self::assertStringContainsString('展示语言与自动匹配', $response->getContent());
+        self::assertStringContainsString('根据访问者 IP 自动应用已发布的地区语言', $response->getContent());
+        self::assertStringContainsString('geo_auto_switch_enabled', $response->getContent());
         self::assertStringContainsString('翻译库', $response->getContent());
         self::assertStringNotContainsString('访问密钥 / App ID', $response->getContent());
         self::assertStringContainsString('前台语言选择器', $response->getContent());
@@ -315,25 +316,96 @@ class SaasPluginRouteIsolationTest extends TestCase
 
     public function test_translation_widget_preserves_csrf_for_manual_switching_and_keeps_commerce_data_outside_its_ui_dictionary(): void
     {
-        $root   = dirname(__DIR__, 2);
-        $script = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Static/public/widget.js');
-        $boot   = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Bootstrap.php');
-        $catalog = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Services/CommerceUiCatalog.php');
-        $widget = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Views/shop/widget.blade.php');
+        $root           = dirname(__DIR__, 2);
+        $script         = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Static/public/widget.js');
+        $boot           = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Bootstrap.php');
+        $catalog        = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Services/CommerceUiCatalog.php');
+        $widget         = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Views/shop/widget.blade.php');
         $shopController = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Controllers/ShopTranslationController.php');
 
-        self::assertStringContainsString("const {headers = {}, ...options} = init", $script);
+        self::assertStringContainsString('const {headers = {}, ...options} = init', $script);
         self::assertStringContainsString("'X-CSRF-TOKEN': csrf", $script);
         self::assertStringContainsString('replaceCommerceInterface', $script);
+        self::assertStringContainsString('applyPresentation(shownLocale(config.locale))', $script);
+        self::assertStringContainsString('safeInterfaceElement', $script);
         self::assertStringContainsString('data-commerce-ui', $widget);
         self::assertStringContainsString("str_starts_with(\$routeName, 'shop.')", $boot);
-        self::assertStringContainsString("str_starts_with(\$routeName, 'platform-pay.')", $boot);
+        self::assertStringContainsString('PlatformPaymentLocaleBridge', $boot);
         self::assertStringNotContainsString("DesignService::isAppEmbedEnabled('longos_global_translate')", $boot);
         self::assertStringNotContainsString('shop.longos_global_translate.lookup', $boot);
         self::assertStringContainsString('input, addresses, SKU names, quantities, amounts, order IDs', $catalog);
         self::assertStringNotContainsString('card number', strtolower($catalog));
         self::assertStringNotContainsString('TranslationJobService', $shopController);
         self::assertStringNotContainsString('ProviderRegistry', $shopController);
+    }
+
+    public function test_default_storefront_pages_share_the_translation_layout_and_hosted_payment_uses_the_safe_server_bridge(): void
+    {
+        $root   = dirname(__DIR__, 2);
+        $master = (string) file_get_contents($root . '/themes/default/layout/master.blade.php');
+        self::assertStringContainsString("@hook('layout.master.footer.code')", $master);
+
+        foreach ([
+            'home.blade.php',
+            'category.blade.php',
+            'product/product.blade.php',
+            'cart/cart.blade.php',
+            'checkout.blade.php',
+            'checkout/payment.blade.php',
+            'checkout/success.blade.php',
+            'account/account.blade.php',
+            'account/login.blade.php',
+            'account/order.blade.php',
+            'order_info.blade.php',
+            'order_recovery.blade.php',
+            'tracking/index.blade.php',
+        ] as $view) {
+            $path = $root . '/themes/default/' . $view;
+            self::assertFileExists($path);
+            self::assertStringContainsString("@extends('layout.master')", (string) file_get_contents($path), $view);
+        }
+
+        $controller = (string) file_get_contents($root . '/app/Http/Controllers/PlatformPaymentController.php');
+        $bridge     = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Services/PlatformPaymentLocaleBridge.php');
+        self::assertStringContainsString('PlatformPaymentLocaleBridge', $controller);
+        self::assertStringContainsString('$this->useSessionLocale($session, request())', $controller);
+        self::assertStringContainsString("app('translator')->addLines", $bridge);
+        self::assertStringContainsString('no outbound request', $bridge);
+        self::assertStringContainsString('never enter the translation library', $bridge);
+        self::assertStringContainsString("SettingRepo::getPluginStatus('longos_global_translate')", $bridge);
+
+        // These three JSON endpoints intentionally do not accept a Request
+        // parameter in their route contract. They must obtain the current
+        // request from Laravel rather than reference an undefined local
+        // variable when applying the optional presentation locale bridge.
+        foreach (['paypalCreate', 'status', 'stripeIntent'] as $method) {
+            self::assertMatchesRegularExpression(
+                '/public function ' . $method . '\\(string \\$token\\): JsonResponse\\s*\\{.*?\\$this->useSessionLocale\\(\\$session, request\\(\\)\\);/s',
+                $controller,
+            );
+        }
+    }
+
+    public function test_translation_widget_release_and_container_asset_publication_stay_in_lockstep(): void
+    {
+        $root     = dirname(__DIR__, 2);
+        $manifest = json_decode((string) file_get_contents($root . '/plugins/LongosGlobalTranslate/config.json'), true);
+        self::assertIsArray($manifest);
+        $release = ltrim((string) ($manifest['version'] ?? ''), 'v');
+        self::assertMatchesRegularExpression('/^\\d+\\.\\d+\\.\\d+$/', $release);
+
+        $shopController = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Controllers/ShopTranslationController.php');
+        $widget         = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Static/public/widget.js');
+        $widgetView     = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Views/shop/widget.blade.php');
+        $synchronizer   = (string) file_get_contents($root . '/app/Services/BundledPluginSynchronizer.php');
+        $entrypoint     = (string) file_get_contents($root . '/docker/nginx/start.sh');
+
+        self::assertStringContainsString("PLUGIN_RELEASE = '{$release}'", $shopController);
+        self::assertStringContainsString("widgetRelease = '{$release}'", $widget);
+        self::assertStringContainsString("?v={$release}", $widgetView);
+        self::assertStringContainsString('PluginRepo::publishPluginFiles($package)', $synchronizer);
+        self::assertStringContainsString('sync_release_tree /opt/longos-seed/plugins plugins', $entrypoint);
+        self::assertStringContainsString('sync_release_tree /opt/longos-seed/public-plugin public/plugin', $entrypoint);
     }
 
     public function test_shopify_transfer_routes_are_tenant_guarded_and_follow_product_permissions(): void

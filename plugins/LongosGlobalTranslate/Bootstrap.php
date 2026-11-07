@@ -58,14 +58,15 @@ class Bootstrap
                 return $output;
             }
 
-            // Every public shop route uses the same published static-label
-            // dictionary.  The browser applies an exact allowlist only, so
-            // broad route coverage does not turn this into a DOM scraper and
-            // cannot submit customer, order, address, amount or payment data
-            // to a translation provider.  Platform-hosted payment pages are
-            // included explicitly because they do not share the shop prefix.
-            $commerceUi = str_starts_with($routeName, 'shop.')
-                || str_starts_with($routeName, 'platform-pay.');
+            // Every public tenant shop route uses the same published static-
+            // label dictionary. The browser applies an exact allowlist only,
+            // so broad route coverage does not turn this into a DOM scraper
+            // and cannot submit customer, order, address, amount or payment
+            // data to a translation provider. The separate control-hosted
+            // platform-payment screen is rendered server-side by
+            // PlatformPaymentLocaleBridge; it cannot use these tenant-host
+            // relative browser endpoints.
+            $commerceUi = str_starts_with($routeName, 'shop.');
 
             return $output . view('LongosGlobalTranslate::shop.widget', compact('settings', 'commerceUi'))->render();
         });

@@ -13,7 +13,7 @@ use Plugin\LongosGlobalTranslate\Services\TranslationSettings;
 
 final class ShopTranslationController extends Controller
 {
-    private const PLUGIN_RELEASE = '1.5.2';
+    private const PLUGIN_RELEASE = '1.5.3';
 
     public function __construct(
         private readonly TranslationSettings $settings,
@@ -62,18 +62,18 @@ final class ShopTranslationController extends Controller
             ->distinct()->limit(16)->pluck('e.entity_id')->map(static fn ($id): string => (string) $id)->all();
 
         return $this->json([
-            'plugin_release' => self::PLUGIN_RELEASE,
-            'enabled'        => (bool) data_get($settings, 'widget.enabled', false),
-            'source_locale'  => $settings['source_locale'],
-            'locales'        => array_values(array_unique(array_merge([$settings['source_locale']], $settings['enabled_locales']))),
-            'published_locales' => $publishedLocales,
-            'builder_entities' => $builderEntities,
-            'locale'         => $decision->locale,
-            'locale_source'  => $decision->source,
-            'country'        => $decision->country,
-            'fallback'       => $decision->fallback,
-            'dictionary_url' => shop_route('longos_global_translate.dictionary', ['kind' => '__kind__', 'entityId' => '__entity__']),
-            'batch_dictionary_url' => shop_route('longos_global_translate.dictionary-batch'),
+            'plugin_release'           => self::PLUGIN_RELEASE,
+            'enabled'                  => (bool) data_get($settings, 'widget.enabled', false),
+            'source_locale'            => $settings['source_locale'],
+            'locales'                  => array_values(array_unique(array_merge([$settings['source_locale']], $settings['enabled_locales']))),
+            'published_locales'        => $publishedLocales,
+            'builder_entities'         => $builderEntities,
+            'locale'                   => $decision->locale,
+            'locale_source'            => $decision->source,
+            'country'                  => $decision->country,
+            'fallback'                 => $decision->fallback,
+            'dictionary_url'           => shop_route('longos_global_translate.dictionary', ['kind' => '__kind__', 'entityId' => '__entity__']),
+            'batch_dictionary_url'     => shop_route('longos_global_translate.dictionary-batch'),
             'interface_dictionary_url' => shop_route('longos_global_translate.interface-dictionary'),
         ]);
     }
@@ -133,7 +133,7 @@ final class ShopTranslationController extends Controller
             return $this->json(['dictionaries' => []]);
         }
         $data = $request->validate([
-            'locale' => ['required', 'string', 'max:24'],
+            'locale'   => ['required', 'string', 'max:24'],
             'entities' => ['required', 'string', 'max:2500'],
         ]);
         $locale = TranslationSettings::locale($data['locale']);
@@ -190,18 +190,18 @@ final class ShopTranslationController extends Controller
     private function disabledConfig(): array
     {
         return [
-            'plugin_release' => self::PLUGIN_RELEASE,
-            'enabled'        => false,
-            'source_locale'  => 'en',
-            'locales'        => ['en'],
-            'published_locales' => [],
-            'builder_entities' => [],
-            'locale'         => 'en',
-            'locale_source'  => 'schema_not_ready',
-            'country'        => null,
-            'fallback'       => true,
-            'dictionary_url' => '',
-            'batch_dictionary_url' => '',
+            'plugin_release'           => self::PLUGIN_RELEASE,
+            'enabled'                  => false,
+            'source_locale'            => 'en',
+            'locales'                  => ['en'],
+            'published_locales'        => [],
+            'builder_entities'         => [],
+            'locale'                   => 'en',
+            'locale_source'            => 'schema_not_ready',
+            'country'                  => null,
+            'fallback'                 => true,
+            'dictionary_url'           => '',
+            'batch_dictionary_url'     => '',
             'interface_dictionary_url' => '',
         ];
     }

@@ -9,8 +9,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Plugin\LongosGlobalTranslate\Services\ContentScanner;
-use Plugin\LongosGlobalTranslate\Services\LocaleCoverageService;
 use Plugin\LongosGlobalTranslate\Services\CountryLocaleCatalog;
+use Plugin\LongosGlobalTranslate\Services\LocaleCoverageService;
 use Plugin\LongosGlobalTranslate\Services\ProviderAccountService;
 use Plugin\LongosGlobalTranslate\Services\ProviderVerificationService;
 use Plugin\LongosGlobalTranslate\Services\PublicationService;
@@ -94,8 +94,8 @@ final class AdminTranslationController extends Controller
         $jobs      = $this->safeDashboardValue('live job status', fn (): array => $this->jobSummaries(), [], $warnings);
 
         $runtime = $this->runtimeReleaseHealth();
-        $health = $dashboard['library_health'];
-        $issues = [];
+        $health  = $dashboard['library_health'];
+        $issues  = [];
         if ($runtime['asset_current'] === false) {
             $issues[] = '前端 widget.js 与插件源码不同步：ZIP 覆盖不会自动重新发布 public/plugin 静态资源。请通过 LONGOS 的正式 Git/Coolify 发布流程同步插件与资源。';
         }
@@ -121,21 +121,30 @@ final class AdminTranslationController extends Controller
         if ($health['published_languages'] === 0) {
             $issues[] = '没有为已启用语言发布包含有效译文的词典：需执行审核并发布。';
         }
+        $commerceExpected       = (int) ($health['commerce_ui_expected'] ?? 0);
+        $commerceSources        = (int) ($health['commerce_ui_sources'] ?? 0);
+        $commerceReadyLanguages = (int) ($health['commerce_ui_ready_languages'] ?? 0);
+        $enabledLocaleCount     = count((array) ($dashboard['settings']['enabled_locales'] ?? []));
+        if ($commerceExpected > 0 && $commerceSources < $commerceExpected) {
+            $issues[] = "结账、账户与支付的固定界面词典尚未完整扫描（{$commerceSources}/{$commerceExpected}）：创建任务时请保留“全前台固定界面文案”。";
+        } elseif ($commerceExpected > 0 && $enabledLocaleCount > 0 && $commerceReadyLanguages < $enabledLocaleCount) {
+            $issues[] = "结账、账户与支付的固定界面词典尚未完整发布到全部启用语言（{$commerceReadyLanguages}/{$enabledLocaleCount}）：商品词典已发布并不表示关键结账页面已翻译。";
+        }
         if (! $health['widget_enabled']) {
             $issues[] = '前台语言选择器处于关闭状态：发布成功后还需开启。';
         }
 
         return $this->json([
-            'ready'            => true,
-            'runtime'          => $runtime,
-            'actionable_issues'=> $issues,
-            'generated_at'     => now()->toIso8601String(),
-            'diagnostics'      => $dashboard['diagnostics'],
-            'library_health'   => $dashboard['library_health'],
-            'jobs'             => $jobs,
-            'accounts'         => $dashboard['accounts'],
-            'publications'     => count($dashboard['publications']),
-            'workspace_alerts' => array_values(array_unique([...$dashboard['workspace_warnings'], ...$warnings])),
+            'ready'             => true,
+            'runtime'           => $runtime,
+            'actionable_issues' => $issues,
+            'generated_at'      => now()->toIso8601String(),
+            'diagnostics'       => $dashboard['diagnostics'],
+            'library_health'    => $dashboard['library_health'],
+            'jobs'              => $jobs,
+            'accounts'          => $dashboard['accounts'],
+            'publications'      => count($dashboard['publications']),
+            'workspace_alerts'  => array_values(array_unique([...$dashboard['workspace_warnings'], ...$warnings])),
         ]);
     }
 
@@ -143,21 +152,21 @@ final class AdminTranslationController extends Controller
     {
         $this->requireSchema();
         $data = $request->validate([
-            'mode'                        => ['required', 'string'],
-            'source_locale'               => ['required', 'string', 'max:24'],
-            'enabled_locales'             => ['present', 'array', 'max:24'],
-            'enabled_locales.*'           => ['string', 'max:24'],
-            'geo_auto_switch_enabled'     => ['boolean'],
-            'accept_language_enabled'     => ['boolean'],
-            'publication'                 => ['nullable', 'array'],
-            'publication.auto_publish_safe' => ['boolean'],
+            'mode'                           => ['required', 'string'],
+            'source_locale'                  => ['required', 'string', 'max:24'],
+            'enabled_locales'                => ['present', 'array', 'max:24'],
+            'enabled_locales.*'              => ['string', 'max:24'],
+            'geo_auto_switch_enabled'        => ['boolean'],
+            'accept_language_enabled'        => ['boolean'],
+            'publication'                    => ['nullable', 'array'],
+            'publication.auto_publish_safe'  => ['boolean'],
             'publication.auto_enable_widget' => ['boolean'],
-            'widget'                      => ['required', 'array'],
-            'widget.enabled'              => ['boolean'],
-            'widget.position'             => ['required', 'string'],
-            'widget.bottom_offset'        => ['nullable', 'integer', 'min:16', 'max:240'],
-            'widget.mobile_bottom_offset' => ['nullable', 'integer', 'min:16', 'max:260'],
-            'widget.theme'                => ['required', 'string'],
+            'widget'                         => ['required', 'array'],
+            'widget.enabled'                 => ['boolean'],
+            'widget.position'                => ['required', 'string'],
+            'widget.bottom_offset'           => ['nullable', 'integer', 'min:16', 'max:240'],
+            'widget.mobile_bottom_offset'    => ['nullable', 'integer', 'min:16', 'max:260'],
+            'widget.theme'                   => ['required', 'string'],
         ]);
         $saved = $this->settings->save($data);
         $this->audit('settings_updated', 'settings', null, [], ['mode' => $saved['mode'], 'locales' => $saved['enabled_locales']]);
@@ -370,9 +379,9 @@ final class AdminTranslationController extends Controller
             'q'      => ['nullable', 'string', 'max:100'],
             'page'   => ['nullable', 'integer', 'min:1', 'max:500'],
         ]);
-        $page = (int) ($data['page'] ?? 1);
+        $page    = (int) ($data['page'] ?? 1);
         $perPage = 25;
-        $query = DB::table('lgt_translations as t')->join('lgt_entries as e', 'e.id', '=', 't.entry_id')
+        $query   = DB::table('lgt_translations as t')->join('lgt_entries as e', 'e.id', '=', 't.entry_id')
             ->where('e.is_public', true)->where('e.is_tombstoned', false);
         if (! empty($data['locale'])) {
             $query->where('t.locale', TranslationSettings::locale((string) $data['locale']));
@@ -428,8 +437,8 @@ final class AdminTranslationController extends Controller
             }
             $id = DB::table('lgt_glossary_terms')->insertGetId([
                 'source_locale' => 'en', 'target_locale' => null, 'term' => $term,
-                'replacement' => $term, 'protect' => true,
-                'created_at' => now(), 'updated_at' => now(),
+                'replacement'   => $term, 'protect' => true,
+                'created_at'    => now(), 'updated_at' => now(),
             ]);
 
             return DB::table('lgt_glossary_terms')->where('id', $id)->first();
@@ -484,11 +493,11 @@ final class AdminTranslationController extends Controller
     {
         $this->requireSchema();
         $data = $request->validate([
-            'locale' => ['required', 'string', 'max:24'],
+            'locale'              => ['required', 'string', 'max:24'],
             'confirm_auto_review' => ['accepted'],
-            'enable_widget' => ['boolean'],
+            'enable_widget'       => ['boolean'],
         ]);
-        $locale = TranslationSettings::locale($data['locale']);
+        $locale   = TranslationSettings::locale($data['locale']);
         $settings = $this->settings->all();
         if (! in_array($locale, $settings['enabled_locales'], true)) {
             throw ValidationException::withMessages(['locale' => '请先在展示语言设置中启用此语言。']);
@@ -498,7 +507,7 @@ final class AdminTranslationController extends Controller
             $this->settings->save([...$settings, 'widget' => [...$settings['widget'], 'enabled' => true]]);
         }
         $this->audit('safe_translations_published', 'publication', (int) $result['publication']['id'], [], [
-            'locale' => $locale, 'auto_approved' => $result['auto_approved'],
+            'locale'         => $locale, 'auto_approved' => $result['auto_approved'],
             'widget_enabled' => (bool) ($data['enable_widget'] ?? false),
         ]);
 
@@ -547,12 +556,13 @@ final class AdminTranslationController extends Controller
      */
     private function runtimeReleaseHealth(): array
     {
-        $root = dirname(__DIR__);
-        $manifest = json_decode((string) @file_get_contents($root . '/config.json'), true);
-        $source = $root . '/Static/public/widget.js';
+        $root      = dirname(__DIR__);
+        $manifest  = json_decode((string) @file_get_contents($root . '/config.json'), true);
+        $source    = $root . '/Static/public/widget.js';
         $published = public_path('plugin/longos_global_translate/widget.js');
+
         return [
-            'version' => (string) (is_array($manifest) ? ($manifest['version'] ?? 'unknown') : 'unknown'),
+            'version'       => (string) (is_array($manifest) ? ($manifest['version'] ?? 'unknown') : 'unknown'),
             'asset_current' => is_file($source) && is_file($published)
                 ? hash_equals((string) hash_file('sha256', $source), (string) hash_file('sha256', $published))
                 : null,
@@ -572,25 +582,27 @@ final class AdminTranslationController extends Controller
         // JSON projection used by the live-poll endpoint is built separately
         // in workspaceStatus(); mixing those contracts caused a 500 whenever
         // a tenant already had a task history.
-        $jobs         = $this->safeDashboardValue('job history', fn () => DB::table('lgt_jobs')->latest('id')->limit(12)->get(), collect(), $warnings);
-        $publications = $this->safeDashboardValue('publication history', fn () => DB::table('lgt_publications')->orderByDesc('published_at')->limit(24)->get(), collect(), $warnings);
-        $countryRules = $this->safeDashboardValue('country defaults', fn () => DB::table('lgt_country_rules')->orderBy('country')->limit(250)->get(), collect(), $warnings);
-        $countries    = $this->safeDashboardValue('system countries', fn (): array => $this->countries->enabledCountries(), [], $warnings);
-        $glossaryTerms = $this->safeDashboardValue('protected glossary', fn () => DB::table('lgt_glossary_terms')->where('source_locale', 'en')->whereNull('target_locale')->where('protect', true)->orderBy('term')->limit(200)->get(['id','term']), collect(), $warnings);
+        $jobs          = $this->safeDashboardValue('job history', fn () => DB::table('lgt_jobs')->latest('id')->limit(12)->get(), collect(), $warnings);
+        $publications  = $this->safeDashboardValue('publication history', fn () => DB::table('lgt_publications')->orderByDesc('published_at')->limit(24)->get(), collect(), $warnings);
+        $countryRules  = $this->safeDashboardValue('country defaults', fn () => DB::table('lgt_country_rules')->orderBy('country')->limit(250)->get(), collect(), $warnings);
+        $countries     = $this->safeDashboardValue('system countries', fn (): array => $this->countries->enabledCountries(), [], $warnings);
+        $glossaryTerms = $this->safeDashboardValue('protected glossary', fn () => DB::table('lgt_glossary_terms')->where('source_locale', 'en')->whereNull('target_locale')->where('protect', true)->orderBy('term')->limit(200)->get(['id', 'term']), collect(), $warnings);
 
         $dispatchEnabled = collect($accounts)->contains(static fn (mixed $account): bool => (bool) data_get($account, 'dispatch_enabled', false));
 
         $libraryHealth = $this->safeDashboardValue(
             'library status',
             fn (): array => $this->coverage->snapshot($settings),
-            ['source_entries' => 0, 'translated' => 0, 'approved' => 0,
-                'published_languages' => 0, 'published_items' => 0, 'widget_enabled' => false,
-                'ready_to_display' => false, 'locales' => []],
+            ['source_entries'                  => 0, 'translated' => 0, 'approved' => 0,
+                'published_languages'          => 0, 'published_items' => 0, 'widget_enabled' => false,
+                'ready_to_display'             => false, 'commerce_ui_expected' => 0,
+                'commerce_ui_sources'          => 0, 'commerce_ui_ready_languages' => 0,
+                'commerce_ui_ready_to_display' => false, 'locales' => []],
             $warnings,
         );
 
         return [
-            'library_health'    => $libraryHealth,
+            'library_health'     => $libraryHealth,
             'settings'           => $settings,
             'accounts'           => $accounts,
             'jobs'               => $jobs,
@@ -664,7 +676,7 @@ final class AdminTranslationController extends Controller
                 ];
             }
 
-            $plan = json_decode((string) ($job->plan ?? ''), true);
+            $plan            = json_decode((string) ($job->plan ?? ''), true);
             $autoPublication = is_array($plan) && is_array($plan['auto_publication'] ?? null)
                 ? $plan['auto_publication'] : null;
 

@@ -39,7 +39,7 @@ class PlatformPaymentController extends Controller
             abort(410, __('platform_pay.invalid_or_expired'));
         }
 
-        App::setLocale($session->locale ?: 'en');
+        $this->useSessionLocale($session, request());
         if ($session->status === PlatformPaymentSession::STATUS_COMPLETED) {
             return redirect()->away($this->sessions->tenantSuccessUrl($session));
         }
@@ -83,7 +83,7 @@ class PlatformPaymentController extends Controller
 
         try {
             $session = $this->sessions->resolve($token);
-            App::setLocale($session->locale ?: 'en');
+            $this->useSessionLocale($session, request());
             $session         = $this->sessions->claimProvider($session, 'paypal');
             $result          = app(PlatformPaypalGateway::class)->create($session, $token);
             $providerCreated = true;
@@ -108,7 +108,7 @@ class PlatformPaymentController extends Controller
 
         try {
             $session   = $this->sessions->resolveProviderResult($token);
-            App::setLocale($session->locale ?: (string) config('longos.checkout_locale', 'en'));
+            $this->useSessionLocale($session, request());
             $completed = $session->status === PlatformPaymentSession::STATUS_COMPLETED;
 
             return json_success(__('platform_pay.status.verified'), [
@@ -128,7 +128,7 @@ class PlatformPaymentController extends Controller
         try {
             $data    = $request->validate(['paypal_order_id' => ['required', 'string', 'max:64', 'regex:/^[A-Z0-9]{10,32}$/']]);
             $session = $this->sessions->resolveProviderResult($token);
-            App::setLocale($session->locale ?: 'en');
+            $this->useSessionLocale($session, $request);
             if ($this->isCompletedBy($session, 'paypal', $data['paypal_order_id'])) {
                 return json_success(__('platform_pay.status.already_completed'), ['redirect_url' => $this->sessions->tenantSuccessUrl($session)]);
             }
@@ -150,7 +150,7 @@ class PlatformPaymentController extends Controller
 
         try {
             $session = $this->sessions->resolve($token);
-            App::setLocale($session->locale ?: 'en');
+            $this->useSessionLocale($session, request());
             $session         = $this->sessions->claimProvider($session, 'stripe');
             $result          = app(PlatformStripeGateway::class)->create($session);
             $providerCreated = true;
@@ -173,7 +173,7 @@ class PlatformPaymentController extends Controller
         try {
             $data    = $request->validate(['payment_intent_id' => ['required', 'string', 'max:160', 'regex:/^pi_[A-Za-z0-9_]{8,128}$/']]);
             $session = $this->sessions->resolveProviderResult($token);
-            App::setLocale($session->locale ?: 'en');
+            $this->useSessionLocale($session, $request);
             if ($this->isCompletedBy($session, 'stripe', $data['payment_intent_id'])) {
                 return json_success(__('platform_pay.status.already_completed'), ['redirect_url' => $this->sessions->tenantSuccessUrl($session)]);
             }
@@ -194,6 +194,7 @@ class PlatformPaymentController extends Controller
 
         try {
             $session = $this->sessions->resolveProviderResult($token);
+            $this->useSessionLocale($session, $request);
             if ($provider === 'paypal') {
                 $providerOrderId = trim((string) $request->query('token', ''));
             } elseif ($provider === 'stripe') {
@@ -239,6 +240,7 @@ class PlatformPaymentController extends Controller
             ]);
             abort(410, __('platform_pay.invalid_or_expired'));
         }
+        $this->useSessionLocale($session, request());
         if ($session->status === PlatformPaymentSession::STATUS_COMPLETED) {
             return redirect()->away($this->sessions->tenantSuccessUrl($session));
         }
@@ -291,5 +293,31 @@ class PlatformPaymentController extends Controller
     {
         $locale = trim((string) config('longos.checkout_locale', 'en'));
         App::setLocale($locale !== '' ? $locale : 'en');
+    }
+
+    /**
+     * The hosted payment page is intentionally served from the LONGOS control
+     * host rather than a tenant domain. It cannot inherit the shop layout,
+     * but it can safely read the owning tenant's already-published static
+     * dictionary. The optional plugin bridge never sends request/order data
+     * to a provider and falls back to the session locale on any problem.
+     */
+    private function useSessionLocale(PlatformPaymentSession $session, Request $request): void
+    {
+        $fallback = trim((string) ($session->locale ?: config('longos.checkout_locale', 'en')));
+        $fallback = preg_match('/^[A-Za-z_]{2,16}$/', $fallback) === 1 ? $fallback : 'en';
+        $bridge   = 'Plugin\\LongosGlobalTranslate\\Services\\PlatformPaymentLocaleBridge';
+        if (! class_exists($bridge) || ! $session->site) {
+            App::setLocale($fallback);
+
+            return;
+        }
+
+        try {
+            $locale = app($bridge)->apply($session->site, $request, $fallback);
+            App::setLocale(preg_match('/^[A-Za-z_]{2,16}$/', (string) $locale) === 1 ? $locale : $fallback);
+        } catch (Throwable) {
+            App::setLocale($fallback);
+        }
     }
 }
