@@ -2,9 +2,10 @@
 
 namespace Plugin\LongosGlobalTranslate;
 
+use Plugin\LongosGlobalTranslate\Services\PublishedProductVariantLocalizer;
+use Plugin\LongosGlobalTranslate\Services\StorefrontPresentationConfig;
 use Plugin\LongosGlobalTranslate\Services\TranslationSchema;
 use Plugin\LongosGlobalTranslate\Services\TranslationSettings;
-use Plugin\LongosGlobalTranslate\Services\PublishedProductVariantLocalizer;
 
 class Bootstrap
 {
@@ -81,8 +82,15 @@ class Bootstrap
             // PlatformPaymentLocaleBridge; it cannot use these tenant-host
             // relative browser endpoints.
             $commerceUi = str_starts_with($routeName, 'shop.');
+            // The request is already carrying the trusted edge country header
+            // (or an offline GeoIP result).  Serialising the tiny decision
+            // contract here removes the old first AJAX `/config` round trip,
+            // which was the largest source of visible auto-language delay.
+            // It contains no translation text, IP address, credentials or
+            // transactional values; dictionaries remain bounded endpoints.
+            $bootstrap = app(StorefrontPresentationConfig::class)->forRequest(request(), $settings);
 
-            return $output . view('LongosGlobalTranslate::shop.widget', compact('settings', 'commerceUi'))->render();
+            return $output . view('LongosGlobalTranslate::shop.widget', compact('settings', 'commerceUi', 'bootstrap'))->render();
         });
     }
 }

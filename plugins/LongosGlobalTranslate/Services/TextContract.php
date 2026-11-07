@@ -26,8 +26,8 @@ final class TextContract
         if ($bytes < 4 || $utf16 < 2) {
             throw new InvalidArgumentException('INVALID_SEGMENT_LIMIT');
         }
-        $segments = [];
-        $current = '';
+        $segments     = [];
+        $current      = '';
         $currentBytes = 0;
         $currentUtf16 = 0;
         foreach (self::atomicParts($text, $atomicTokens) as $part) {
@@ -36,9 +36,9 @@ final class TextContract
                 throw new InvalidArgumentException('ATOMIC_TOKEN_TOO_LARGE');
             }
             if ($current !== '' && ($currentBytes + $partUnits['bytes'] > $bytes
-                || $currentUtf16 + $partUnits['utf16'] > $utf16)) {
-                $segments[] = $current;
-                $current = '';
+                || $currentUtf16                  + $partUnits['utf16']                  > $utf16)) {
+                $segments[]   = $current;
+                $current      = '';
                 $currentBytes = 0;
                 $currentUtf16 = 0;
             }
@@ -134,19 +134,20 @@ final class TextContract
                 continue;
             }
             [$nonce, $ordinal, $digest] = $parts;
-            // Current LGTX markers contain only letters/numbers, but permit
-            // harmless whitespace and case normalisation. The legacy branch
-            // remains so an in-flight worker created by the prior release
-            // can finish safely during a rolling Coolify deployment.
-            $currentPattern = '~(?<![[:alnum:]])LGTX[\\s_-]*' . preg_quote($nonce, '~')
-                . '[\\s_-]*X[\\s_-]*' . preg_quote($ordinal, '~')
-                . '[\\s_-]*X[\\s_-]*' . preg_quote($digest, '~') . '(?![[:alnum:]])~iu';
-            $separator = '[\\s_:\\-：]*';
+            // Some engines insert a soft line break, zero-width character or
+            // separator *inside* a long opaque word while formatting their
+            // response. Treat that as typography-only only when every literal
+            // character of the request-bound marker survives in the exact
+            // order. The nonce and digest remain mandatory, so this cannot
+            // accept a provider-created value as a protected marker.
+            $currentPattern = '~(?<![[:alnum:]])' . self::interleavedTokenPattern('LGTX' . $nonce . 'X' . $ordinal . 'X' . $digest)
+                . '(?![[:alnum:]])~iu';
+            $separator     = '[\\s_:\\-：]*';
             $legacyPattern = '~(?<![[:alnum:]])(?:__|\[\[|\[)?' . $separator
                 . 'LGT' . $separator . preg_quote($nonce, '~') . $separator
                 . preg_quote($ordinal, '~') . $separator . preg_quote($digest, '~')
                 . $separator . '(?:__|\]\]|\])?(?![[:alnum:]])~iu';
-            $pattern = str_starts_with($token, 'LGTX') ? $currentPattern : $legacyPattern;
+            $pattern   = str_starts_with($token, 'LGTX') ? $currentPattern : $legacyPattern;
             $candidate = preg_replace($pattern, $token, $translated, -1, $count);
             if ($candidate !== null && $count === 1) {
                 $translated = $candidate;
@@ -154,6 +155,18 @@ final class TextContract
         }
 
         return $translated;
+    }
+
+    /**
+     * Match an otherwise exact opaque marker after renderer-only separators.
+     * Matching is scoped to the marker, so real target-language text is never
+     * normalised or rewritten.
+     */
+    private static function interleavedTokenPattern(string $token): string
+    {
+        $gap = '[\\s_\\-\\x{200B}\\x{200C}\\x{200D}\\x{FEFF}]*';
+
+        return implode($gap, array_map(static fn (string $character): string => preg_quote($character, '~'), str_split($token)));
     }
 
     /** @return array{0:string,1:string,2:string}|null */

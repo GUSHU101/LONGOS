@@ -47,10 +47,23 @@ class GlobalTranslationTextTest extends TestCase
 
         // This mirrors provider output that has made the opaque token more
         // readable but has not changed its nonce, ordinal or source digest.
-        $variant = 'lgtx ' . strtoupper($parts[1]) . ' - x ' . $parts[2] . ' _ x ' . strtoupper($parts[3]);
+        $variant    = 'lgtx ' . strtoupper($parts[1]) . ' - x ' . $parts[2] . ' _ x ' . strtoupper($parts[3]);
         $translated = str_replace($token, $variant, $protected['text']);
 
         self::assertSame('Hello :name, your price is $39.99.', TextContract::restore($translated, $protected['tokens']));
+    }
+
+    public function test_provider_token_reflow_preserves_only_an_exact_request_bound_marker(): void
+    {
+        $protected = TextContract::protect('Your protected amount is $19.99.');
+        $token     = array_key_first($protected['tokens']);
+        self::assertIsString($token);
+
+        // A soft line break / zero-width joiner inside a token is a renderer
+        // artefact, not a semantic change. The nonce, ordinal and digest are
+        // still present in order, so restoration remains safe.
+        $reflowed = implode("\u{200B}-", str_split($token));
+        self::assertSame('Votre montant protégé est $19.99.', TextContract::restore('Votre montant protégé est ' . $reflowed . '.', $protected['tokens']));
     }
 
     public function test_changed_marker_nonce_or_digest_remains_a_hard_failure(): void
@@ -59,7 +72,7 @@ class GlobalTranslationTextTest extends TestCase
         $token     = array_key_first($protected['tokens']);
         self::assertNotNull($token);
         $lastDigestCharacter = substr($token, -1);
-        $changed = substr($token, 0, -1) . ($lastDigestCharacter === '0' ? '1' : '0');
+        $changed             = substr($token, 0, -1) . ($lastDigestCharacter === '0' ? '1' : '0');
 
         $this->expectException(InvalidArgumentException::class);
         TextContract::restore(str_replace($token, $changed, $protected['text']), $protected['tokens']);

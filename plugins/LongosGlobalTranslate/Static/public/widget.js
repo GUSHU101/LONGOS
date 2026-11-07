@@ -86,7 +86,7 @@
   };
 
   const debugEnabled = new URLSearchParams(window.location.search).get('lgt_debug') === '1';
-  const widgetRelease = '1.5.6';
+  const widgetRelease = '1.5.7';
   // Render every public root on a normal catalogue/listing page. Requests
   // remain bounded and are split into server-validated batches below, so a
   // long collection cannot silently stop translating after the first screen.
@@ -107,6 +107,51 @@
     }
     const country = config.country ? ` for ${config.country}` : '';
     return `Language was applied automatically from the visitor’s region${country}.`;
+  };
+
+  // Translation publications are immutable.  The server supplies their
+  // locale-local revision in the HTML it already rendered for this visitor,
+  // so a session cache is safe to use and naturally invalidates on publish or
+  // rollback.  It is scoped to the exact storefront host and only contains
+  // public, pre-approved dictionary text — never visitor inputs or orders.
+  const publicRevision = locale => {
+    const resolvedLocale = shownLocale(locale || config?.locale || sourceLocale());
+    return Number(config?.published_revisions?.[resolvedLocale] || 0);
+  };
+  const cacheScope = locale => {
+    const resolvedLocale = shownLocale(locale || config?.locale || sourceLocale());
+    const revision = publicRevision(resolvedLocale);
+    return Number.isInteger(revision) && revision > 0
+      ? `lgt:${widgetRelease}:${window.location.host}:${resolvedLocale}:${revision}`
+      : null;
+  };
+  const cacheKey = (scope, identity, locale) => {
+    const base = cacheScope(locale);
+    return base ? `${base}:${scope}:${identity}` : null;
+  };
+  const readCache = key => {
+    if (!key) return null;
+    try {
+      const value = window.sessionStorage.getItem(key);
+      return value ? JSON.parse(value) : null;
+    } catch (_) {
+      return null;
+    }
+  };
+  const writeCache = (key, value) => {
+    if (!key) return;
+    try {
+      const encoded = JSON.stringify(value);
+      // Keep an unexpected huge rich-text response from exhausting browser
+      // session storage. It can still be rendered from the bounded endpoint.
+      if (encoded.length <= 96 * 1024) window.sessionStorage.setItem(key, encoded);
+    } catch (_) { /* Storage can be disabled; networking remains a fallback. */ }
+  };
+  const isCurrentDictionary = (dictionary, locale) => {
+    const revision = publicRevision(locale);
+    return Number.isInteger(revision) && revision > 0
+      && Number(dictionary?.revision) === revision
+      && dictionary?.items && typeof dictionary.items === 'object';
   };
 
   const contentKey = (kind, entity, field) => {
@@ -227,7 +272,15 @@
     restoreCommerceInterface();
     interfaceTranslations = new Map();
     if (!commerceUiEnabled() || locale === sourceLocale() || !config?.interface_dictionary_url) return {applied: 0, available: locale === sourceLocale()};
-    const dictionary = await request(`${config.interface_dictionary_url}?locale=${encodeURIComponent(locale)}`);
+    const key = cacheKey('interface', 'catalog', locale);
+    let dictionary = readCache(key);
+    // On a first visit this is the only dictionary request needed for every
+    // checkout/account/payment label. On subsequent navigation it is a
+    // synchronous session read, eliminating the visible language flash.
+    if (!isCurrentDictionary(dictionary, locale)) {
+      dictionary = await request(`${config.interface_dictionary_url}?locale=${encodeURIComponent(locale)}`);
+      if (isCurrentDictionary(dictionary, locale)) writeCache(key, dictionary);
+    }
     if (epoch !== interfaceEpoch) return {applied: 0, available: false};
     Object.values(dictionary?.items || {}).forEach(item => {
       if (item && typeof item.source === 'string' && typeof item.text === 'string' && item.text.trim() !== '') {
@@ -348,12 +401,20 @@
     if (!sourceRegions.length) return results;
     const keys = [...new Set(sourceRegions.map(region => `${region.dataset.lgtKind}:${region.dataset.lgtEntity}`))].slice(0, MAX_PUBLIC_REGIONS);
     if (config?.batch_dictionary_url) {
+      const dictionaries = {};
+      const missing = [];
+      keys.forEach(key => {
+        const cached = readCache(cacheKey('entity', key, locale));
+        if (isCurrentDictionary(cached, locale)) dictionaries[key] = cached;
+        else missing.push(key);
+      });
       const batches = [];
-      for (let offset = 0; offset < keys.length; offset += DICTIONARY_BATCH_SIZE) {
-        batches.push(keys.slice(offset, offset + DICTIONARY_BATCH_SIZE));
+      for (let offset = 0; offset < missing.length; offset += DICTIONARY_BATCH_SIZE) {
+        batches.push(missing.slice(offset, offset + DICTIONARY_BATCH_SIZE));
       }
       // Keep only two in flight. This covers long product grids quickly while
-      // remaining well below the public route's rate limit.
+      // remaining well below the public route's rate limit. Cached entities
+      // never enter the network batches at all.
       const responses = [];
       for (let offset = 0; offset < batches.length; offset += 2) {
         const pair = await Promise.all(batches.slice(offset, offset + 2).map(batch => {
@@ -362,9 +423,12 @@
         }));
         responses.push(...pair);
       }
-      const dictionaries = Object.assign({}, ...responses
+      Object.assign(dictionaries, ...responses
         .filter(batch => batch && typeof batch.dictionaries === 'object')
         .map(batch => batch.dictionaries));
+      Object.entries(dictionaries).forEach(([key, dictionary]) => {
+        if (isCurrentDictionary(dictionary, locale)) writeCache(cacheKey('entity', key, locale), dictionary);
+      });
       if (Object.keys(dictionaries).length > 0) {
         sourceRegions.forEach(region => {
           results.set(region, dictionaries[`${region.dataset.lgtKind}:${region.dataset.lgtEntity}`] || null);
@@ -470,9 +534,17 @@
   const loadFallback = async (locale, epoch) => {
     const entities = fallbackEntities();
     if (sensitivePath() || !entities.length || !config.batch_dictionary_url) return 0;
+    const dictionaries = {};
+    const missing = [];
+    entities.forEach(entity => {
+      const key = `${entity.kind}:${entity.entity}`;
+      const cached = readCache(cacheKey('entity', key, locale));
+      if (isCurrentDictionary(cached, locale)) dictionaries[key] = cached;
+      else missing.push(entity);
+    });
     const batches = [];
-    for (let offset = 0; offset < entities.length; offset += DICTIONARY_BATCH_SIZE) {
-      batches.push(entities.slice(offset, offset + DICTIONARY_BATCH_SIZE));
+    for (let offset = 0; offset < missing.length; offset += DICTIONARY_BATCH_SIZE) {
+      batches.push(missing.slice(offset, offset + DICTIONARY_BATCH_SIZE));
     }
     const responses = await Promise.all(batches.map(batch => {
       const params = new URLSearchParams({locale, entities: batch.map(e => `${e.kind}:${e.entity}`).join(',')});
@@ -480,10 +552,14 @@
     }));
     // Never inject an old response after a visitor switched languages.
     if (epoch !== presentationEpoch) return 0;
-    const matches = new Map(), ambiguous = new Set();
-    Object.values(Object.assign({}, ...responses
+    Object.assign(dictionaries, ...responses
       .filter(response => response && typeof response.dictionaries === 'object')
-      .map(response => response.dictionaries))).forEach(dictionary => {
+      .map(response => response.dictionaries));
+    Object.entries(dictionaries).forEach(([key, dictionary]) => {
+      if (isCurrentDictionary(dictionary, locale)) writeCache(cacheKey('entity', key, locale), dictionary);
+    });
+    const matches = new Map(), ambiguous = new Set();
+    Object.values(dictionaries).forEach(dictionary => {
       Object.entries(dictionary?.sources || {}).forEach(([key, source]) => {
         const text = dictionary?.items?.[key];
         const normalized = normalizeText(source);
@@ -499,6 +575,24 @@
     return applied;
   };
 
+  const scheduleFallback = (locale, epoch) => {
+    const run = () => {
+      // This compatibility scan is deliberately outside the critical paint
+      // path. It covers residual unmarked nodes in older themes, while the
+      // exact marked dictionaries above render immediately. Running it when
+      // the browser is idle prevents a long catalogue DOM from competing with
+      // first input, scrolling or the checkout button.
+      void loadFallback(locale, epoch).then(fallbackApplied => {
+        if (fallbackApplied > 0) debug('background-fallback-applied', {locale, applied:fallbackApplied});
+      }).catch(error => debug('background-fallback-error', {message:String(error?.message || error)}));
+    };
+    if (typeof window.requestIdleCallback === 'function') {
+      window.requestIdleCallback(run, {timeout: 1200});
+      return;
+    }
+    window.setTimeout(run, 0);
+  };
+
   const replaceKnownNodes = async locale => {
     if (!config) return;
     const epoch = ++presentationEpoch;
@@ -511,14 +605,16 @@
       return {applied: 0, available: true};
     }
 
-    const [dictionaries, fallbackApplied] = await Promise.all([
-      fetchDictionaries(sourceRegions, locale),
-      loadFallback(locale, epoch),
-    ]);
+    // Marked/known storefront regions are the critical paint path. The
+    // compatibility fallback is intentionally scheduled after those exact
+    // dictionaries are available; running both paths in parallel previously
+    // issued duplicate batch requests for the same products and delayed the
+    // first visible translated paint.
+    const dictionaries = await fetchDictionaries(sourceRegions, locale);
     // An earlier initial load can finish after a visitor selects another
     // language.  Never let that old response overwrite the newest choice.
     if (epoch !== presentationEpoch) return {applied: 0, available: false};
-    let applied = fallbackApplied;
+    let applied = 0;
     for (const region of sourceRegions) {
       if (epoch !== presentationEpoch) return {applied: 0, available: false};
       const dictionary = dictionaries.get(region);
@@ -540,6 +636,12 @@
       applied += replaceRichTextNodes(region, dictionary);
       applied += replacePublishedTextNodes(region, dictionary);
     }
+
+    // Older compatible themes can still have a few unmarked public nodes.
+    // Fill them in after the primary paint using the already cached immutable
+    // dictionaries. This is non-blocking, safe text-only replacement, never
+    // reads values from a form or transaction screen, and needs no refresh.
+    scheduleFallback(locale, epoch);
 
     return {applied, available: applied > 0};
   };
@@ -622,7 +724,19 @@
     if (event.key === 'Escape' && root.classList.contains('is-open')) setOpen(false);
   });
 
-  request(root.dataset.configUrl).then(async data => {
+  const inlineBootstrap = () => {
+    const node = document.getElementById('longos-global-translate-bootstrap');
+    if (!node?.textContent) return null;
+    try {
+      const parsed = JSON.parse(node.textContent);
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch (error) {
+      debug('inline-bootstrap-invalid', {message:String(error?.message || error)});
+      return null;
+    }
+  };
+
+  const start = async data => {
     debug('config-loaded', {release:widgetRelease, serverRelease:data.plugin_release || 'unknown', enabled: !!data.enabled, configuredLocales:(data.locales||[]).length, publishedLocales:(data.published_locales||[]).length});
     if (data.plugin_release && data.plugin_release !== widgetRelease) {
       // The immutable image and the published asset can come from different
@@ -648,5 +762,15 @@
       document.documentElement.lang = sourceLocale();
       current.textContent = sourceLocale().toUpperCase();
     }
-  }).catch(error => {debug('widget-config-error',{message:String(error?.message||error)});root.remove();});
+  };
+
+  // New pages render a tenant-scoped, non-secret locale decision directly in
+  // their HTML. This avoids a serial AJAX request before the first dictionary
+  // lookup. The network path remains as a safe compatibility fallback for a
+  // partially upgraded deployment or a cached old layout.
+  const bootstrap = inlineBootstrap();
+  const configPromise = bootstrap && typeof bootstrap.enabled === 'boolean'
+    ? Promise.resolve(bootstrap)
+    : request(root.dataset.configUrl);
+  configPromise.then(start).catch(error => {debug('widget-config-error',{message:String(error?.message||error)});root.remove();});
 })();

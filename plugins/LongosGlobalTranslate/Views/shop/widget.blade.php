@@ -5,7 +5,7 @@
   $bottom = max(16, min(240, (int) ($widget['bottom_offset'] ?? 84)));
   $mobileBottom = max(16, min(260, (int) ($widget['mobile_bottom_offset'] ?? 88)));
 @endphp
-<link rel="stylesheet" href="{{ asset('plugin/longos_global_translate/widget.css') }}?v=1.5.6">
+<link rel="stylesheet" href="{{ asset('plugin/longos_global_translate/widget.css') }}?v=1.5.7">
 <div id="longos-global-translate"
      class="lgt-widget lgt-widget--{{ $position }}"
      hidden
@@ -27,4 +27,5 @@
     <p class="lgt-widget__status" role="status" aria-live="polite"></p>
   </section>
 </div>
-<script defer src="{{ asset('plugin/longos_global_translate/widget.js') }}?v=1.5.6"></script>
+<script id="longos-global-translate-bootstrap" type="application/json">{!! json_encode($bootstrap ?? [], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) !!}</script>
+<script defer src="{{ asset('plugin/longos_global_translate/widget.js') }}?v=1.5.7"></script>

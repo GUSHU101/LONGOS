@@ -14,7 +14,7 @@ class GlobalTranslationWidgetSafetyTest extends TestCase
         self::assertStringNotContainsString('.innerHTML', $script);
         self::assertStringContainsString('restoreSource(sourceRegions);', $script);
         self::assertLessThan(
-            strpos($script, 'const [dictionaries, fallbackApplied] = await Promise.all(['),
+            strpos($script, 'const dictionaries = await fetchDictionaries(sourceRegions, locale);'),
             strpos($script, 'restoreSource(sourceRegions);'),
             'The old locale must be cleared before any new dictionary is read.'
         );
@@ -23,7 +23,7 @@ class GlobalTranslationWidgetSafetyTest extends TestCase
     public function test_widget_bounds_dictionary_concurrency_and_hides_until_configuration_is_valid(): void
     {
         $script = file_get_contents(dirname(__DIR__, 2) . '/plugins/LongosGlobalTranslate/Static/public/widget.js');
-        $view = file_get_contents(dirname(__DIR__, 2) . '/plugins/LongosGlobalTranslate/Views/shop/widget.blade.php');
+        $view   = file_get_contents(dirname(__DIR__, 2) . '/plugins/LongosGlobalTranslate/Views/shop/widget.blade.php');
 
         self::assertIsString($script);
         self::assertIsString($view);
@@ -33,6 +33,13 @@ class GlobalTranslationWidgetSafetyTest extends TestCase
         self::assertStringContainsString('[data-lgt-private]', $script);
         self::assertStringContainsString('sensitivePath()', $script);
         self::assertStringContainsString('root.hidden = false;', $script);
+        self::assertStringContainsString('inlineBootstrap', $script);
+        self::assertStringContainsString('window.sessionStorage', $script);
+        self::assertStringContainsString('published_revisions', $script);
+        self::assertStringContainsString('isCurrentDictionary', $script);
+        self::assertStringContainsString('window.requestIdleCallback', $script);
+        self::assertStringContainsString('scheduleFallback(locale, epoch);', $script);
+        self::assertStringContainsString('longos-global-translate-bootstrap', $view);
         self::assertStringContainsString('hidden', $view);
     }
 
@@ -43,7 +50,7 @@ class GlobalTranslationWidgetSafetyTest extends TestCase
         self::assertIsString($script);
         self::assertStringContainsString('[data-lgt-field]', $script);
         self::assertStringContainsString('Protect the marked', $script);
-        self::assertStringContainsString("safeFallbackParent", $script);
+        self::assertStringContainsString('safeFallbackParent', $script);
         // Entity fallback remains outside a region because that route handles
         // merchant text. The interface dictionary has a narrower, static-only
         // rule and must be able to reach fixed chrome inside the same region.

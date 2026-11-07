@@ -5,77 +5,24 @@ namespace Plugin\LongosGlobalTranslate\Controllers;
 use Beike\Shop\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Plugin\LongosGlobalTranslate\Services\DictionaryService;
 use Plugin\LongosGlobalTranslate\Services\PresentationLocaleResolver;
+use Plugin\LongosGlobalTranslate\Services\StorefrontPresentationConfig;
 use Plugin\LongosGlobalTranslate\Services\TranslationSchema;
 use Plugin\LongosGlobalTranslate\Services\TranslationSettings;
 
 final class ShopTranslationController extends Controller
 {
-    private const PLUGIN_RELEASE = '1.5.6';
-
     public function __construct(
         private readonly TranslationSettings $settings,
         private readonly PresentationLocaleResolver $locales,
         private readonly DictionaryService $dictionary,
+        private readonly ?StorefrontPresentationConfig $presentation = null,
     ) {}
 
     public function config(Request $request): JsonResponse
     {
-        if (! TranslationSchema::ready()) {
-            return $this->json($this->disabledConfig());
-        }
-        $settings = $this->settings->all();
-        if (! (bool) data_get($settings, 'widget.enabled', false)) {
-            return $this->json($this->disabledConfig());
-        }
-        $decision = $this->locales->decide($request);
-        // The browser must never claim a locale was applied when its frozen
-        // public dictionary does not exist yet.  Keep the operator's enabled
-        // language list separate from the publication list so an IP/country
-        // recommendation is useful without producing a misleading mixed-
-        // language storefront.
-        $publishedLocales = DB::table('lgt_publications')
-            ->where('state', 'published')
-            ->whereExists(static function ($query): void {
-                $query->selectRaw('1')->from('lgt_publication_items as pi')
-                    ->whereColumn('pi.publication_id', 'lgt_publications.id');
-            })
-            ->orderByDesc('revision')
-            ->pluck('locale')
-            ->map(static fn (mixed $locale): string => TranslationSettings::locale((string) $locale))
-            ->unique()
-            ->values()
-            ->all();
-
-        // Public builder module IDs only, restricted to the current immutable
-        // publication. These allow a no-theme-changes fallback on the homepage.
-        $currentPublicationIds = DB::table('lgt_publications')->where('state', 'published')
-            ->whereIn('locale', $settings['enabled_locales'])->pluck('id')->all();
-        $builderEntities = $currentPublicationIds === [] ? [] : DB::table('lgt_entries as e')
-            ->join('lgt_translations as t', 't.entry_id', '=', 'e.id')
-            ->join('lgt_publication_items as pi', 'pi.translation_id', '=', 't.id')
-            ->whereIn('pi.publication_id', $currentPublicationIds)
-            ->where('e.kind', 'builder')->where('e.is_public', true)->where('e.is_tombstoned', false)
-            ->whereColumn('pi.source_hash', 'e.source_hash')
-            ->distinct()->limit(240)->pluck('e.entity_id')->map(static fn ($id): string => (string) $id)->all();
-
-        return $this->json([
-            'plugin_release'           => self::PLUGIN_RELEASE,
-            'enabled'                  => (bool) data_get($settings, 'widget.enabled', false),
-            'source_locale'            => $settings['source_locale'],
-            'locales'                  => array_values(array_unique(array_merge([$settings['source_locale']], $settings['enabled_locales']))),
-            'published_locales'        => $publishedLocales,
-            'builder_entities'         => $builderEntities,
-            'locale'                   => $decision->locale,
-            'locale_source'            => $decision->source,
-            'country'                  => $decision->country,
-            'fallback'                 => $decision->fallback,
-            'dictionary_url'           => shop_route('longos_global_translate.dictionary', ['kind' => '__kind__', 'entityId' => '__entity__']),
-            'batch_dictionary_url'     => shop_route('longos_global_translate.dictionary-batch'),
-            'interface_dictionary_url' => shop_route('longos_global_translate.interface-dictionary'),
-        ]);
+        return $this->json(($this->presentation ?? app(StorefrontPresentationConfig::class))->forRequest($request));
     }
 
     public function locale(Request $request): JsonResponse
@@ -144,7 +91,7 @@ final class ShopTranslationController extends Controller
         if (count($keys) > 72) {
             abort(422, 'Too many entities.');
         }
-        $dictionaries = [];
+        $requested = [];
         foreach ($keys as $key) {
             if (! preg_match('/^(product|category|page|page_category|builder|chrome):([1-9][0-9]{0,18})$/D', $key, $matches)) {
                 abort(422, 'Invalid public entity.');
@@ -153,7 +100,10 @@ final class ShopTranslationController extends Controller
             if ($id === false || $id < 1) {
                 abort(422, 'Invalid entity ID.');
             }
-            $dictionary = $this->dictionary->forEntity($matches[1], $id, $locale);
+            $requested[$key] = ['kind' => $matches[1], 'entity_id' => $id];
+        }
+        $dictionaries = [];
+        foreach ($this->dictionary->forEntities($requested, $locale) as $key => $dictionary) {
             if ($dictionary['revision'] !== null && $dictionary['items'] !== []) {
                 $dictionaries[$key] = $dictionary;
             }
@@ -183,27 +133,6 @@ final class ShopTranslationController extends Controller
         }
 
         return $this->json($this->dictionary->forCommerceInterface($locale));
-    }
-
-    /** @param array<string, mixed> $payload */
-    /** @return array<string, mixed> */
-    private function disabledConfig(): array
-    {
-        return [
-            'plugin_release'           => self::PLUGIN_RELEASE,
-            'enabled'                  => false,
-            'source_locale'            => 'en',
-            'locales'                  => ['en'],
-            'published_locales'        => [],
-            'builder_entities'         => [],
-            'locale'                   => 'en',
-            'locale_source'            => 'schema_not_ready',
-            'country'                  => null,
-            'fallback'                 => true,
-            'dictionary_url'           => '',
-            'batch_dictionary_url'     => '',
-            'interface_dictionary_url' => '',
-        ];
     }
 
     /** @param array<string, mixed> $payload */

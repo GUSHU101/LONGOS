@@ -33,8 +33,14 @@ final class ProviderVerificationService
         // an upstream API and must never be presented as a billable unknown.
         $credentials = $this->accounts->credentials($account);
         $provider->validateCredentialShape($credentials);
-        $source               = 'LONGOS verification';
-        $reservation          = $this->ledger->reserve($accountId, 19, null, null, null, true);
+        // API-key acceptance alone is not enough. Production source text can
+        // contain prices, links and template variables, so verify one
+        // synthetic protected marker before this account may dispatch a full
+        // catalog. This reveals incompatible providers in one small, explicit
+        // probe instead of after thousands of billable translations.
+        $probe                = TextContract::protect('LONGOS verification amount $19.99.');
+        $source               = $probe['text'];
+        $reservation          = $this->ledger->reserve($accountId, TextContract::units($source)['codepoints'], null, null, null, true);
         $requestMarkedSending = false;
 
         try {
@@ -52,6 +58,17 @@ final class ProviderVerificationService
                 }
 
                 throw new RuntimeException('PROVIDER_VERIFICATION_FAILED');
+            }
+
+            try {
+                TextContract::restore((string) $response->translations[0], $probe['tokens']);
+            } catch (\InvalidArgumentException) {
+                // The request was accepted upstream, so retain its durable
+                // usage record. Do not mark this account verified: it would
+                // later corrupt or reject protected public storefront text.
+                $this->ledger->commit($reservation['id'], (string) ($response->requestId ?? ''));
+
+                throw new RuntimeException('PROVIDER_TOKEN_INCOMPATIBLE');
             }
             $this->ledger->commit($reservation['id'], (string) ($response->requestId ?? ''));
 

@@ -316,16 +316,19 @@ class SaasPluginRouteIsolationTest extends TestCase
 
     public function test_translation_widget_preserves_csrf_for_manual_switching_and_keeps_commerce_data_outside_its_ui_dictionary(): void
     {
-        $root           = dirname(__DIR__, 2);
-        $script         = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Static/public/widget.js');
-        $boot           = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Bootstrap.php');
-        $catalog        = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Services/CommerceUiCatalog.php');
-        $widget         = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Views/shop/widget.blade.php');
-        $shopController = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Controllers/ShopTranslationController.php');
+        $root            = dirname(__DIR__, 2);
+        $script          = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Static/public/widget.js');
+        $boot            = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Bootstrap.php');
+        $catalog         = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Services/CommerceUiCatalog.php');
+        $widget          = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Views/shop/widget.blade.php');
+        $shopController  = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Controllers/ShopTranslationController.php');
+        $presentation    = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Services/StorefrontPresentationConfig.php');
 
         self::assertStringContainsString('const {headers = {}, ...options} = init', $script);
         self::assertStringContainsString("'X-CSRF-TOKEN': csrf", $script);
         self::assertStringContainsString('replaceCommerceInterface', $script);
+        self::assertStringContainsString('inlineBootstrap', $script);
+        self::assertStringContainsString('sessionStorage', $script);
         self::assertStringContainsString('applyPresentation(shownLocale(config.locale))', $script);
         self::assertStringContainsString('safeInterfaceElement', $script);
         self::assertStringContainsString('data-commerce-ui', $widget);
@@ -337,6 +340,9 @@ class SaasPluginRouteIsolationTest extends TestCase
         self::assertStringNotContainsString('card number', strtolower($catalog));
         self::assertStringNotContainsString('TranslationJobService', $shopController);
         self::assertStringNotContainsString('ProviderRegistry', $shopController);
+        self::assertStringContainsString('StorefrontPresentationConfig', $shopController);
+        self::assertStringContainsString('published_revisions', $presentation);
+        self::assertStringContainsString('whereExists', $presentation);
     }
 
     public function test_default_storefront_pages_share_the_translation_layout_and_hosted_payment_uses_the_safe_server_bridge(): void
@@ -394,13 +400,13 @@ class SaasPluginRouteIsolationTest extends TestCase
         $release = ltrim((string) ($manifest['version'] ?? ''), 'v');
         self::assertMatchesRegularExpression('/^\\d+\\.\\d+\\.\\d+$/', $release);
 
-        $shopController = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Controllers/ShopTranslationController.php');
+        $presentation   = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Services/StorefrontPresentationConfig.php');
         $widget         = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Static/public/widget.js');
         $widgetView     = (string) file_get_contents($root . '/plugins/LongosGlobalTranslate/Views/shop/widget.blade.php');
         $synchronizer   = (string) file_get_contents($root . '/app/Services/BundledPluginSynchronizer.php');
         $entrypoint     = (string) file_get_contents($root . '/docker/nginx/start.sh');
 
-        self::assertStringContainsString("PLUGIN_RELEASE = '{$release}'", $shopController);
+        self::assertStringContainsString("PLUGIN_RELEASE = '{$release}'", $presentation);
         self::assertStringContainsString("widgetRelease = '{$release}'", $widget);
         self::assertStringContainsString("?v={$release}", $widgetView);
         self::assertStringContainsString('PluginRepo::publishPluginFiles($package)', $synchronizer);

@@ -9,6 +9,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
@@ -26,6 +27,7 @@ use Plugin\LongosGlobalTranslate\Services\PlatformPaymentLocaleBridge;
 use Plugin\LongosGlobalTranslate\Services\ProviderAccountService;
 use Plugin\LongosGlobalTranslate\Services\ProviderVerificationService;
 use Plugin\LongosGlobalTranslate\Services\PublicationService;
+use Plugin\LongosGlobalTranslate\Services\StorefrontPresentationConfig;
 use Plugin\LongosGlobalTranslate\Services\TranslationJobService;
 use Plugin\LongosGlobalTranslate\Services\TranslationLibrary;
 use Plugin\LongosGlobalTranslate\Services\TranslationSchema;
@@ -153,16 +155,32 @@ class GlobalTranslationWorkflowTest extends TestCase
             'widget'          => ['enabled' => true, 'position' => 'right', 'bottom_offset' => 84, 'mobile_bottom_offset' => 88, 'theme' => 'system'],
         ]);
 
-        DB::table('products')->insert(['id' => 44, 'active' => true]);
-        DB::table('product_descriptions')->insert(['product_id' => 44, 'locale' => 'en', 'name' => 'Public travel case']);
-        $hash    = ContentScanner::sourceHash('Public travel case');
-        $entryId = DB::table('lgt_entries')->insertGetId([
+        DB::table('products')->insert([
+            ['id' => 44, 'active' => true],
+            ['id' => 47, 'active' => true],
+        ]);
+        DB::table('product_descriptions')->insert([
+            ['product_id' => 44, 'locale' => 'en', 'name' => 'Public travel case'],
+            ['product_id' => 47, 'locale' => 'en', 'name' => 'Public sling case'],
+        ]);
+        $hash       = ContentScanner::sourceHash('Public travel case');
+        $secondHash = ContentScanner::sourceHash('Public sling case');
+        $entryId    = DB::table('lgt_entries')->insertGetId([
             'content_key'   => hash('sha256', 'product-44-name'), 'kind' => 'product', 'entity_id' => 44, 'field' => 'name',
             'source_locale' => 'en', 'source_format' => 'plain', 'source_text' => 'Public travel case', 'source_hash' => $hash,
             'is_public'     => true, 'is_tombstoned' => false, 'created_at' => now(), 'updated_at' => now(),
         ]);
         $translationId = DB::table('lgt_translations')->insertGetId([
             'entry_id' => $entryId, 'locale' => 'fr', 'source_hash' => $hash, 'text' => 'Étui de voyage public',
+            'status'   => TranslationLibrary::APPROVED, 'version' => 1, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $secondEntryId = DB::table('lgt_entries')->insertGetId([
+            'content_key'   => hash('sha256', 'product-47-name'), 'kind' => 'product', 'entity_id' => 47, 'field' => 'name',
+            'source_locale' => 'en', 'source_format' => 'plain', 'source_text' => 'Public sling case', 'source_hash' => $secondHash,
+            'is_public'     => true, 'is_tombstoned' => false, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $secondTranslationId = DB::table('lgt_translations')->insertGetId([
+            'entry_id' => $secondEntryId, 'locale' => 'fr', 'source_hash' => $secondHash, 'text' => 'Étui bandoulière public',
             'status'   => TranslationLibrary::APPROVED, 'version' => 1, 'created_at' => now(), 'updated_at' => now(),
         ]);
         $publicationId = DB::table('lgt_publications')->insertGetId([
@@ -172,27 +190,96 @@ class GlobalTranslationWorkflowTest extends TestCase
             'publication_id' => $publicationId, 'translation_id' => $translationId, 'translation_version' => 1,
             'source_hash'    => $hash, 'text' => 'Étui de voyage public', 'created_at' => now(), 'updated_at' => now(),
         ]);
+        DB::table('lgt_publication_items')->insert([
+            'publication_id' => $publicationId, 'translation_id' => $secondTranslationId, 'translation_version' => 1,
+            'source_hash'    => $secondHash, 'text' => 'Étui bandoulière public', 'created_at' => now(), 'updated_at' => now(),
+        ]);
 
         $controller = new ShopTranslationController(
             $settings,
             app(\Plugin\LongosGlobalTranslate\Services\PresentationLocaleResolver::class),
             new DictionaryService,
         );
+        $queries = [];
+        DB::listen(static function ($query) use (&$queries): void {
+            $queries[] = $query->sql;
+        });
         $response = $controller->batchDictionary(\Illuminate\Http\Request::create('/global-translate/dictionary/batch', 'GET', [
-            'locale' => 'fr', 'entities' => 'product:44,product:999999',
+            'locale' => 'fr', 'entities' => 'product:44,product:47,product:999999',
         ]));
         $dictionary = $response->getData(true)['dictionaries']['product:44'];
 
         self::assertSame('Étui de voyage public', $dictionary['items'][hash('sha256', 'product-44-name')]);
         self::assertSame('Étui de voyage public', $dictionary['fields']['name']);
         self::assertSame('Public travel case', $dictionary['sources'][hash('sha256', 'product-44-name')]);
+        self::assertSame('Étui bandoulière public', $response->getData(true)['dictionaries']['product:47']['fields']['name']);
         self::assertArrayNotHasKey('product:999999', $response->getData(true)['dictionaries']);
+        $publicationReads = array_filter($queries, static fn (string $sql): bool => preg_match('/from\s+["`][^"`]*lgt_publications["`]\s+where.*\blocale\b/i', $sql) === 1);
+        self::assertCount(1, $publicationReads, 'A single batched public read must resolve one immutable publication snapshot.');
 
         DB::table('product_descriptions')->where('product_id', 44)->update(['name' => 'Changed after publication']);
         $stale = $controller->batchDictionary(\Illuminate\Http\Request::create('/global-translate/dictionary/batch', 'GET', [
             'locale' => 'fr', 'entities' => 'product:44',
         ]));
         self::assertSame([], $stale->getData(true)['dictionaries']);
+    }
+
+    public function test_storefront_bootstrap_uses_the_published_locale_revision_for_a_tenant_scoped_cache_key(): void
+    {
+        foreach ([
+            'shop.longos_global_translate.dictionary'           => '/__lgt-test/dictionary/{kind}/{entityId}',
+            'shop.longos_global_translate.dictionary-batch'     => '/__lgt-test/dictionary/batch',
+            'shop.longos_global_translate.interface-dictionary' => '/__lgt-test/dictionary/interface',
+        ] as $name => $uri) {
+            if (! Route::has($name)) {
+                Route::get($uri, static fn () => response()->noContent())->name($name);
+            }
+        }
+        // The application was bootstrapped before this focused test adds its
+        // isolated route fixtures, so rebuild Laravel's route-name index.
+        Route::getRoutes()->refreshNameLookups();
+
+        $settings = new TranslationSettings;
+        $settings->save([
+            ...$settings->all(),
+            'enabled_locales' => ['fr'],
+            'widget'          => ['enabled' => true, 'position' => 'right', 'bottom_offset' => 84, 'mobile_bottom_offset' => 88, 'theme' => 'system'],
+        ]);
+        $hash    = ContentScanner::sourceHash('Published builder heading');
+        $entryId = DB::table('lgt_entries')->insertGetId([
+            'content_key'   => hash('sha256', 'builder-99-heading'), 'kind' => 'builder', 'entity_id' => 99, 'field' => 'module.0.heading',
+            'source_locale' => 'en', 'source_format' => 'plain', 'source_text' => 'Published builder heading', 'source_hash' => $hash,
+            'is_public'     => true, 'is_tombstoned' => false, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $translationId = DB::table('lgt_translations')->insertGetId([
+            'entry_id' => $entryId, 'locale' => 'fr', 'source_hash' => $hash, 'text' => 'Titre de module publié',
+            'status'   => TranslationLibrary::APPROVED, 'version' => 1, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $publicationId = DB::table('lgt_publications')->insertGetId([
+            'locale' => 'fr', 'revision' => 7, 'state' => 'published', 'published_at' => now(), 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('lgt_publication_items')->insert([
+            'publication_id' => $publicationId, 'translation_id' => $translationId, 'translation_version' => 1,
+            'source_hash'    => $hash, 'text' => 'Titre de module publié', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $request = Request::create('/products/99', 'GET', [], [\Plugin\LongosGlobalTranslate\Services\PresentationLocaleResolver::COOKIE => 'fr']);
+        $config  = (new StorefrontPresentationConfig(
+            $settings,
+            app(\Plugin\LongosGlobalTranslate\Services\PresentationLocaleResolver::class),
+        ))->forRequest($request);
+
+        self::assertTrue($config['enabled']);
+        self::assertSame('fr', $config['locale']);
+        self::assertSame('explicit', $config['locale_source']);
+        self::assertSame(['fr'], $config['published_locales']);
+        self::assertSame(['fr' => 7], $config['published_revisions']);
+        self::assertSame(['99'], $config['builder_entities']);
+        self::assertNotSame('', $config['dictionary_url']);
+        self::assertStringContainsString('__kind__', $config['dictionary_url']);
+        self::assertStringContainsString('__entity__', $config['dictionary_url']);
+        self::assertNotSame('', $config['batch_dictionary_url']);
+        self::assertNotSame('', $config['interface_dictionary_url']);
     }
 
     public function test_quick_publish_approves_only_safe_machine_results_and_keeps_human_edits_for_explicit_review(): void
@@ -240,7 +327,8 @@ class GlobalTranslationWorkflowTest extends TestCase
 
         self::assertFalse($config->getData(true)['enabled']);
         self::assertSame(['en'], $config->getData(true)['locales']);
-        self::assertSame('1.5.6', $config->getData(true)['plugin_release']);
+        self::assertSame('1.5.7', $config->getData(true)['plugin_release']);
+        self::assertSame([], $config->getData(true)['published_revisions']);
         self::assertSame('', $config->getData(true)['dictionary_url']);
         self::assertSame('', $config->getData(true)['batch_dictionary_url']);
         self::assertSame('', $config->getData(true)['interface_dictionary_url']);
@@ -642,7 +730,7 @@ class GlobalTranslationWorkflowTest extends TestCase
 
             public function send(TranslationProviderRequest $request, array $credentials): TranslationProviderResponse
             {
-                return new TranslationProviderResponse(true, ['Vérification LONGOS'], 'provider-probe', null, hash('sha256', 'probe'), 1);
+                return new TranslationProviderResponse(true, ['Vérification LONGOS : ' . $request->segments[0]], 'provider-probe', null, hash('sha256', 'probe'), 1);
             }
 
             public function classifyFailure(\Throwable|TranslationProviderResponse $failure): array
@@ -656,7 +744,54 @@ class GlobalTranslationWorkflowTest extends TestCase
         self::assertNotNull($verified['verified_at']);
         self::assertFalse((bool) $verified['dispatch_enabled']);
         self::assertSame('committed', DB::table('lgt_attempts')->value('state'));
-        self::assertSame(19, (int) DB::table('lgt_usage_months')->value('committed_units'));
+        self::assertGreaterThan(19, (int) DB::table('lgt_usage_months')->value('committed_units'));
+    }
+
+    public function test_provider_verification_refuses_an_account_that_corrupts_protected_markers(): void
+    {
+        $accounts = new ProviderAccountService;
+        $account  = $accounts->save([
+            'provider' => 'baidu', 'billing_identity' => 'token-incompatible-sandbox', 'enabled' => true, 'free_quota' => 1000,
+        ], ['appid' => 'app-id', 'secret' => 'secret-value'], 8);
+        $provider = new class implements TranslationProviderInterface
+        {
+            public function id(): string
+            {
+                return 'baidu';
+            }
+
+            public function validateCredentialShape(array $credentials): void {}
+
+            public function supports(string $sourceLocale, string $targetLocale): bool
+            {
+                return true;
+            }
+
+            public function buildBatches(array $segments, string $sourceLocale, string $targetLocale): array
+            {
+                return [$segments];
+            }
+
+            public function send(TranslationProviderRequest $request, array $credentials): TranslationProviderResponse
+            {
+                return new TranslationProviderResponse(true, ['Vérification LONGOS sans marqueur'], 'provider-probe', null, hash('sha256', 'probe'), 1);
+            }
+
+            public function classifyFailure(\Throwable|TranslationProviderResponse $failure): array
+            {
+                return ['kind' => 'definite_failure', 'code' => 'TEST', 'definitely_unbilled' => true];
+            }
+        };
+
+        try {
+            (new ProviderVerificationService($accounts, new ProviderRegistry(['baidu' => $provider]), new UsageLedger))->verify((int) $account['id'], 8);
+            self::fail('A provider that drops protected markers must not become dispatchable.');
+        } catch (RuntimeException $exception) {
+            self::assertSame('PROVIDER_TOKEN_INCOMPATIBLE', $exception->getMessage());
+        }
+
+        self::assertNull(DB::table('lgt_provider_accounts')->where('id', $account['id'])->value('verified_at'));
+        self::assertSame(UsageLedger::COMMITTED, DB::table('lgt_attempts')->where('provider_account_id', $account['id'])->value('state'));
     }
 
     public function test_verification_rejects_unreadable_credentials_before_reserving_or_contacting_a_provider(): void

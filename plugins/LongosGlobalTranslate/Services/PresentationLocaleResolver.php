@@ -20,9 +20,17 @@ final class PresentationLocaleResolver
         private readonly CountryLocaleCatalog $countries,
     ) {}
 
-    public function decide(Request $request): PresentationLocaleDecision
+    /**
+     * @param array<string, mixed>|null $resolvedSettings
+     */
+    public function decide(Request $request, ?array $resolvedSettings = null): PresentationLocaleDecision
     {
-        $settings = $this->settings->all();
+        // StorefrontPresentationConfig has already loaded the same tenant
+        // settings while composing the initial HTML response. Accepting that
+        // validated snapshot avoids two additional settings-table reads on a
+        // cold first paint, without introducing a process-wide cache that
+        // could ever cross a tenant boundary.
+        $settings = $resolvedSettings ?? $this->settings->all();
         $source   = (string) $settings['source_locale'];
         $enabled  = array_flip(array_merge([$source], (array) $settings['enabled_locales']));
         $manual   = $request->cookie(self::COOKIE);
