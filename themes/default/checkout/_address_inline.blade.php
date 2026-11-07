@@ -95,7 +95,7 @@
             </button>
           </div>
         </div>
-        <div id="checkout-address-lookup-status" class="address-helper address-autocomplete-status" aria-live="polite"><span class="address-helper-icon" aria-hidden="true">✦</span>@{{ addressLookupMessage || messages.addressLookupHelp }}</div>
+        <div id="checkout-address-lookup-status" class="address-helper address-autocomplete-status" :data-loading="addressLookupLoading ? 'true' : 'false'" aria-live="polite"><span class="address-helper-icon" aria-hidden="true">✦</span>@{{ addressLookupMessage || messages.addressLookupHelp }}</div>
         <div class="address-attribution"><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">{{ __('shop/checkout.address_lookup_attribution') }}</a></div>
       </div>
 
@@ -224,6 +224,8 @@
       zoneRequestId: 0,
       addressLookupRequestId: 0,
       addressLookupTimer: null,
+      addressLookupAbortController: null,
+      addressLookupCache: {},
       addressSuggestions: [],
       activeSuggestion: -1,
       addressLookupMessage: '',
@@ -413,15 +415,22 @@
       },
       scheduleAddressLookup() {
         window.clearTimeout(this.addressLookupTimer);
+        this.abortAddressLookupRequest();
         const requestId = ++this.addressLookupRequestId;
         this.addressSuggestions = [];
         this.activeSuggestion = -1;
         this.addressLookupLoading = false;
         this.addressLookupMessage = this.messages.addressLookupHelp;
-        this.addressLookupTimer = window.setTimeout(() => this.lookupAddressSuggestions(requestId), 350);
+        if (String(this.addressForm.address_1 || '').trim().length < 3) return;
+
+        // Address lookup is an optional assist, never a reason to interrupt
+        // typing. Wait for a deliberate pause and retain only the newest
+        // request as the customer keeps editing the street field.
+        this.addressLookupTimer = window.setTimeout(() => this.lookupAddressSuggestions(requestId), 500);
       },
       lookupAddressSuggestions(requestId = null) {
         if (requestId === null) requestId = ++this.addressLookupRequestId;
+        if (requestId !== this.addressLookupRequestId) return Promise.resolve([]);
         const query = String(this.addressForm.address_1 || '').trim();
         if (query.length < 3) {
           this.clearAddressSuggestions(false);
@@ -440,21 +449,80 @@
         const selectedCountryCode = String(selectedCountry?.code || '').toUpperCase();
         if (/^[A-Z]{2}$/.test(selectedCountryCode)) params.country_code = selectedCountryCode;
 
-        return $http.post(checkoutAddressSuggestionsUrl, params, {hmsg: true, hload: true, timeout: 12000}).then((res) => {
+        const cacheKey = this.addressLookupCacheKey(query, params.lang, selectedCountryCode);
+        const cached = this.readAddressLookupCache(cacheKey);
+        if (cached !== null) {
+          this.applyAddressSuggestions(cached);
+          return Promise.resolve(this.addressSuggestions);
+        }
+
+        const controller = typeof window.AbortController === 'function' ? new window.AbortController() : null;
+        this.addressLookupAbortController = controller;
+        const requestConfig = { timeout: 6000 };
+        if (controller) requestConfig.signal = controller.signal;
+
+        // Use Axios directly so this low-priority helper never invokes the
+        // application's blocking layer loading mask. The form stays editable
+        // while the request is in flight, including on slow provider links.
+        return $http.axiosApi.post(checkoutAddressSuggestionsUrl, params, requestConfig).then((response) => {
           if (requestId !== this.addressLookupRequestId || query !== String(this.addressForm.address_1 || '').trim()) return [];
-          this.addressSuggestions = Array.isArray(res.data) ? res.data : [];
-          this.activeSuggestion = this.addressSuggestions.length ? 0 : -1;
-          this.addressLookupLoading = false;
-          this.addressLookupMessage = this.addressSuggestions.length ? this.messages.addressLookupHelp : this.messages.addressLookupEmpty;
+          const suggestions = Array.isArray(response?.data?.data) ? response.data.data : [];
+          this.writeAddressLookupCache(cacheKey, suggestions);
+          this.applyAddressSuggestions(suggestions);
           return this.addressSuggestions;
-        }).catch(() => {
-          if (requestId !== this.addressLookupRequestId || query !== String(this.addressForm.address_1 || '').trim()) return [];
+        }).catch((error) => {
+          if (requestId !== this.addressLookupRequestId || this.isAddressLookupCanceled(error) || query !== String(this.addressForm.address_1 || '').trim()) return [];
           this.addressSuggestions = [];
           this.activeSuggestion = -1;
-          this.addressLookupLoading = false;
           this.addressLookupMessage = this.messages.addressLookupUnavailable;
           return [];
+        }).finally(() => {
+          if (requestId !== this.addressLookupRequestId) return;
+          this.addressLookupLoading = false;
+          if (this.addressLookupAbortController === controller) this.addressLookupAbortController = null;
         });
+      },
+      addressLookupCacheKey(query, language, countryCode) {
+        return [String(language || 'en').toLowerCase(), String(countryCode || '').toUpperCase(), String(query || '').trim().toLowerCase()].join('\u0000');
+      },
+      readAddressLookupCache(cacheKey) {
+        const entry = this.addressLookupCache[cacheKey];
+        if (!entry || Number(entry.expiresAt || 0) <= Date.now()) {
+          if (entry) delete this.addressLookupCache[cacheKey];
+          return null;
+        }
+
+        return Array.isArray(entry.suggestions) ? entry.suggestions.map((item) => Object.assign({}, item)) : null;
+      },
+      writeAddressLookupCache(cacheKey, suggestions) {
+        const keys = Object.keys(this.addressLookupCache);
+        if (keys.length >= 24) {
+          keys.sort((left, right) => Number(this.addressLookupCache[left]?.savedAt || 0) - Number(this.addressLookupCache[right]?.savedAt || 0))
+            .slice(0, keys.length - 23)
+            .forEach((key) => delete this.addressLookupCache[key]);
+        }
+
+        const now = Date.now();
+        this.addressLookupCache[cacheKey] = {
+          savedAt: now,
+          // Preserve a short negative cache too, so an empty result does not
+          // repeatedly consume the checkout rate limit while the user edits.
+          expiresAt: now + (suggestions.length ? 5 * 60 * 1000 : 60 * 1000),
+          suggestions: suggestions.map((item) => Object.assign({}, item)),
+        };
+      },
+      applyAddressSuggestions(suggestions) {
+        this.addressSuggestions = Array.isArray(suggestions) ? suggestions : [];
+        this.activeSuggestion = this.addressSuggestions.length ? 0 : -1;
+        this.addressLookupMessage = this.addressSuggestions.length ? this.messages.addressLookupHelp : this.messages.addressLookupEmpty;
+      },
+      abortAddressLookupRequest() {
+        const controller = this.addressLookupAbortController;
+        this.addressLookupAbortController = null;
+        if (controller && !controller.signal.aborted) controller.abort();
+      },
+      isAddressLookupCanceled(error) {
+        return error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError' || error?.name === 'AbortError';
       },
       suggestionDetail(suggestion) {
         return [suggestion.city, suggestion.zone, suggestion.zipcode, suggestion.country].filter(Boolean).join(', ');
@@ -471,6 +539,7 @@
       },
       async selectAddressSuggestion(suggestion) {
         window.clearTimeout(this.addressLookupTimer);
+        this.abortAddressLookupRequest();
         const selectionId = ++this.addressLookupRequestId;
         this.addressSuggestions = [];
         this.activeSuggestion = -1;
@@ -515,7 +584,10 @@
       },
       clearAddressSuggestions(cancelPending = true) {
         window.clearTimeout(this.addressLookupTimer);
-        if (cancelPending) this.addressLookupRequestId += 1;
+        if (cancelPending) {
+          this.abortAddressLookupRequest();
+          this.addressLookupRequestId += 1;
+        }
         this.addressSuggestions = [];
         this.activeSuggestion = -1;
         this.addressLookupLoading = false;

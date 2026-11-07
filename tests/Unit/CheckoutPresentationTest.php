@@ -102,8 +102,13 @@ class CheckoutPresentationTest extends TestCase
         self::assertStringNotContainsString('navigator.geolocation', $address);
         self::assertStringNotContainsString('addressLocationUse', $address);
         self::assertStringContainsString('params.country_code = selectedCountryCode', $address);
-        self::assertStringContainsString('$http.post(checkoutAddressSuggestionsUrl, params', $address);
-        self::assertStringContainsString('timeout: 12000', $address);
+        self::assertStringContainsString('$http.axiosApi.post(checkoutAddressSuggestionsUrl, params', $address);
+        self::assertStringContainsString('timeout: 6000', $address);
+        self::assertStringContainsString('abortAddressLookupRequest()', $address);
+        self::assertStringContainsString('addressLookupCacheKey(query, language, countryCode)', $address);
+        self::assertStringContainsString('signal = controller.signal', $address);
+        self::assertStringContainsString('isAddressLookupCanceled(error)', $address);
+        self::assertStringNotContainsString('$http.post(checkoutAddressSuggestionsUrl, params, {hmsg: true, hload: true, timeout: 12000}', $address);
         self::assertStringContainsString('timeout: 15000', $address);
         self::assertStringContainsString('timeout: 8000', $address);
         self::assertStringContainsString('@click="selectAddressSuggestion(suggestion)"', $address);

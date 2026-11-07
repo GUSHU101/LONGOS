@@ -50,6 +50,8 @@
     .page-checkout :focus-visible { outline: 3px solid #2563eb; outline-offset: 3px; }
     .radio-line-item:focus-visible, .checkout-address-choice:focus-visible, .checkout-address-choice__edit:focus-visible { box-shadow: inset 0 0 0 3px #2563eb; outline: 0; }
     .page-checkout [aria-busy="true"] { cursor: wait; opacity: .7; }
+    /* Address lookup is assistive and must never make active typing feel blocked. */
+    #checkout-address-line1[aria-busy="true"] { cursor: text; opacity: 1; }
     .radio-line-item { cursor: pointer; }
     .checkout-error-summary { align-items: flex-start; background: #fff4f2; border: 1px solid #e6a49c; border-radius: 8px; color: #7a271a; display: flex; gap: 12px; margin: 18px auto 0; max-width: 1120px; padding: 14px 16px; }
     .checkout-error-summary[hidden] { display: none !important; }
@@ -117,8 +119,11 @@
     .address-suggestion strong { font-size: 13px; font-weight: 600; }
     .address-suggestion small { color: #666; font-size: 11px; margin-top: 2px; }
     .address-autocomplete-status { min-height: 18px; }
+    .address-autocomplete-status[data-loading="true"] .address-helper-icon { animation: address-lookup-pulse .85s ease-in-out infinite; background: #e8efff; color: #1d4ed8; }
+    @keyframes address-lookup-pulse { 50% { opacity: .48; transform: scale(.9); } }
     .address-attribution { color: #777; font-size: 10px; margin-top: 2px; }
     .address-attribution a { text-decoration: underline; }
+    @media (prefers-reduced-motion: reduce) { .address-autocomplete-status[data-loading="true"] .address-helper-icon { animation: none; } }
     .field select:disabled { background: #f5f5f3; color: #666; cursor: not-allowed; }
     .checkout-address-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 12px; margin-top: 4px; }
     .address-save-button { background: #fff; border: 1px solid #111; border-radius: 6px; color: #111; min-height: 44px; padding: 0 16px; }

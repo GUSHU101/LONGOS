@@ -35,8 +35,10 @@ class AddressAutocompleteService
             $caBundle       = is_string($detectedBundle) && @is_readable($detectedBundle) ? $detectedBundle : '';
         }
         $this->client = $client ?? new Client([
-            'connect_timeout' => 3,
-            'timeout'         => 8,
+            // Checkout suggestions are optional. Fail fast so a slow external
+            // geocoder cannot hold up the customer's address entry flow.
+            'connect_timeout' => 2,
+            'timeout'         => 5,
             'verify'          => $caBundle !== '' ? $caBundle : true,
             'allow_redirects' => false,
             'http_errors'     => false,
