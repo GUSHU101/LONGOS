@@ -43,11 +43,13 @@ final class DatabaseReadiness
         'saas_sites',
         'saas_domains',
         'saas_platform_payment_sessions',
+        'saas_platform_payment_accounts',
     ];
 
     /** @var array<string, array<int, string>> */
     private const REQUIRED_CONTROL_COLUMNS = [
-        'saas_platform_payment_sessions' => ['active_key', 'timestamps_utc'],
+        'saas_platform_payment_sessions' => ['active_key', 'timestamps_utc', 'payment_account_id', 'callback_host'],
+        'saas_platform_payment_accounts' => ['uuid', 'provider', 'client_id', 'secret_ciphertext', 'callback_host', 'enabled', 'rotation_weight', 'consecutive_failures', 'circuit_open_until'],
     ];
 
     /** @var array<int, string> */

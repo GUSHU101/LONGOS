@@ -74,19 +74,43 @@ class PlatformPaymentSettings
                 ? (string) $platform['paypal_mode']
                 : 'sandbox';
 
+            $legacyPaypal = [
+                'api_mode'    => 'rest',
+                'mode'        => $mode,
+                'client_id'   => trim((string) ($platform['paypal_client_id'] ?? '')),
+                'secret'      => trim((string) ($platform['paypal_secret'] ?? '')),
+                'merchant_id' => strtoupper(trim((string) ($platform['paypal_merchant_id'] ?? ''))),
+            ];
+            $accounts = app(PlatformPaymentAccountService::class);
+            // An individual account can be malformed after a key rotation or
+            // an interrupted import.  It must never take every other healthy
+            // account offline.  The account remains visible in the admin
+            // registry as "needs attention", but only valid credentials are
+            // admitted to the runtime rotation pool.
+            $managedAccounts = $accounts->activePaypalAccounts()->map(function ($account) use ($accounts): ?array {
+                try {
+                    $configuration = $accounts->runtimeConfiguration($account);
+
+                    return $this->validPaypalConfiguration($configuration) ? $configuration : null;
+                } catch (\Throwable) {
+                    return null;
+                }
+            })->filter()->values()->all();
+            $hasManagedAccounts = $accounts->hasManagedPaypalAccounts();
+            $paypalAccounts = $hasManagedAccounts ? $managedAccounts : [$legacyPaypal];
+
             return [
                 'control_site_id' => (int) $control->id,
                 'control_url'     => $this->controlUrl($control),
                 'enabled'         => filter_var($platform['status'] ?? false, FILTER_VALIDATE_BOOLEAN),
                 'share_paypal'    => filter_var($platform['share_paypal'] ?? true, FILTER_VALIDATE_BOOLEAN),
                 'share_stripe'    => filter_var($platform['share_stripe'] ?? true, FILTER_VALIDATE_BOOLEAN),
-                'paypal'          => [
-                    'api_mode'    => 'rest',
-                    'mode'        => $mode,
-                    'client_id'   => trim((string) ($platform['paypal_client_id'] ?? '')),
-                    'secret'      => trim((string) ($platform['paypal_secret'] ?? '')),
-                    'merchant_id' => strtoupper(trim((string) ($platform['paypal_merchant_id'] ?? ''))),
-                ],
+                // The legacy record remains the compatibility fallback until
+                // the first managed account is created. New sessions are
+                // bound to a selected managed account before a browser sees
+                // a PayPal SDK key.
+                'paypal'          => $paypalAccounts[0] ?? $legacyPaypal,
+                'paypal_accounts' => $paypalAccounts,
                 'stripe'          => [
                     'test_mode'       => filter_var($platform['stripe_test_mode'] ?? true, FILTER_VALIDATE_BOOLEAN),
                     'publishable_key' => trim((string) ($platform['stripe_publishable_key'] ?? '')),
@@ -105,12 +129,10 @@ class PlatformPaymentSettings
     {
         $settings  ??= $this->snapshot();
         $providers     = [];
-        $paypal        = $settings['paypal'];
-        $merchantValid = $paypal['merchant_id'] === '' || preg_match('/^[2-9A-HJ-NP-Z]{13}$/', $paypal['merchant_id']) === 1;
-        if ($paypal['api_mode']                                              === 'rest'
-            && preg_match('/^[A-Za-z0-9_-]{10,512}$/', $paypal['client_id']) === 1
-            && strlen($paypal['secret']) >= 8
-            && $merchantValid) {
+        $paypalAccounts = is_array($settings['paypal_accounts'] ?? null)
+            ? $settings['paypal_accounts']
+            : [$settings['paypal'] ?? []];
+        if (collect($paypalAccounts)->contains(fn (mixed $paypal): bool => is_array($paypal) && $this->validPaypalConfiguration($paypal))) {
             $providers[] = 'paypal';
         }
 
@@ -123,6 +145,172 @@ class PlatformPaymentSettings
         }
 
         return $providers;
+    }
+
+    /** @param array<string, mixed> $paypal */
+    public function validPaypalConfiguration(array $paypal): bool
+    {
+        $merchant = strtoupper(trim((string) ($paypal['merchant_id'] ?? '')));
+        $merchantValid = $merchant === '' || preg_match('/^[2-9A-HJ-NP-Z]{13}$/', $merchant) === 1;
+
+        return ($paypal['api_mode'] ?? 'rest') === 'rest'
+            && in_array(($paypal['mode'] ?? 'sandbox'), ['sandbox', 'live'], true)
+            && preg_match('/^[A-Za-z0-9_-]{10,512}$/', trim((string) ($paypal['client_id'] ?? ''))) === 1
+            && strlen(trim((string) ($paypal['secret'] ?? ''))) >= 8
+            && $merchantValid;
+    }
+
+    /**
+     * Resolve credentials for an already-created session. A disabled account
+     * remains resolvable here so an approved order can still be captured and
+     * reconciled; only new claims require an enabled account.
+     *
+     * @return array<string, mixed>
+     */
+    public function paypalForSession(PlatformPaymentSession $session): array
+    {
+        if ($session->payment_account_id) {
+            $account = \App\Saas\Models\PlatformPaymentAccount::query()
+                ->whereKey($session->payment_account_id)
+                ->paypal()
+                ->first();
+            if (! $account) {
+                throw new RuntimeException('该支付会话绑定的 PayPal 账户不存在。');
+            }
+
+            $paypal = app(PlatformPaymentAccountService::class)->runtimeConfiguration($account);
+            if (! $this->validPaypalConfiguration($paypal)) {
+                throw new RuntimeException('该支付会话绑定的 PayPal 账户配置无效。');
+            }
+
+            return $paypal;
+        }
+
+        $paypal = (array) ($this->snapshot()['paypal'] ?? []);
+        if (! $this->validPaypalConfiguration($paypal)) {
+            throw new RuntimeException('主站 PayPal REST 收款尚未配置完整。');
+        }
+
+        return $paypal;
+    }
+
+    /** @return array{client_id: string, merchant_id: string} */
+    public function publicPaypalForSession(PlatformPaymentSession $session): array
+    {
+        $paypal = $this->paypalForSession($session);
+
+        return [
+            'client_id'   => (string) $paypal['client_id'],
+            'merchant_id' => (string) $paypal['merchant_id'],
+        ];
+    }
+
+    /**
+     * Build a non-persisted snapshot for a single managed account health
+     * probe. This deliberately avoids changing the active rotation order or
+     * exposing the account secret to the settings page.
+     *
+     * @return array<string, mixed>
+     */
+    public function snapshotForPaypalAccount(\App\Saas\Models\PlatformPaymentAccount $account): array
+    {
+        $snapshot = $this->snapshot();
+        $paypal   = app(PlatformPaymentAccountService::class)->runtimeConfiguration($account);
+        if (! $this->validPaypalConfiguration($paypal)) {
+            throw new RuntimeException('该 PayPal 收款账户配置无效。');
+        }
+
+        $snapshot['paypal']          = $paypal;
+        $snapshot['paypal_accounts'] = [$paypal];
+
+        return $snapshot;
+    }
+
+    public function canClaimPaypalForSession(PlatformPaymentSession $session, ?array $snapshot = null): bool
+    {
+        $snapshot ??= $this->snapshot();
+        if (! filter_var($snapshot['enabled'] ?? false, FILTER_VALIDATE_BOOLEAN)
+            || ! filter_var($snapshot['share_paypal'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+            return false;
+        }
+
+        try {
+            $paypal = $this->paypalForSession($session);
+            if (! $this->validPaypalConfiguration($paypal)) {
+                return false;
+            }
+            if (! $session->payment_account_id) {
+                return true;
+            }
+
+            return (bool) ($paypal['enabled'] ?? false);
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /** @param array<string, mixed>|null $snapshot @return list<string> */
+    public function availableProvidersForSession(PlatformPaymentSession $session, ?array $snapshot = null): array
+    {
+        $snapshot ??= $this->snapshot();
+        $providers = $this->availableProvidersForSnapshot($snapshot);
+        // A provider may be disabled only after a browser has already been
+        // sent to it.  Keep that immutable session operable for its return,
+        // capture and reconciliation, while preventing any new claim.
+        if (hash_equals((string) $session->provider, 'paypal')
+            && $session->payment_account_id
+            && ! in_array('paypal', $providers, true)) {
+            try {
+                if ($this->validPaypalConfiguration($this->paypalForSession($session))) {
+                    $providers[] = 'paypal';
+                }
+            } catch (\Throwable) {
+                // The normal unavailable state is safer than an unverified
+                // fallback account when the bound key cannot be resolved.
+            }
+        }
+        if (in_array('paypal', $providers, true) && ! $this->canClaimPaypalForSession($session, $snapshot)
+            && ! (hash_equals((string) $session->provider, 'paypal') && $session->provider_order_id)) {
+            $providers = array_values(array_filter($providers, static fn (string $provider): bool => $provider !== 'paypal'));
+        }
+
+        return $providers;
+    }
+
+    public function paymentUrlForSession(PlatformPaymentSession $session, string $path = ''): string
+    {
+        $host = trim((string) $session->callback_host);
+        if ($host !== '') {
+            try {
+                $host = DomainName::normalize($host);
+
+                return 'https://' . $host . '/' . ltrim($path, '/');
+            } catch (\Throwable) {
+                throw new RuntimeException('支付会话的回传域名无效。');
+            }
+        }
+
+        return $this->mainUrl($path);
+    }
+
+    public function sessionUsesCallbackHost(PlatformPaymentSession $session, string $host): bool
+    {
+        try {
+            $host = DomainName::normalize($host);
+        } catch (\Throwable) {
+            return false;
+        }
+
+        $expected = trim((string) $session->callback_host);
+        if ($expected === '') {
+            $expected = (string) parse_url($this->mainUrl(), PHP_URL_HOST);
+        }
+
+        try {
+            return hash_equals(DomainName::normalize($expected), $host);
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     /** @return list<string> */

@@ -3,7 +3,10 @@
 namespace App\Console\Commands;
 
 use App\Saas\Models\PlatformPaymentSession;
+use App\Saas\Models\PlatformPaymentAccount;
+use App\Services\PlatformPayment\PlatformPaymentAccountService;
 use App\Services\PlatformPayment\PlatformPaymentSessionService;
+use App\Services\PlatformPayment\PlatformPaymentSettings;
 use App\Services\PlatformPayment\PlatformPaypalGateway;
 use App\Services\PlatformPayment\PlatformStripeGateway;
 use Illuminate\Console\Command;
@@ -73,9 +76,13 @@ class ReconcilePlatformPayments extends Command
         foreach ($candidates as $session) {
             try {
                 $provider = (string) $session->provider;
-                $gateway  = $gateways[$provider] ??= $provider === 'paypal'
-                    ? app(PlatformPaypalGateway::class)
-                    : app(PlatformStripeGateway::class);
+                // PayPal credentials are fixed per session/account. Never
+                // reuse the first account gateway for a later session or a
+                // reconciliation worker could query/capture against the
+                // wrong merchant. Stripe remains platform-global here.
+                $gateway  = $provider === 'paypal'
+                    ? new PlatformPaypalGateway(app(PlatformPaymentSettings::class), null, $session)
+                    : ($gateways['stripe'] ??= app(PlatformStripeGateway::class));
                 $result = $gateway->recoverCompleted($session, (string) $session->provider_order_id);
                 if ($result === null) {
                     if ($provider === 'stripe'
@@ -101,6 +108,20 @@ class ReconcilePlatformPayments extends Command
                 $recovered++;
             } catch (Throwable $exception) {
                 $failed++;
+                if ($provider === 'paypal' && $session->payment_account_id) {
+                    try {
+                        $account = PlatformPaymentAccount::query()->find($session->payment_account_id);
+                        if ($account) {
+                            // Reconciliation can fail because the network or
+                            // PayPal's read API is temporarily unavailable.
+                            // Mark this for operators without opening the
+                            // checkout circuit: this session may already have
+                            // an authorization that must remain recoverable.
+                            app(PlatformPaymentAccountService::class)->markHealth($account, 'failed');
+                        }
+                    } catch (Throwable) {
+                    }
+                }
                 Log::warning('Hosted payment reconciliation failed.', [
                     'session_id' => $session->id,
                     'provider'   => $session->provider,

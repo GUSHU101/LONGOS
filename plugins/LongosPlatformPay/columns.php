@@ -26,7 +26,9 @@ try {
     $stripeWebhook = e(rtrim(request()->getSchemeAndHttpHost(), '/') . '/_longos/pay/webhooks/stripe');
 }
 $isEnabled      = static fn (): bool => filter_var(request()->input('status', false), FILTER_VALIDATE_BOOLEAN);
+$managedPaypalAccounts = static fn (): bool => filter_var(request()->input('managed_paypal_accounts', false), FILTER_VALIDATE_BOOLEAN);
 $paypalEnabled  = static fn (): bool => $isEnabled()
+    && ! $managedPaypalAccounts()
     && filter_var(request()->input('share_paypal', false), FILTER_VALIDATE_BOOLEAN);
 $stripeEnabled = static fn (): bool => $isEnabled()
     && filter_var(request()->input('share_stripe', false), FILTER_VALIDATE_BOOLEAN);
@@ -83,8 +85,11 @@ return [
             ['value' => 'sandbox', 'label_key' => 'common.admin.sandbox'],
             ['value' => 'live', 'label_key' => 'common.admin.live'],
         ],
-        'required'        => true,
-        'rules'           => ['required', Rule::in(['sandbox', 'live'])],
+        // Managed receiver accounts each carry their own environment. Keep
+        // this legacy selector only for installations that still use the
+        // original single-account configuration.
+        'required'        => false,
+        'rules'           => [Rule::requiredIf(static fn (): bool => ! $managedPaypalAccounts()), 'nullable', Rule::in(['sandbox', 'live'])],
         'description_key' => 'common.admin.paypal_mode_help',
     ],
     [

@@ -207,7 +207,19 @@
       if (data.checkout_url) { fallback.href = data.checkout_url; fallback.hidden = false }
 
       if (selected === 'paypal') {
+        // A managed account uses its own verified callback hostname for the
+        // PayPal SDK page and return route.  Do not create a PayPal order from
+        // the tenant host: it would mix two browser origins and make a safe
+        // automatic account failover impossible.
+        if (data.hosted_checkout_required && data.checkout_url) {
+          window.location.assign(data.checkout_url)
+          return
+        }
         const created = await request(data.endpoints.paypal_create)
+        if (created.account_rotated && created.restart_url) {
+          window.location.assign(created.restart_url)
+          return
+        }
         if (!isTrustedPaypalUrl(created.approval_url)) throw new Error(messages.failed)
         window.location.assign(created.approval_url)
         return

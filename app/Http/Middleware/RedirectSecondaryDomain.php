@@ -6,6 +6,7 @@ use App\Saas\Models\Domain;
 use App\Saas\Models\Site;
 use App\Saas\Support\DomainName;
 use App\Saas\Support\DomainRoutingPolicy;
+use App\Services\PlatformPayment\PlatformPaymentAccountService;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -13,6 +14,8 @@ use Throwable;
 
 class RedirectSecondaryDomain
 {
+    public function __construct(private readonly PlatformPaymentAccountService $paymentAccounts) {}
+
     public function handle(Request $request, Closure $next): Response
     {
         if (! config('saas.enabled')
@@ -28,6 +31,15 @@ class RedirectSecondaryDomain
         try {
             $host = DomainName::normalize($request->getHost());
         } catch (Throwable) {
+            return $next($request);
+        }
+
+        // A callback alias intentionally keeps the alias in the browser
+        // while PayPal returns to the *single* payment-session route.  All
+        // other paths retain normal canonical-domain redirects, so adding an
+        // account never turns a callback hostname into a second public admin
+        // or storefront origin.
+        if ($request->is('_longos/pay/*') && $this->paymentAccounts->isCallbackHost($host)) {
             return $next($request);
         }
 

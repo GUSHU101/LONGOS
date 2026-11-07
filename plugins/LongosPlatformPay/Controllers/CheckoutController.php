@@ -60,25 +60,34 @@ class CheckoutController
 
             $created = $sessions->create($site, $order, $snapshot);
             $session = $created['session'];
+            $providers = $settings->availableProvidersForSession($session, $snapshot);
             if ($session->provider) {
-                $configured = $settings->configuredProviders($snapshot);
-                $providers  = in_array($session->provider, $configured, true) ? [$session->provider] : [];
+                // A provider claim is sticky. It may complete even when the
+                // account was paused after the customer opened PayPal; do not
+                // silently replace its SDK credentials with another account.
+                $providers = in_array($session->provider, $providers, true) ? [$session->provider] : [];
             }
+            $paypal   = in_array('paypal', $providers, true)
+                ? $settings->publicPaypalForSession($session)
+                : null;
             $token    = $created['token'];
             $decimals = PlatformPaymentCurrency::decimalPlaces((string) $session->currency);
             $response = json_success(trans('LongosPlatformPay::common.session_created'), [
                 'token'        => $token,
                 'checkout_url' => $created['checkout_url'],
-                'return_url'   => rtrim((string) $snapshot['control_url'], '/') . "/_longos/pay/{$token}/return/stripe",
+                // Managed PayPal accounts deliberately render the final
+                // provider button on the immutable account callback host.
+                // This keeps the PayPal button page, return URL and merchant
+                // account in one verified-domain context while the shopper
+                // remains on the tenant checkout until they choose PayPal.
+                'hosted_checkout_required' => (string) $session->callback_host !== '',
+                'return_url'   => $settings->paymentUrlForSession($session, "_longos/pay/{$token}/return/stripe"),
                 'providers'    => $providers,
                 'amount'       => [
                     'currency' => (string) $session->currency,
                     'value'    => PlatformPaymentAmount::format((string) $session->amount, $decimals),
                 ],
-                'paypal' => in_array('paypal', $providers, true) ? [
-                    'client_id'   => (string) data_get($snapshot, 'paypal.client_id', ''),
-                    'merchant_id' => (string) data_get($snapshot, 'paypal.merchant_id', ''),
-                ] : null,
+                'paypal' => $paypal,
                 'stripe' => in_array('stripe', $providers, true) ? [
                     'publishable_key' => (string) data_get($snapshot, 'stripe.publishable_key', ''),
                 ] : null,

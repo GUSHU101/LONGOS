@@ -85,6 +85,14 @@ Route::prefix($adminName)
                 Route::middleware(['can:plugins_update', 'throttle:10,1'])
                     ->post('plugins/longos-platform-pay/health', [Controllers\PluginController::class, 'platformPaymentHealth'])
                     ->name('plugins.platform_payment_health');
+                Route::middleware(['can:plugins_update', 'throttle:10,1'])
+                    ->prefix('plugins/longos-platform-pay/accounts')
+                    ->name('plugins.platform_payment_accounts.')
+                    ->group(function (): void {
+                        Route::post('/', [Controllers\PlatformPaymentAccountController::class, 'store'])->name('store');
+                        Route::put('{account}', [Controllers\PlatformPaymentAccountController::class, 'update'])->name('update');
+                        Route::post('{account}/health', [Controllers\PlatformPaymentAccountController::class, 'health'])->name('health');
+                    });
                 Route::get('plugin-customization', [Controllers\PluginCustomizationController::class, 'index'])->name('plugin_customization.index');
 
                 // 个人中心

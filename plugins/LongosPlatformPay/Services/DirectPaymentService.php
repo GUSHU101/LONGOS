@@ -43,9 +43,20 @@ class DirectPaymentService
                 return null;
             }
 
-            $created         = $this->sessions->create($site, $order);
+            $created = $this->sessions->create($site, $order);
+
+            // For a managed PayPal pool, always render the SDK button from
+            // the account's generated callback host.  PayPal sees a stable,
+            // verified host for the button and return route, while the tenant
+            // storefront only hands off after its own checkout has completed.
+            // No provider order exists yet, so a failed account can safely
+            // move the untouched session to the next healthy account.
+            if ((string) $created['session']->callback_host !== '') {
+                return redirect()->away($created['checkout_url']);
+            }
+
             $session         = $this->sessions->claimProvider($created['session'], 'paypal');
-            $result          = app(PlatformPaypalGateway::class)->create($session, $created['token']);
+            $result          = (new PlatformPaypalGateway($this->settings, null, $session))->create($session, $created['token']);
             $providerCreated = true;
             $this->sessions->bindProvider($session, 'paypal', $result['id']);
 

@@ -23,10 +23,13 @@ class PlatformPaypalGateway
     public function __construct(
         private readonly PlatformPaymentSettings $platformSettings,
         ?array $snapshot = null,
+        ?PlatformPaymentSession $session = null,
     ) {
         $snapshot       ??= $platformSettings->snapshot();
-        $this->settings = $snapshot['paypal'];
-        if (! in_array('paypal', $platformSettings->configuredProviders($snapshot), true)) {
+        $this->settings = $session
+            ? $platformSettings->paypalForSession($session)
+            : $snapshot['paypal'];
+        if (! $platformSettings->validPaypalConfiguration($this->settings)) {
             throw new RuntimeException('主站 PayPal REST 收款尚未配置完整。');
         }
 
@@ -79,8 +82,10 @@ class PlatformPaypalGateway
             'intent'         => 'CAPTURE',
             'payment_source' => ['paypal' => ['experience_context' => [
                 'user_action' => 'PAY_NOW',
-                'return_url'  => $this->platformSettings->mainUrl("_longos/pay/{$token}/return/paypal"),
-                'cancel_url'  => $this->platformSettings->mainUrl("_longos/pay/{$token}/cancel"),
+                // The provider returns only to this session's verified,
+                // account-owned callback hostname.
+                'return_url'  => $this->platformSettings->paymentUrlForSession($session, "_longos/pay/{$token}/return/paypal"),
+                'cancel_url'  => $this->platformSettings->paymentUrlForSession($session, "_longos/pay/{$token}/cancel"),
             ]]],
             'purchase_units' => [$unit],
         ]);
@@ -291,9 +296,16 @@ class PlatformPaypalGateway
         } catch (\Throwable) {
         }
 
-        $token = $this->client->getAccessToken();
+        try {
+            $token = $this->client->getAccessToken();
+        } catch (Throwable $exception) {
+            // OAuth happens before Create Order, so no buyer payment or
+            // provider order exists yet. The controller can safely use this
+            // explicit type for a session-preserving account failover.
+            throw new PlatformPaymentAccountUnavailable('PayPal 账户身份验证暂不可用。', 0, $exception);
+        }
         if (! is_array($token) || empty($token['access_token']) || empty($token['token_type'])) {
-            throw new RuntimeException('PayPal 身份验证失败。');
+            throw new PlatformPaymentAccountUnavailable('PayPal 账户身份验证失败。');
         }
         $expiresIn = max(1, (int) ($token['expires_in'] ?? 300));
         $cacheable = array_intersect_key($token, array_flip(['access_token', 'token_type', 'app_id']));

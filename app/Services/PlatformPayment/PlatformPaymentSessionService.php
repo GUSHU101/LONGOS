@@ -60,7 +60,7 @@ class PlatformPaymentSessionService
             $order->refresh();
             $this->assertPayableOrder($order);
 
-            $created = DB::connection('saas')->transaction(function () use ($site, $order, $amount, $currency, $activeKey): array {
+            $created = DB::connection('saas')->transaction(function () use ($site, $order, $amount, $currency, $activeKey, $settingsSnapshot): array {
                 $candidates = PlatformPaymentSession::query()
                     ->where('site_id', $site->id)
                     ->where('order_id', $order->id)
@@ -111,6 +111,18 @@ class PlatformPaymentSessionService
 
                 $uuid    = (string) Str::uuid();
                 $token   = $this->tokenForUuid($uuid);
+                $account = null;
+                if (in_array('paypal', $this->settings->availableProvidersForSnapshot($settingsSnapshot), true)) {
+                    // A PayPal SDK client id is account-specific. Reserve the
+                    // account before the checkout response is generated so
+                    // the SDK, provider order and verified callback hostname
+                    // always use one immutable account binding.
+                    $accountService = app(PlatformPaymentAccountService::class);
+                    $account = $accountService->selectNextActivePaypalAccount();
+                    if ($accountService->hasManagedPaypalAccounts() && ! $account) {
+                        throw new RuntimeException('没有可用的 PayPal 收款账户，请联系平台管理员。');
+                    }
+                }
                 $session = PlatformPaymentSession::query()->create([
                     'uuid'         => $uuid,
                     'token_hash'   => hash('sha256', $token),
@@ -121,6 +133,8 @@ class PlatformPaymentSessionService
                     'amount'       => number_format($amount, 8, '.', ''),
                     'currency'     => $currency,
                     'locale'       => preg_match('/^[A-Za-z_]{2,16}$/', (string) $order->locale) ? (string) $order->locale : 'en',
+                    'payment_account_id' => $account?->id,
+                    'callback_host'      => $account?->callback_host,
                     'status'       => PlatformPaymentSession::STATUS_PENDING,
                     'expires_at'   => now('UTC')->addHours(3),
                 ]);
@@ -148,11 +162,7 @@ class PlatformPaymentSessionService
             $lock->release();
         }
 
-        return $this->createdPayload(
-            $created['session'],
-            $created['token'],
-            (string) ($settingsSnapshot['control_url'] ?? ''),
-        );
+        return $this->createdPayload($created['session'], $created['token']);
     }
 
     public function resolve(string $token, bool $allowCompleted = true, bool $allowRecoverableExpired = false): PlatformPaymentSession
@@ -201,13 +211,15 @@ class PlatformPaymentSessionService
         // provider. Allow an already-claimed session to finish with valid
         // credentials, but never let a disabled channel claim a new session.
         $providers = hash_equals((string) $session->provider, $provider)
-            ? $this->settings->configuredProviders()
-            : $this->settings->availableProviders();
+            ? ($provider === 'paypal' && $session->payment_account_id
+                ? ['paypal']
+                : $this->settings->configuredProviders())
+            : $this->settings->availableProvidersForSession($session);
         if (! in_array($provider, $providers, true)) {
             throw new RuntimeException('所选支付方式当前不可用。');
         }
 
-        return DB::connection('saas')->transaction(function () use ($session, $provider, $providerOrderId): PlatformPaymentSession {
+        $bound = DB::connection('saas')->transaction(function () use ($session, $provider, $providerOrderId): PlatformPaymentSession {
             $locked = PlatformPaymentSession::query()->lockForUpdate()->findOrFail($session->id);
             if ($locked->status === PlatformPaymentSession::STATUS_COMPLETED
                 && hash_equals((string) $locked->provider, $provider)
@@ -236,6 +248,20 @@ class PlatformPaymentSessionService
 
             return $locked->fresh(['site.domains']);
         }, 3);
+
+        if ($provider === 'paypal' && $bound->payment_account_id) {
+            try {
+                $account = \App\Saas\Models\PlatformPaymentAccount::query()->find($bound->payment_account_id);
+                if ($account) {
+                    app(PlatformPaymentAccountService::class)->markHealth($account, 'ready');
+                }
+            } catch (\Throwable) {
+                // Provider binding is already durable. Health telemetry must
+                // not turn that successful transaction into an error.
+            }
+        }
+
+        return $bound;
     }
 
     public function claimProvider(PlatformPaymentSession $session, string $provider): PlatformPaymentSession
@@ -256,7 +282,9 @@ class PlatformPaymentSessionService
             // credentials service reads the control database directly, so a
             // request that began before an administrator save cannot create a
             // transaction with stale worker-local configuration.
-            if (! in_array($provider, $this->settings->availableProviders(), true)) {
+            if ($provider === 'paypal'
+                ? ! $this->settings->canClaimPaypalForSession($session)
+                : ! in_array($provider, $this->settings->availableProviders(), true)) {
                 throw new RuntimeException('所选支付方式当前不可用。');
             }
 
@@ -305,6 +333,57 @@ class PlatformPaymentSessionService
                 'status'   => PlatformPaymentSession::STATUS_PENDING,
             ])->save();
         }, 3);
+    }
+
+    /**
+     * Move an untouched PayPal session to another healthy account. This is
+     * intentionally allowed only before a provider order id exists; once an
+     * order has been created, idempotency and reconciliation on its original
+     * account take priority over availability.
+     */
+    public function rotatePaypalAccountAfterPreOrderFailure(PlatformPaymentSession $session): ?PlatformPaymentSession
+    {
+        if (! $session->payment_account_id) {
+            return null;
+        }
+
+        $configurationLock = Cache::lock(
+            PlatformPaymentSettings::CONFIGURATION_LOCK,
+            PlatformPaymentSettings::CONFIGURATION_LOCK_SECONDS,
+        );
+        try {
+            $configurationLock->block(10);
+        } catch (LockTimeoutException) {
+            return null;
+        }
+
+        try {
+            return DB::connection('saas')->transaction(function () use ($session): ?PlatformPaymentSession {
+                $locked = PlatformPaymentSession::query()->lockForUpdate()->find($session->id);
+                if (! $locked
+                    || $locked->provider !== null
+                    || $locked->provider_order_id !== null
+                    || $locked->status !== PlatformPaymentSession::STATUS_PENDING
+                    || ! $locked->isOpen()) {
+                    return null;
+                }
+
+                $next = app(PlatformPaymentAccountService::class)
+                    ->selectNextActivePaypalAccount((int) $locked->payment_account_id);
+                if (! $next) {
+                    return null;
+                }
+
+                $locked->forceFill([
+                    'payment_account_id' => $next->id,
+                    'callback_host'      => $next->callback_host,
+                ])->save();
+
+                return $locked->fresh(['site.domains']);
+            }, 3);
+        } finally {
+            $configurationLock->release();
+        }
     }
 
     public function assertProviderBinding(PlatformPaymentSession $session, string $provider, string $providerOrderId): void
@@ -501,11 +580,9 @@ class PlatformPaymentSessionService
     }
 
     /** @return array{session: PlatformPaymentSession, token: string, checkout_url: string} */
-    private function createdPayload(PlatformPaymentSession $session, string $token, string $controlUrl = ''): array
+    private function createdPayload(PlatformPaymentSession $session, string $token): array
     {
-        $checkoutUrl = $controlUrl !== ''
-            ? rtrim($controlUrl, '/') . "/_longos/pay/{$token}"
-            : $this->settings->mainUrl("_longos/pay/{$token}");
+        $checkoutUrl = $this->settings->paymentUrlForSession($session, "_longos/pay/{$token}");
 
         return [
             'session'      => $session,

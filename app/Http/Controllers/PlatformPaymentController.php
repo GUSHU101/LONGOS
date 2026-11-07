@@ -3,8 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Saas\Models\PlatformPaymentSession;
+use App\Saas\Models\PlatformPaymentAccount;
 use App\Saas\Support\SensitiveValueRedactor;
 use App\Services\PlatformPayment\PlatformPaymentSessionService;
+use App\Services\PlatformPayment\PlatformPaymentAccountService;
+use App\Services\PlatformPayment\PlatformPaymentAccountUnavailable;
 use App\Services\PlatformPayment\PlatformPaymentSettings;
 use App\Services\PlatformPayment\PlatformPaypalGateway;
 use App\Services\PlatformPayment\PlatformStripeGateway;
@@ -39,6 +42,17 @@ class PlatformPaymentController extends Controller
             abort(410, __('platform_pay.invalid_or_expired'));
         }
 
+        $this->assertHostedCallbackHost($session, request());
+
+        // A circuit may have opened after this session was initially reserved
+        // but before its PayPal button was rendered. No provider order exists
+        // yet, so safely bind the same capability token to the next healthy
+        // account and continue on that account's callback host. Once an order
+        // id exists this path is deliberately unavailable.
+        if ($replacement = $this->replaceCircuitOpenPreOrderSession($session)) {
+            return redirect()->away($this->settings->paymentUrlForSession($replacement, "_longos/pay/{$token}"));
+        }
+
         $this->useSessionLocale($session, request());
         if ($session->status === PlatformPaymentSession::STATUS_COMPLETED) {
             return redirect()->away($this->sessions->tenantSuccessUrl($session));
@@ -48,9 +62,9 @@ class PlatformPaymentController extends Controller
 
         try {
             $snapshot  = $this->settings->snapshot();
-            $providers = $this->settings->availableProvidersForSnapshot($snapshot);
+            $providers = $this->settings->availableProvidersForSession($session, $snapshot);
             if ($session->provider) {
-                $configured = $this->settings->configuredProviders($snapshot);
+                $configured = $this->settings->availableProvidersForSession($session, $snapshot);
                 $providers  = in_array($session->provider, $configured, true) ? [$session->provider] : [];
             }
         } catch (Throwable $e) {
@@ -62,12 +76,12 @@ class PlatformPaymentController extends Controller
             'session'              => $session,
             'token'                => $token,
             'providers'            => $providers,
-            'paypalClientId'       => in_array('paypal', $providers, true) ? (string) data_get($snapshot, 'paypal.client_id', '') : '',
-            'paypalMerchantId'     => in_array('paypal', $providers, true) ? (string) data_get($snapshot, 'paypal.merchant_id', '') : '',
+            'paypalClientId'       => in_array('paypal', $providers, true) ? $this->settings->publicPaypalForSession($session)['client_id'] : '',
+            'paypalMerchantId'     => in_array('paypal', $providers, true) ? $this->settings->publicPaypalForSession($session)['merchant_id'] : '',
             'stripePublishableKey' => in_array('stripe', $providers, true) ? (string) data_get($snapshot, 'stripe.publishable_key', '') : '',
             'cancelUrl'            => $providers === []
                 ? $this->sessions->tenantRecoveryUrl($session, 'unavailable')
-                : (string) $snapshot['control_url'] . "/_longos/pay/{$token}/cancel",
+                : $this->settings->paymentUrlForSession($session, "_longos/pay/{$token}/cancel"),
         ];
 
         return $providers === []
@@ -83,9 +97,10 @@ class PlatformPaymentController extends Controller
 
         try {
             $session = $this->sessions->resolve($token);
+            $this->assertHostedCallbackHostWhenNeeded($session, request());
             $this->useSessionLocale($session, request());
             $session         = $this->sessions->claimProvider($session, 'paypal');
-            $result          = app(PlatformPaypalGateway::class)->create($session, $token);
+            $result          = $this->paypalGateway($session)->create($session, $token);
             $providerCreated = true;
             $this->sessions->bindProvider($session, 'paypal', $result['id']);
 
@@ -96,6 +111,23 @@ class PlatformPaymentController extends Controller
         } catch (Throwable $e) {
             if ($session instanceof PlatformPaymentSession && ! $providerCreated) {
                 $this->releaseClaim($session, 'paypal');
+                if ($e instanceof PlatformPaymentAccountUnavailable) {
+                    // Only an OAuth/credential availability failure is safe to
+                    // count against the account circuit.  A later unknown
+                    // create-order failure may have reached PayPal, so taking
+                    // that merchant out of rotation could hide an order that
+                    // still needs reconciliation.
+                    $this->recordPaypalTechnicalFailure($session);
+                    $replacement = $this->sessions->rotatePaypalAccountAfterPreOrderFailure($session);
+                    if ($replacement) {
+                        $retryToken = $token;
+
+                        return json_success(__('platform_pay.status.unavailable'), [
+                            'account_rotated' => true,
+                            'restart_url'     => $this->settings->paymentUrlForSession($replacement, "_longos/pay/{$retryToken}"),
+                        ]);
+                    }
+                }
             }
 
             return $this->error($e, __('platform_pay.status.paypal_failed'));
@@ -108,6 +140,7 @@ class PlatformPaymentController extends Controller
 
         try {
             $session   = $this->sessions->resolveProviderResult($token);
+            $this->assertHostedCallbackHostWhenNeeded($session, request());
             $this->useSessionLocale($session, request());
             $completed = $session->status === PlatformPaymentSession::STATUS_COMPLETED;
 
@@ -128,12 +161,13 @@ class PlatformPaymentController extends Controller
         try {
             $data    = $request->validate(['paypal_order_id' => ['required', 'string', 'max:64', 'regex:/^[A-Z0-9]{10,32}$/']]);
             $session = $this->sessions->resolveProviderResult($token);
+            $this->assertHostedCallbackHostWhenNeeded($session, $request);
             $this->useSessionLocale($session, $request);
             if ($this->isCompletedBy($session, 'paypal', $data['paypal_order_id'])) {
                 return json_success(__('platform_pay.status.already_completed'), ['redirect_url' => $this->sessions->tenantSuccessUrl($session)]);
             }
             $this->sessions->assertProviderBinding($session, 'paypal', $data['paypal_order_id']);
-            $result  = app(PlatformPaypalGateway::class)->capture($session, $data['paypal_order_id']);
+            $result  = $this->paypalGateway($session)->capture($session, $data['paypal_order_id']);
             $session = $this->sessions->complete($session, 'paypal', $data['paypal_order_id'], $result['transaction_id'], $result['payload']);
 
             return json_success(__('platform_pay.status.completed'), ['redirect_url' => $this->sessions->tenantSuccessUrl($session)]);
@@ -150,6 +184,7 @@ class PlatformPaymentController extends Controller
 
         try {
             $session = $this->sessions->resolve($token);
+            $this->assertHostedCallbackHostWhenNeeded($session, request());
             $this->useSessionLocale($session, request());
             $session         = $this->sessions->claimProvider($session, 'stripe');
             $result          = app(PlatformStripeGateway::class)->create($session);
@@ -173,6 +208,7 @@ class PlatformPaymentController extends Controller
         try {
             $data    = $request->validate(['payment_intent_id' => ['required', 'string', 'max:160', 'regex:/^pi_[A-Za-z0-9_]{8,128}$/']]);
             $session = $this->sessions->resolveProviderResult($token);
+            $this->assertHostedCallbackHostWhenNeeded($session, $request);
             $this->useSessionLocale($session, $request);
             if ($this->isCompletedBy($session, 'stripe', $data['payment_intent_id'])) {
                 return json_success(__('platform_pay.status.already_completed'), ['redirect_url' => $this->sessions->tenantSuccessUrl($session)]);
@@ -194,6 +230,7 @@ class PlatformPaymentController extends Controller
 
         try {
             $session = $this->sessions->resolveProviderResult($token);
+            $this->assertHostedCallbackHost($session, $request);
             $this->useSessionLocale($session, $request);
             if ($provider === 'paypal') {
                 $providerOrderId = trim((string) $request->query('token', ''));
@@ -208,7 +245,7 @@ class PlatformPaymentController extends Controller
 
             $this->sessions->assertProviderBinding($session, $provider, $providerOrderId);
             $result = $provider === 'paypal'
-                ? app(PlatformPaypalGateway::class)->capture($session, $providerOrderId)
+                ? $this->paypalGateway($session)->capture($session, $providerOrderId)
                 : app(PlatformStripeGateway::class)->confirm($session, $providerOrderId);
             $session = $this->sessions->complete($session, $provider, $providerOrderId, $result['transaction_id'], $result['payload']);
 
@@ -240,6 +277,7 @@ class PlatformPaymentController extends Controller
             ]);
             abort(410, __('platform_pay.invalid_or_expired'));
         }
+        $this->assertHostedCallbackHost($session, request());
         $this->useSessionLocale($session, request());
         if ($session->status === PlatformPaymentSession::STATUS_COMPLETED) {
             return redirect()->away($this->sessions->tenantSuccessUrl($session));
@@ -281,12 +319,83 @@ class PlatformPaymentController extends Controller
         }
     }
 
+    private function recordPaypalTechnicalFailure(PlatformPaymentSession $session): void
+    {
+        if (! $session->payment_account_id) {
+            return;
+        }
+
+        try {
+            $account = PlatformPaymentAccount::query()->find($session->payment_account_id);
+            if ($account) {
+                app(PlatformPaymentAccountService::class)->recordFailure($account);
+            }
+        } catch (Throwable $exception) {
+            // Payment error telemetry must never replace the original
+            // customer-facing error or prevent its safe session rollback.
+            Log::notice('Platform Pay account failure could not be recorded.', [
+                'session_id' => $session->id,
+                'exception'  => $exception::class,
+            ]);
+        }
+    }
+
+    private function replaceCircuitOpenPreOrderSession(PlatformPaymentSession $session): ?PlatformPaymentSession
+    {
+        if (! $session->payment_account_id
+            || $session->provider !== null
+            || $session->provider_order_id !== null
+            || $session->status !== PlatformPaymentSession::STATUS_PENDING
+            || ! $session->isOpen()) {
+            return null;
+        }
+
+        try {
+            $account = PlatformPaymentAccount::query()->find($session->payment_account_id);
+            if (! $account || ! app(PlatformPaymentAccountService::class)->isUnavailableForNewSessions($account)) {
+                return null;
+            }
+
+            return $this->sessions->rotatePaypalAccountAfterPreOrderFailure($session);
+        } catch (Throwable $exception) {
+            // The normal payment page may still perform its typed pre-order
+            // failover. A telemetry/database issue must not replace the
+            // customer-facing recovery path with a 500 response.
+            Log::notice('Circuit-open payment session could not be rebound.', [
+                'session_id' => $session->id,
+                'exception'  => $exception::class,
+            ]);
+
+            return null;
+        }
+    }
+
     private function isCompletedBy(PlatformPaymentSession $session, string $provider, string $providerOrderId): bool
     {
         return $session->status === PlatformPaymentSession::STATUS_COMPLETED
             && $providerOrderId !== ''
             && hash_equals((string) $session->provider, $provider)
             && hash_equals((string) $session->provider_order_id, $providerOrderId);
+    }
+
+    private function paypalGateway(PlatformPaymentSession $session): PlatformPaypalGateway
+    {
+        return new PlatformPaypalGateway($this->settings, null, $session);
+    }
+
+    private function assertHostedCallbackHostWhenNeeded(PlatformPaymentSession $session, Request $request): void
+    {
+        // The same action methods are also called by the child-store AJAX
+        // bridge. Only routes served from /_longos/pay must be constrained to
+        // the session's callback hostname.
+        if ($request->is('_longos/pay/*')) {
+            $this->assertHostedCallbackHost($session, $request);
+        }
+    }
+
+    private function assertHostedCallbackHost(PlatformPaymentSession $session, Request $request): void
+    {
+        abort_unless($this->settings->sessionUsesCallbackHost($session, $request->getHost()), 404);
     }
 
     private function useFallbackLocale(): void

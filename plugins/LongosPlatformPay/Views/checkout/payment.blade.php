@@ -174,7 +174,18 @@
         style:{layout:'vertical',shape:'rect',label:'paypal'},
         createOrder: async () => {
           lockProvider('paypal'); setStatus(@json(trans('LongosPlatformPay::common.connect_paypal')))
-          try { const result = await request(data.endpoints.paypal_create); return result.id }
+          try {
+            const result = await request(data.endpoints.paypal_create)
+            if (result.account_rotated && result.restart_url) {
+              // The original account failed before any PayPal order was
+              // created. Continue on the next account's callback hostname so
+              // its SDK Client ID and eventual return URL always match.
+              window.location.assign(result.restart_url)
+              return new Promise(() => {})
+            }
+            if (!result.id) throw new Error(@json(trans('LongosPlatformPay::common.failed')))
+            return result.id
+          }
           catch (error) { unlockUnboundProvider('paypal'); throw error }
         },
         onApprove: async result => {

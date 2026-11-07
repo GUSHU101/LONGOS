@@ -35,6 +35,7 @@ class PlatformPaymentSession extends Model
 
     protected $fillable = [
         'uuid', 'token_hash', 'active_key', 'site_id', 'order_id', 'order_number', 'amount', 'currency', 'locale',
+        'payment_account_id', 'callback_host',
         'timestamps_utc',
         'status', 'provider', 'provider_order_id', 'provider_transaction_id',
         'provider_payload', 'expires_at', 'completed_at',
@@ -55,6 +56,11 @@ class PlatformPaymentSession extends Model
     public function site(): BelongsTo
     {
         return $this->belongsTo(Site::class);
+    }
+
+    public function paymentAccount(): BelongsTo
+    {
+        return $this->belongsTo(PlatformPaymentAccount::class, 'payment_account_id');
     }
 
     public function scopeFinanciallyUnsettled(Builder $query): Builder

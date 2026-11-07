@@ -73,6 +73,14 @@ class Kernel extends ConsoleKernel
                 ->everyFiveMinutes()
                 ->onOneServer()
                 ->withoutOverlapping(60);
+            // Probe account OAuth availability before a shopper is assigned
+            // to a receiver. The command never creates a provider order; a
+            // failed account is simply removed from new-session rotation by
+            // the circuit breaker while existing orders remain recoverable.
+            $schedule->command('saas:platform-pay:accounts-health')
+                ->everyFiveMinutes()
+                ->onOneServer()
+                ->withoutOverlapping(4);
             $schedule->command('saas:run longos:live-chat:prune --continue-on-error')
                 ->hourlyAt(15)
                 ->onOneServer()
