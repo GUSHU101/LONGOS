@@ -60,11 +60,12 @@ class CheckPlatformPaymentAccounts extends Command
                 $accounts->markHealth($account, 'ready');
                 $ready++;
             } catch (\Throwable $exception) {
-                // Only this pre-order OAuth probe influences the checkout
-                // circuit. It is safe to deprioritize a merchant before any
-                // buyer has been shown a payment approval URL.
+                // This credentials-only OAuth probe runs before a buyer can
+                // receive an approval URL. Open the same short circuit used
+                // by the checkout path immediately, so a known-unavailable
+                // account is never selected for the next five-minute window.
                 try {
-                    $accounts->recordFailure($account);
+                    $accounts->recordUnavailable($account);
                 } catch (\Throwable $persistenceException) {
                     Log::notice('Managed Platform Pay health result could not be persisted.', [
                         'account_id' => $account->id,

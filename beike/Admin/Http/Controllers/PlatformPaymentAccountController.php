@@ -66,8 +66,13 @@ class PlatformPaymentAccountController extends Controller
             return $this->redirectToSettings()->with('success', "“{$account->label}”已通过 PayPal 身份验证。");
         } catch (Throwable $exception) {
             report($exception);
+
             try {
-                $accounts->markHealth($account, 'failed');
+                // This probe authenticates before an order can be created.
+                // Fail closed immediately so the known-bad account cannot be
+                // selected for a new buyer session before the next scheduler
+                // run.
+                $accounts->recordUnavailable($account);
             } catch (Throwable) {
             }
 
@@ -79,13 +84,13 @@ class PlatformPaymentAccountController extends Controller
     private function validateCreate(Request $request): array
     {
         $data = $request->validate([
-            'label'       => ['required', 'string', 'max:96'],
-            'api_mode'    => ['required', Rule::in(['sandbox', 'live'])],
-            'client_id'   => ['required', 'string', 'max:512', 'regex:/^[A-Za-z0-9_-]{10,512}$/'],
-            'secret'      => ['required', 'string', 'min:8', 'max:4096'],
-            'merchant_id' => ['nullable', 'string', 'regex:/^[2-9A-HJ-NP-Z]{13}$/'],
+            'label'           => ['required', 'string', 'max:96'],
+            'api_mode'        => ['required', Rule::in(['sandbox', 'live'])],
+            'client_id'       => ['required', 'string', 'max:512', 'regex:/^[A-Za-z0-9_-]{10,512}$/'],
+            'secret'          => ['required', 'string', 'min:8', 'max:4096'],
+            'merchant_id'     => ['nullable', 'string', 'regex:/^[2-9A-HJ-NP-Z]{13}$/'],
             'rotation_weight' => ['nullable', 'integer', 'min:1', 'max:100'],
-            'enabled'     => ['nullable', 'boolean'],
+            'enabled'         => ['nullable', 'boolean'],
         ]);
         $data['enabled'] = $request->boolean('enabled', true);
 
@@ -96,19 +101,19 @@ class PlatformPaymentAccountController extends Controller
     private function validateUpdate(Request $request, PlatformPaymentAccount $account): array
     {
         $data = $request->validate([
-            'label'       => ['required', 'string', 'max:96'],
-            'api_mode'    => ['required', Rule::in(['sandbox', 'live'])],
-            'client_id'   => ['nullable', 'string', 'max:512', 'regex:/^[A-Za-z0-9_-]{10,512}$/'],
-            'secret'      => ['nullable', 'string', 'max:4096'],
-            'merchant_id' => ['nullable', 'string', 'regex:/^[2-9A-HJ-NP-Z]{13}$/'],
+            'label'           => ['required', 'string', 'max:96'],
+            'api_mode'        => ['required', Rule::in(['sandbox', 'live'])],
+            'client_id'       => ['nullable', 'string', 'max:512', 'regex:/^[A-Za-z0-9_-]{10,512}$/'],
+            'secret'          => ['nullable', 'string', 'max:4096'],
+            'merchant_id'     => ['nullable', 'string', 'regex:/^[2-9A-HJ-NP-Z]{13}$/'],
             'rotation_weight' => ['nullable', 'integer', 'min:1', 'max:100'],
-            'enabled'     => ['nullable', 'boolean'],
+            'enabled'         => ['nullable', 'boolean'],
         ]);
         // Client IDs are not secret, but hiding them reduces accidental
         // copying. A blank edit field therefore means "keep the current
         // identifier", just like a blank secret field.
         $data['client_id'] = trim((string) ($data['client_id'] ?? '')) ?: (string) $account->client_id;
-        $data['enabled'] = $request->boolean('enabled');
+        $data['enabled']   = $request->boolean('enabled');
 
         return $data;
     }

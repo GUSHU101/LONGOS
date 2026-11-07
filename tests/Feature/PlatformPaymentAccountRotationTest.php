@@ -69,10 +69,13 @@ class PlatformPaymentAccountRotationTest extends TestCase
         $service->recordFailure($first);
         $service->recordFailure($first);
         self::assertNull($first->fresh()->circuit_open_until);
+        self::assertSame('ready', $first->fresh()->health_status);
+        self::assertCount(2, $service->activePaypalAccounts());
         $service->recordFailure($first);
 
         $circuitUntil = $first->fresh()->circuit_open_until;
         self::assertSame(3, $first->fresh()->consecutive_failures);
+        self::assertSame('failed', $first->fresh()->health_status);
         self::assertNotNull($circuitUntil);
         self::assertSame(
             DB::connection('saas')->table('saas_platform_payment_accounts')->where('id', $first->id)->value('circuit_open_until'),
@@ -120,6 +123,17 @@ class PlatformPaymentAccountRotationTest extends TestCase
         $service->markHealth($first->fresh(), 'ready');
         self::assertSame(0, $first->fresh()->consecutive_failures);
         self::assertNull($first->fresh()->circuit_open_until);
+
+        // An OAuth/credential failure is known to happen before a remote
+        // provider order exists. It should open the circuit immediately so a
+        // retry of this browser session cannot rotate back to account A.
+        $service->recordUnavailable($first->fresh());
+        self::assertSame(1, $first->fresh()->consecutive_failures);
+        self::assertNotNull($first->fresh()->circuit_open_until);
+        self::assertTrue($first->fresh()->circuit_open_until->isFuture());
+        self::assertSame([$second->id], $service->activePaypalAccounts()->pluck('id')->all());
+
+        $service->markHealth($first->fresh(), 'ready');
 
         Domain::query()->where('host', $second->callback_host)->update(['status' => Domain::STATUS_RETIRED]);
         self::assertSame([$first->id], $service->activePaypalAccounts()->pluck('id')->all());
@@ -192,6 +206,34 @@ class PlatformPaymentAccountRotationTest extends TestCase
         self::assertSame('failed', $account->fresh()->health_status);
         self::assertSame(0, $account->fresh()->consecutive_failures);
         self::assertNull($account->fresh()->circuit_open_until);
+    }
+
+    public function test_audit_merchant_id_can_be_corrected_without_touching_a_bound_payment(): void
+    {
+        $service = new PlatformPaymentAccountService($this->createMock(SiteLifecycleService::class));
+        $site    = $this->site();
+        $account = $this->account('Receiver A', 'pay-a.example.test', 'ready');
+        $this->session($site, $account, [
+            'provider'          => 'paypal',
+            'provider_order_id' => 'PAYPALORDER123456',
+            'status'            => PlatformPaymentSession::STATUS_PROCESSING,
+        ]);
+
+        $updated = $service->update($account, [
+            'label'           => 'Receiver A',
+            'api_mode'        => 'sandbox',
+            'client_id'       => (string) $account->client_id,
+            'secret'          => '',
+            'merchant_id'     => '2ABCDEFGHJKLM',
+            // Avoid a domain publication in this focused service test. The
+            // existing provider-bound session stays tied to its account.
+            'enabled'         => false,
+            'rotation_weight' => 1,
+        ]);
+
+        self::assertSame('2ABCDEFGHJKLM', $updated->merchant_id);
+        self::assertSame(PlatformPaymentSession::STATUS_PROCESSING, PlatformPaymentSession::query()->sole()->status);
+        self::assertSame('PAYPALORDER123456', PlatformPaymentSession::query()->sole()->provider_order_id);
     }
 
     private function account(string $label, string $host, string $health): PlatformPaymentAccount

@@ -63,7 +63,7 @@
           <div class="lpp-account-head"><div><h3>{{ $account['label'] }}</h3><span>{{ $account['mode'] === 'live' ? '正式环境' : '沙盒环境' }} · {{ $account['client_id_suffix'] }}</span></div><span class="lpp-badge {{ $account['enabled'] ? 'is-ready' : 'is-muted' }}">{{ $account['enabled'] ? '轮询中' : '已暂停' }}</span></div>
           <dl>
             <div><dt>回传域名</dt><dd><code>https://{{ $account['callback_host'] }}/_longos/pay/…</code></dd></div>
-            <div><dt>PayPal 商户 ID</dt><dd>{{ $account['merchant_id'] ?: '由 PayPal 应用默认商户接收' }}</dd></div>
+            <div><dt>PayPal 商户 ID（审计）</dt><dd>{{ $account['merchant_id'] ?: '未填写；由 PayPal 应用默认商户接收' }}</dd></div>
             <div><dt>已分配会话</dt><dd>{{ number_format($account['rotation_count']) }}</dd></div>
             <div><dt>轮询权重</dt><dd>{{ $account['rotation_weight'] }}</dd></div>
             <div><dt>最近分配</dt><dd>{{ $account['last_selected_at'] ?: '尚未分配' }}</dd></div>
@@ -78,10 +78,10 @@
               <div class="col-md-6"><label class="form-label">环境</label><select class="form-select" name="api_mode"><option value="sandbox" @selected($account['mode'] === 'sandbox')>Sandbox 沙盒</option><option value="live" @selected($account['mode'] === 'live')>Live 正式</option></select></div>
               <div class="col-md-6"><label class="form-label">Client ID <small class="text-secondary">留空保持不变</small></label><input class="form-control" name="client_id" maxlength="512" value="" placeholder="{{ $account['client_id_suffix'] }}"></div>
               <div class="col-md-6"><label class="form-label">Secret <small class="text-secondary">留空保持不变</small></label><input type="password" autocomplete="new-password" class="form-control" name="secret" maxlength="4096"></div>
-              <div class="col-md-6"><label class="form-label">Merchant ID <small class="text-secondary">可选</small></label><input class="form-control" name="merchant_id" maxlength="13" value="{{ $account['merchant_id'] }}"></div>
+              <div class="col-md-6"><label class="form-label">Merchant ID <small class="text-secondary">可选审计标识</small></label><input class="form-control" name="merchant_id" maxlength="13" value="{{ $account['merchant_id'] }}"><div class="form-text">直连账户无需填写；不会作为 payee 或 merchant-id 发送给 PayPal。若 PayPal 响应带回收款方，系统仅记录不一致告警，不会阻断已完成的付款。</div></div>
               <div class="col-md-6"><label class="form-label">轮询权重</label><input class="form-control" type="number" min="1" max="100" name="rotation_weight" value="{{ $account['rotation_weight'] }}"><div class="form-text">权重 2 约为权重 1 的两倍新会话量。</div></div>
               <div class="col-md-6 d-flex align-items-end"><input type="hidden" name="enabled" value="0"><label class="form-check mb-2"><input class="form-check-input" type="checkbox" name="enabled" value="1" @checked($account['enabled'])> <span class="form-check-label">参与新订单轮询</span></label></div>
-              <div class="col-12"><button class="btn btn-primary btn-sm" type="submit">保存账户</button><span class="text-secondary ms-2 small">更换密钥、环境或商户 ID 前，系统会检查是否存在进行中的交易。</span></div>
+              <div class="col-12"><button class="btn btn-primary btn-sm" type="submit">保存账户</button><span class="text-secondary ms-2 small">更换 Client ID、Secret 或运行环境前，系统会检查是否存在进行中的交易；审计标识可随时修正。</span></div>
             </form></details>
         </article>
       @empty
@@ -95,7 +95,7 @@
           <div class="col-md-6"><label class="form-label">PayPal 环境</label><select class="form-select" name="api_mode"><option value="sandbox">Sandbox 沙盒</option><option value="live">Live 正式</option></select></div>
           <div class="col-md-6"><label class="form-label">Client ID</label><input class="form-control" name="client_id" required maxlength="512" value="{{ old('client_id') }}"></div>
           <div class="col-md-6"><label class="form-label">Client Secret</label><input class="form-control" type="password" autocomplete="new-password" name="secret" required maxlength="4096"></div>
-          <div class="col-md-6"><label class="form-label">Merchant ID <small class="text-secondary">可选</small></label><input class="form-control" name="merchant_id" maxlength="13" value="{{ old('merchant_id') }}"><div class="form-text">若为空，PayPal 使用该应用默认的收款商户。</div></div>
+          <div class="col-md-6"><label class="form-label">Merchant ID <small class="text-secondary">可选审计标识</small></label><input class="form-control" name="merchant_id" maxlength="13" value="{{ old('merchant_id') }}"><div class="form-text">直连账户留空即可，PayPal 会从该账户的 Client ID/Secret 自动确定收款方。填写后只对响应中可用的收款方标识记录不一致告警，不会作为 payee 或 merchant-id 提交，更不会阻断已完成的付款。</div></div>
           <div class="col-md-6"><label class="form-label">轮询权重</label><input class="form-control" type="number" min="1" max="100" name="rotation_weight" value="{{ old('rotation_weight', 1) }}"><div class="form-text">默认 1；数值越高，分配到的新支付会话越多。</div></div>
           <div class="col-md-6 d-flex align-items-end"><input type="hidden" name="enabled" value="0"><label class="form-check mb-2"><input class="form-check-input" type="checkbox" name="enabled" value="1" checked> <span class="form-check-label">保存后立即加入轮询</span></label></div>
           <div class="col-12"><button class="btn btn-primary" type="submit">创建账户并生成回传域名</button></div>

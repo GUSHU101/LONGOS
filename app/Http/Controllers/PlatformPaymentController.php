@@ -2,12 +2,12 @@
 
 namespace App\Http\Controllers;
 
-use App\Saas\Models\PlatformPaymentSession;
 use App\Saas\Models\PlatformPaymentAccount;
+use App\Saas\Models\PlatformPaymentSession;
 use App\Saas\Support\SensitiveValueRedactor;
-use App\Services\PlatformPayment\PlatformPaymentSessionService;
 use App\Services\PlatformPayment\PlatformPaymentAccountService;
 use App\Services\PlatformPayment\PlatformPaymentAccountUnavailable;
+use App\Services\PlatformPayment\PlatformPaymentSessionService;
 use App\Services\PlatformPayment\PlatformPaymentSettings;
 use App\Services\PlatformPayment\PlatformPaypalGateway;
 use App\Services\PlatformPayment\PlatformStripeGateway;
@@ -77,16 +77,27 @@ class PlatformPaymentController extends Controller
             'token'                => $token,
             'providers'            => $providers,
             'paypalClientId'       => in_array('paypal', $providers, true) ? $this->settings->publicPaypalForSession($session)['client_id'] : '',
-            'paypalMerchantId'     => in_array('paypal', $providers, true) ? $this->settings->publicPaypalForSession($session)['merchant_id'] : '',
             'stripePublishableKey' => in_array('stripe', $providers, true) ? (string) data_get($snapshot, 'stripe.publishable_key', '') : '',
             'cancelUrl'            => $providers === []
                 ? $this->sessions->tenantRecoveryUrl($session, 'unavailable')
                 : $this->settings->paymentUrlForSession($session, "_longos/pay/{$token}/cancel"),
         ];
 
-        return $providers === []
-            ? response()->view('platform-pay.checkout', $viewData, 503)
-            : view('platform-pay.checkout', $viewData);
+        // A payment capability page contains account-specific SDK settings.
+        // Never allow a browser or intermediary to reuse a pre-rotation page
+        // after the session has moved to a replacement account.
+        return response()->view(
+            'platform-pay.checkout',
+            $viewData,
+            $providers === [] ? 503 : 200,
+            [
+                'Cache-Control'          => 'no-store, private, max-age=0',
+                'Pragma'                 => 'no-cache',
+                'Referrer-Policy'        => 'no-referrer',
+                'X-Content-Type-Options' => 'nosniff',
+                'X-Frame-Options'        => 'DENY',
+            ],
+        );
     }
 
     public function paypalCreate(string $token): JsonResponse
@@ -328,7 +339,11 @@ class PlatformPaymentController extends Controller
         try {
             $account = PlatformPaymentAccount::query()->find($session->payment_account_id);
             if ($account) {
-                app(PlatformPaymentAccountService::class)->recordFailure($account);
+                // OAuth failed before PayPal could create an order. Open the
+                // circuit immediately so this same buyer cannot be sent back
+                // to an account with unavailable credentials; the scheduled
+                // health probe can close it as soon as authentication works.
+                app(PlatformPaymentAccountService::class)->recordUnavailable($account);
             }
         } catch (Throwable $exception) {
             // Payment error telemetry must never replace the original
@@ -343,9 +358,9 @@ class PlatformPaymentController extends Controller
     private function replaceCircuitOpenPreOrderSession(PlatformPaymentSession $session): ?PlatformPaymentSession
     {
         if (! $session->payment_account_id
-            || $session->provider !== null
+            || $session->provider          !== null
             || $session->provider_order_id !== null
-            || $session->status !== PlatformPaymentSession::STATUS_PENDING
+            || $session->status            !== PlatformPaymentSession::STATUS_PENDING
             || ! $session->isOpen()) {
             return null;
         }

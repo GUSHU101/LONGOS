@@ -228,12 +228,16 @@ final class PlatformPaymentAccountService
             throw new RuntimeException('不支持的收款账户类型。');
         }
 
-        $changingCredentials = (string) $account->api_mode !== (string) $values['api_mode']
+        // Merchant ID is audit metadata for a direct REST account. It is not
+        // sent as a PayPal payee and never selects the receiver, so an
+        // operator may correct it while an existing order is still awaiting
+        // capture/reconciliation. Only actual provider credentials need the
+        // in-flight transaction guard below.
+        $changingProviderCredentials = (string) $account->api_mode !== (string) $values['api_mode']
             || ! hash_equals((string) $account->client_id, trim((string) $values['client_id']))
-            || strtoupper((string) $account->merchant_id) !== strtoupper(trim((string) ($values['merchant_id'] ?? '')))
             || trim((string) ($values['secret'] ?? ''))   !== '';
-        if ($changingCredentials && $this->hasOpenSessions($account)) {
-            throw new RuntimeException('该账户仍有进行中或待对账的支付，不能修改密钥、环境或商户标识。请先等待对账完成。');
+        if ($changingProviderCredentials && $this->hasOpenSessions($account)) {
+            throw new RuntimeException('该账户仍有进行中或待对账的支付，不能修改 Client ID、Secret 或运行环境。请先等待对账完成。');
         }
 
         $enabled = filter_var($values['enabled'] ?? false, FILTER_VALIDATE_BOOLEAN);
@@ -285,10 +289,38 @@ final class PlatformPaymentAccountService
                 return;
             }
             $failures = min(65535, (int) $locked->consecutive_failures + 1);
+            $opened   = $failures >= 3;
+            $locked->forceFill([
+                // Ordinary post-request errors can be transient. Do not
+                // remove the account from new-session routing until the
+                // documented three-failure threshold is actually reached.
+                'health_status'          => $opened ? 'failed' : $locked->health_status,
+                'consecutive_failures'   => $failures,
+                'circuit_open_until'     => $opened ? now('UTC')->addMinutes(10) : $locked->circuit_open_until,
+                'last_health_checked_at' => now('UTC'),
+            ])->save();
+        }, 3);
+    }
+
+    /**
+     * OAuth authentication happens before PayPal can create an order or
+     * charge a buyer.  A failure at this point is therefore safe to fail over
+     * from, and must immediately remove the account from new-session routing
+     * so one browser session cannot bounce back to an account whose
+     * credentials are known to be unavailable.
+     */
+    public function recordUnavailable(PlatformPaymentAccount $account): void
+    {
+        DB::connection('saas')->transaction(function () use ($account): void {
+            $locked = PlatformPaymentAccount::query()->lockForUpdate()->find($account->id);
+            if (! $locked) {
+                return;
+            }
+
             $locked->forceFill([
                 'health_status'          => 'failed',
-                'consecutive_failures'   => $failures,
-                'circuit_open_until'     => $failures >= 3 ? now('UTC')->addMinutes(10) : $locked->circuit_open_until,
+                'consecutive_failures'   => min(65535, (int) $locked->consecutive_failures + 1),
+                'circuit_open_until'     => now('UTC')->addMinutes(10),
                 'last_health_checked_at' => now('UTC'),
             ])->save();
         }, 3);
@@ -403,6 +435,11 @@ final class PlatformPaymentAccountService
         return PlatformPaymentAccount::query()
             ->paypal()
             ->enabled()
+            // A failed account stays out of buyer routing even after its
+            // circuit timestamp elapses. Only a successful health probe may
+            // return it to ready, preventing a scheduler outage from
+            // silently reintroducing known-bad credentials.
+            ->whereIn('health_status', ['ready', 'unknown'])
             ->whereIn('callback_host', Domain::query()->routable()->select('host'))
             ->where(static function ($query): void {
                 $query->whereNull('circuit_open_until')

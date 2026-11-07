@@ -156,6 +156,28 @@
     }
     return false
   }
+  const restartOnRotatedPaypalAccount = (result, token) => {
+    if (result?.account_rotated !== true) return false
+    try {
+      const target = new URL(String(result.restart_url || ''), window.location.origin)
+      const expectedPath = `/_longos/pay/${encodeURIComponent(String(token || ''))}`
+      if (target.protocol !== 'https:'
+        || target.username !== ''
+        || target.password !== ''
+        || target.hostname === ''
+        || !/^[a-f0-9]{64}$/.test(String(token || ''))
+        || target.pathname !== expectedPath
+        || target.search !== ''
+        || target.hash !== '') {
+        throw new Error('invalid payment restart target')
+      }
+
+      window.location.replace(target.toString())
+      return true
+    } catch (error) {
+      throw new Error(@json(trans('LongosPlatformPay::common.failed')))
+    }
+  }
 
   const mountPaypal = async data => {
     const query = new URLSearchParams({
@@ -164,7 +186,6 @@
       intent: 'capture',
       components: 'buttons',
     })
-    if (data.paypal.merchant_id) query.set('merchant-id', data.paypal.merchant_id)
     await loadScript('longos-paypal-sdk', `https://www.paypal.com/sdk/js?${query.toString()}`, {'data-namespace':'LongosPlatformPayPal'})
     if (!window.LongosPlatformPayPal?.Buttons) throw new Error(@json(trans('LongosPlatformPay::common.paypal_load')))
 
@@ -176,11 +197,10 @@
           lockProvider('paypal'); setStatus(@json(trans('LongosPlatformPay::common.connect_paypal')))
           try {
             const result = await request(data.endpoints.paypal_create)
-            if (result.account_rotated && result.restart_url) {
+            if (restartOnRotatedPaypalAccount(result, data.token)) {
               // The original account failed before any PayPal order was
               // created. Continue on the next account's callback hostname so
               // its SDK Client ID and eventual return URL always match.
-              window.location.assign(result.restart_url)
               return new Promise(() => {})
             }
             if (!result.id) throw new Error(@json(trans('LongosPlatformPay::common.failed')))

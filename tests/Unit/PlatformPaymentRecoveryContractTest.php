@@ -54,7 +54,10 @@ class PlatformPaymentRecoveryContractTest extends TestCase
         $controller = (string) file_get_contents($root . '/app/Http/Controllers/PlatformPaymentController.php');
         $view       = (string) file_get_contents($root . '/resources/views/platform-pay/checkout.blade.php');
 
-        self::assertStringContainsString("response()->view('platform-pay.checkout', \$viewData, 503)", $controller);
+        self::assertStringContainsString('response()->view(', $controller);
+        self::assertStringContainsString("'platform-pay.checkout',", $controller);
+        self::assertStringContainsString('$providers === [] ? 503 : 200', $controller);
+        self::assertStringContainsString("'Cache-Control'          => 'no-store, private, max-age=0'", $controller);
         self::assertStringContainsString("tenantRecoveryUrl(\$session, 'unavailable')", $controller);
         self::assertStringContainsString("__('platform_pay.unavailable_help')", $view);
         self::assertStringContainsString("__('platform_pay.return_to_store')", $view);

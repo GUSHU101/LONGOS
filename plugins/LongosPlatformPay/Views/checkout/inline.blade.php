@@ -172,6 +172,32 @@
     }
     return false
   }
+  const restartOnRotatedPaypalAccount = (result, token) => {
+    if (result?.account_rotated !== true) return false
+    try {
+      const target = new URL(String(result.restart_url || ''), window.location.origin)
+      const expectedPath = `/_longos/pay/${encodeURIComponent(String(token || ''))}`
+      if (target.protocol !== 'https:'
+        || target.username !== ''
+        || target.password !== ''
+        || target.hostname === ''
+        || !/^[a-f0-9]{64}$/.test(String(token || ''))
+        || target.pathname !== expectedPath
+        || target.search !== ''
+        || target.hash !== '') {
+        throw new Error('invalid payment restart target')
+      }
+
+      // The server rotates only an untouched session after OAuth failed.
+      // Replacing this history entry loads the replacement account's own SDK
+      // client ID and callback host, instead of asking the current SDK to
+      // create an order with another account's credentials.
+      window.location.replace(target.toString())
+      return true
+    } catch (error) {
+      throw new Error(messages.failed)
+    }
+  }
   const selectedForCheckout = code => {
     const active = String(code || '') === 'longos_platform_pay'
     root.hidden = !active
@@ -216,8 +242,7 @@
           return
         }
         const created = await request(data.endpoints.paypal_create)
-        if (created.account_rotated && created.restart_url) {
-          window.location.assign(created.restart_url)
+        if (restartOnRotatedPaypalAccount(created, data.token)) {
           return
         }
         if (!isTrustedPaypalUrl(created.approval_url)) throw new Error(messages.failed)

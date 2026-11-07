@@ -6,6 +6,7 @@ use App\Saas\Models\PlatformPaymentSession;
 use GuzzleHttp\Client;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 use Srmklive\PayPal\Services\PayPal;
 use Throwable;
@@ -70,9 +71,10 @@ class PlatformPaypalGateway
                 'value'         => $this->formatAmount($session),
             ],
         ];
-        if ($this->settings['merchant_id'] !== '') {
-            $unit['payee'] = ['merchant_id' => $this->settings['merchant_id']];
-        }
+        // Each managed account uses its own direct REST Client ID and Secret.
+        // In that integration PayPal derives the receiving merchant from the
+        // OAuth caller. Supplying a payee is reserved for partner/marketplace
+        // flows and can make an otherwise valid direct-account order fail.
 
         $this->client->setRequestHeaders([
             'PayPal-Request-Id' => $this->requestId('create', $session),
@@ -192,12 +194,9 @@ class PlatformPaypalGateway
                               || ! hash_equals($session->currency, strtoupper((string) data_get($capture, 'amount.currency_code', '')))) {
             throw new RuntimeException('PayPal 支付金额、币种或会话绑定校验失败。');
         }
-        if ($this->settings['merchant_id'] !== '') {
-            $merchant = strtoupper((string) (data_get($capture, 'payee.merchant_id') ?: data_get($unit, 'payee.merchant_id', '')));
-            if ($merchant === '' || ! hash_equals($this->settings['merchant_id'], $merchant)) {
-                throw new RuntimeException('PayPal 收款账户校验失败。');
-            }
-        }
+        $this->auditExpectedMerchantWhenReturned(
+            (string) (data_get($capture, 'payee.merchant_id') ?: data_get($unit, 'payee.merchant_id', '')),
+        );
 
         $safe          = PlatformPaymentPayload::paypal($result);
         $transactionId = trim((string) data_get($safe, 'purchase_units.0.payments.captures.0.id', ''));
@@ -220,12 +219,7 @@ class PlatformPaypalGateway
             || ! hash_equals($session->currency, strtoupper((string) data_get($unit, 'amount.currency_code', '')))) {
             throw new RuntimeException('PayPal 订单金额、币种或会话绑定校验失败。');
         }
-        if ($this->settings['merchant_id'] !== '') {
-            $merchant = strtoupper((string) data_get($unit, 'payee.merchant_id', ''));
-            if ($merchant === '' || ! hash_equals($this->settings['merchant_id'], $merchant)) {
-                throw new RuntimeException('PayPal 收款账户校验失败。');
-            }
-        }
+        $this->auditExpectedMerchantWhenReturned((string) data_get($unit, 'payee.merchant_id', ''));
     }
 
     public function clientId(): string
@@ -236,6 +230,29 @@ class PlatformPaypalGateway
     public function merchantId(): string
     {
         return (string) $this->settings['merchant_id'];
+    }
+
+    /**
+     * A direct Client ID/Secret already fixes the payee to the account that
+     * owns those credentials. PayPal does not include payee data in every
+     * successful representation, so an optional Merchant ID is audit-only.
+     * A mismatch is intentionally non-blocking: rejecting a completed
+     * capture would leave a real buyer charge unreconciled. The mandatory
+     * session, order, amount, currency and transaction-id checks above still
+     * protect the payment state.
+     */
+    private function auditExpectedMerchantWhenReturned(string $merchant): void
+    {
+        $expected = strtoupper(trim((string) $this->settings['merchant_id']));
+        $merchant = strtoupper(trim($merchant));
+
+        if ($expected === '' || $merchant === '' || hash_equals($expected, $merchant)) {
+            return;
+        }
+
+        Log::warning('Platform Pay received an unexpected PayPal merchant identifier.', [
+            'account_id' => $this->settings['account_id'] ?? null,
+        ]);
     }
 
     /** @param array<string, mixed> $result */

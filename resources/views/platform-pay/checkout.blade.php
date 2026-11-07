@@ -25,7 +25,7 @@
   </style>
   @if(in_array('stripe', $providers, true))<script src="https://js.stripe.com/v3/" defer></script>@endif
   @if(in_array('paypal', $providers, true))
-    <script src="https://www.paypal.com/sdk/js?client-id={{ rawurlencode($paypalClientId) }}&currency={{ rawurlencode($session->currency) }}&intent=capture&components=buttons@if($paypalMerchantId !== '')&merchant-id={{ rawurlencode($paypalMerchantId) }}@endif" data-namespace="LongosPlatformPayPal" defer></script>
+    <script src="https://www.paypal.com/sdk/js?client-id={{ rawurlencode($paypalClientId) }}&currency={{ rawurlencode($session->currency) }}&intent=capture&components=buttons" data-namespace="LongosPlatformPayPal" defer></script>
   @endif
 </head>
 <body>
@@ -84,9 +84,9 @@ window.addEventListener('DOMContentLoaded', () => {
     const hasAlternative = [...document.querySelectorAll('.method')].some(item => !item.classList.contains('hidden'))
     if (!hasAlternative) { setStatus(message, true); status.focus?.() }
   }
-  const request = async (path, body = {}) => {
+  const request = async (path, body = {}, timeoutMs = 35000) => {
     const controller = new AbortController()
-    const timeout = window.setTimeout(() => controller.abort(), 35000)
+    const timeout = window.setTimeout(() => controller.abort(), timeoutMs)
     try {
       const response = await fetch(`${apiRoot}/${path}`, {method:'POST',credentials:'same-origin',headers,body:JSON.stringify(body),signal:controller.signal})
       const payload = await response.json().catch(() => null)
@@ -109,6 +109,33 @@ window.addEventListener('DOMContentLoaded', () => {
     if (providerLocked !== provider) return
     providerLocked = false
     document.querySelectorAll('.method').forEach(method => method.classList.remove('hidden'))
+  }
+  const restartOnRotatedPaypalAccount = data => {
+    if (data?.account_rotated !== true) return false
+    try {
+      const target = new URL(String(data.restart_url || ''), window.location.origin)
+      if (target.protocol !== 'https:'
+        || target.username !== ''
+        || target.password !== ''
+        || target.hostname === ''
+        || target.pathname !== `/_longos/pay/${encodeURIComponent(token)}`
+        || target.search !== ''
+        || target.hash !== '') {
+        throw new Error('invalid payment restart target')
+      }
+
+      // The server rotated only an untouched session after an explicit OAuth
+      // availability failure. Reload the hosted page so the next account's
+      // SDK client id, callback hostname and return URL are all refreshed
+      // together. Returning an unresolved promise stops the old PayPal SDK
+      // from treating the intentionally abandoned createOrder call as a
+      // customer-facing provider error while navigation begins.
+      window.location.replace(target.toString())
+
+      return true
+    } catch (error) {
+      throw new Error(@json(__('platform_pay.status.unavailable')))
+    }
   }
   const finish = data => { if (!data.redirect_url) throw new Error(@json(__('platform_pay.status.missing_redirect'))); window.location.assign(data.redirect_url) }
   const wait = delay => new Promise(resolve => window.setTimeout(resolve, delay))
@@ -141,7 +168,15 @@ window.addEventListener('DOMContentLoaded', () => {
         style:{layout:'vertical',shape:'rect',label:'paypal'},
         createOrder: async () => {
           lockProvider('paypal'); setStatus(@json(__('platform_pay.status.connect_paypal')))
-          try { const data = await request('paypal/create'); return data.id }
+          try {
+            const data = await request('paypal/create')
+            if (restartOnRotatedPaypalAccount(data)) return new Promise(() => {})
+            if (typeof data.id !== 'string' || !/^[A-Z0-9]{10,32}$/.test(data.id)) {
+              throw new Error(@json(__('platform_pay.status.paypal_failed')))
+            }
+
+            return data.id
+          }
           catch (error) { unlockUnboundProvider('paypal'); throw error }
         },
         onApprove: async data => {
@@ -239,6 +274,14 @@ window.addEventListener('DOMContentLoaded', () => {
   }
   mountStripe()
   @endif
+})
+</script>
+<script>
+// A back/forward cache restore could otherwise reuse an old checkout
+// document after the server has rebound this untouched session to another
+// verified receiver account. Reload to obtain the current immutable binding.
+window.addEventListener('pageshow', event => {
+  if (event.persisted) window.location.reload()
 })
 </script>
 </body>

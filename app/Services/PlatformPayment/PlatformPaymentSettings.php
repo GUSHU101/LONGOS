@@ -194,14 +194,16 @@ class PlatformPaymentSettings
         return $paypal;
     }
 
-    /** @return array{client_id: string, merchant_id: string} */
+    /** @return array{client_id: string} */
     public function publicPaypalForSession(PlatformPaymentSession $session): array
     {
         $paypal = $this->paypalForSession($session);
 
         return [
-            'client_id'   => (string) $paypal['client_id'],
-            'merchant_id' => (string) $paypal['merchant_id'],
+            // Merchant ID is deliberately not sent to browser SDKs for this
+            // direct-account integration. The account's Client ID determines
+            // the payee; merchant_id remains a server-side audit setting.
+            'client_id' => (string) $paypal['client_id'],
         ];
     }
 
@@ -542,7 +544,9 @@ class PlatformPaymentSettings
     private function providerConfigurationChanged(string $provider, array $current, array $proposed): bool
     {
         $keys = $provider === 'paypal'
-            ? ['mode', 'client_id', 'secret', 'merchant_id']
+            // merchant_id is only optional audit metadata for direct REST
+            // accounts. It cannot alter an in-flight provider transaction.
+            ? ['mode', 'client_id', 'secret']
             : ['test_mode', 'publishable_key', 'secret_key', 'webhook_secret'];
 
         foreach ($keys as $key) {
