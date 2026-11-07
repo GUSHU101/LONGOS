@@ -37,6 +37,21 @@ class CheckPlatformPaymentAccounts extends Command
             $checked++;
 
             try {
+                if (! $accounts->isCallbackHostRoutable((string) $account->callback_host)) {
+                    // Do not send buyers to an alias that is absent from the
+                    // current Caddy routing configuration. This is a routing
+                    // fault, not an OAuth fault, so do not increment the
+                    // provider circuit-failure counter.
+                    $accounts->markHealth($account, 'failed');
+                    $failed++;
+                    Log::warning('Managed Platform Pay callback hostname is not routeable.', [
+                        'account_id'    => $account->id,
+                        'callback_host' => $account->callback_host,
+                    ]);
+
+                    continue;
+                }
+
                 // snapshotForPaypalAccount uses the exact account credential
                 // without changing the routing order. The gateway constructor
                 // performs OAuth only; healthCheck never creates an order.

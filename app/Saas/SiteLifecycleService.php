@@ -3,9 +3,11 @@
 namespace App\Saas;
 
 use App\Saas\Models\Domain;
+use App\Saas\Models\PlatformPaymentAccount;
 use App\Saas\Models\Site;
 use App\Saas\Support\DomainName;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use RuntimeException;
 
 class SiteLifecycleService
@@ -286,7 +288,8 @@ class SiteLifecycleService
         $target      = $this->addDomainSynchronized($site, 'https://' . $host, $makePrimary);
 
         try {
-            DB::connection('saas')->transaction(function () use ($site, $target): void {
+            $protectedCallbackHosts = $this->protectedPlatformPaymentCallbackHosts();
+            DB::connection('saas')->transaction(function () use ($site, $target, $protectedCallbackHosts): void {
                 Site::query()->lockForUpdate()->findOrFail($site->getKey());
                 $lockedTarget = Domain::query()->lockForUpdate()->findOrFail($target->getKey());
                 if ($lockedTarget->site_id   !== $site->id
@@ -299,6 +302,9 @@ class SiteLifecycleService
                     ->where('site_id', $site->id)
                     ->where('origin', Domain::ORIGIN_PLATFORM)
                     ->whereKeyNot($lockedTarget->getKey())
+                    ->when($protectedCallbackHosts !== [], static function ($query) use ($protectedCallbackHosts): void {
+                        $query->whereNotIn('host', $protectedCallbackHosts);
+                    })
                     ->update([
                         'status'           => Domain::STATUS_RETIRED,
                         'is_primary'       => false,
@@ -361,6 +367,9 @@ class SiteLifecycleService
             if ($lockedDomain->site_id !== $lockedSite->id) {
                 throw new RuntimeException('域名不属于该站点。');
             }
+            if ($this->isProtectedPlatformPaymentCallbackHost((string) $lockedDomain->host)) {
+                throw new RuntimeException('该域名是已登记收款账户的支付回传域名，不能从站点域名管理中删除。请先在平台代收账户管理中下线并完成历史支付对账。');
+            }
             if ($lockedSite->domains()->count() <= 1) {
                 throw new RuntimeException('不能删除站点的最后一个域名。');
             }
@@ -407,6 +416,47 @@ class SiteLifecycleService
             throw $exception;
         }
         $this->audit->record($site, 'domain.remove', 'success', null, ['host' => $host]);
+    }
+
+    /**
+     * Keep every account callback host when the control site's platform
+     * subdomain changes. They are payment-return aliases, not disposable
+     * secondary storefront aliases; retiring one would strand in-flight
+     * provider returns on a hostname that no longer reaches LONGOS.
+     *
+     * @return list<string>
+     */
+    private function protectedPlatformPaymentCallbackHosts(): array
+    {
+        try {
+            if (! Schema::connection('saas')->hasTable('saas_platform_payment_accounts')) {
+                return [];
+            }
+
+            return PlatformPaymentAccount::query()
+                ->paypal()
+                ->whereNotNull('callback_host')
+                ->pluck('callback_host')
+                ->map(static fn (mixed $host): string => strtolower(trim((string) $host)))
+                ->filter()
+                ->values()
+                ->all();
+        } catch (\Throwable $exception) {
+            // Domain mutation is destructive. If central account state cannot
+            // be read, fail closed rather than silently retiring a callback.
+            throw new RuntimeException('无法确认平台代收回传域名保护状态，已拒绝变更站点域名。', 0, $exception);
+        }
+    }
+
+    private function isProtectedPlatformPaymentCallbackHost(string $host): bool
+    {
+        try {
+            $host = DomainName::normalize($host);
+        } catch (\Throwable) {
+            return false;
+        }
+
+        return in_array($host, $this->protectedPlatformPaymentCallbackHosts(), true);
     }
 
     public function makePrimary(Site $site, Domain $domain): Domain

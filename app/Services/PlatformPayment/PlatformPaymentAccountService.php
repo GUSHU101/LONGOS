@@ -8,6 +8,7 @@ use App\Saas\Models\PlatformPaymentSession;
 use App\Saas\Models\Site;
 use App\Saas\SiteLifecycleService;
 use App\Saas\Support\DomainName;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -63,13 +64,7 @@ final class PlatformPaymentAccountService
             return new Collection;
         }
 
-        return PlatformPaymentAccount::query()
-            ->paypal()
-            ->enabled()
-            ->where(static function ($query): void {
-                $query->whereNull('circuit_open_until')
-                    ->orWhere('circuit_open_until', '<=', now('UTC'));
-            })
+        return $this->routableActivePaypalQuery()
             ->orderByRaw("CASE health_status WHEN 'ready' THEN 0 WHEN 'unknown' THEN 1 ELSE 2 END")
             ->orderByRaw('CASE WHEN last_selected_at IS NULL THEN 0 ELSE 1 END')
             ->orderByRaw('(rotation_count / NULLIF(rotation_weight, 0))')
@@ -112,13 +107,7 @@ final class PlatformPaymentAccountService
             return null;
         }
 
-        $query = PlatformPaymentAccount::query()
-            ->paypal()
-            ->enabled()
-            ->where(static function ($query): void {
-                $query->whereNull('circuit_open_until')
-                    ->orWhere('circuit_open_until', '<=', now('UTC'));
-            })
+        $query = $this->routableActivePaypalQuery()
             ->orderByRaw("CASE health_status WHEN 'ready' THEN 0 WHEN 'unknown' THEN 1 ELSE 2 END")
             ->orderByRaw('CASE WHEN last_selected_at IS NULL THEN 0 ELSE 1 END')
             // Weighted fair routing: weight 2 receives roughly twice the
@@ -210,13 +199,19 @@ final class PlatformPaymentAccountService
             'secret_ciphertext' => Crypt::encryptString(trim((string) $values['secret'])),
             'merchant_id'       => strtoupper(trim((string) ($values['merchant_id'] ?? ''))),
             'callback_host'     => $host,
-            'enabled'           => filter_var($values['enabled'] ?? true, FILTER_VALIDATE_BOOLEAN),
+            // An account must never enter rotation before its dedicated
+            // callback alias has been published to the control-plane proxy.
+            // It is enabled only after publishCallbackDomain() succeeds.
+            'enabled'           => false,
             'rotation_weight'   => max(1, min(100, (int) ($values['rotation_weight'] ?? 1))),
             'health_status'     => 'unknown',
         ]);
 
         try {
             $this->publishCallbackDomain($account);
+            $account->forceFill([
+                'enabled' => filter_var($values['enabled'] ?? true, FILTER_VALIDATE_BOOLEAN),
+            ])->save();
         } catch (\Throwable $exception) {
             $account->delete();
 
@@ -241,12 +236,19 @@ final class PlatformPaymentAccountService
             throw new RuntimeException('该账户仍有进行中或待对账的支付，不能修改密钥、环境或商户标识。请先等待对账完成。');
         }
 
+        $enabled = filter_var($values['enabled'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        if ($enabled) {
+            // Repair/re-publish a historical alias before putting a disabled
+            // account back into the buyer-facing rotation pool.
+            $this->publishCallbackDomain($account);
+        }
+
         $fields = [
             'label'           => trim((string) $values['label']),
             'api_mode'        => (string) $values['api_mode'],
             'client_id'       => trim((string) $values['client_id']),
             'merchant_id'     => strtoupper(trim((string) ($values['merchant_id'] ?? ''))),
-            'enabled'         => filter_var($values['enabled'] ?? false, FILTER_VALIDATE_BOOLEAN),
+            'enabled'         => $enabled,
             'rotation_weight' => max(1, min(100, (int) ($values['rotation_weight'] ?? 1))),
         ];
         if (trim((string) ($values['secret'] ?? '')) !== '') {
@@ -323,6 +325,31 @@ final class PlatformPaymentAccountService
             ->exists();
     }
 
+    /**
+     * A callback hostname can be registered yet no longer be routeable (for
+     * example, after a failed publication or an operator-domain change).
+     * New checkout sessions may use only active aliases. Existing sessions
+     * remain tied to their original host for reconciliation and are never
+     * reassigned on this signal.
+     */
+    public function isCallbackHostRoutable(string $host): bool
+    {
+        if (! $this->schemaReady()) {
+            return false;
+        }
+
+        try {
+            $host = DomainName::normalize($host);
+        } catch (\Throwable) {
+            return false;
+        }
+
+        return Domain::query()
+            ->routable()
+            ->where('host', $host)
+            ->exists();
+    }
+
     public function hasOpenSessions(PlatformPaymentAccount $account): bool
     {
         if (! $this->schemaReady()) {
@@ -366,6 +393,21 @@ final class PlatformPaymentAccountService
         if (! $domain || ! $domain->isRoutable()) {
             $this->lifecycle->addDomain($site, 'https://' . $account->callback_host, false);
         }
+    }
+
+    /**
+     * @return Builder<PlatformPaymentAccount>
+     */
+    private function routableActivePaypalQuery(): Builder
+    {
+        return PlatformPaymentAccount::query()
+            ->paypal()
+            ->enabled()
+            ->whereIn('callback_host', Domain::query()->routable()->select('host'))
+            ->where(static function ($query): void {
+                $query->whereNull('circuit_open_until')
+                    ->orWhere('circuit_open_until', '<=', now('UTC'));
+            });
     }
 
     private function controlSite(): Site

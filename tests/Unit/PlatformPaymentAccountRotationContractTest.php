@@ -48,6 +48,8 @@ class PlatformPaymentAccountRotationContractTest extends TestCase
         self::assertStringContainsString('consecutive_failures', $accounts);
         self::assertStringContainsString("'circuit_open_until'", $accounts);
         self::assertStringContainsString('isUnavailableForNewSessions', $accounts);
+        self::assertStringContainsString('routableActivePaypalQuery', $accounts);
+        self::assertStringContainsString("whereIn('callback_host', Domain::query()->routable()->select('host'))", $accounts);
         self::assertStringContainsString('lockForUpdate()', $accounts);
         self::assertStringContainsString('enabledPaypalAccountsForHealth', $accounts);
         self::assertStringContainsString('enabledPaypalAccountsForHealth($limit)', $health);
@@ -94,5 +96,19 @@ class PlatformPaymentAccountRotationContractTest extends TestCase
         self::assertStringContainsString("hasColumn('saas_platform_payment_sessions', 'payment_account_id')", $settings);
         self::assertStringContainsString("hasColumn('saas_platform_payment_sessions', 'callback_host')", $settings);
         self::assertStringContainsString("hasTable('saas_platform_payment_accounts')", $settings);
+    }
+
+    public function test_callback_domains_are_protected_from_platform_domain_mutations(): void
+    {
+        $root      = dirname(__DIR__, 2);
+        $lifecycle = (string) file_get_contents($root . '/app/Saas/SiteLifecycleService.php');
+        $accounts  = (string) file_get_contents($root . '/app/Services/PlatformPayment/PlatformPaymentAccountService.php');
+
+        self::assertStringContainsString('protectedPlatformPaymentCallbackHosts', $lifecycle);
+        self::assertStringContainsString("whereNotIn('host', \$protectedCallbackHosts)", $lifecycle);
+        self::assertStringContainsString('isProtectedPlatformPaymentCallbackHost', $lifecycle);
+        self::assertStringContainsString('支付回传域名', $lifecycle);
+        self::assertStringContainsString('isCallbackHostRoutable', $accounts);
+        self::assertStringContainsString("'enabled'           => false", $accounts);
     }
 }

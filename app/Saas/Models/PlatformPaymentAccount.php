@@ -2,9 +2,11 @@
 
 namespace App\Saas\Models;
 
+use DateTimeInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 
 /**
  * A platform-owned receiving account.
@@ -52,5 +54,49 @@ class PlatformPaymentAccount extends Model
     public function scopeEnabled(Builder $query): Builder
     {
         return $query->where('enabled', true);
+    }
+
+    /**
+     * The account pool is shared by every tenant. Persist all scheduling and
+     * circuit-breaker timestamps as UTC so a request running in a child
+     * store's timezone cannot reopen or extend another account's circuit.
+     */
+    protected function asDateTime($value): Carbon
+    {
+        $runtimeTimezone = (string) config('app.timezone', 'UTC');
+        if ($value instanceof DateTimeInterface) {
+            return Carbon::instance($value)->setTimezone($runtimeTimezone);
+        }
+        if (is_numeric($value)) {
+            return Carbon::createFromTimestamp((int) $value, 'UTC')->setTimezone($runtimeTimezone);
+        }
+        if ($this->isStandardDateFormat($value)) {
+            return Carbon::createFromFormat('Y-m-d', $value, 'UTC')->startOfDay()->setTimezone($runtimeTimezone);
+        }
+
+        $date = Carbon::createFromFormat($this->getDateFormat(), (string) $value, 'UTC');
+        if (! $date) {
+            $date = Carbon::parse((string) $value, 'UTC');
+        }
+
+        return $date->setTimezone($runtimeTimezone);
+    }
+
+    public function fromDateTime($value): ?string
+    {
+        if (empty($value)) {
+            return parent::fromDateTime($value);
+        }
+
+        $date = $value instanceof DateTimeInterface
+            ? Carbon::instance($value)
+            : Carbon::parse((string) $value, (string) config('app.timezone', 'UTC'));
+
+        return $date->setTimezone('UTC')->format($this->getDateFormat());
+    }
+
+    public function freshTimestamp(): Carbon
+    {
+        return Carbon::now('UTC');
     }
 }
