@@ -55,14 +55,14 @@ class GlobalTranslationBuilderMarkerTest extends TestCase
         $fields = ContentScanner::chromeTextFields([
             'header' => ['header_ads' => ['active' => true, 'items' => [[
                 'title' => ['en' => 'Free shipping worldwide', 'zh_cn' => '全球免邮'],
-                'link' => ['link' => 'https://example.test/ignored'],
+                'link'  => ['link' => 'https://example.test/ignored'],
             ]]]],
             'menu' => ['menus' => [[
-                'name' => ['en' => 'Accessories', 'fr' => 'Accessoires'],
-                'badge' => ['isShow' => true, 'name' => ['en' => 'New']],
-                'isChildren' => true,
+                'name'          => ['en' => 'Accessories', 'fr' => 'Accessoires'],
+                'badge'         => ['isShow' => true, 'name' => ['en' => 'New']],
+                'isChildren'    => true,
                 'childrenGroup' => [[
-                    'name' => ['en' => 'Shop by type'],
+                    'name'     => ['en' => 'Shop by type'],
                     'children' => [[
                         'link' => ['text' => ['en' => 'Phone cases'], 'link' => '/collections/cases'],
                     ]],

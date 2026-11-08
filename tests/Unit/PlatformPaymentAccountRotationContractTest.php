@@ -20,8 +20,8 @@ class PlatformPaymentAccountRotationContractTest extends TestCase
         self::assertStringContainsString("unique('sppa_callback_host_uq')", $migration);
         self::assertStringContainsString("'payment_account_id'", $migration);
         self::assertStringContainsString("'callback_host'", $migration);
-        self::assertStringContainsString("'payment_account_id' => \$account?->id", $sessions);
-        self::assertStringContainsString("'callback_host'      => \$account?->callback_host", $sessions);
+        self::assertMatchesRegularExpression("/'payment_account_id'\\s*=>\\s*\\\$account\\?->id/", $sessions);
+        self::assertMatchesRegularExpression("/'callback_host'\\s*=>\\s*\\\$account\\?->callback_host/", $sessions);
         self::assertStringContainsString('isSessionPaymentRequest', $hostGuard);
         self::assertStringContainsString('callbackPaymentRequest && $this->accounts->isCallbackHost', $hostGuard);
         self::assertStringContainsString('EnsurePlatformPaymentHost::isSessionPaymentRequest($request)', $redirect);
@@ -38,9 +38,9 @@ class PlatformPaymentAccountRotationContractTest extends TestCase
         $kernel     = (string) file_get_contents($root . '/app/Console/Kernel.php');
 
         self::assertStringContainsString('rotatePaypalAccountAfterPreOrderFailure', $sessions);
-        self::assertStringContainsString('$locked->provider !== null', $sessions);
-        self::assertStringContainsString('$locked->provider_order_id !== null', $sessions);
-        self::assertStringContainsString('$locked->status !== PlatformPaymentSession::STATUS_PENDING', $sessions);
+        self::assertMatchesRegularExpression('/\$locked->provider\s*!==\s*null/', $sessions);
+        self::assertMatchesRegularExpression('/\$locked->provider_order_id\s*!==\s*null/', $sessions);
+        self::assertMatchesRegularExpression('/\$locked->status\s*!==\s*PlatformPaymentSession::STATUS_PENDING/', $sessions);
         self::assertStringContainsString('selectNextActivePaypalAccount((int) $locked->payment_account_id)', $sessions);
         self::assertStringContainsString('PlatformPaymentAccountUnavailable', $controller);
         self::assertStringContainsString('Only an OAuth/credential availability failure is safe', $controller);
@@ -54,7 +54,7 @@ class PlatformPaymentAccountRotationContractTest extends TestCase
         self::assertStringContainsString('routableActivePaypalQuery', $accounts);
         self::assertStringContainsString("whereIn('callback_host', Domain::query()->routable()->select('host'))", $accounts);
         self::assertStringContainsString('recordUnavailable', $accounts);
-        self::assertStringContainsString("'circuit_open_until'     => now('UTC')->addMinutes(10)", $accounts);
+        self::assertMatchesRegularExpression("/'circuit_open_until'\\s*=>\\s*now\\('UTC'\\)->addMinutes\\(10\\)/", $accounts);
         self::assertStringContainsString('lockForUpdate()', $accounts);
         self::assertStringContainsString('enabledPaypalAccountsForHealth', $accounts);
         self::assertStringContainsString('enabledPaypalAccountsForHealth($limit)', $health);
@@ -68,13 +68,13 @@ class PlatformPaymentAccountRotationContractTest extends TestCase
 
     public function test_managed_paypal_handoff_opens_paypal_without_a_platform_interstitial(): void
     {
-        $root     = dirname(__DIR__, 2);
-        $checkout = (string) file_get_contents($root . '/plugins/LongosPlatformPay/Controllers/CheckoutController.php');
-        $inline   = (string) file_get_contents($root . '/plugins/LongosPlatformPay/Views/checkout/inline.blade.php');
-        $direct   = (string) file_get_contents($root . '/plugins/LongosPlatformPay/Services/DirectPaymentService.php');
-        $payment  = (string) file_get_contents($root . '/plugins/LongosPlatformPay/Views/checkout/payment.blade.php');
+        $root       = dirname(__DIR__, 2);
+        $checkout   = (string) file_get_contents($root . '/plugins/LongosPlatformPay/Controllers/CheckoutController.php');
+        $inline     = (string) file_get_contents($root . '/plugins/LongosPlatformPay/Views/checkout/inline.blade.php');
+        $direct     = (string) file_get_contents($root . '/plugins/LongosPlatformPay/Services/DirectPaymentService.php');
+        $payment    = (string) file_get_contents($root . '/plugins/LongosPlatformPay/Views/checkout/payment.blade.php');
         $controller = (string) file_get_contents($root . '/app/Http/Controllers/PlatformPaymentController.php');
-        $paypal   = (string) file_get_contents($root . '/app/Services/PlatformPayment/PlatformPaypalGateway.php');
+        $paypal     = (string) file_get_contents($root . '/app/Services/PlatformPayment/PlatformPaypalGateway.php');
 
         self::assertStringNotContainsString('checkout_url', $checkout);
         self::assertStringNotContainsString('hosted_checkout_required', $inline);
@@ -132,7 +132,7 @@ class PlatformPaymentAccountRotationContractTest extends TestCase
         self::assertStringContainsString('isProtectedPlatformPaymentCallbackHost', $lifecycle);
         self::assertStringContainsString('支付回传域名', $lifecycle);
         self::assertStringContainsString('isCallbackHostRoutable', $accounts);
-        self::assertStringContainsString("'enabled'           => false", $accounts);
+        self::assertMatchesRegularExpression("/'enabled'\\s*=>\\s*false/", $accounts);
 
         $controller = (string) file_get_contents($root . '/app/Http/Controllers/PlatformPaymentController.php');
         self::assertStringContainsString("->header('Cache-Control', 'no-store, private, max-age=0')", $controller);

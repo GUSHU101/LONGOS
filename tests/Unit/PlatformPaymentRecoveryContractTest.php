@@ -88,7 +88,7 @@ class PlatformPaymentRecoveryContractTest extends TestCase
         self::assertStringContainsString('paymentIntents->retrieve(', $stripe);
         self::assertStringContainsString('public function cancelUnresolved(', $stripe);
         self::assertStringContainsString('paymentIntents->cancel(', $stripe);
-        self::assertStringContainsString("'expires_at'   => now('UTC')->addHours(3)", $sessions);
+        self::assertMatchesRegularExpression("/'expires_at'\\s*=>\\s*now\\('UTC'\\)->addHours\\(3\\)/", $sessions);
         self::assertStringContainsString('->financiallyUnsettled()', $command);
         self::assertStringContainsString('public function resolveProviderResult(', $sessions);
         self::assertStringContainsString('RECOVERY_WINDOW_DAYS', $model);

@@ -55,14 +55,14 @@ final class TranslationQualityGate
      */
     private static function isMissingRequiredTargetScript(string $translation, string $source, ?string $targetLocale): bool
     {
-        $targetLocale = strtolower(str_replace('_', '-', trim((string) $targetLocale)));
+        $targetLocale   = strtolower(str_replace('_', '-', trim((string) $targetLocale)));
         $requiredScript = match ($targetLocale) {
             'zh-cn', 'zh-tw' => '\\p{Han}',
-            'ja' => '\\p{Han}|\\p{Hiragana}|\\p{Katakana}',
-            'ko' => '\\p{Hangul}',
-            'ru' => '\\p{Cyrillic}',
-            'ar' => '\\p{Arabic}',
-            'th' => '\\p{Thai}',
+            'ja'    => '\\p{Han}|\\p{Hiragana}|\\p{Katakana}',
+            'ko'    => '\\p{Hangul}',
+            'ru'    => '\\p{Cyrillic}',
+            'ar'    => '\\p{Arabic}',
+            'th'    => '\\p{Thai}',
             default => null,
         };
         if ($requiredScript === null || mb_strlen(trim($source), 'UTF-8') < 40) {

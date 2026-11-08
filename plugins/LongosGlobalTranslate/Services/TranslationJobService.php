@@ -98,10 +98,10 @@ final class TranslationJobService
                     'updated_at'     => now(),
                 ]);
             }
-            $newItems = 0;
+            $newItems           = 0;
             $reusedTranslations = 0;
-            $alreadyQueued = 0;
-            $deferredChanges = 0;
+            $alreadyQueued      = 0;
+            $deferredChanges    = 0;
 
             // Bounded iteration: never load the entire merchant catalog and
             // 24 target-language cross-product into PHP memory. Queue only
@@ -112,7 +112,7 @@ final class TranslationJobService
                     $jobId, $locales, &$newItems, &$reusedTranslations, &$alreadyQueued, &$deferredChanges
                 ): void {
                     $entryIds = $entries->pluck('id')->all();
-                    $saved = DB::table('lgt_translations')->whereIn('entry_id', $entryIds)
+                    $saved    = DB::table('lgt_translations')->whereIn('entry_id', $entryIds)
                         ->whereIn('locale', $locales)
                         ->get(['entry_id', 'locale', 'source_hash', 'text', 'status', 'locked']);
                     $savedByPair = [];
@@ -130,7 +130,7 @@ final class TranslationJobService
                     // provider. Do not silently replay an unchanged source
                     // that has an unresolved request from *another* task:
                     // it could already have been accepted and billed.
-                    $uncertainByPair = [];
+                    $uncertainByPair   = [];
                     $uncertainAttempts = DB::table('lgt_attempts as attempt')
                         ->join('lgt_job_items as prior_item', 'prior_item.id', '=', 'attempt.job_item_id')
                         ->whereIn('prior_item.entry_id', $entryIds)
@@ -143,22 +143,25 @@ final class TranslationJobService
                     $rows = [];
                     foreach ($entries as $entry) {
                         foreach ($locales as $locale) {
-                            $pair = (int) $entry->id . ':' . $locale;
+                            $pair        = (int) $entry->id . ':' . $locale;
                             $translation = $savedByPair[$pair] ?? null;
-                            if ($translation !== null && hash_equals((string) $entry->source_hash, (string) $translation->source_hash)
-                                && trim((string) $translation->text) !== ''
-                                && in_array((string) $translation->status, [TranslationLibrary::TRANSLATED, TranslationLibrary::NEEDS_REVIEW, TranslationLibrary::APPROVED], true)) {
+                            if ($translation                                               !== null && hash_equals((string) $entry->source_hash, (string) $translation->source_hash)
+                                                      && trim((string) $translation->text) !== ''
+                                                      && in_array((string) $translation->status, [TranslationLibrary::TRANSLATED, TranslationLibrary::NEEDS_REVIEW, TranslationLibrary::APPROVED], true)) {
                                 $reusedTranslations++;
+
                                 continue;
                             }
                             // A locked source requires deliberate human action;
                             // a provider result would be discarded anyway.
                             if ($translation !== null && (bool) $translation->locked) {
                                 $deferredChanges++;
+
                                 continue;
                             }
                             if (isset($uncertainByPair[$pair . ':' . $entry->source_hash])) {
                                 $deferredChanges++;
+
                                 continue;
                             }
                             if (array_key_exists($pair, $queuedByPair)) {
@@ -169,12 +172,13 @@ final class TranslationJobService
                                 } else {
                                     $alreadyQueued++;
                                 }
+
                                 continue;
                             }
                             $rows[] = [
-                                'job_id' => $jobId, 'entry_id' => $entry->id, 'target_locale' => $locale,
+                                'job_id'      => $jobId, 'entry_id' => $entry->id, 'target_locale' => $locale,
                                 'source_hash' => $entry->source_hash, 'status' => 'ready', 'version' => 1,
-                                'created_at' => now(), 'updated_at' => now(),
+                                'created_at'  => now(), 'updated_at' => now(),
                             ];
                         }
                     }
@@ -184,31 +188,31 @@ final class TranslationJobService
                     }
                 }, 'id');
 
-            $total = DB::table('lgt_job_items')->where('job_id', $jobId)->count();
+            $total   = DB::table('lgt_job_items')->where('job_id', $jobId)->count();
             $updates = ['total_items' => $total, 'updated_at' => now()];
             if ($existing === null && $total === 0) {
                 $updates += ['status' => 'completed', 'finished_at' => now()];
             }
             DB::table('lgt_jobs')->where('id', $jobId)->update($updates);
-            $job = (array) DB::table('lgt_jobs')->where('id', $jobId)->first();
+            $job            = (array) DB::table('lgt_jobs')->where('id', $jobId)->first();
             $job['created'] = $existing === null;
 
             return [
-                'job' => $job,
+                'job'        => $job,
                 'statistics' => [
-                    'new_items' => $newItems,
-                    'reused_translations' => $reusedTranslations,
-                    'already_in_job' => $alreadyQueued,
+                    'new_items'              => $newItems,
+                    'reused_translations'    => $reusedTranslations,
+                    'already_in_job'         => $alreadyQueued,
                     'needs_manual_attention' => $deferredChanges,
                 ],
             ];
         }, 3);
         $job = $result['job'];
         if ($job['created'] && $job['mode'] === TranslationSettings::MODE_FREE_ONLY
-            && (int) $job['total_items'] > 0) {
+                            && (int) $job['total_items'] > 0) {
             ProcessTranslationJob::dispatch((int) $job['id'])->afterCommit();
         } elseif (! $job['created'] && $job['status'] === 'paused'
-            && $job['mode'] === TranslationSettings::MODE_FREE_ONLY) {
+                                    && $job['mode']                           === TranslationSettings::MODE_FREE_ONLY) {
             $this->resumePausedJobs();
         }
 
@@ -399,18 +403,21 @@ final class TranslationJobService
         // review and version contracts; a new task is idempotent here.
         $existing = DB::table('lgt_translations')
             ->where('entry_id', $entry->id)->where('locale', $item->target_locale)->first();
-        if ($existing !== null && hash_equals((string) $entry->source_hash, (string) $existing->source_hash)
-            && trim((string) $existing->text) !== ''
-            && in_array((string) $existing->status, [TranslationLibrary::TRANSLATED, TranslationLibrary::NEEDS_REVIEW, TranslationLibrary::APPROVED], true)) {
+        if ($existing                                            !== null && hash_equals((string) $entry->source_hash, (string) $existing->source_hash)
+                               && trim((string) $existing->text) !== ''
+                               && in_array((string) $existing->status, [TranslationLibrary::TRANSLATED, TranslationLibrary::NEEDS_REVIEW, TranslationLibrary::APPROVED], true)) {
             $this->finishItem((int) $item->id, 'completed', $runToken);
+
             return;
         }
         if ($existing !== null && (bool) $existing->locked) {
             // Locked human edits cannot be overwritten by machine output;
             // don't spend provider quota on a result the library would drop.
             $this->finishItem((int) $item->id, 'failed', $runToken, 'LOCKED_TRANSLATION_REQUIRES_REVIEW');
+
             return;
         }
+
         // Validate the exact text contract before a provider reservation is
         // made.  The scanner should already have reduced rich content to
         // visible text nodes, but this second boundary keeps malformed legacy
@@ -600,7 +607,7 @@ final class TranslationJobService
                 $failure = isset($provider)
                     ? $provider->classifyFailure($exception)
                     : ['code' => 'PRE_SEND_FAILURE', 'definitely_unbilled' => true];
-                $exceptionCode = $this->safeFailureCode($exception->getMessage());
+                $exceptionCode      = $this->safeFailureCode($exception->getMessage());
                 $definitelyUnbilled = ($failure['kind'] ?? null) === 'definite_failure'
                     && (bool) ($failure['definitely_unbilled'] ?? false);
                 $failureCode   = $requestMarkedSending
@@ -819,10 +826,10 @@ final class TranslationJobService
                 return;
             }
             $updates = [
-                'status'     => $status,
-                'started_at' => $status === 'running' ? now() : DB::raw('started_at'),
+                'status'      => $status,
+                'started_at'  => $status === 'running' ? now() : DB::raw('started_at'),
                 'finished_at' => $finished ? now() : DB::raw('finished_at'),
-                'updated_at' => now(),
+                'updated_at'  => now(),
             ];
             if ($status === 'running') {
                 $plan = json_decode((string) ($job->plan ?? ''), true);
@@ -842,8 +849,8 @@ final class TranslationJobService
             if ($job === null || in_array((string) $job->status, ['completed', 'partial_failed', 'failed', 'cancelled'], true)) {
                 return;
             }
-            $plan = json_decode((string) ($job->plan ?? ''), true);
-            $plan = is_array($plan) ? $plan : [];
+            $plan          = json_decode((string) ($job->plan ?? ''), true);
+            $plan          = is_array($plan) ? $plan : [];
             $plan['pause'] = ['code' => $reason, 'at' => now()->toIso8601String()];
             DB::table('lgt_jobs')->where('id', $jobId)->update([
                 'status'     => 'paused',
@@ -881,14 +888,15 @@ final class TranslationJobService
             if (! is_string($locale)) {
                 continue;
             }
+
             try {
                 $locale = TranslationSettings::locale($locale);
                 if (! $publisher->hasPublishableTranslations($locale)) {
                     continue;
                 }
-                $result = $publisher->publishReady($locale, null, $this->library);
+                $result      = $publisher->publishReady($locale, null, $this->library);
                 $published[] = [
-                    'locale' => $locale,
+                    'locale'   => $locale,
                     'revision' => (int) $result['publication']['revision'],
                     'approved' => (int) $result['publication']['coverage']['approved'],
                 ];
@@ -901,7 +909,7 @@ final class TranslationJobService
             }
         }
         if ($published !== [] && (bool) ($settings['publication']['auto_enable_widget'] ?? true)
-            && ! (bool) ($settings['widget']['enabled'] ?? false)) {
+                              && ! (bool) ($settings['widget']['enabled'] ?? false)) {
             $latest = $this->settings->all();
             $this->settings->save([
                 ...$latest,
@@ -919,16 +927,16 @@ final class TranslationJobService
             if ($job === null) {
                 return;
             }
-            $plan = json_decode((string) $job->plan, true);
-            $plan = is_array($plan) ? $plan : [];
+            $plan                     = json_decode((string) $job->plan, true);
+            $plan                     = is_array($plan) ? $plan : [];
             $plan['auto_publication'] = [
-                'state' => $failures === [] ? ($published === [] ? 'no_safe_results' : 'published') : 'partial',
-                'published' => $published,
-                'failures' => $failures,
+                'state'        => $failures === [] ? ($published === [] ? 'no_safe_results' : 'published') : 'partial',
+                'published'    => $published,
+                'failures'     => $failures,
                 'completed_at' => now()->toIso8601String(),
             ];
             DB::table('lgt_jobs')->where('id', $jobId)->update([
-                'plan' => json_encode($plan, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'plan'       => json_encode($plan, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
                 'updated_at' => now(),
             ]);
         }, 3);

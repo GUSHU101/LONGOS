@@ -52,8 +52,8 @@ final class DeepLProvider extends AbstractTranslationProvider
             throw new InvalidArgumentException('INVALID_DEEPL_REQUEST');
         }
         $started = hrtime(true);
-        $body = [
-            'text' => $request->segments,
+        $body    = [
+            'text'        => $request->segments,
             'source_lang' => $this->languageCode($request->sourceLocale),
             'target_lang' => $this->languageCode($request->targetLocale),
         ];
@@ -66,15 +66,15 @@ final class DeepLProvider extends AbstractTranslationProvider
         }
         $endpoint = strtolower((string) $credentials['api_plan']) === 'free' ? self::FREE_ENDPOINT : self::PRO_ENDPOINT;
         $response = $this->client->request('POST', $endpoint, [
-            'json' => $body,
+            'json'    => $body,
             'headers' => [
-                'Accept' => 'application/json',
+                'Accept'        => 'application/json',
                 'Authorization' => 'DeepL-Auth-Key ' . (string) $credentials['auth_key'],
             ],
             'timeout' => $request->timeoutSeconds,
         ]);
-        $payload = json_decode((string) $response->getBody(), true) ?: [];
-        $items = $payload['translations'] ?? [];
+        $payload      = json_decode((string) $response->getBody(), true) ?: [];
+        $items        = $payload['translations'] ?? [];
         $translations = is_array($items) ? array_map(
             static fn (mixed $item): mixed => is_array($item) && is_string($item['text'] ?? null) ? $item['text'] : null,
             $items,

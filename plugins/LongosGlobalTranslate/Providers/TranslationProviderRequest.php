@@ -5,7 +5,7 @@ namespace Plugin\LongosGlobalTranslate\Providers;
 final readonly class TranslationProviderRequest
 {
     /**
-     * @param list<string> $segments
+     * @param list<string>                                                                       $segments
      * @param array{kind:string,field:string,domain:string,prompt:string,profile_version:string} $context
      */
     public function __construct(

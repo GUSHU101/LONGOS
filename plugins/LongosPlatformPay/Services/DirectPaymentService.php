@@ -55,8 +55,8 @@ class DirectPaymentService
             // as a customer-facing LONGOS payment screen.
             for ($attempt = 0; $attempt < 2; $attempt++) {
                 try {
-                    $session = $this->sessions->claimProvider($session, 'paypal');
-                    $result = (new PlatformPaypalGateway($this->settings, null, $session))->create($session, $created['token']);
+                    $session         = $this->sessions->claimProvider($session, 'paypal');
+                    $result          = (new PlatformPaypalGateway($this->settings, null, $session))->create($session, $created['token']);
                     $providerCreated = true;
                     $this->sessions->bindProvider($session, 'paypal', $result['id']);
 

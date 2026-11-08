@@ -146,7 +146,7 @@ final class ProviderAccountService
      * complete credential pair is an intentional rotation: it invalidates the
      * verification and closes dispatch until the replacement is verified.
      *
-     * @param array<string, mixed> $input
+     * @param array<string, mixed>  $input
      * @param array<string, string> $credentials
      * @return array<string, mixed>
      */
@@ -165,19 +165,19 @@ final class ProviderAccountService
                 $this->validateCredentialShape((string) $row->provider, $credentials);
             }
 
-            $value = static fn (string $key, mixed $current): mixed => array_key_exists($key, $input) ? $input[$key] : $current;
+            $value   = static fn (string $key, mixed $current): mixed => array_key_exists($key, $input) ? $input[$key] : $current;
             $enabled = (bool) $value('enabled', $row->enabled);
-            $values = [
+            $values  = [
                 'account_tier'           => $this->short($value('account_tier', $row->account_tier), 48),
                 'free_quota'             => $this->units($value('free_quota', $row->free_quota)),
                 'soft_cap'               => $this->units($value('soft_cap', $row->soft_cap)),
                 // V1 never authorizes automatic paid overage.
                 'paid_cap'               => 0,
-                'external_usage_buffer' => $this->units($value('external_usage_buffer', $row->external_usage_buffer)),
-                'cycle_timezone'        => $this->timezone((string) $value('cycle_timezone', $row->cycle_timezone)),
-                'qps_limit'             => min(10, max(1, (int) $value('qps_limit', $row->qps_limit))),
-                'failover_priority'     => min(1000, max(1, (int) $value('failover_priority', $row->failover_priority))),
-                'enabled'               => $enabled,
+                'external_usage_buffer'  => $this->units($value('external_usage_buffer', $row->external_usage_buffer)),
+                'cycle_timezone'         => $this->timezone((string) $value('cycle_timezone', $row->cycle_timezone)),
+                'qps_limit'              => min(10, max(1, (int) $value('qps_limit', $row->qps_limit))),
+                'failover_priority'      => min(1000, max(1, (int) $value('failover_priority', $row->failover_priority))),
+                'enabled'                => $enabled,
                 // Never silently re-enable delivery. A credential rotation or
                 // disabling the account closes the dispatch gate; plain quota
                 // edits preserve the existing operator decision.
@@ -191,29 +191,29 @@ final class ProviderAccountService
                     'credentials_ciphertext' => Crypt::encryptString(json_encode($credentials, JSON_THROW_ON_ERROR)),
                     'credential_fingerprint' => hash('sha256', json_encode($credentials, JSON_THROW_ON_ERROR)),
                     'credential_revision'    => (int) $row->credential_revision + 1,
-                    'verified_at'           => null,
-                    'verified_by'           => null,
+                    'verified_at'            => null,
+                    'verified_by'            => null,
                 ];
             }
 
             DB::table('lgt_provider_accounts')->where('id', $accountId)->update($values);
             $this->audit('provider_account_updated', 'provider_account', $accountId, $actorId, [
-                'account_tier'       => $row->account_tier,
-                'free_quota'         => (int) $row->free_quota,
-                'soft_cap'           => (int) $row->soft_cap,
-                'qps_limit'          => (int) $row->qps_limit,
-                'failover_priority'  => (int) $row->failover_priority,
-                'enabled'            => (bool) $row->enabled,
-                'dispatch_enabled'   => (bool) $row->dispatch_enabled,
+                'account_tier'        => $row->account_tier,
+                'free_quota'          => (int) $row->free_quota,
+                'soft_cap'            => (int) $row->soft_cap,
+                'qps_limit'           => (int) $row->qps_limit,
+                'failover_priority'   => (int) $row->failover_priority,
+                'enabled'             => (bool) $row->enabled,
+                'dispatch_enabled'    => (bool) $row->dispatch_enabled,
                 'credentials_changed' => false,
             ], [
-                'account_tier'       => $values['account_tier'],
-                'free_quota'         => $values['free_quota'],
-                'soft_cap'           => $values['soft_cap'],
-                'qps_limit'          => $values['qps_limit'],
-                'failover_priority'  => $values['failover_priority'],
-                'enabled'            => $values['enabled'],
-                'dispatch_enabled'   => $values['dispatch_enabled'],
+                'account_tier'        => $values['account_tier'],
+                'free_quota'          => $values['free_quota'],
+                'soft_cap'            => $values['soft_cap'],
+                'qps_limit'           => $values['qps_limit'],
+                'failover_priority'   => $values['failover_priority'],
+                'enabled'             => $values['enabled'],
+                'dispatch_enabled'    => $values['dispatch_enabled'],
                 'credentials_changed' => $credentialsChanged,
             ]);
 

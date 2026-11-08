@@ -42,7 +42,7 @@ final class PublicationService
                 ->where('state', 'published')->orderByDesc('revision')->orderByDesc('id')->first();
             if ($current !== null && $this->samePublishedSnapshot((int) $current->id, $translations)) {
                 return [
-                    'id' => (int) $current->id, 'locale' => $locale,
+                    'id'       => (int) $current->id, 'locale' => $locale,
                     'revision' => (int) $current->revision, 'coverage' => $coverage, 'unchanged' => true,
                 ];
             }
@@ -72,7 +72,6 @@ final class PublicationService
             return ['id' => $publicationId, 'locale' => $locale, 'revision' => $revision, 'coverage' => $coverage];
         });
     }
-
 
     /**
      * One explicit admin action: approve only machine translations that
@@ -111,7 +110,7 @@ final class PublicationService
             $needsReview = DB::table('lgt_translations')->where('locale', $locale)
                 ->where('status', TranslationLibrary::NEEDS_REVIEW)->count();
 
-            return ['publication' => $publication, 'auto_approved' => $approved,
+            return ['publication'     => $publication, 'auto_approved' => $approved,
                 'needs_manual_review' => $needsReview];
         });
     }
@@ -171,7 +170,7 @@ final class PublicationService
         foreach ($rows as $item) {
             $translation = $translations[$index] ?? null;
             if ($translation === null
-                || (int) $item->translation_id !== (int) $translation->id
+                || (int) $item->translation_id      !== (int) $translation->id
                 || (int) $item->translation_version !== (int) $translation->version
                 || ! hash_equals((string) $item->source_hash, (string) $translation->source_hash)
                 || ! hash_equals((string) $item->text, (string) $translation->text)) {

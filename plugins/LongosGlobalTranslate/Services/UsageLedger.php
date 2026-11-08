@@ -246,9 +246,9 @@ final class UsageLedger
     {
         $qps = min(10, max(1, (int) $account->qps_limit));
         $now ??= CarbonImmutable::now('UTC');
-        $nowUs = $this->epochMicroseconds($now);
+        $nowUs      = $this->epochMicroseconds($now);
         $intervalUs = (int) ceil(1_000_000 / $qps);
-        $lastUs = max(0, (int) ($account->last_dispatch_at_us ?? 0));
+        $lastUs     = max(0, (int) ($account->last_dispatch_at_us ?? 0));
         $eligibleUs = $lastUs > 0 ? $lastUs + $intervalUs : $nowUs;
 
         // usleep() may return a few microseconds early on busy hosts. A
@@ -267,13 +267,13 @@ final class UsageLedger
                 throw new RuntimeException('PROVIDER_RATE_LIMIT_WAIT_INTERRUPTED');
             }
             usleep(max(1, $delayUs));
-            $now = CarbonImmutable::now('UTC');
+            $now   = CarbonImmutable::now('UTC');
             $nowUs = $this->epochMicroseconds($now);
         }
 
         DB::table('lgt_provider_accounts')->where('id', $account->id)->update([
             'last_dispatch_at_us' => max($eligibleUs, $nowUs),
-            'updated_at' => $now,
+            'updated_at'          => $now,
         ]);
 
         return $now;

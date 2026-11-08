@@ -58,7 +58,7 @@ final class TextContract
             if ($partUnits['bytes'] > $bytes || $partUnits['utf16'] > $utf16) {
                 throw new InvalidArgumentException('ATOMIC_TOKEN_TOO_LARGE');
             }
-            if ($current !== '' && ($currentBytes + $partUnits['bytes'] > $bytes
+            if ($current !== '' && ($currentBytes + $partUnits['bytes']                  > $bytes
                 || $currentUtf16                  + $partUnits['utf16']                  > $utf16)) {
                 $segments[]   = $current;
                 $current      = '';

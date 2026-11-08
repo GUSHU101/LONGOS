@@ -82,7 +82,7 @@ final class TranslationSettings
         // of sync; that made a published library look broken on the front end.
         DB::transaction(function () use ($settings): void {
             foreach ($settings as $key => $value) {
-                $encoded = json_encode($value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                $encoded  = json_encode($value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
                 $existing = DB::table('lgt_settings')->where('key', $key)->lockForUpdate()->first();
                 if ($existing === null) {
                     DB::table('lgt_settings')->insert([
@@ -128,9 +128,9 @@ final class TranslationSettings
         if (count($locales) > 24) {
             throw new InvalidArgumentException('TOO_MANY_LOCALES');
         }
-        $widget   = is_array($settings['widget'] ?? null) ? $settings['widget'] : [];
+        $widget      = is_array($settings['widget'] ?? null) ? $settings['widget'] : [];
         $publication = is_array($settings['publication'] ?? null) ? $settings['publication'] : [];
-        $position = (string) ($widget['position'] ?? 'right');
+        $position    = (string) ($widget['position'] ?? 'right');
         if (! in_array($position, ['left', 'right'], true)) {
             throw new InvalidArgumentException('INVALID_WIDGET_POSITION');
         }

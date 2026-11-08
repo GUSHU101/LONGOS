@@ -880,28 +880,42 @@ class GlobalTranslationWorkflowTest extends TestCase
     {
         (new TranslationSettings)->save(['mode' => TranslationSettings::MODE_FREE_ONLY, 'enabled_locales' => ['fr']]);
         $accounts = new ProviderAccountService;
-        $account = $accounts->save([
-            'provider' => 'baidu', 'billing_identity' => 'source-preflight-account', 'enabled' => true,
+        $account  = $accounts->save([
+            'provider'   => 'baidu', 'billing_identity' => 'source-preflight-account', 'enabled' => true,
             'free_quota' => 1_000, 'soft_cap' => 1_000,
         ], ['appid' => 'source-preflight-app', 'secret' => 'source-preflight-secret'], 11);
         $accounts->markVerified((int) $account['id'], 11);
         $accounts->setDispatch((int) $account['id'], true, 11);
-        $entryId = $this->queueSingleTranslationItem('unsafe-source-preflight', '<script>alert(1)</script>', 'a09d2c91-7d2a-4a1b-a5ac-120700000001');
-        $jobId = (int) DB::table('lgt_job_items')->where('entry_id', $entryId)->value('job_id');
+        $entryId  = $this->queueSingleTranslationItem('unsafe-source-preflight', '<script>alert(1)</script>', 'a09d2c91-7d2a-4a1b-a5ac-120700000001');
+        $jobId    = (int) DB::table('lgt_job_items')->where('entry_id', $entryId)->value('job_id');
         $provider = new class implements TranslationProviderInterface
         {
             public int $calls = 0;
 
-            public function id(): string { return 'baidu'; }
+            public function id(): string
+            {
+                return 'baidu';
+            }
+
             public function validateCredentialShape(array $credentials): void {}
-            public function supports(string $sourceLocale, string $targetLocale): bool { return true; }
-            public function buildBatches(array $segments, string $sourceLocale, string $targetLocale): array { return [$segments]; }
+
+            public function supports(string $sourceLocale, string $targetLocale): bool
+            {
+                return true;
+            }
+
+            public function buildBatches(array $segments, string $sourceLocale, string $targetLocale): array
+            {
+                return [$segments];
+            }
+
             public function send(TranslationProviderRequest $request, array $credentials): TranslationProviderResponse
             {
                 $this->calls++;
 
                 return new TranslationProviderResponse(true, ['should not be called'], 'unexpected', null, null, 1);
             }
+
             public function classifyFailure(\Throwable|TranslationProviderResponse $failure): array
             {
                 return ['kind' => 'definite_failure', 'code' => 'TEST', 'definitely_unbilled' => true];
@@ -919,14 +933,14 @@ class GlobalTranslationWorkflowTest extends TestCase
     {
         (new TranslationSettings)->save(['mode' => TranslationSettings::MODE_FREE_ONLY, 'enabled_locales' => ['fr']]);
         $accounts = new ProviderAccountService;
-        $account = $accounts->save([
-            'provider' => 'baidu', 'billing_identity' => 'capacity-pause-account', 'enabled' => true,
+        $account  = $accounts->save([
+            'provider'   => 'baidu', 'billing_identity' => 'capacity-pause-account', 'enabled' => true,
             'free_quota' => 5, 'soft_cap' => 5,
         ], ['appid' => 'capacity-pause-app', 'secret' => 'capacity-pause-secret'], 11);
         $accounts->markVerified((int) $account['id'], 11);
         $accounts->setDispatch((int) $account['id'], true, 11);
         $entryId = $this->queueSingleTranslationItem('capacity-pause', 'A title that exceeds the remaining free quota.', 'e5c4e0bd-1438-451d-a2e2-120700000002');
-        $jobId = (int) DB::table('lgt_job_items')->where('entry_id', $entryId)->value('job_id');
+        $jobId   = (int) DB::table('lgt_job_items')->where('entry_id', $entryId)->value('job_id');
         $service = new TranslationJobService(new ContentScanner, new TranslationSettings, $accounts, new ProviderRegistry, new UsageLedger, new TranslationLibrary);
         $service->process($jobId, 1, '2869c2bb-f609-48a3-b001-120700000002');
 

@@ -34,8 +34,8 @@ final class AzureTranslatorProvider extends AbstractTranslationProvider
             throw new InvalidArgumentException('UNSUPPORTED_LANGUAGE');
         }
         $batches = [];
-        $batch = [];
-        $units = 0;
+        $batch   = [];
+        $units   = 0;
         foreach ($segments as $segment) {
             $length = TextContract::units($segment)['utf16'];
             if ($length > 4500) {
@@ -43,8 +43,8 @@ final class AzureTranslatorProvider extends AbstractTranslationProvider
             }
             if (count($batch) === 16 || $units + $length > 4500) {
                 $batches[] = $batch;
-                $batch = [];
-                $units = 0;
+                $batch     = [];
+                $units     = 0;
             }
             $batch[] = $segment;
             $units += $length;
@@ -63,11 +63,11 @@ final class AzureTranslatorProvider extends AbstractTranslationProvider
             throw new InvalidArgumentException('AZURE_REQUEST_MUST_BE_ONE_BATCH');
         }
         $started = hrtime(true);
-        $region = strtolower(trim((string) $credentials['region']));
+        $region  = strtolower(trim((string) $credentials['region']));
         $headers = [
-            'Accept' => 'application/json',
+            'Accept'                    => 'application/json',
             'Ocp-Apim-Subscription-Key' => (string) $credentials['subscription_key'],
-            'X-ClientTraceId' => $request->requestUuid,
+            'X-ClientTraceId'           => $request->requestUuid,
         ];
         if ($region !== 'global') {
             $headers['Ocp-Apim-Subscription-Region'] = $region;
@@ -78,14 +78,14 @@ final class AzureTranslatorProvider extends AbstractTranslationProvider
         $response = $this->client->request('POST', self::ENDPOINT, [
             'query' => [
                 'api-version' => '3.0',
-                'from' => $this->languageCode($request->sourceLocale),
-                'to' => $this->languageCode($request->targetLocale),
+                'from'        => $this->languageCode($request->sourceLocale),
+                'to'          => $this->languageCode($request->targetLocale),
             ],
-            'json' => array_map(static fn (string $text): array => ['Text' => $text], $request->segments),
+            'json'    => array_map(static fn (string $text): array => ['Text' => $text], $request->segments),
             'headers' => $headers,
             'timeout' => $request->timeoutSeconds,
         ]);
-        $payload = json_decode((string) $response->getBody(), true) ?: [];
+        $payload      = json_decode((string) $response->getBody(), true) ?: [];
         $translations = is_array($payload) ? array_map(
             static fn (mixed $item): mixed => is_array($item) && is_string(data_get($item, 'translations.0.text'))
                 ? data_get($item, 'translations.0.text')

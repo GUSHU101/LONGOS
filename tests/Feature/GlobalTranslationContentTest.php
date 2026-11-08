@@ -140,9 +140,9 @@ class GlobalTranslationContentTest extends TestCase
     public function test_every_eligible_default_theme_ui_label_is_covered_by_the_interface_catalog(): void
     {
         app()->setLocale('en');
-        $catalog = array_fill_keys(CommerceUiCatalog::entries(), true);
-        $missing = [];
-        $root = base_path('themes/default');
+        $catalog  = array_fill_keys(CommerceUiCatalog::entries(), true);
+        $missing  = [];
+        $root     = base_path('themes/default');
         $iterator = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root));
 
         foreach ($iterator as $file) {
@@ -186,11 +186,11 @@ class GlobalTranslationContentTest extends TestCase
     {
         $catalog = array_fill_keys(CommerceUiCatalog::entries(), true);
         $sources = [
-            'LongosPlatformPay::common' => 'plugins/LongosPlatformPay/Lang/en/common.php',
-            'LongosLiveChat::chat' => 'plugins/LongosLiveChat/Lang/en/chat.php',
+            'LongosPlatformPay::common'     => 'plugins/LongosPlatformPay/Lang/en/common.php',
+            'LongosLiveChat::chat'          => 'plugins/LongosLiveChat/Lang/en/chat.php',
             'LongosProductReviews::reviews' => 'plugins/LongosProductReviews/Lang/en/reviews.php',
-            'Paypal::checkout' => 'plugins/Paypal/Lang/en/checkout.php',
-            'Stripe::common' => 'plugins/Stripe/Lang/en/common.php',
+            'Paypal::checkout'              => 'plugins/Paypal/Lang/en/checkout.php',
+            'Stripe::common'                => 'plugins/Stripe/Lang/en/common.php',
         ];
         $roots = [
             'plugins/LongosPlatformPay/Views/checkout',
@@ -216,8 +216,8 @@ class GlobalTranslationContentTest extends TestCase
                         continue;
                     }
 
-                    $field = substr($key, strlen($prefix) + 1);
-                    $pack = require base_path($sources[$prefix]);
+                    $field  = substr($key, strlen($prefix) + 1);
+                    $pack   = require base_path($sources[$prefix]);
                     $source = $pack[$field] ?? null;
                     if (! is_string($source) || ! CommerceUiCatalog::acceptsStaticSource($source)) {
                         continue;
@@ -246,31 +246,31 @@ class GlobalTranslationContentTest extends TestCase
         $translations = [];
         foreach ([$first, $last] as $index => $entry) {
             $translationId = DB::table('lgt_translations')->insertGetId([
-                'entry_id' => $entry->id,
-                'locale' => 'fr',
+                'entry_id'    => $entry->id,
+                'locale'      => 'fr',
                 'source_hash' => $entry->source_hash,
-                'text' => 'FR interface ' . $index,
-                'status' => 'approved',
-                'locked' => false,
-                'version' => 1,
-                'created_at' => now(),
-                'updated_at' => now(),
+                'text'        => 'FR interface ' . $index,
+                'status'      => 'approved',
+                'locked'      => false,
+                'version'     => 1,
+                'created_at'  => now(),
+                'updated_at'  => now(),
             ]);
             $translations[] = ['id' => $translationId, 'entry' => $entry, 'text' => 'FR interface ' . $index];
         }
         $publicationId = DB::table('lgt_publications')->insertGetId([
-            'locale' => 'fr', 'revision' => 1, 'state' => 'published',
+            'locale'            => 'fr', 'revision' => 1, 'state' => 'published',
             'coverage_snapshot' => json_encode(['approved' => 2]),
-            'published_at' => now(), 'created_at' => now(), 'updated_at' => now(),
+            'published_at'      => now(), 'created_at' => now(), 'updated_at' => now(),
         ]);
         foreach ($translations as $translation) {
             DB::table('lgt_publication_items')->insert([
-                'publication_id' => $publicationId,
-                'translation_id' => $translation['id'],
+                'publication_id'      => $publicationId,
+                'translation_id'      => $translation['id'],
                 'translation_version' => 1,
-                'source_hash' => $translation['entry']->source_hash,
-                'text' => $translation['text'],
-                'created_at' => now(), 'updated_at' => now(),
+                'source_hash'         => $translation['entry']->source_hash,
+                'text'                => $translation['text'],
+                'created_at'          => now(), 'updated_at' => now(),
             ]);
         }
 

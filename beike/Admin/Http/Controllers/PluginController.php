@@ -12,13 +12,13 @@
 
 namespace Beike\Admin\Http\Controllers;
 
+use App\Saas\TenantManager;
 use App\Services\PaymentPluginReadiness;
 use App\Services\PlatformPayment\PlatformPaymentHealthService;
 use App\Services\PlatformPayment\PlatformPaymentSettings;
-use App\Saas\TenantManager;
-use Beike\Models\AdminUser;
 use Beike\Admin\Http\Resources\PluginResource;
 use Beike\Admin\Services\MarketingService;
+use Beike\Models\AdminUser;
 use Beike\Plugin\Plugin;
 use Beike\Repositories\PluginRepo;
 use Beike\Repositories\SettingRepo;
@@ -27,8 +27,8 @@ use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use League\CommonMark\GithubFlavoredMarkdownConverter;

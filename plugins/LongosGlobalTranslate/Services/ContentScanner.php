@@ -62,7 +62,7 @@ final class ContentScanner
         ];
         foreach (self::SOURCES as $kind => $source) {
             [$table, $parent, $key, $fields] = $source;
-            $htmlFields = $source[4] ?? [];
+            $htmlFields                      = $source[4] ?? [];
             if (! in_array($kind, $scope, true)) {
                 continue;
             }
@@ -123,7 +123,7 @@ final class ContentScanner
             // provider; customer-entered or transaction-derived values are
             // deliberately absent from this scanner.
             $report['supported_sources'][] = CommerceUiCatalog::KIND;
-            $seen = [];
+            $seen                          = [];
             foreach (CommerceUiCatalog::entries() as $field => $source) {
                 $this->record(CommerceUiCatalog::KIND, CommerceUiCatalog::ENTITY_ID, $field, $source, 'en', 'plain', 'catalog:v2', $report);
                 $seen[] = hash('sha256', implode(':', ['lgt-content-v2', CommerceUiCatalog::KIND, CommerceUiCatalog::ENTITY_ID, $field, 'en']));
@@ -190,10 +190,10 @@ final class ContentScanner
                 // text remains in lgt_translation_versions for audit and
                 // rollback; no source-language field is changed here.
                 DB::table('lgt_translations')->where('entry_id', $entry->id)->update([
-                    'status'    => TranslationLibrary::STALE,
-                    'locked'    => false,
-                    'locked_by' => null,
-                    'locked_at' => null,
+                    'status'     => TranslationLibrary::STALE,
+                    'locked'     => false,
+                    'locked_by'  => null,
+                    'locked_at'  => null,
                     'updated_at' => now(),
                 ]);
                 $report['changed']++;
@@ -250,9 +250,10 @@ final class ContentScanner
         }
 
         $previous = libxml_use_internal_errors(true);
+
         try {
             $document = new \DOMDocument('1.0', 'UTF-8');
-            $loaded = $document->loadHTML(
+            $loaded   = $document->loadHTML(
                 '<!doctype html><html><head><meta charset="utf-8"></head><body><div id="lgt-public-root">' . $html . '</div></body></html>',
                 LIBXML_HTML_NODEFDTD | LIBXML_HTML_NOIMPLIED,
             );
@@ -263,7 +264,7 @@ final class ContentScanner
 
             $fields = [];
             $index  = 0;
-            $walk = static function (\DOMNode $node) use (&$walk, &$fields, &$index, $field): void {
+            $walk   = static function (\DOMNode $node) use (&$walk, &$fields, &$index, $field): void {
                 foreach ($node->childNodes as $child) {
                     if ($child instanceof \DOMElement && in_array(strtolower($child->tagName), ['script', 'style', 'noscript', 'template', 'svg', 'canvas'], true)) {
                         continue;
@@ -274,6 +275,7 @@ final class ContentScanner
                             $fields[$field . '.node.' . $index] = $text;
                             $index++;
                         }
+
                         continue;
                     }
                     if ($child->hasChildNodes()) {
@@ -318,7 +320,7 @@ final class ContentScanner
                     continue;
                 }
                 $entityId = $this->stableBuilderId($moduleId);
-                $content = (array) ($module['content'] ?? []);
+                $content  = (array) ($module['content'] ?? []);
                 foreach ($this->builderFields($code, $content) as $field => $value) {
                     $path = 'module.' . $moduleId . '.' . $field;
                     $this->record('builder', $entityId, $path, $value, 'en', 'plain', $revision, $report);
@@ -380,7 +382,7 @@ final class ContentScanner
     {
         $fields = [];
         $source = static fn (mixed $value): string => self::normalizePlainText(self::sourceLocaleValue($value));
-        $add = static function (string $field, mixed $value) use (&$fields, $source): void {
+        $add    = static function (string $field, mixed $value) use (&$fields, $source): void {
             $text = $source($value);
             if ($text !== '') {
                 $fields[$field] = $text;
@@ -620,10 +622,10 @@ final class ContentScanner
             // render time. It is intentionally covered by the page/category
             // scanners instead of pseudo-fields that do not exist in the
             // persisted module configuration.
-            'shopify_main_page' => [],
-            'shopify_page' => [],
+            'shopify_main_page'              => [],
+            'shopify_page'                   => [],
             'shopify_main_collection_banner' => [],
-            'shopify_main_list_collections' => [
+            'shopify_main_list_collections'  => [
                 'top' => ['title'],
             ],
             'shopify_migrated' => [
@@ -642,12 +644,12 @@ final class ContentScanner
     public static function builderHtmlFieldContract(): array
     {
         return [
-            'rich_text' => ['top' => ['data']],
-            'shopify_image_with_text' => ['collections' => ['blocks' => ['html']]],
+            'rich_text'                   => ['top' => ['data']],
+            'shopify_image_with_text'     => ['collections' => ['blocks' => ['html']]],
             'shopify_collapsible_content' => ['collections' => ['blocks' => ['html', 'page_html']]],
-            'shopify_multicolumn' => ['collections' => ['blocks' => ['html']]],
-            'shopify_multirow' => ['collections' => ['blocks' => ['html']]],
-            'shopify_rich_text' => ['collections' => ['blocks' => ['html']]],
+            'shopify_multicolumn'         => ['collections' => ['blocks' => ['html']]],
+            'shopify_multirow'            => ['collections' => ['blocks' => ['html']]],
+            'shopify_rich_text'           => ['collections' => ['blocks' => ['html']]],
         ];
     }
 
@@ -698,7 +700,7 @@ final class ContentScanner
     /** @param array<string, mixed> $content @return array<string, string> */
     private function builderHtmlFields(string $code, array $content): array
     {
-        $fields = [];
+        $fields   = [];
         $contract = self::builderHtmlFieldContract()[$code] ?? [];
         foreach ($contract['top'] ?? [] as $field) {
             $value = self::sourceLocaleValue(data_get($content, $field));

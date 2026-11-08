@@ -118,25 +118,25 @@ class PlatformPaymentSessionService
                     // the SDK, provider order and verified callback hostname
                     // always use one immutable account binding.
                     $accountService = app(PlatformPaymentAccountService::class);
-                    $account = $accountService->selectNextActivePaypalAccount();
+                    $account        = $accountService->selectNextActivePaypalAccount();
                     if ($accountService->hasManagedPaypalAccounts() && ! $account) {
                         throw new RuntimeException('没有可用的 PayPal 收款账户，请联系平台管理员。');
                     }
                 }
                 $session = PlatformPaymentSession::query()->create([
-                    'uuid'         => $uuid,
-                    'token_hash'   => hash('sha256', $token),
-                    'active_key'   => $activeKey,
-                    'site_id'      => $site->id,
-                    'order_id'     => $order->id,
-                    'order_number' => (string) $order->number,
-                    'amount'       => number_format($amount, 8, '.', ''),
-                    'currency'     => $currency,
-                    'locale'       => preg_match('/^[A-Za-z_]{2,16}$/', (string) $order->locale) ? (string) $order->locale : 'en',
+                    'uuid'               => $uuid,
+                    'token_hash'         => hash('sha256', $token),
+                    'active_key'         => $activeKey,
+                    'site_id'            => $site->id,
+                    'order_id'           => $order->id,
+                    'order_number'       => (string) $order->number,
+                    'amount'             => number_format($amount, 8, '.', ''),
+                    'currency'           => $currency,
+                    'locale'             => preg_match('/^[A-Za-z_]{2,16}$/', (string) $order->locale) ? (string) $order->locale : 'en',
                     'payment_account_id' => $account?->id,
                     'callback_host'      => $account?->callback_host,
-                    'status'       => PlatformPaymentSession::STATUS_PENDING,
-                    'expires_at'   => now('UTC')->addHours(3),
+                    'status'             => PlatformPaymentSession::STATUS_PENDING,
+                    'expires_at'         => now('UTC')->addHours(3),
                 ]);
 
                 return ['session' => $session, 'token' => $token];
@@ -351,6 +351,7 @@ class PlatformPaymentSessionService
             PlatformPaymentSettings::CONFIGURATION_LOCK,
             PlatformPaymentSettings::CONFIGURATION_LOCK_SECONDS,
         );
+
         try {
             $configurationLock->block(10);
         } catch (LockTimeoutException) {
@@ -361,9 +362,9 @@ class PlatformPaymentSessionService
             return DB::connection('saas')->transaction(function () use ($session): ?PlatformPaymentSession {
                 $locked = PlatformPaymentSession::query()->lockForUpdate()->find($session->id);
                 if (! $locked
-                    || $locked->provider !== null
+                    || $locked->provider          !== null
                     || $locked->provider_order_id !== null
-                    || $locked->status !== PlatformPaymentSession::STATUS_PENDING
+                    || $locked->status            !== PlatformPaymentSession::STATUS_PENDING
                     || ! $locked->isOpen()) {
                     return null;
                 }

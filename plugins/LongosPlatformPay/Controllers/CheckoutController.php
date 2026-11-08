@@ -58,8 +58,8 @@ class CheckoutController
                 throw new RuntimeException('当前没有可用的平台支付渠道。');
             }
 
-            $created = $sessions->create($site, $order, $snapshot);
-            $session = $created['session'];
+            $created   = $sessions->create($site, $order, $snapshot);
+            $session   = $created['session'];
             $providers = $settings->availableProvidersForSession($session, $snapshot);
             if ($session->provider) {
                 // A provider claim is sticky. It may complete even when the

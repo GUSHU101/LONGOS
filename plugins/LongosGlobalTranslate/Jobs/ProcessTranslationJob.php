@@ -48,6 +48,7 @@ final class ProcessTranslationJob implements ShouldQueue
         if (! TranslationSchema::ready()) {
             return;
         }
+
         // Laravel invokes this only after the configured retry policy is
         // exhausted. Marking our own claim failed lets the parent job finish
         // visibly without ever replaying an outcome that might have reached a

@@ -25,9 +25,9 @@ try {
     // still refuses to enable a route that cannot be reached canonically.
     $stripeWebhook = e(rtrim(request()->getSchemeAndHttpHost(), '/') . '/_longos/pay/webhooks/stripe');
 }
-$isEnabled      = static fn (): bool => filter_var(request()->input('status', false), FILTER_VALIDATE_BOOLEAN);
+$isEnabled             = static fn (): bool => filter_var(request()->input('status', false), FILTER_VALIDATE_BOOLEAN);
 $managedPaypalAccounts = static fn (): bool => filter_var(request()->input('managed_paypal_accounts', false), FILTER_VALIDATE_BOOLEAN);
-$paypalEnabled  = static fn (): bool => $isEnabled()
+$paypalEnabled         = static fn (): bool => $isEnabled()
     && ! $managedPaypalAccounts()
     && filter_var(request()->input('share_paypal', false), FILTER_VALIDATE_BOOLEAN);
 $stripeEnabled = static fn (): bool => $isEnabled()

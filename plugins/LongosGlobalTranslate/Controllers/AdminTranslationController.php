@@ -297,9 +297,9 @@ final class AdminTranslationController extends Controller
             ? $this->jobs->resumePausedJobs() : 0;
 
         return $this->json([
-            'account' => $account,
+            'account'      => $account,
             'resumed_jobs' => $resumed,
-            'notice'  => $credentials === []
+            'notice'       => $credentials === []
                 ? ($resumed > 0
                     ? "服务商额度与运行设置已更新；已自动恢复 {$resumed} 个等待安全容量的任务。"
                     : '服务商额度与运行设置已更新；已加密凭据和当前验证状态未被回传或改写。')
@@ -755,11 +755,11 @@ final class AdminTranslationController extends Controller
     private function pauseLabel(string $code): string
     {
         return match ($code) {
-            'FREE_QUOTA_EXHAUSTED' => '所有支持该语言的已验证账户均达到本周期本地免费额度上限；提高任一账户额度或开启备用账户后会自动恢复。',
-            'NO_VERIFIED_DISPATCH_ACCOUNT' => '没有已启用、已验证且允许派发的翻译账户；验证并开启至少一个账户后会自动恢复。',
+            'FREE_QUOTA_EXHAUSTED'          => '所有支持该语言的已验证账户均达到本周期本地免费额度上限；提高任一账户额度或开启备用账户后会自动恢复。',
+            'NO_VERIFIED_DISPATCH_ACCOUNT'  => '没有已启用、已验证且允许派发的翻译账户；验证并开启至少一个账户后会自动恢复。',
             'NO_PROVIDER_FOR_TARGET_LOCALE' => '现有可派发账户均不支持当前目标语言；添加支持该语种的账户后会自动恢复。',
-            'DISPATCH_MODE_CHANGED' => '翻译运行模式已变更为非“仅免费额度”；恢复该模式后可继续执行。',
-            default => '该任务在旧版本中暂停，未保存具体原因；请检查账户派发状态与本周期免费额度。',
+            'DISPATCH_MODE_CHANGED'         => '翻译运行模式已变更为非“仅免费额度”；恢复该模式后可继续执行。',
+            default                         => '该任务在旧版本中暂停，未保存具体原因；请检查账户派发状态与本周期免费额度。',
         };
     }
 

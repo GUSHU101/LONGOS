@@ -111,9 +111,9 @@ class GlobalTranslationProviderTest extends TestCase
 
     public function test_aliyun_receives_the_safe_commerce_context_when_its_api_supports_it(): void
     {
-        $history = [];
+        $history  = [];
         $provider = new AliyunProvider($this->recordingClient($history, ['Code' => 200, 'Data' => ['Translated' => 'Bonjour']]));
-        $request = new TranslationProviderRequest(
+        $request  = new TranslationProviderRequest(
             '8224d0b9-ae7e-4f7a-9634-9eed9263b42a', 1, 'en', 'fr', ['Phone case'], hash('sha256', 'Phone case'), 4,
             ['kind' => 'product', 'field' => 'name', 'domain' => 'product title', 'prompt' => 'Cross-border e-commerce storefront. Field type: product title.', 'profile_version' => 'test'],
         );
@@ -178,15 +178,15 @@ class GlobalTranslationProviderTest extends TestCase
     public function test_google_and_azure_keep_credentials_in_headers_and_parse_documented_response_shapes(): void
     {
         $googleHistory = [];
-        $google = new GoogleCloudProvider($this->recordingClient($googleHistory, ['data' => ['translations' => [['translatedText' => 'Bonjour &amp; merci']]]]));
-        $googleResult = $google->send($this->request(['Hello & thanks']), ['api_key' => 'google-secret']);
+        $google        = new GoogleCloudProvider($this->recordingClient($googleHistory, ['data' => ['translations' => [['translatedText' => 'Bonjour &amp; merci']]]]));
+        $googleResult  = $google->send($this->request(['Hello & thanks']), ['api_key' => 'google-secret']);
         self::assertSame(['Bonjour & merci'], $googleResult->translations);
         self::assertSame('google-secret', $googleHistory[0]['request']->getHeaderLine('X-Goog-Api-Key'));
         self::assertSame('', $googleHistory[0]['request']->getUri()->getQuery());
 
         $azureHistory = [];
-        $azure = new AzureTranslatorProvider($this->recordingClient($azureHistory, [['translations' => [['text' => 'Bonjour']]]]));
-        $azureResult = $azure->send($this->request(['Hello']), ['subscription_key' => 'azure-secret', 'region' => 'eastus']);
+        $azure        = new AzureTranslatorProvider($this->recordingClient($azureHistory, [['translations' => [['text' => 'Bonjour']]]]));
+        $azureResult  = $azure->send($this->request(['Hello']), ['subscription_key' => 'azure-secret', 'region' => 'eastus']);
         self::assertSame(['Bonjour'], $azureResult->translations);
         self::assertSame('azure-secret', $azureHistory[0]['request']->getHeaderLine('Ocp-Apim-Subscription-Key'));
         self::assertSame('eastus', $azureHistory[0]['request']->getHeaderLine('Ocp-Apim-Subscription-Region'));

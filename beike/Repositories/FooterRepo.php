@@ -339,8 +339,8 @@ class FooterRepo
         }
 
         foreach ($footerSetting['services']['items'] as $index => $item) {
-            $footerSetting['services']['items'][$index]['title']     = self::localizedText($item['title'] ?? '');
-            $footerSetting['services']['items'][$index]['sub_title'] = self::localizedText($item['sub_title'] ?? '');
+            $footerSetting['services']['items'][$index]['title']      = self::localizedText($item['title'] ?? '');
+            $footerSetting['services']['items'][$index]['sub_title']  = self::localizedText($item['sub_title'] ?? '');
             $footerSetting['services']['items'][$index]['_lgt_index'] = $index;
         }
 

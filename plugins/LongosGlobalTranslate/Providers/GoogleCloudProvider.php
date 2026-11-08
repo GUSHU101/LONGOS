@@ -45,7 +45,7 @@ final class GoogleCloudProvider extends AbstractTranslationProvider
             throw new InvalidArgumentException('GOOGLE_REQUEST_MUST_BE_ONE_BATCH');
         }
         $started = hrtime(true);
-        $body = [
+        $body    = [
             'q'      => $request->segments,
             'source' => $this->languageCode($request->sourceLocale),
             'target' => $this->languageCode($request->targetLocale),
@@ -59,15 +59,15 @@ final class GoogleCloudProvider extends AbstractTranslationProvider
         // The safe grammar profile and terminology therefore stay local and
         // must never be appended to a merchant's source text.
         $response = $this->client->request('POST', self::ENDPOINT, [
-            'json' => $body,
+            'json'    => $body,
             'headers' => [
                 'Accept'         => 'application/json',
                 'X-Goog-Api-Key' => (string) $credentials['api_key'],
             ],
             'timeout' => $request->timeoutSeconds,
         ]);
-        $payload = json_decode((string) $response->getBody(), true) ?: [];
-        $items = data_get($payload, 'data.translations', []);
+        $payload      = json_decode((string) $response->getBody(), true) ?: [];
+        $items        = data_get($payload, 'data.translations', []);
         $translations = is_array($items) ? array_map(
             static fn (mixed $item): mixed => is_array($item) && is_string($item['translatedText'] ?? null)
                 ? html_entity_decode($item['translatedText'], ENT_QUOTES | ENT_HTML5, 'UTF-8')
@@ -85,8 +85,8 @@ final class GoogleCloudProvider extends AbstractTranslationProvider
     private function safeBatches(array $segments): array
     {
         $batches = [];
-        $batch = [];
-        $units = 0;
+        $batch   = [];
+        $units   = 0;
         foreach ($segments as $segment) {
             $length = TextContract::units($segment)['utf16'];
             if ($length > 4500) {
@@ -94,8 +94,8 @@ final class GoogleCloudProvider extends AbstractTranslationProvider
             }
             if (count($batch) === 16 || $units + $length > 4500) {
                 $batches[] = $batch;
-                $batch = [];
-                $units = 0;
+                $batch     = [];
+                $units     = 0;
             }
             $batch[] = $segment;
             $units += $length;
@@ -110,8 +110,8 @@ final class GoogleCloudProvider extends AbstractTranslationProvider
     /** @param array<string, mixed> $payload */
     private function error(int $statusCode, array $payload): string
     {
-        $error = (array) ($payload['error'] ?? []);
-        $status = strtoupper((string) ($error['status'] ?? ''));
+        $error   = (array) ($payload['error'] ?? []);
+        $status  = strtoupper((string) ($error['status'] ?? ''));
         $message = strtolower((string) ($error['message'] ?? ''));
 
         if ($statusCode === 400 || $status === 'INVALID_ARGUMENT') {

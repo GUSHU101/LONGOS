@@ -29,7 +29,7 @@ class PlatformPaymentSecurityContractTest extends TestCase
         self::assertStringNotContainsString("->string('token'", $migration);
         self::assertStringContainsString("hash('sha256', \$token)", $service);
         self::assertStringContainsString("hash_hmac('sha256', 'longos-platform-payment|'", $service);
-        self::assertStringContainsString("'active_key'   => \$activeKey", $service);
+        self::assertMatchesRegularExpression("/'active_key'\\s*=>\\s*\\\$activeKey/", $service);
         self::assertStringContainsString('catch (UniqueConstraintViolationException $exception)', $service);
         self::assertStringContainsString("->where('active_key', \$activeKey)", $service);
         self::assertStringContainsString("unique('spp_active_uq')", (string) file_get_contents(dirname(__DIR__, 2) . '/database/migrations/2026_10_25_010000_add_active_key_to_saas_platform_payment_sessions_table.php'));
@@ -132,8 +132,8 @@ class PlatformPaymentSecurityContractTest extends TestCase
 
     public function test_runtime_readiness_allows_one_healthy_shared_channel_to_stay_available(): void
     {
-        $settings  = (string) file_get_contents(dirname(__DIR__, 2) . '/app/Services/PlatformPayment/PlatformPaymentSettings.php');
-        $readiness = (string) file_get_contents(dirname(__DIR__, 2) . '/app/Services/PaymentPluginReadiness.php');
+        $settings   = (string) file_get_contents(dirname(__DIR__, 2) . '/app/Services/PlatformPayment/PlatformPaymentSettings.php');
+        $readiness  = (string) file_get_contents(dirname(__DIR__, 2) . '/app/Services/PaymentPluginReadiness.php');
         $controller = (string) file_get_contents(dirname(__DIR__, 2) . '/app/Http/Controllers/PlatformPaymentController.php');
 
         self::assertStringContainsString('public function runtimeIssues(', $settings);
