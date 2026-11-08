@@ -133,9 +133,10 @@
     if (!data.redirect_url) throw new Error(@json(trans('LongosPlatformPay::common.missing_redirect')))
     window.location.assign(data.redirect_url)
   }
-  const showFallback = data => {
-    if (!data?.checkout_url) return
-    fallback.href = data.checkout_url
+  const showFallback = () => {
+    // This page is already the tenant's order-payment page. Do not ever send
+    // a shopper to an account callback hostname as a "fallback".
+    fallback.href = window.location.href
     fallback.hidden = false
   }
   const wait = delay => new Promise(resolve => window.setTimeout(resolve, delay))
@@ -156,27 +157,39 @@
     }
     return false
   }
-  const restartOnRotatedPaypalAccount = (result, token) => {
-    if (result?.account_rotated !== true) return false
+  const isTrustedPaypalUrl = value => {
     try {
-      const target = new URL(String(result.restart_url || ''), window.location.origin)
-      const expectedPath = `/_longos/pay/${encodeURIComponent(String(token || ''))}`
-      if (target.protocol !== 'https:'
-        || target.username !== ''
-        || target.password !== ''
-        || target.hostname === ''
-        || !/^[a-f0-9]{64}$/.test(String(token || ''))
-        || target.pathname !== expectedPath
-        || target.search !== ''
-        || target.hash !== '') {
-        throw new Error('invalid payment restart target')
+      const url = new URL(String(value || ''))
+      return url.protocol === 'https:' && ['www.paypal.com', 'www.sandbox.paypal.com'].includes(url.hostname.toLowerCase())
+    } catch (error) {
+      return false
+    }
+  }
+  const createPaypalOrder = async data => {
+    let accountRotated = false
+
+    // A PayPal SDK instance is bound to one merchant Client ID. If that
+    // account fails before order creation, do not attempt to pass the next
+    // account's order ID into the old SDK. Instead open the next account's
+    // official PayPal approval URL directly, without any LONGOS interstitial.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const result = await request(data.endpoints.paypal_create)
+      if (result?.account_rotated === true) {
+        accountRotated = true
+        setStatus(@json(trans('LongosPlatformPay::common.connect_paypal')))
+        continue
+      }
+      if (!result?.id) throw new Error(@json(trans('LongosPlatformPay::common.failed')))
+      if (accountRotated) {
+        if (!isTrustedPaypalUrl(result.approval_url)) throw new Error(@json(trans('LongosPlatformPay::common.failed')))
+        window.location.assign(result.approval_url)
+        return null
       }
 
-      window.location.replace(target.toString())
-      return true
-    } catch (error) {
-      throw new Error(@json(trans('LongosPlatformPay::common.failed')))
+      return result
     }
+
+    throw new Error(@json(trans('LongosPlatformPay::common.failed')))
   }
 
   const mountPaypal = async data => {
@@ -196,14 +209,12 @@
         createOrder: async () => {
           lockProvider('paypal'); setStatus(@json(trans('LongosPlatformPay::common.connect_paypal')))
           try {
-            const result = await request(data.endpoints.paypal_create)
-            if (restartOnRotatedPaypalAccount(result, data.token)) {
-              // The original account failed before any PayPal order was
-              // created. Continue on the next account's callback hostname so
-              // its SDK Client ID and eventual return URL always match.
+            const result = await createPaypalOrder(data)
+            if (!result) {
+              // Browser navigation to PayPal is underway after an account
+              // rotation. Keep this SDK callback pending until it unloads.
               return new Promise(() => {})
             }
-            if (!result.id) throw new Error(@json(trans('LongosPlatformPay::common.failed')))
             return result.id
           }
           catch (error) { unlockUnboundProvider('paypal'); throw error }
@@ -214,13 +225,13 @@
             finish(await request(data.endpoints.paypal_capture, {paypal_order_id:result.orderID}))
           } catch (error) {
             if (await recoverCompletion(data)) return
-            setStatus(error?.message || @json(trans('LongosPlatformPay::common.failed')), true); showFallback(data)
+            setStatus(error?.message || @json(trans('LongosPlatformPay::common.failed')), true); showFallback()
           }
         },
-        onCancel: () => { setStatus(@json(trans('LongosPlatformPay::common.cancelled')), true); showFallback(data) },
+        onCancel: () => { setStatus(@json(trans('LongosPlatformPay::common.cancelled')), true); showFallback() },
         onError: async () => {
           if (await recoverCompletion(data)) return
-          setStatus(@json(trans('LongosPlatformPay::common.failed')), true); showFallback(data)
+          setStatus(@json(trans('LongosPlatformPay::common.failed')), true); showFallback()
         },
       })
       if (typeof buttons.isEligible === 'function' && !buttons.isEligible()) throw new Error(unavailableMessage)
@@ -294,7 +305,7 @@
       } catch (error) {
         if (!intentCreated) unlockUnboundProvider('stripe')
         const message = error?.message || @json(trans('LongosPlatformPay::common.failed'))
-        fieldError.textContent = message; setStatus(message, true); showFallback(data)
+        fieldError.textContent = message; setStatus(message, true); showFallback()
         button.disabled = false; button.removeAttribute('aria-busy'); button.focus()
       }
     })
@@ -324,7 +335,7 @@
       setStatus(@json(trans('LongosPlatformPay::common.choose_method')))
     } catch (error) {
       setStatus(error?.message || @json(trans('LongosPlatformPay::common.failed')), true)
-      showFallback(sessionData)
+      showFallback()
       retry.hidden = false
     }
   }

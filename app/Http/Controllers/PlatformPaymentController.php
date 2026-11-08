@@ -17,8 +17,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
-use Illuminate\View\View;
-use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 
 class PlatformPaymentController extends Controller
@@ -28,7 +26,7 @@ class PlatformPaymentController extends Controller
         private readonly PlatformPaymentSettings $settings,
     ) {}
 
-    public function show(string $token): View|Response
+    public function show(string $token): RedirectResponse
     {
         $this->useFallbackLocale();
 
@@ -44,60 +42,20 @@ class PlatformPaymentController extends Controller
 
         $this->assertHostedCallbackHost($session, request());
 
-        // A circuit may have opened after this session was initially reserved
-        // but before its PayPal button was rendered. No provider order exists
-        // yet, so safely bind the same capability token to the next healthy
-        // account and continue on that account's callback host. Once an order
-        // id exists this path is deliberately unavailable.
-        if ($replacement = $this->replaceCircuitOpenPreOrderSession($session)) {
-            return redirect()->away($this->settings->paymentUrlForSession($replacement, "_longos/pay/{$token}"));
-        }
-
         $this->useSessionLocale($session, request());
         if ($session->status === PlatformPaymentSession::STATUS_COMPLETED) {
             return redirect()->away($this->sessions->tenantSuccessUrl($session));
         }
 
-        $snapshot = null;
-
-        try {
-            $snapshot  = $this->settings->snapshot();
-            $providers = $this->settings->availableProvidersForSession($session, $snapshot);
-            if ($session->provider) {
-                $configured = $this->settings->availableProvidersForSession($session, $snapshot);
-                $providers  = in_array($session->provider, $configured, true) ? [$session->provider] : [];
-            }
-        } catch (Throwable $e) {
-            Log::error('Platform payment providers are unavailable.', ['exception' => $e::class]);
-            $providers = [];
-        }
-
-        $viewData = [
-            'session'              => $session,
-            'token'                => $token,
-            'providers'            => $providers,
-            'paypalClientId'       => in_array('paypal', $providers, true) ? $this->settings->publicPaypalForSession($session)['client_id'] : '',
-            'stripePublishableKey' => in_array('stripe', $providers, true) ? (string) data_get($snapshot, 'stripe.publishable_key', '') : '',
-            'cancelUrl'            => $providers === []
-                ? $this->sessions->tenantRecoveryUrl($session, 'unavailable')
-                : $this->settings->paymentUrlForSession($session, "_longos/pay/{$token}/cancel"),
-        ];
-
-        // A payment capability page contains account-specific SDK settings.
-        // Never allow a browser or intermediary to reuse a pre-rotation page
-        // after the session has moved to a replacement account.
-        return response()->view(
-            'platform-pay.checkout',
-            $viewData,
-            $providers === [] ? 503 : 200,
-            [
-                'Cache-Control'          => 'no-store, private, max-age=0',
-                'Pragma'                 => 'no-cache',
-                'Referrer-Policy'        => 'no-referrer',
-                'X-Content-Type-Options' => 'nosniff',
-                'X-Frame-Options'        => 'DENY',
-            ],
-        );
+        // This endpoint used to render a branded LONGOS interstitial with
+        // provider controls. Existing saved links must not expose that page:
+        // return the buyer to their own storefront recovery page instead.
+        // New checkout sessions never navigate here; PayPal opens directly
+        // from the tenant checkout and only returns to this hostname.
+        return redirect()
+            ->away($this->sessions->tenantRecoveryUrl($session, 'unavailable'))
+            ->header('Cache-Control', 'no-store, private, max-age=0')
+            ->header('X-Frame-Options', 'DENY');
     }
 
     public function paypalCreate(string $token): JsonResponse
@@ -131,11 +89,12 @@ class PlatformPaymentController extends Controller
                     $this->recordPaypalTechnicalFailure($session);
                     $replacement = $this->sessions->rotatePaypalAccountAfterPreOrderFailure($session);
                     if ($replacement) {
-                        $retryToken = $token;
-
+                        // The tenant checkout retries this same endpoint once.
+                        // Deliberately return no callback-host URL: that host is
+                        // provider-return infrastructure, not a shopper-facing
+                        // payment page.
                         return json_success(__('platform_pay.status.unavailable'), [
                             'account_rotated' => true,
-                            'restart_url'     => $this->settings->paymentUrlForSession($replacement, "_longos/pay/{$retryToken}"),
                         ]);
                     }
                 }
@@ -355,36 +314,6 @@ class PlatformPaymentController extends Controller
         }
     }
 
-    private function replaceCircuitOpenPreOrderSession(PlatformPaymentSession $session): ?PlatformPaymentSession
-    {
-        if (! $session->payment_account_id
-            || $session->provider          !== null
-            || $session->provider_order_id !== null
-            || $session->status            !== PlatformPaymentSession::STATUS_PENDING
-            || ! $session->isOpen()) {
-            return null;
-        }
-
-        try {
-            $account = PlatformPaymentAccount::query()->find($session->payment_account_id);
-            if (! $account || ! app(PlatformPaymentAccountService::class)->isUnavailableForNewSessions($account)) {
-                return null;
-            }
-
-            return $this->sessions->rotatePaypalAccountAfterPreOrderFailure($session);
-        } catch (Throwable $exception) {
-            // The normal payment page may still perform its typed pre-order
-            // failover. A telemetry/database issue must not replace the
-            // customer-facing recovery path with a 500 response.
-            Log::notice('Circuit-open payment session could not be rebound.', [
-                'session_id' => $session->id,
-                'exception'  => $exception::class,
-            ]);
-
-            return null;
-        }
-    }
-
     private function isCompletedBy(PlatformPaymentSession $session, string $provider, string $providerOrderId): bool
     {
         return $session->status === PlatformPaymentSession::STATUS_COMPLETED
@@ -420,11 +349,10 @@ class PlatformPaymentController extends Controller
     }
 
     /**
-     * The hosted payment page is intentionally served from the LONGOS control
-     * host rather than a tenant domain. It cannot inherit the shop layout,
-     * but it can safely read the owning tenant's already-published static
-     * dictionary. The optional plugin bridge never sends request/order data
-     * to a provider and falls back to the session locale on any problem.
+     * Provider callbacks run on an account-specific callback hostname. They
+     * do not render a payment page, but still need the tenant's published
+     * locale to generate a consistent redirect/error response. The optional
+     * bridge never sends request/order data to a translation provider.
      */
     private function useSessionLocale(PlatformPaymentSession $session, Request $request): void
     {

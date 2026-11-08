@@ -26,7 +26,7 @@ class PlatformPaymentSessionService
         private readonly PlatformPaymentSettings $settings,
     ) {}
 
-    /** @return array{session: PlatformPaymentSession, token: string, checkout_url: string} */
+    /** @return array{session: PlatformPaymentSession, token: string} */
     public function create(Site $site, Order $order, ?array $settingsSnapshot = null): array
     {
         if ((bool) data_get($site->meta, 'control_site', false)) {
@@ -579,15 +579,12 @@ class PlatformPaymentSessionService
         }
     }
 
-    /** @return array{session: PlatformPaymentSession, token: string, checkout_url: string} */
+    /** @return array{session: PlatformPaymentSession, token: string} */
     private function createdPayload(PlatformPaymentSession $session, string $token): array
     {
-        $checkoutUrl = $this->settings->paymentUrlForSession($session, "_longos/pay/{$token}");
-
         return [
-            'session'      => $session,
-            'token'        => $token,
-            'checkout_url' => $checkoutUrl,
+            'session' => $session,
+            'token'   => $token,
         ];
     }
 

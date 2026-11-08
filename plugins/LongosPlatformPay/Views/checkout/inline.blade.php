@@ -172,31 +172,19 @@
     }
     return false
   }
-  const restartOnRotatedPaypalAccount = (result, token) => {
-    if (result?.account_rotated !== true) return false
-    try {
-      const target = new URL(String(result.restart_url || ''), window.location.origin)
-      const expectedPath = `/_longos/pay/${encodeURIComponent(String(token || ''))}`
-      if (target.protocol !== 'https:'
-        || target.username !== ''
-        || target.password !== ''
-        || target.hostname === ''
-        || !/^[a-f0-9]{64}$/.test(String(token || ''))
-        || target.pathname !== expectedPath
-        || target.search !== ''
-        || target.hash !== '') {
-        throw new Error('invalid payment restart target')
-      }
-
-      // The server rotates only an untouched session after OAuth failed.
-      // Replacing this history entry loads the replacement account's own SDK
-      // client ID and callback host, instead of asking the current SDK to
-      // create an order with another account's credentials.
-      window.location.replace(target.toString())
-      return true
-    } catch (error) {
-      throw new Error(messages.failed)
+  const createPaypalOrder = async data => {
+    // Account failover is allowed only before PayPal has created an order.
+    // The backend rebinds that untouched session atomically. Re-run the same
+    // tenant endpoint, rather than exposing the account callback host as a
+    // browser checkout page. A bounded retry prevents an unhealthy pool from
+    // trapping a shopper in a loop.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const result = await request(data.endpoints.paypal_create)
+      if (result?.account_rotated !== true) return result
+      setStatus(messages.processing)
     }
+
+    throw new Error(messages.failed)
   }
   const selectedForCheckout = code => {
     const active = String(code || '') === 'longos_platform_pay'
@@ -230,22 +218,12 @@
       const data = recoveryData = await request(config.sessionUrl, {order_number:orderNumber})
       const selected = provider()
       if (!Array.isArray(data.providers) || !data.providers.includes(selected)) throw new Error(messages.configurationChanged)
-      if (data.checkout_url) { fallback.href = data.checkout_url; fallback.hidden = false }
-
       if (selected === 'paypal') {
-        // A managed account uses its own verified callback hostname for the
-        // PayPal SDK page and return route.  Do not create a PayPal order from
-        // the tenant host: it would mix two browser origins and make a safe
-        // automatic account failover impossible.
-        if (data.hosted_checkout_required && data.checkout_url) {
-          window.location.assign(data.checkout_url)
-          return
-        }
-        const created = await request(data.endpoints.paypal_create)
-        if (restartOnRotatedPaypalAccount(created, data.token)) {
-          return
-        }
+        const created = await createPaypalOrder(data)
         if (!isTrustedPaypalUrl(created.approval_url)) throw new Error(messages.failed)
+        // PayPal's approval UI is the only customer-facing handoff. The
+        // account-specific callback hostname remains server-side return and
+        // capture infrastructure, never a second LONGOS checkout page.
         window.location.assign(created.approval_url)
         return
       }
@@ -272,7 +250,7 @@
     },
     onError(error) {
       setStatus(error?.response?.data?.message || error?.message || messages.failed, true)
-      const recoveryUrl = recoveryData?.checkout_url || tenantRecoveryUrl
+      const recoveryUrl = tenantRecoveryUrl
       if (recoveryUrl) { fallback.href = recoveryUrl; fallback.hidden = false }
     },
   }

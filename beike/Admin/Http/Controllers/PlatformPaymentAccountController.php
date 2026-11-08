@@ -3,12 +3,15 @@
 namespace Beike\Admin\Http\Controllers;
 
 use App\Saas\Models\PlatformPaymentAccount;
+use App\Saas\TenantManager;
 use App\Services\PlatformPayment\PlatformPaymentAccountService;
 use App\Services\PlatformPayment\PlatformPaymentSettings;
 use App\Services\PlatformPayment\PlatformPaypalGateway;
+use Beike\Models\AdminUser;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\Rule;
 use RuntimeException;
@@ -121,6 +124,14 @@ class PlatformPaymentAccountController extends Controller
     private function assertControlSite(): void
     {
         abort_unless((bool) data_get(current_site()?->meta, 'control_site', false), 404);
+
+        // The route middleware is the primary protection. Keep this local
+        // assertion as a defense in depth layer for queued/manual controller
+        // invocations and for installations that have cached older routes.
+        if (config('saas.enabled')) {
+            abort_unless(Auth::guard(AdminUser::AUTH_GUARD)->user()?->is_root, 403);
+            abort_unless(app(TenantManager::class)->isControlHost(request()->getHost()), 403);
+        }
     }
 
     /** @template T @param callable():T $callback @return T */

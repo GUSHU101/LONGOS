@@ -15,6 +15,8 @@ namespace Beike\Admin\Http\Controllers;
 use App\Services\PaymentPluginReadiness;
 use App\Services\PlatformPayment\PlatformPaymentHealthService;
 use App\Services\PlatformPayment\PlatformPaymentSettings;
+use App\Saas\TenantManager;
+use Beike\Models\AdminUser;
 use Beike\Admin\Http\Resources\PluginResource;
 use Beike\Admin\Services\MarketingService;
 use Beike\Plugin\Plugin;
@@ -26,6 +28,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use League\CommonMark\GithubFlavoredMarkdownConverter;
@@ -375,7 +378,7 @@ class PluginController extends Controller
 
     public function platformPaymentHealth(Request $request, PlatformPaymentHealthService $health): JsonResponse
     {
-        abort_unless((bool) data_get(current_site()?->meta, 'control_site', false), 404);
+        $this->assertPlatformPaymentAdministrator();
 
         $fields = $this->platformPaymentFields($request->all(), true);
         $fields = array_filter(
@@ -431,6 +434,8 @@ class PluginController extends Controller
         $fields = $request->all();
         $plugin = app('plugin')->getPluginOrFail($code);
         if ($plugin->code === 'longos_platform_pay') {
+            $this->assertPlatformPaymentAdministrator();
+
             return $this->updatePlatformPayment($plugin, $fields, $code);
         }
         if ($plugin->code === 'paypal') {
@@ -481,7 +486,8 @@ class PluginController extends Controller
      */
     private function updatePlatformPayment(Plugin $plugin, array $fields, string $code)
     {
-        $isControl = (bool) data_get(current_site()?->meta, 'control_site', false);
+        $this->assertPlatformPaymentAdministrator();
+        $isControl = true;
         $fields    = $this->platformPaymentFields($fields, $isControl);
         $lock      = Cache::lock(
             PlatformPaymentSettings::CONFIGURATION_LOCK,
@@ -572,9 +578,10 @@ class PluginController extends Controller
     }
 
     /**
-     * The child-site panel deliberately exposes only the on/off switch. Drop
-     * forged hidden credential fields instead of persisting misleading local
-     * copies that the central payment service will never read.
+     * Platform Pay configuration is platform-wide. This narrow allow-list is
+     * kept even after the control-site/root-admin guard so unexpected fields
+     * (including account credentials submitted to the generic plugin route)
+     * can never be persisted.
      */
     private function platformPaymentFields(array $fields, bool $controlSite): array
     {
@@ -652,6 +659,10 @@ class PluginController extends Controller
      */
     public function updateStatus(Request $request, $code): JsonResponse
     {
+        if ($code === 'longos_platform_pay') {
+            $this->assertPlatformPaymentAdministrator();
+        }
+
         try {
             $plugin = app('plugin')->getPluginOrFail($code);
             $status = $request->get('status');
@@ -681,6 +692,7 @@ class PluginController extends Controller
 
     private function updatePlatformPaymentStatus(Plugin $plugin, mixed $status, string $code): JsonResponse
     {
+        $this->assertPlatformPaymentAdministrator();
         $lock = Cache::lock(
             PlatformPaymentSettings::CONFIGURATION_LOCK,
             PlatformPaymentSettings::CONFIGURATION_LOCK_SECONDS,
@@ -707,6 +719,23 @@ class PluginController extends Controller
         } finally {
             $lock->release();
         }
+    }
+
+    /**
+     * The platform payment plugin owns shared credentials and the account
+     * pool, therefore neither a tenant administrator nor a non-root account
+     * on the control site may change it through a hand-crafted request.
+     */
+    private function assertPlatformPaymentAdministrator(): void
+    {
+        if (! config('saas.enabled')) {
+            return;
+        }
+
+        $site = app(TenantManager::class)->current();
+        abort_unless((bool) data_get($site?->meta, 'control_site', false), 403);
+        abort_unless(Auth::guard(AdminUser::AUTH_GUARD)->user()?->is_root, 403);
+        abort_unless(app(TenantManager::class)->isControlHost(request()->getHost()), 403);
     }
 
     private function updateVersion(&$plugins): void

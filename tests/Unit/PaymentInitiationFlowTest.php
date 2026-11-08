@@ -111,11 +111,15 @@ class PaymentInitiationFlowTest extends TestCase
         self::assertStringNotContainsString('暂时无法连接主站支付', $controller);
         self::assertStringContainsString('failure.checkoutMessage = message', $inline);
         self::assertStringContainsString("'orderPaymentUrlTemplate'", $inline);
-        self::assertStringContainsString('recoveryData?.checkout_url || tenantRecoveryUrl', $inline);
+        self::assertStringContainsString('const recoveryUrl = tenantRecoveryUrl', $inline);
+        self::assertStringNotContainsString('checkout_url', $inline);
         self::assertStringContainsString('error?.checkoutMessage', $checkout);
         self::assertStringContainsString('payment_recovery_url', $checkout);
         self::assertStringContainsString('window.location.replace(confirmedOrderRecoveryUrl)', $checkout);
         self::assertStringContainsString('if (event.persisted) window.location.reload()', $checkout);
+        self::assertStringContainsString('data-express-direct', $checkout);
+        self::assertStringContainsString("window.setTimeout(() => $('#submit-checkout').trigger('click'), 0)", $checkout);
+        self::assertStringContainsString('normal submit handler first commits/validates the address', $checkout);
 
         $englishCheckout = require $root . '/lang/en/shop/checkout.php';
         self::assertStringContainsString('directly from this checkout', $englishCheckout['platform_pay_help']);

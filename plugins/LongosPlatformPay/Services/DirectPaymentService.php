@@ -4,6 +4,8 @@ namespace Plugin\LongosPlatformPay\Services;
 
 use App\Saas\Models\PlatformPaymentSession;
 use App\Saas\Support\SensitiveValueRedactor;
+use App\Services\PlatformPayment\PlatformPaymentAccountService;
+use App\Services\PlatformPayment\PlatformPaymentAccountUnavailable;
 use App\Services\PlatformPayment\PlatformPaymentSessionService;
 use App\Services\PlatformPayment\PlatformPaymentSettings;
 use App\Services\PlatformPayment\PlatformPaypalGateway;
@@ -45,22 +47,32 @@ class DirectPaymentService
 
             $created = $this->sessions->create($site, $order);
 
-            // For a managed PayPal pool, always render the SDK button from
-            // the account's generated callback host.  PayPal sees a stable,
-            // verified host for the button and return route, while the tenant
-            // storefront only hands off after its own checkout has completed.
-            // No provider order exists yet, so a failed account can safely
-            // move the untouched session to the next healthy account.
-            if ((string) $created['session']->callback_host !== '') {
-                return redirect()->away($created['checkout_url']);
+            $session = $created['session'];
+
+            // A provider-owned approval URL is safe to open directly from
+            // the tenant checkout. The dedicated account hostname remains
+            // solely in PayPal's signed return/cancel URLs; it is never used
+            // as a customer-facing LONGOS payment screen.
+            for ($attempt = 0; $attempt < 2; $attempt++) {
+                try {
+                    $session = $this->sessions->claimProvider($session, 'paypal');
+                    $result = (new PlatformPaypalGateway($this->settings, null, $session))->create($session, $created['token']);
+                    $providerCreated = true;
+                    $this->sessions->bindProvider($session, 'paypal', $result['id']);
+
+                    return redirect()->away($result['approval_url']);
+                } catch (PlatformPaymentAccountUnavailable $exception) {
+                    $this->sessions->releaseUnboundProviderClaim($session, 'paypal');
+                    $this->recordUnavailableAccount($session);
+                    $replacement = $this->sessions->rotatePaypalAccountAfterPreOrderFailure($session);
+                    if (! $replacement) {
+                        throw $exception;
+                    }
+                    $session = $replacement;
+                }
             }
 
-            $session         = $this->sessions->claimProvider($created['session'], 'paypal');
-            $result          = (new PlatformPaypalGateway($this->settings, null, $session))->create($session, $created['token']);
-            $providerCreated = true;
-            $this->sessions->bindProvider($session, 'paypal', $result['id']);
-
-            return redirect()->away($result['approval_url']);
+            throw new \RuntimeException('没有可用的 PayPal 收款账户。');
         } catch (Throwable $e) {
             if ($session instanceof PlatformPaymentSession && ! $providerCreated) {
                 try {
@@ -76,6 +88,22 @@ class DirectPaymentService
             ]);
 
             return null;
+        }
+    }
+
+    private function recordUnavailableAccount(PlatformPaymentSession $session): void
+    {
+        if (! $session->payment_account_id) {
+            return;
+        }
+
+        try {
+            $account = \App\Saas\Models\PlatformPaymentAccount::query()->find($session->payment_account_id);
+            if ($account) {
+                app(PlatformPaymentAccountService::class)->recordUnavailable($account);
+            }
+        } catch (Throwable) {
+            // Account telemetry must never hide the original checkout error.
         }
     }
 }

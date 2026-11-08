@@ -32,6 +32,7 @@ class PlatformPaymentAccountRotationContractTest extends TestCase
         $root       = dirname(__DIR__, 2);
         $sessions   = (string) file_get_contents($root . '/app/Services/PlatformPayment/PlatformPaymentSessionService.php');
         $controller = (string) file_get_contents($root . '/app/Http/Controllers/PlatformPaymentController.php');
+        $direct     = (string) file_get_contents($root . '/plugins/LongosPlatformPay/Services/DirectPaymentService.php');
         $accounts   = (string) file_get_contents($root . '/app/Services/PlatformPayment/PlatformPaymentAccountService.php');
         $health     = (string) file_get_contents($root . '/app/Console/Commands/CheckPlatformPaymentAccounts.php');
         $kernel     = (string) file_get_contents($root . '/app/Console/Kernel.php');
@@ -43,8 +44,9 @@ class PlatformPaymentAccountRotationContractTest extends TestCase
         self::assertStringContainsString('selectNextActivePaypalAccount((int) $locked->payment_account_id)', $sessions);
         self::assertStringContainsString('PlatformPaymentAccountUnavailable', $controller);
         self::assertStringContainsString('Only an OAuth/credential availability failure is safe', $controller);
-        self::assertStringContainsString('replaceCircuitOpenPreOrderSession', $controller);
-        self::assertStringContainsString('provider_order_id !== null', $controller);
+        self::assertStringContainsString('PlatformPaymentAccountUnavailable', $direct);
+        self::assertStringContainsString('rotatePaypalAccountAfterPreOrderFailure($session)', $direct);
+        self::assertStringContainsString('for ($attempt = 0; $attempt < 2; $attempt++)', $direct);
         self::assertStringContainsString('consecutive_failures', $accounts);
         self::assertStringContainsString("'circuit_open_until'", $accounts);
         self::assertStringContainsString('isUnavailableForNewSessions', $accounts);
@@ -64,28 +66,30 @@ class PlatformPaymentAccountRotationContractTest extends TestCase
         self::assertStringContainsString("\$schedule->command('saas:platform-pay:accounts-health')", $kernel);
     }
 
-    public function test_managed_paypal_handoff_keeps_the_sdk_and_return_route_on_the_account_host(): void
+    public function test_managed_paypal_handoff_opens_paypal_without_a_platform_interstitial(): void
     {
         $root     = dirname(__DIR__, 2);
         $checkout = (string) file_get_contents($root . '/plugins/LongosPlatformPay/Controllers/CheckoutController.php');
         $inline   = (string) file_get_contents($root . '/plugins/LongosPlatformPay/Views/checkout/inline.blade.php');
         $direct   = (string) file_get_contents($root . '/plugins/LongosPlatformPay/Services/DirectPaymentService.php');
+        $payment  = (string) file_get_contents($root . '/plugins/LongosPlatformPay/Views/checkout/payment.blade.php');
+        $controller = (string) file_get_contents($root . '/app/Http/Controllers/PlatformPaymentController.php');
         $paypal   = (string) file_get_contents($root . '/app/Services/PlatformPayment/PlatformPaypalGateway.php');
-        $hosted   = (string) file_get_contents($root . '/resources/views/platform-pay/checkout.blade.php');
 
-        self::assertStringContainsString("'hosted_checkout_required'", $checkout);
-        self::assertStringContainsString('data.hosted_checkout_required && data.checkout_url', $inline);
-        self::assertStringContainsString("created['session']->callback_host", $direct);
+        self::assertStringNotContainsString('checkout_url', $checkout);
+        self::assertStringNotContainsString('hosted_checkout_required', $inline);
+        self::assertStringContainsString('const createPaypalOrder = async data =>', $inline);
+        self::assertStringContainsString('window.location.assign(created.approval_url)', $inline);
+        self::assertStringContainsString('for ($attempt = 0; $attempt < 2; $attempt++)', $direct);
+        self::assertStringContainsString("redirect()->away(\$result['approval_url'])", $direct);
+        self::assertStringNotContainsString("redirect()->away(\$created['checkout_url'])", $direct);
         self::assertStringContainsString('paymentUrlForSession($session, "_longos/pay/{$token}/return/paypal")', $paypal);
         self::assertStringContainsString('paymentUrlForSession($session, "_longos/pay/{$token}/cancel")', $paypal);
-        self::assertStringContainsString('restartOnRotatedPaypalAccount', $hosted);
-        self::assertStringContainsString('account_rotated !== true', $hosted);
-        self::assertStringContainsString('window.location.replace(target.toString())', $hosted);
-        self::assertStringContainsString("target.username !== ''", $hosted);
-        self::assertStringContainsString("target.password !== ''", $hosted);
-        self::assertStringContainsString("window.addEventListener('pageshow'", $hosted);
-        self::assertStringContainsString('const request = async (path, body = {}, timeoutMs = 35000)', $hosted);
-        self::assertStringNotContainsString('&merchant-id=', $hosted);
+        self::assertStringContainsString('const createPaypalOrder = async data =>', $payment);
+        self::assertStringContainsString('window.location.assign(result.approval_url)', $payment);
+        self::assertStringNotContainsString('restartOnRotatedPaypalAccount', $payment);
+        self::assertStringNotContainsString('restart_url', $controller);
+        self::assertStringNotContainsString("'platform-pay.checkout'", $controller);
         self::assertStringContainsString('auditExpectedMerchantWhenReturned', $paypal);
         self::assertStringContainsString('Platform Pay received an unexpected PayPal merchant identifier.', $paypal);
         self::assertStringNotContainsString("\$unit['payee'] = ['merchant_id' => \$this->settings['merchant_id']]", $paypal);
@@ -131,7 +135,7 @@ class PlatformPaymentAccountRotationContractTest extends TestCase
         self::assertStringContainsString("'enabled'           => false", $accounts);
 
         $controller = (string) file_get_contents($root . '/app/Http/Controllers/PlatformPaymentController.php');
-        self::assertStringContainsString("'Cache-Control'          => 'no-store, private, max-age=0'", $controller);
-        self::assertStringContainsString("'X-Frame-Options'        => 'DENY'", $controller);
+        self::assertStringContainsString("->header('Cache-Control', 'no-store, private, max-age=0')", $controller);
+        self::assertStringContainsString("->header('X-Frame-Options', 'DENY')", $controller);
     }
 }

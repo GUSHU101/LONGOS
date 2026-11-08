@@ -48,19 +48,15 @@ class PlatformPaymentRecoveryContractTest extends TestCase
         self::assertStringContainsString('if (confirmedOrderRecoveryUrl)', $checkout);
     }
 
-    public function test_unavailable_hosted_checkout_has_a_safe_way_back_to_the_order(): void
+    public function test_legacy_callback_checkout_redirects_safely_back_to_the_order(): void
     {
         $root       = dirname(__DIR__, 2);
         $controller = (string) file_get_contents($root . '/app/Http/Controllers/PlatformPaymentController.php');
-        $view       = (string) file_get_contents($root . '/resources/views/platform-pay/checkout.blade.php');
 
-        self::assertStringContainsString('response()->view(', $controller);
-        self::assertStringContainsString("'platform-pay.checkout',", $controller);
-        self::assertStringContainsString('$providers === [] ? 503 : 200', $controller);
-        self::assertStringContainsString("'Cache-Control'          => 'no-store, private, max-age=0'", $controller);
         self::assertStringContainsString("tenantRecoveryUrl(\$session, 'unavailable')", $controller);
-        self::assertStringContainsString("__('platform_pay.unavailable_help')", $view);
-        self::assertStringContainsString("__('platform_pay.return_to_store')", $view);
+        self::assertStringContainsString('New checkout sessions never navigate here', $controller);
+        self::assertStringNotContainsString("'platform-pay.checkout'", $controller);
+        self::assertFileDoesNotExist($root . '/resources/views/platform-pay/checkout.blade.php');
     }
 
     public function test_interrupted_provider_results_are_reconciled_automatically(): void
@@ -121,30 +117,23 @@ class PlatformPaymentRecoveryContractTest extends TestCase
         self::assertStringContainsString('controller.abort()', $paypalPayment);
     }
 
-    public function test_child_and_hosted_requests_have_bounded_network_waits(): void
+    public function test_child_payment_request_has_a_bounded_network_wait(): void
     {
-        $root   = dirname(__DIR__, 2);
-        $child  = (string) file_get_contents($root . '/plugins/LongosPlatformPay/Views/checkout/payment.blade.php');
-        $hosted = (string) file_get_contents($root . '/resources/views/platform-pay/checkout.blade.php');
+        $root  = dirname(__DIR__, 2);
+        $child = (string) file_get_contents($root . '/plugins/LongosPlatformPay/Views/checkout/payment.blade.php');
 
         self::assertStringContainsString('new AbortController()', $child);
         self::assertStringContainsString('controller.abort()', $child);
         self::assertStringContainsString('Promise.allSettled(mounts)', $child);
         self::assertStringContainsString("retry.addEventListener('click', () => window.location.reload())", $child);
-        self::assertStringContainsString('showFallback(data)', $child);
+        self::assertStringContainsString('showFallback()', $child);
         self::assertStringContainsString('const recoverCompletion = async data =>', $child);
         self::assertStringContainsString('data.endpoints.status', $child);
         self::assertStringContainsString('if (event.persisted) window.location.reload()', $child);
         self::assertStringContainsString('error instanceof TypeError', $child);
-        self::assertStringContainsString('new AbortController()', $hosted);
-        self::assertStringContainsString("__('platform_pay.status.timeout')", $hosted);
-        self::assertStringContainsString('error instanceof TypeError', $hosted);
-        self::assertStringContainsString('const recoverCompletion = async () =>', $hosted);
-        self::assertStringContainsString("request('status', {}, 8000)", $hosted);
-        self::assertStringContainsString('if (intentCreated && await recoverCompletion()) return', $hosted);
-        self::assertStringContainsString('const unlockUnboundProvider = provider =>', $hosted);
-        self::assertStringContainsString("unlockUnboundProvider('paypal')", $hosted);
-        self::assertStringContainsString("if (!intentCreated) unlockUnboundProvider('stripe')", $hosted);
+        self::assertStringContainsString('const createPaypalOrder = async data =>', $child);
+        self::assertStringContainsString('window.location.assign(result.approval_url)', $child);
+        self::assertStringContainsString("if (!intentCreated) unlockUnboundProvider('stripe')", $child);
     }
 
     public function test_failed_provider_creation_releases_only_an_unbound_claim(): void

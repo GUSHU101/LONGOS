@@ -88,6 +88,8 @@
     .express-btn { align-items: center; background: #fff; border: 1px solid #d7d7d7; border-radius: 6px; color: #171717; display: flex; font-weight: 600; gap: 7px; height: 50px; justify-content: center; transition: .2s; }
     .express-btn:hover { border-color: #111; transform: translateY(-1px); }
     .express-btn img { max-height: 24px; max-width: 72px; object-fit: contain; }
+    .express-btn--paypal { background: #ffc439; border-color: #ffc439; color: #003087; font-weight: 750; }
+    .express-btn--paypal:hover { background: #f2b82f; border-color: #f2b82f; }
 
     .field { margin-bottom: 14px; }
     .field label { color: #333; display: block; font-size: 12px; font-weight: 600; margin-bottom: 7px; }
@@ -333,7 +335,8 @@
           <div class="express-title">{{ __('shop/checkout.express_checkout') }}</div>
           <div class="express-buttons">
             @foreach ($expressPaymentMethods as $payment)
-              <button class="express-btn" type="button" data-express-payment="{{ $payment['code'] }}">
+              <button class="express-btn {{ $payment['code'] === 'longos_platform_pay' ? 'express-btn--paypal' : '' }}" type="button" data-express-payment="{{ $payment['code'] }}"
+                      data-express-direct="{{ $payment['code'] === 'longos_platform_pay' ? '1' : '0' }}">
                 @if (!empty($payment['icon']))
                   <img src="{{ $payment['icon'] }}" alt="">
                 @endif
@@ -788,7 +791,16 @@
         const $button = $(this);
         const code = $(this).data('express-payment');
         $button.prop('disabled', true).attr('aria-busy', 'true');
+        const startsDirectPayment = String($button.data('express-direct') || '') === '1';
         updateCheckout('payment_method_code', code, () => {
+          if (startsDirectPayment) {
+            // This is a real express path, not a decorative selector.  The
+            // normal submit handler first commits/validates the address and
+            // order, then the platform handler opens PayPal's own approval
+            // flow from this storefront without a LONGOS interstitial page.
+            window.setTimeout(() => $('#submit-checkout').trigger('click'), 0);
+            return;
+          }
           const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
           document.querySelector('#payment-methods-wrap')?.scrollIntoView({behavior: reducedMotion ? 'auto' : 'smooth', block: 'center'});
         }).finally(() => $button.prop('disabled', false).removeAttr('aria-busy'));

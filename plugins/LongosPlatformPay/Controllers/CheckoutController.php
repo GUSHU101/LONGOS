@@ -74,13 +74,6 @@ class CheckoutController
             $decimals = PlatformPaymentCurrency::decimalPlaces((string) $session->currency);
             $response = json_success(trans('LongosPlatformPay::common.session_created'), [
                 'token'        => $token,
-                'checkout_url' => $created['checkout_url'],
-                // Managed PayPal accounts deliberately render the final
-                // provider button on the immutable account callback host.
-                // This keeps the PayPal button page, return URL and merchant
-                // account in one verified-domain context while the shopper
-                // remains on the tenant checkout until they choose PayPal.
-                'hosted_checkout_required' => (string) $session->callback_host !== '',
                 'return_url'   => $settings->paymentUrlForSession($session, "_longos/pay/{$token}/return/stripe"),
                 'providers'    => $providers,
                 'amount'       => [

@@ -7,17 +7,17 @@ use PHPUnit\Framework\TestCase;
 
 class PlatformPaymentSecurityContractTest extends TestCase
 {
-    public function test_hosted_payment_routes_are_control_host_only_and_provider_returns_stay_on_main_site(): void
+    public function test_callback_routes_are_control_host_only_and_provider_returns_stay_on_account_host(): void
     {
         $webRoutes = file_get_contents(dirname(__DIR__, 2) . '/routes/web.php');
         $paypal    = file_get_contents(dirname(__DIR__, 2) . '/app/Services/PlatformPayment/PlatformPaypalGateway.php');
-        $stripe    = file_get_contents(dirname(__DIR__, 2) . '/resources/views/platform-pay/checkout.blade.php');
+        $checkout  = file_get_contents(dirname(__DIR__, 2) . '/plugins/LongosPlatformPay/Controllers/CheckoutController.php');
 
         self::assertStringContainsString("->middleware(['platform.payment', 'throttle:platform-payment'])", $webRoutes);
         self::assertStringContainsString("name('platform-pay.status')", $webRoutes);
         self::assertStringContainsString('_longos/pay/{$token}/return/paypal', $paypal);
         self::assertStringContainsString('_longos/pay/{$token}/cancel', $paypal);
-        self::assertStringContainsString('/_longos/pay/${token}/return/stripe', $stripe);
+        self::assertStringContainsString('_longos/pay/{$token}/return/stripe', $checkout);
     }
 
     public function test_central_session_stores_only_a_hash_of_the_capability_token(): void
@@ -49,10 +49,10 @@ class PlatformPaymentSecurityContractTest extends TestCase
         self::assertStringNotContainsString("data_get(\$snapshot, 'paypal.secret'", $controller);
         self::assertStringNotContainsString("data_get(\$snapshot, 'stripe.secret_key'", $controller);
         self::assertStringNotContainsString("data_get(\$snapshot, 'stripe.webhook_secret'", $controller);
-        self::assertStringContainsString('checkout_url', $checkout);
+        self::assertStringNotContainsString('checkout_url', $checkout);
     }
 
-    public function test_child_payment_page_embeds_both_provider_sdks_and_keeps_returns_on_the_main_site(): void
+    public function test_child_payment_page_embeds_both_provider_sdks_and_keeps_returns_off_the_customer_path(): void
     {
         $root       = dirname(__DIR__, 2);
         $routes     = file_get_contents($root . '/plugins/LongosPlatformPay/Routes/shop.php');
@@ -81,18 +81,10 @@ class PlatformPaymentSecurityContractTest extends TestCase
         self::assertStringContainsString("route('shop.longos_platform_pay.session', [], false)", $checkout);
         self::assertStringContainsString("'longos-platform-pay/*'", $headers);
 
-        $hosted = file_get_contents($root . '/resources/views/platform-pay/checkout.blade.php');
-        self::assertStringContainsString('data-namespace="LongosPlatformPayPal"', $hosted);
-        self::assertStringContainsString('window.LongosPlatformPayPal.Buttons', $hosted);
-        self::assertStringNotContainsString('window.paypal', $hosted);
-        self::assertStringContainsString('buttons.isEligible()', $hosted);
-        self::assertStringContainsString("card.on('ready'", $hosted);
-        self::assertStringContainsString('disabled aria-busy="true"', $hosted);
-        self::assertStringContainsString('methodUnavailable(', $hosted);
-        self::assertStringContainsString("request('status', {}, 8000)", $hosted);
-        self::assertStringContainsString('const apiRoot = `/_longos/pay/${encodeURIComponent(token)}`', $hosted);
-        self::assertStringContainsString('fetch(`${apiRoot}/${path}`', $hosted);
-        self::assertStringNotContainsString('fetch(path,', $hosted);
+        self::assertStringContainsString('const createPaypalOrder = async data =>', $checkout);
+        self::assertStringContainsString('window.location.assign(result.approval_url)', $checkout);
+        self::assertStringNotContainsString('restart_url', $checkout);
+        self::assertFileDoesNotExist($root . '/resources/views/platform-pay/checkout.blade.php');
     }
 
     public function test_hosted_provider_marks_are_shared_by_checkout_and_footer_presentations(): void
@@ -142,15 +134,14 @@ class PlatformPaymentSecurityContractTest extends TestCase
     {
         $settings  = (string) file_get_contents(dirname(__DIR__, 2) . '/app/Services/PlatformPayment/PlatformPaymentSettings.php');
         $readiness = (string) file_get_contents(dirname(__DIR__, 2) . '/app/Services/PaymentPluginReadiness.php');
-        $view      = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/platform-pay/checkout.blade.php');
+        $controller = (string) file_get_contents(dirname(__DIR__, 2) . '/app/Http/Controllers/PlatformPaymentController.php');
 
         self::assertStringContainsString('public function runtimeIssues(', $settings);
         self::assertStringContainsString('availableProvidersForSnapshot($settings, false)', $settings);
         self::assertStringContainsString("hasColumn('saas_platform_payment_sessions', 'timestamps_utc')", $settings);
         self::assertStringContainsString('->runtimeIssues(! $controlSite)', $readiness);
-        self::assertStringContainsString('PlatformPaymentAmount::format(', $view);
-        self::assertStringContainsString('PlatformPaymentCurrency::decimalPlaces(', $view);
-        self::assertStringNotContainsString('number_format((float) $session->amount', $view);
+        self::assertStringContainsString("tenantRecoveryUrl(\$session, 'unavailable')", $controller);
+        self::assertStringNotContainsString("'platform-pay.checkout'", $controller);
     }
 
     public function test_runtime_channel_fallback_is_evaluated_from_real_provider_credentials(): void
@@ -176,6 +167,26 @@ class PlatformPaymentSecurityContractTest extends TestCase
 
         $snapshot['enabled'] = false;
         self::assertNotSame([], $service->runtimeIssuesForSnapshot($snapshot));
+    }
+
+    public function test_only_the_control_site_root_admin_can_mutate_platform_payment_accounts_or_settings(): void
+    {
+        $root       = dirname(__DIR__, 2);
+        $routes     = (string) file_get_contents($root . '/beike/Admin/Routes/admin.php');
+        $controller = (string) file_get_contents($root . '/beike/Admin/Http/Controllers/PluginController.php');
+        $accounts   = (string) file_get_contents($root . '/beike/Admin/Http/Controllers/PlatformPaymentAccountController.php');
+        $view       = (string) file_get_contents($root . '/plugins/LongosPlatformPay/Views/admin/config.blade.php');
+
+        self::assertStringContainsString("['saas.platform-admin', 'can:plugins_update', 'throttle:10,1']", $routes);
+        self::assertStringContainsString('private function assertPlatformPaymentAdministrator(): void', $controller);
+        self::assertStringContainsString("if (\$code === 'longos_platform_pay')", $controller);
+        self::assertStringContainsString('Auth::guard(AdminUser::AUTH_GUARD)->user()?->is_root', $controller);
+        self::assertStringContainsString('isControlHost(request()->getHost())', $controller);
+        self::assertStringContainsString('Auth::guard(AdminUser::AUTH_GUARD)->user()?->is_root', $accounts);
+        self::assertStringContainsString('isControlHost(request()->getHost())', $accounts);
+        self::assertStringContainsString('$isControlHost = app(\\App\\Saas\\TenantManager::class)->isControlHost(request()->getHost())', $view);
+        self::assertStringContainsString('$canManagePlatformPay = ! $saasEnabled || ($isControlSite && $isPlatformRoot && $isControlHost)', $view);
+        self::assertStringContainsString('@if (! $canManagePlatformPay)', $view);
     }
 
     public function test_release_pipeline_requires_the_independent_platform_plugin(): void
