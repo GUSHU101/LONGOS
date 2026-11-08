@@ -13,7 +13,6 @@
 namespace Beike\Shop\Http\Controllers;
 
 use App\Saas\Support\SensitiveValueRedactor;
-use App\Services\PlatformPayment\PlatformPaymentSessionService;
 use Beike\Exceptions\CartException;
 use Beike\Models\DashboardEvent;
 use Beike\Models\Order;
@@ -49,7 +48,10 @@ class CheckoutController extends Controller
         } catch (CartException $e) {
             if ($e->getMessage() === trans('shop/carts.empty_selected_products')
                 && ($order = $this->recentUnpaidConfirmation())) {
-                return redirect(order_checkout_result_url($order, 'error'));
+                // The cart was already converted into this unpaid order. Go
+                // back through the idempotent payment entry point instead of
+                // presenting an unverified provider result as a failed order.
+                return redirect(order_payment_url($order));
             }
 
             return redirect(shop_route('carts.index'))->withErrors(['error' => $e->getMessage()]);
@@ -209,25 +211,16 @@ class CheckoutController extends Controller
             'unavailable' => trans('shop/checkout.platform_pay_unavailable'),
             default       => '',
         };
-        $autoRestoreCart = $notice !== ''
-            && (string) $order->status              === StateMachineService::UNPAID
-            && (string) $order->payment_method_code === PlatformPaymentSessionService::PAYMENT_CODE
-            && current_site()             !== null;
         $shouldReconcilePayment = $notice !== ''
             && (string) $order->status === StateMachineService::UNPAID;
         $data = hook_filter('account.order.show.data', [
             'order'                  => $order,
             'html_items'             => [],
             'platformPaymentNotice'  => $notice,
-            'autoRestoreCart'        => $autoRestoreCart,
             'shouldReconcilePayment' => $shouldReconcilePayment,
             'orderStatusUrl'         => $shouldReconcilePayment
                 ? shop_route('orders.status', ['number' => $order->number])
                 : '',
-            'cartRestoreUrl'         => $autoRestoreCart
-                ? shop_route('orders.restore-cart', ['number' => $order->number])
-                : '',
-            'cartUrl'                => shop_route('carts.index'),
         ]);
 
         return view('checkout/success', $data);
@@ -260,7 +253,11 @@ class CheckoutController extends Controller
         // and the later provider page without storing payment details.
         DashboardEvent::recordPaymentInformationAdded(current_customer(), $order);
 
-        $order->setAttribute('payment_recovery_url', order_checkout_result_url($order, 'error'));
+        // A browser/network error after order creation is not proof that the
+        // provider failed. Recover through the signed payment entry point so
+        // the existing platform session/idempotency key is reconciled or
+        // reused; never label an unknown attempt as failed or restore its cart.
+        $order->setAttribute('payment_recovery_url', order_payment_url($order));
         $order->setVisible(['number', 'payment_recovery_url']);
 
         return hook_filter('checkout.confirm.data', $order);

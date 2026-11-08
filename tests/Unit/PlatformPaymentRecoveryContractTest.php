@@ -26,9 +26,10 @@ class PlatformPaymentRecoveryContractTest extends TestCase
         self::assertStringContainsString('payment-recovery-status', $success);
         self::assertStringContainsString('checkPaymentStatus', $success);
         self::assertStringContainsString("if (paymentState === 'confirmed') return", $success);
-        self::assertStringContainsString('fetch(@json($cartRestoreUrl)', $success);
+        self::assertStringNotContainsString('fetch(@json($cartRestoreUrl)', $success);
+        self::assertStringNotContainsString('shouldRestoreCart', $success);
+        self::assertStringNotContainsString("'autoRestoreCart'", $checkout);
         self::assertStringContainsString('new AbortController()', $success);
-        self::assertStringContainsString("retry?.addEventListener('click', reconcilePayment)", $success);
         self::assertStringContainsString("'orders.restore-cart'", (string) file_get_contents($root . '/beike/Shop/Routes/shop.php'));
         self::assertStringContainsString("'orders.status'", (string) file_get_contents($root . '/beike/Shop/Routes/shop.php'));
         self::assertFileExists($root . '/beike/Shop/Services/OrderCartRestoreService.php');
@@ -41,7 +42,8 @@ class PlatformPaymentRecoveryContractTest extends TestCase
         $checkout   = (string) file_get_contents($root . '/themes/default/checkout.blade.php');
 
         self::assertStringContainsString("'payment_recovery_url'", $controller);
-        self::assertStringContainsString("order_checkout_result_url(\$order, 'error')", $controller);
+        self::assertStringContainsString('order_payment_url($order)', $controller);
+        self::assertStringNotContainsString("order_checkout_result_url(\$order, 'error')", $controller);
         self::assertStringContainsString('rememberConfirmedOrder(res)', $checkout);
         self::assertStringContainsString('window.history.replaceState(', $checkout);
         self::assertStringContainsString('window.location.replace(confirmedOrderRecoveryUrl)', $checkout);

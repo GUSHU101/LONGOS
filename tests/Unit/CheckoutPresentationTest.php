@@ -199,7 +199,8 @@ class CheckoutPresentationTest extends TestCase
         $controller = (string) file_get_contents($root . '/beike/Shop/Http/Controllers/CheckoutController.php');
 
         self::assertStringContainsString("\$order->setVisible(['number', 'payment_recovery_url'])", $controller);
-        self::assertStringContainsString("order_checkout_result_url(\$order, 'error')", $controller);
+        self::assertStringContainsString('order_payment_url($order)', $controller);
+        self::assertStringNotContainsString("order_checkout_result_url(\$order, 'error')", $controller);
         self::assertStringContainsString("trans('shop/checkout.unable_update_checkout')", $controller);
         self::assertStringContainsString("trans('shop/checkout.unable_place_order')", $controller);
         self::assertStringContainsString('(new CheckoutService)->update($validated)', $controller);

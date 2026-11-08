@@ -39,19 +39,8 @@
         <div>
           <strong>{{ __('shop/checkout.payment_verifying_title') }}</strong>
           <p>{{ __('shop/checkout.payment_verifying_message') }}</p>
-          @if (!empty($autoRestoreCart))
-            <button class="btn btn-sm btn-outline-secondary mt-2" id="cart-restore-retry" type="button" hidden>{{ __('shop/checkout.restore_cart') }}</button>
-          @endif
         </div>
       </div>
-      @if (!empty($autoRestoreCart))
-        <noscript>
-          <form action="{{ $cartRestoreUrl }}" method="post" class="purchase-primary-actions">
-            @csrf
-            <button class="purchase-action purchase-action--primary" type="submit">{{ __('shop/checkout.restore_cart') }}</button>
-          </form>
-        </noscript>
-      @endif
     @endif
 
     <section class="purchase-card order-result-card">
@@ -133,9 +122,6 @@
         const status = document.getElementById('payment-recovery-status');
         const title = status?.querySelector('strong');
         const message = status?.querySelector('p');
-        const retry = document.getElementById('cart-restore-retry');
-        const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
-        const shouldRestoreCart = @json(!empty($autoRestoreCart));
         const wait = (delay) => new Promise((resolve) => window.setTimeout(resolve, delay));
 
         const checkPaymentStatus = async () => {
@@ -166,46 +152,6 @@
           }
         };
 
-        const restoreCart = async () => {
-          const controller = new AbortController();
-          const timeout = window.setTimeout(() => controller.abort(), 15000);
-          if (status) {
-            status.setAttribute('role', 'status');
-            status.setAttribute('aria-busy', 'true');
-          }
-          if (title) title.textContent = @json(__('shop/checkout.cart_restoring'));
-          if (message) message.textContent = @json(__('shop/checkout.cart_restore_help'));
-          if (retry) retry.hidden = true;
-
-          try {
-            const response = await fetch(@json($cartRestoreUrl), {
-              method: 'POST',
-              credentials: 'same-origin',
-              signal: controller.signal,
-              headers: {
-                'Accept': 'application/json',
-                'X-CSRF-TOKEN': csrf,
-                'X-Requested-With': 'XMLHttpRequest',
-              },
-            });
-            const payload = await response.json().catch(() => ({}));
-            if (!response.ok || payload.status !== 'success') {
-              throw new Error(payload.message || @json(__('shop/checkout.cart_restore_failed')));
-            }
-
-            window.location.replace(payload.data?.redirect_url || @json($cartUrl));
-          } catch (error) {
-            if (status) {
-              status.setAttribute('role', 'alert');
-              status.setAttribute('aria-busy', 'false');
-            }
-            if (message) message.textContent = error.message || @json(__('shop/checkout.cart_restore_failed'));
-            if (retry) retry.hidden = false;
-          } finally {
-            window.clearTimeout(timeout);
-          }
-        };
-
         const reconcilePayment = async () => {
           if (status) {
             status.setAttribute('role', 'status');
@@ -213,18 +159,12 @@
           }
           if (title) title.textContent = @json(__('shop/checkout.payment_verifying_title'));
           if (message) message.textContent = @json(__('shop/checkout.payment_verifying_message'));
-          if (retry) retry.hidden = true;
 
           for (const delay of [0, 750, 1500]) {
             if (delay) await wait(delay);
             const paymentState = await checkPaymentStatus();
             if (paymentState === 'confirmed') return;
             if (paymentState === 'final') break;
-          }
-
-          if (shouldRestoreCart) {
-            await restoreCart();
-            return;
           }
 
           if (status) {
@@ -235,7 +175,6 @@
           if (message) message.textContent = @json(__('shop/checkout.payment_not_confirmed'));
         };
 
-        retry?.addEventListener('click', reconcilePayment);
         reconcilePayment();
       })();
     </script>
