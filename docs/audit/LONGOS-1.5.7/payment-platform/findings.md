@@ -1,7 +1,9 @@
 # LONGOS v1.5.7 平台代收结账恢复审计
 
-基线：`8ab7ff4`  
-范围：订单确认后至 PayPal/Stripe 服务商交接，以及服务商返回后的未付款恢复界面。  
+基线：`8ab7ff4`
+
+范围：订单确认后至 PayPal/Stripe 服务商交接，以及服务商返回后的未付款恢复界面。
+
 依据：`AGENTS.md` 与《LONGOS v1.5.7 Codex Stability Security Remediation Plan》第 3.3、12、13 节。
 
 ## LPP-UX-01：未知支付结果被前端标记为失败并尝试恢复购物车
