@@ -48,6 +48,7 @@ class PlatformPaymentAccountRotationContractTest extends TestCase
         self::assertStringContainsString('consecutive_failures', $accounts);
         self::assertStringContainsString("'circuit_open_until'", $accounts);
         self::assertStringContainsString('isUnavailableForNewSessions', $accounts);
+        self::assertStringContainsString("health_status === 'failed'", $accounts);
         self::assertStringContainsString('routableActivePaypalQuery', $accounts);
         self::assertStringContainsString("whereIn('callback_host', Domain::query()->routable()->select('host'))", $accounts);
         self::assertStringContainsString('recordUnavailable', $accounts);

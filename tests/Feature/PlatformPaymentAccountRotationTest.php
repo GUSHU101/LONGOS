@@ -93,6 +93,12 @@ class PlatformPaymentAccountRotationTest extends TestCase
             'token_hash' => str_repeat('a', 64),
             'active_key' => str_repeat('b', 64),
         ]);
+        // The timed circuit backoff may pass before the buyer opens the
+        // hosted page. A failed account remains quarantined until the health
+        // job verifies it again, so an untouched session must still move to B
+        // rather than create its first remote order with A.
+        $first->forceFill(['circuit_open_until' => now('UTC')->subSecond()])->save();
+        self::assertTrue($service->isUnavailableForNewSessions($first->fresh()));
         $sessions = new PlatformPaymentSessionService(
             $this->createMock(TenantManager::class),
             $this->createMock(PlatformPaymentSettings::class),

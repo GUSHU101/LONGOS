@@ -335,6 +335,13 @@ final class PlatformPaymentAccountService
     public function isUnavailableForNewSessions(PlatformPaymentAccount $account): bool
     {
         return ! $account->enabled
+            // A circuit's timestamp is a short backoff window, not proof that
+            // the account has recovered. The rotation query deliberately
+            // continues to exclude failed accounts until a successful health
+            // probe marks them ready again; keep an untouched browser session
+            // on that exact same rule so it cannot create a new PayPal order
+            // against an account that the pool has already quarantined.
+            || $account->health_status === 'failed'
             || ($account->circuit_open_until !== null && $account->circuit_open_until->isFuture());
     }
 
