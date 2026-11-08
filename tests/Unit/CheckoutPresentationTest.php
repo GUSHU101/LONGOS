@@ -136,7 +136,15 @@ class CheckoutPresentationTest extends TestCase
         self::assertStringContainsString('this.addressCommitted && !regionIsValid', $address);
         self::assertStringContainsString('regionValidationBlocked', $address);
         self::assertStringContainsString('this.messages.countryUnavailable', $address);
-        self::assertStringContainsString('zoneCode.split(\'-\').pop()', $address);
+        self::assertStringContainsString('normalizedCode.split(\'-\').pop()', $address);
+        self::assertStringContainsString('@input="onAddressLineInput"', $address);
+        self::assertStringContainsString('@change="syncBrowserAutofill()"', $address);
+        self::assertStringContainsString('structuredAddressParts(value)', $address);
+        self::assertStringContainsString("['US', 'CA'].includes(countryCode)", $address);
+        self::assertStringContainsString('applyStructuredAddressInput()', $address);
+        self::assertStringContainsString('this.applyLookupZone(\'\', parts.zone_code)', $address);
+        self::assertStringContainsString('this.applyLookupZone(suggestion.zone, suggestion.zone_code)', $address);
+        self::assertStringContainsString('this.countryChange(this.addressForm.country_id, false).then(applyZoneAndCommit)', $address);
         self::assertStringContainsString('checkoutAddressApp.saveAddress({focusOnError: true})', $checkout);
         self::assertStringContainsString('addressReady && (!checkoutHasShipping || !checkoutHasPayment)', $checkout);
         self::assertStringContainsString('v-if="source.isLogin" class="address-save-button"', $address);

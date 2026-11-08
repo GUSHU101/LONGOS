@@ -107,6 +107,8 @@ return [
     'funnel_visitors'     => 'Store Visitors',
     'product_viewers'     => 'Product Viewers',
     'cart_visitors'       => 'Visitors Who Added to Cart',
+    'checkout_initiators' => 'Checkout Starters',
+    'payment_information_visitors' => 'Customers Who Added Payment Information',
     'order_creators'      => 'Customers Who Ordered',
     'paid_purchasers'     => 'Paying Customers',
 

@@ -13,7 +13,6 @@
 namespace Beike\Notifications;
 
 use App\Mail\MailSenderProfileService;
-use Beike\Channels\BkMailChannel;
 use Beike\Mail\CustomerNewOrder;
 use Beike\Models\Order;
 use Beike\Notifications\Concerns\HasMailSenderProfile;
@@ -47,15 +46,14 @@ class NewOrderNotification extends Notification implements ShouldQueue
      */
     public function via($notifiable)
     {
-        $drivers[]  = 'database';
-        $mailEngine = system_setting('base.mail_engine');
-        $mailAlert  = system_setting('base.mail_customer') ?? [];
-
-        if ($mailEngine && in_array('order', $mailAlert)) {
-            $drivers[] = BkMailChannel::class;
-        }
-
-        return $drivers;
+        // CREATED -> UNPAID is only a checkout reservation. It is not a
+        // completed purchase, so it must never send a customer order email.
+        // Keep the database notification for the account/admin timeline;
+        // payment-confirmed mail is sent by UpdateOrderNotification only
+        // after the gateway has moved the order to PAID. Delayed abandoned
+        // checkout reminders are handled by AbandonedOrderRecoveryService
+        // with its separate opt-in delay/cooldown controls.
+        return ['database'];
     }
 
     /**

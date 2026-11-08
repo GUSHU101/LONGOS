@@ -67,4 +67,15 @@ class DashboardEventDeduplicationTest extends TestCase
         self::assertSame(2, DashboardEvent::query()->where('event_type', 'payment_information_added')->count());
         self::assertSame([42, 42], DashboardEvent::query()->orderBy('id')->pluck('customer_id')->all());
     }
+
+    public function test_checkout_initiation_is_recorded_once_per_visitor_and_day(): void
+    {
+        $customer = (object) ['id' => 42];
+
+        DashboardEvent::recordCheckoutInitiated($customer);
+        DashboardEvent::recordCheckoutInitiated($customer);
+
+        self::assertSame(1, DashboardEvent::query()->where('event_type', 'checkout_initiated')->count());
+        self::assertSame(42, (int) DashboardEvent::query()->where('event_type', 'checkout_initiated')->value('customer_id'));
+    }
 }

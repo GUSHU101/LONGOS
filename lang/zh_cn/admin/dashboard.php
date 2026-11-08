@@ -107,6 +107,8 @@ return [
     'funnel_visitors'     => '到访用户',
     'product_viewers'     => '商品浏览用户',
     'cart_visitors'       => '加购用户',
+    'checkout_initiators' => '发起结账用户',
+    'payment_information_visitors' => '添加支付信息用户',
     'order_creators'      => '下单用户',
     'paid_purchasers'     => '支付用户',
 

@@ -36,6 +36,11 @@ class CheckoutController extends Controller
             $data                           = hook_filter('checkout.index.data', $data);
             $data['checkout_confirm_token'] = (string) Str::uuid();
 
+            // Keep the operational funnel independent from browser pixels:
+            // a valid checkout page is an InitiateCheckout event even when an
+            // ad blocker prevents third-party scripts from loading.
+            DashboardEvent::recordCheckoutInitiated(current_customer());
+
             // Render the view while still inside this guarded block. Returning
             // a lazy View object would defer Blade and plugin-hook failures
             // until after the controller exits, bypassing the recovery path

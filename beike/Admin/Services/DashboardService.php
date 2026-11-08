@@ -21,7 +21,7 @@ class DashboardService
 {
     public const VALID_TIME_RANGES = ['today', 'yesterday', 'week', 'month'];
 
-    private const CACHE_SCHEMA_VERSION = 'v7-payment-operations';
+    private const CACHE_SCHEMA_VERSION = 'v8-commerce-funnel';
 
     private MockDataGenerator $mockDataGenerator;
 
@@ -320,13 +320,14 @@ class DashboardService
             // Every funnel stage is a deduplicated participant count. Mixing
             // page-view totals with visitor and order totals made the ratios
             // incomparable and could suggest false conversion performance.
-            $visits         = $this->countUniqueVisitors($dateRange);
-            $productViewers = $this->countUniqueProductViewVisitors($dateRange);
-            $cartVisitors   = $this->countUniqueCartVisitors($dateRange);
-            $orderCreators  = $this->countOrderCreatorsInRange($dateRange);
-            $paidPurchasers = $this->countPaidPurchasersInRange($dateRange);
+            $visits              = $this->countUniqueVisitors($dateRange);
+            $productViewers      = $this->countUniqueProductViewVisitors($dateRange);
+            $cartVisitors        = $this->countUniqueCartVisitors($dateRange);
+            $checkoutInitiators  = $this->countUniqueCheckoutInitiators($dateRange);
+            $paymentInformation  = $this->countUniquePaymentInformationVisitors($dateRange);
+            $paidPurchasers      = $this->countPaidPurchasersInRange($dateRange);
 
-            $maxValue = max($visits, $productViewers, $cartVisitors, $orderCreators, $paidPurchasers) ?: 1;
+            $maxValue = max($visits, $productViewers, $cartVisitors, $checkoutInitiators, $paymentInformation, $paidPurchasers) ?: 1;
 
             return [
                 [
@@ -354,17 +355,24 @@ class DashboardService
                     'width'      => round(($cartVisitors / $maxValue) * 100, 1),
                 ],
                 [
-                    'key'        => 'order_creators',
-                    'name'       => __('admin/dashboard.order_creators'),
-                    'value'      => $orderCreators,
-                    'percentage' => $this->conversionRate($orderCreators, $cartVisitors),
-                    'width'      => round(($orderCreators / $maxValue) * 100, 1),
+                    'key'        => 'checkout_initiators',
+                    'name'       => __('admin/dashboard.checkout_initiators'),
+                    'value'      => $checkoutInitiators,
+                    'percentage' => $this->conversionRate($checkoutInitiators, $cartVisitors),
+                    'width'      => round(($checkoutInitiators / $maxValue) * 100, 1),
+                ],
+                [
+                    'key'        => 'payment_information_visitors',
+                    'name'       => __('admin/dashboard.payment_information_visitors'),
+                    'value'      => $paymentInformation,
+                    'percentage' => $this->conversionRate($paymentInformation, $checkoutInitiators),
+                    'width'      => round(($paymentInformation / $maxValue) * 100, 1),
                 ],
                 [
                     'key'        => 'paid_purchasers',
                     'name'       => __('admin/dashboard.paid_purchasers'),
                     'value'      => $paidPurchasers,
-                    'percentage' => $this->conversionRate($paidPurchasers, $orderCreators),
+                    'percentage' => $this->conversionRate($paidPurchasers, $paymentInformation),
                     'width'      => round(($paidPurchasers / $maxValue) * 100, 1),
                 ],
             ];
@@ -1319,6 +1327,16 @@ class DashboardService
     }
 
     /**
+     * Checkout initiation and payment-information stages are both recorded
+     * server-side. This keeps the business dashboard complete even when a
+     * visitor declines optional ad tracking or a browser blocks a pixel.
+     */
+    private function countUniqueCheckoutInitiators(array $dateRange): int
+    {
+        return $this->countUniqueDashboardEventVisitors('checkout_initiated', $dateRange);
+    }
+
+    /**
      * The event log preserves cart activity after checkout clears cart rows.
      * During a rolling upgrade the old cart table remains a safe read-only fallback.
      */
@@ -1807,18 +1825,23 @@ class DashboardService
 
     private function countUniquePaymentInformationVisitors(array $dateRange): int
     {
+        return $this->countUniqueDashboardEventVisitors('payment_information_added', $dateRange);
+    }
+
+    private function countUniqueDashboardEventVisitors(string $eventType, array $dateRange): int
+    {
         if (! $this->dashboardEventsAvailable()) {
             return 0;
         }
 
         $visitorKey = $this->paymentInformationVisitorKeyExpression();
         $visitors   = DashboardEvent::query()
-            ->where('event_type', 'payment_information_added')
+            ->where('event_type', $eventType)
             ->whereBetween('created_at', $dateRange)
             ->selectRaw("{$visitorKey} AS visitor_key")
             ->groupByRaw($visitorKey);
 
-        return DB::query()->fromSub($visitors, 'dashboard_payment_information_visitors')->count();
+        return DB::query()->fromSub($visitors, 'dashboard_funnel_event_visitors')->count();
     }
 
     /**

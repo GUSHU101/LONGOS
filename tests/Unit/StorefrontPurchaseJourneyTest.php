@@ -110,6 +110,10 @@ class StorefrontPurchaseJourneyTest extends TestCase
         self::assertSame(1, substr_count($checkout, 'announcePaymentInformationAdded('));
         self::assertStringNotContainsString("key === 'payment_method_code' ? () => announcePaymentInformationAdded", $checkout);
         self::assertStringContainsString('announcePaymentInformationAdded(selectedPaymentCode)', $checkout);
+        self::assertGreaterThan(
+            strpos($checkout, 'rememberConfirmedOrder(res);'),
+            strpos($checkout, 'announcePaymentInformationAdded(selectedPaymentCode)')
+        );
         self::assertStringContainsString('Cache::add($deduplicationKey', $events);
         self::assertStringContainsString('DashboardEvent::recordPaymentInformationAdded(current_customer(), $order)', $controller);
         self::assertSame(2, substr_count($payment, 'recordPaymentInformationAdded(current_customer(), $this->order)'));

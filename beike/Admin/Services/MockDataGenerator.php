@@ -275,10 +275,11 @@ class MockDataGenerator
         $visits        = (int) ($baseData['visitors'] * 1.2 * $this->multiplier);
         $productViews  = (int) ($visits * 0.8);
         $cartAdds      = (int) ($productViews * 0.35);
-        $orders        = (int) ($cartAdds * 0.5);
-        $payments      = (int) ($orders * 0.6);
+        $checkouts     = (int) ($cartAdds * 0.5);
+        $paymentInfo   = (int) ($checkouts * 0.8);
+        $payments      = (int) ($paymentInfo * 0.6);
 
-        $maxValue = max($visits, $productViews, $cartAdds, $orders, $payments) ?: 1;
+        $maxValue = max($visits, $productViews, $cartAdds, $checkouts, $paymentInfo, $payments) ?: 1;
 
         return [
             [
@@ -303,17 +304,24 @@ class MockDataGenerator
                 'width'      => round(($cartAdds / $maxValue) * 100, 1),
             ],
             [
-                'key'        => 'order_creators',
-                'name'       => __('admin/dashboard.order_creators'),
-                'value'      => $orders,
-                'percentage' => $cartAdds ? round(($orders / $cartAdds) * 100, 1) : 0,
-                'width'      => round(($orders / $maxValue) * 100, 1),
+                'key'        => 'checkout_initiators',
+                'name'       => __('admin/dashboard.checkout_initiators'),
+                'value'      => $checkouts,
+                'percentage' => $cartAdds ? round(($checkouts / $cartAdds) * 100, 1) : 0,
+                'width'      => round(($checkouts / $maxValue) * 100, 1),
+            ],
+            [
+                'key'        => 'payment_information_visitors',
+                'name'       => __('admin/dashboard.payment_information_visitors'),
+                'value'      => $paymentInfo,
+                'percentage' => $checkouts ? round(($paymentInfo / $checkouts) * 100, 1) : 0,
+                'width'      => round(($paymentInfo / $maxValue) * 100, 1),
             ],
             [
                 'key'        => 'paid_purchasers',
                 'name'       => __('admin/dashboard.paid_purchasers'),
                 'value'      => $payments,
-                'percentage' => $orders ? round(($payments / $orders) * 100, 1) : 0,
+                'percentage' => $paymentInfo ? round(($payments / $paymentInfo) * 100, 1) : 0,
                 'width'      => round(($payments / $maxValue) * 100, 1),
             ],
         ];

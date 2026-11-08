@@ -13,7 +13,6 @@
 namespace Beike\Notifications;
 
 use App\Mail\MailSenderProfileService;
-use Beike\Channels\BkMailChannel;
 use Beike\Mail\AdminUserNewOrder;
 use Beike\Models\Order;
 use Beike\Notifications\Concerns\HasMailSenderProfile;
@@ -47,15 +46,10 @@ class NewOrderAlertNotification extends Notification implements ShouldQueue
      */
     public function via($notifiable)
     {
-        $drivers[]  = 'database';
-        $mailEngine = system_setting('base.mail_engine');
-        $mailAlert  = system_setting('base.mail_alert') ?? [];
-
-        if ($mailEngine && in_array('order', $mailAlert)) {
-            $drivers[] = BkMailChannel::class;
-        }
-
-        return $drivers;
+        // A newly created unpaid checkout is not a sale. Persist the admin
+        // timeline notification, but do not generate a transactional email
+        // until payment has actually been confirmed by the provider.
+        return ['database'];
     }
 
     /**

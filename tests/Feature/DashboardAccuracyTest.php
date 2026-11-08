@@ -71,12 +71,13 @@ class DashboardAccuracyTest extends TestCase
         self::assertSame(32.5, $stats['average_order_value']['current']);
 
         $funnel = $service->getFunnelData('today');
-        self::assertSame(['visitors', 'product_viewers', 'cart_visitors', 'order_creators', 'paid_purchasers'], array_column($funnel, 'key'));
-        self::assertSame([2, 2, 1, 2, 2], array_column($funnel, 'value'));
-        self::assertSame([100, 100.0, 50.0, 200.0, 100.0], array_column($funnel, 'percentage'));
+        self::assertSame(['visitors', 'product_viewers', 'cart_visitors', 'checkout_initiators', 'payment_information_visitors', 'paid_purchasers'], array_column($funnel, 'key'));
+        self::assertSame([2, 2, 1, 1, 1, 2], array_column($funnel, 'value'));
+        self::assertSame([100, 100.0, 50.0, 100.0, 100.0, 200.0], array_column($funnel, 'percentage'));
         self::assertSame(1, $funnel[2]['value']);
-        self::assertSame(2, $funnel[3]['value']);
-        self::assertSame(2, $funnel[4]['value']);
+        self::assertSame(1, $funnel[3]['value']);
+        self::assertSame(1, $funnel[4]['value']);
+        self::assertSame(2, $funnel[5]['value']);
 
         $ranking = $service->getProductRanking('hot', 'today');
         self::assertSame(1, $ranking[0]['id']);
@@ -312,7 +313,7 @@ class DashboardAccuracyTest extends TestCase
         self::assertSame(0, $funnel[0]['value']);
         self::assertSame(0, $funnel[0]['percentage']);
         self::assertSame(0.0, $funnel[0]['width']);
-        self::assertSame([0, 0, 0, 0, 0], array_column($funnel, 'value'));
+        self::assertSame([0, 0, 0, 0, 0, 0], array_column($funnel, 'value'));
     }
 
     public function test_replayed_paid_history_does_not_move_old_revenue_into_today(): void
@@ -659,6 +660,8 @@ class DashboardAccuracyTest extends TestCase
         DB::table('dashboard_events')->insert([
             ['event_type' => 'cart_added', 'product_id' => 1, 'customer_id' => 7, 'session_id' => 'member-a', 'quantity' => 2, 'ip' => '10.0.0.1', 'created_at' => '2026-10-08 09:10:00', 'updated_at' => '2026-10-08 09:10:00'],
             ['event_type' => 'cart_added', 'product_id' => 2, 'customer_id' => 7, 'session_id' => 'member-b', 'quantity' => 1, 'ip' => '10.0.0.2', 'created_at' => '2026-10-08 09:11:00', 'updated_at' => '2026-10-08 09:11:00'],
+            ['event_type' => 'checkout_initiated', 'product_id' => null, 'customer_id' => 7, 'session_id' => 'member-a', 'quantity' => 1, 'ip' => '10.0.0.1', 'created_at' => '2026-10-08 09:15:00', 'updated_at' => '2026-10-08 09:15:00'],
+            ['event_type' => 'payment_information_added', 'product_id' => null, 'customer_id' => 7, 'session_id' => 'member-a', 'quantity' => 1, 'ip' => '10.0.0.1', 'created_at' => '2026-10-08 09:20:00', 'updated_at' => '2026-10-08 09:20:00'],
         ]);
         DB::table('orders')->insert([
             ['id' => 1, 'customer_id' => 7, 'email' => 'buyer@example.com', 'ip' => '10.0.0.1', 'status' => 'paid', 'total' => 20, 'created_at' => '2026-10-07 22:00:00', 'updated_at' => '2026-10-08 10:00:00', 'deleted_at' => null],

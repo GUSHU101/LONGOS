@@ -47,6 +47,25 @@ class LifecycleMailPresentationTest extends TestCase
         self::assertStringContainsString('tracking_available_after_dispatch', $updated);
     }
 
+    public function test_an_unpaid_checkout_never_sends_a_transactional_email(): void
+    {
+        $customerNotification = $this->source('beike/Notifications/NewOrderNotification.php');
+        $adminNotification    = $this->source('beike/Notifications/NewOrderAlertNotification.php');
+        $stateMachine         = $this->source('beike/Services/StateMachineService.php');
+        $updateNotification   = $this->source('beike/Notifications/UpdateOrderNotification.php');
+
+        // CREATED -> UNPAID records a checkout reservation. Both notification
+        // classes intentionally remain database-only; no mail may be queued
+        // before a payment provider confirms the PAID transition.
+        self::assertStringContainsString("return ['database'];", $customerNotification);
+        self::assertStringContainsString("return ['database'];", $adminNotification);
+        self::assertStringNotContainsString('BkMailChannel::class', $customerNotification);
+        self::assertStringNotContainsString('BkMailChannel::class', $adminNotification);
+        self::assertStringContainsString("self::UNPAID => ['reserveStock', 'updateStatus', 'addHistory', 'notifyNewOrder']", $stateMachine);
+        self::assertStringContainsString("self::PAID      => ['subStock', 'updateStatus', 'addHistory', 'updateSales', 'notifyUpdateOrder']", $stateMachine);
+        self::assertStringContainsString('BkMailChannel::class', $updateNotification);
+    }
+
     public function test_registration_return_and_recovery_emails_each_have_one_primary_journey(): void
     {
         $registration = $this->source('themes/default/mails/registration.blade.php');

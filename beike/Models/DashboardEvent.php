@@ -38,6 +38,54 @@ class DashboardEvent extends Base
     }
 
     /**
+     * Records a verified checkout-page visit for the commerce funnel.
+     *
+     * This is intentionally a server-side signal. Browser pixels can be
+     * blocked or delayed, but opening a checkout that passed CheckoutService
+     * validation is the authoritative point at which the visitor initiated
+     * checkout. No address, product, or payment data is written here.
+     */
+    public static function recordCheckoutInitiated($customer = null): void
+    {
+        $deduplicationKey = '';
+
+        try {
+            if (! Schema::hasTable('dashboard_events')) {
+                return;
+            }
+
+            $site       = current_site();
+            $customerId = (int) ($customer->id ?? current_customer()?->id ?? 0);
+            $identity   = $customerId > 0
+                ? 'customer:' . $customerId
+                : 'session:' . (string) get_session_id();
+            $scope = implode('|', [
+                (string) ($site?->uuid ?? $site?->id ?? config('app.url', 'longos')),
+                'checkout_initiated',
+                $identity,
+                now()->toDateString(),
+            ]);
+            $deduplicationKey = 'dashboard:event:checkout-initiated:' . hash('sha256', $scope);
+            if (! Cache::add($deduplicationKey, true, now()->endOfDay())) {
+                return;
+            }
+
+            static::query()->create([
+                'event_type'  => 'checkout_initiated',
+                'customer_id' => $customerId,
+                'session_id'  => get_session_id(),
+                'quantity'    => 1,
+                'ip'          => request()->ip(),
+            ]);
+        } catch (\Throwable) {
+            if ($deduplicationKey !== '') {
+                Cache::forget($deduplicationKey);
+            }
+            // Reporting must never prevent a valid shopper from checking out.
+        }
+    }
+
+    /**
      * Records the point at which a shopper has supplied payment information.
      *
      * The event deliberately stores no payment fields or card data.  It is

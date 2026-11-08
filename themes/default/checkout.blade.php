@@ -731,8 +731,6 @@
           }
         }
 
-        announcePaymentInformationAdded(selectedPaymentCode);
-
         const data = {
           checkout_token: {!! \Illuminate\Support\Js::from($checkout_confirm_token ?? '') !!},
         }
@@ -753,6 +751,12 @@
             throw checkoutFailure(checkoutMessages.invalidOrderResponse);
           }
           rememberConfirmedOrder(res);
+          // The checkout request has now created a valid unpaid order and the
+          // selected provider is about to collect payment details. Emitting
+          // AddPaymentInfo here, rather than on a mere radio-button click (or
+          // a request that later fails validation), keeps browser pixels and
+          // the server-side dashboard on the same funnel boundary.
+          announcePaymentInformationAdded(selectedPaymentCode);
 
           if (paymentHandler && typeof paymentHandler.start === 'function') {
             await paymentHandler.start({orderNumber: String(res.number)});

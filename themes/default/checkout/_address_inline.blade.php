@@ -73,8 +73,8 @@
           <input id="checkout-address-line1"
                  :autocomplete="shippingRequired ? 'shipping address-line1' : 'billing address-line1'"
                  v-model.trim="addressForm.address_1"
-                 @input="markAddressDirty(); scheduleAddressLookup()"
-                 @change="markAddressDirty(); syncBrowserAutofill()"
+                 @input="onAddressLineInput"
+                 @change="syncBrowserAutofill()"
                  @keydown.down.prevent="moveSuggestion(1)"
                  @keydown.up.prevent="moveSuggestion(-1)"
                  @keydown.enter="selectActiveSuggestion"
@@ -423,10 +423,82 @@
         this.addressLookupMessage = this.messages.addressLookupHelp;
         if (String(this.addressForm.address_1 || '').trim().length < 3) return;
 
+        // A complete US/Canadian address is commonly pasted into this field
+        // (for example: "3333 164th St SW; Lynnwood, WA 98087-3241"). Do
+        // not make that normal checkout path wait for an optional external
+        // geocoder or force the customer to select a suggestion. The parser
+        // is deliberately conservative: it only accepts an unambiguous,
+        // country-matching city/region/postal suffix and never replaces fields
+        // the customer has already entered independently.
+        if (this.applyStructuredAddressInput()) return;
+
         // Address lookup is an optional assist, never a reason to interrupt
         // typing. Wait for a deliberate pause and retain only the newest
         // request as the customer keeps editing the street field.
         this.addressLookupTimer = window.setTimeout(() => this.lookupAddressSuggestions(requestId), 500);
+      },
+      onAddressLineInput() {
+        this.markAddressDirty();
+        this.scheduleAddressLookup();
+      },
+      structuredAddressParts(value) {
+        if (this.addressForm.city || this.addressForm.zipcode || this.addressForm.zone_id) return null;
+
+        const country = this.source.countries.find((item) => item.id == this.addressForm.country_id);
+        const countryCode = String(country?.code || '').toUpperCase();
+        if (!['US', 'CA'].includes(countryCode)) return null;
+
+        const compact = String(value || '').replace(/\s+/g, ' ').trim();
+        // We intentionally require both a city/region separator and a
+        // country-specific postal code. This prevents a normal street entry
+        // from being guessed at or rewritten while the customer is typing.
+        const match = compact.match(/^(.+?)(?:\s*[;,]\s*)([A-Za-z][A-Za-z .'-]{1,80})\s*,\s*([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?|[A-Za-z]\d[A-Za-z][ -]?\d[A-Za-z]\d)$/);
+        if (!match) return null;
+
+        const [, street, city, regionCode, postalCode] = match;
+        const normalizedPostalCode = String(postalCode).trim().toUpperCase().replace(/\s+/g, ' ');
+        const isUsPostalCode = /^\d{5}(?:-\d{4})?$/.test(normalizedPostalCode);
+        const isCanadianPostalCode = /^[A-Z]\d[A-Z][ -]?\d[A-Z]\d$/.test(normalizedPostalCode);
+        if ((countryCode === 'US' && !isUsPostalCode) || (countryCode === 'CA' && !isCanadianPostalCode)) return null;
+
+        return {
+          address_1: String(street).trim(),
+          city: String(city).replace(/\s+/g, ' ').trim(),
+          zone_code: String(regionCode).trim().toUpperCase(),
+          zipcode: normalizedPostalCode,
+        };
+      },
+      applyStructuredAddressInput() {
+        const parts = this.structuredAddressParts(this.addressForm.address_1);
+        if (!parts) return false;
+
+        const revision = this.addressRevision;
+        this.addressForm.address_1 = parts.address_1;
+        this.addressForm.city = parts.city;
+        this.addressForm.zipcode = parts.zipcode;
+        this.addressSuggestions = [];
+        this.activeSuggestion = -1;
+        this.addressLookupLoading = false;
+        this.addressLookupMessage = this.messages.addressLookupFilled;
+
+        const applyZoneAndCommit = () => {
+          // Do not overwrite a newer manual edit while the country-zone list
+          // is loading in the background.
+          if (revision !== this.addressRevision || this.addressForm.address_1 !== parts.address_1) return;
+          this.applyLookupZone('', parts.zone_code);
+          this.$nextTick(() => this.maybeCommitGuestAddress());
+        };
+
+        if (this.source.zones.length) {
+          applyZoneAndCommit();
+        } else if (this.addressForm.country_id) {
+          // The initial country-zone request can still be in flight when a
+          // browser autofill or paste occurs. Requesting it here is safe—the
+          // latest request wins—and keeps the automatic guest save intact.
+          this.countryChange(this.addressForm.country_id, false).then(applyZoneAndCommit);
+        }
+
+        return true;
       },
       lookupAddressSuggestions(requestId = null) {
         if (requestId === null) requestId = ++this.addressLookupRequestId;
@@ -562,16 +634,7 @@
 
         if (selectionId !== this.addressLookupRequestId || selectedAddress !== String(this.addressForm.address_1 || '')) return;
 
-        const zoneName = this.normalizeLookupText(suggestion.zone);
-        const zoneCode = this.normalizeLookupText(suggestion.zone_code);
-        const zoneCodeSuffix = zoneCode.includes('-') ? zoneCode.split('-').pop() : zoneCode;
-        const zone = this.source.zones.find((item) => {
-          const name = this.normalizeLookupText(item.name);
-          const code = this.normalizeLookupText(item.code);
-          const comparableName = zoneName.length > 2 && name.length > 2 && (name.includes(zoneName) || zoneName.includes(name));
-          return (zoneName && name === zoneName) || comparableName || (zoneCode && (code === zoneCode || code === zoneCodeSuffix));
-        });
-        if (zone) this.addressForm.zone_id = zone.id;
+        this.applyLookupZone(suggestion.zone, suggestion.zone_code);
 
         this.addressLookupMessage = this.messages.addressLookupFilled;
         this.$nextTick(() => {
@@ -581,6 +644,24 @@
       },
       normalizeLookupText(value) {
         return String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+      },
+      applyLookupZone(zoneName, zoneCode) {
+        const normalizedName = this.normalizeLookupText(zoneName);
+        const normalizedCode = this.normalizeLookupText(zoneCode);
+        const zoneCodeSuffix = normalizedCode.includes('-') ? normalizedCode.split('-').pop() : normalizedCode;
+        const zone = this.source.zones.find((item) => {
+          const name = this.normalizeLookupText(item.name);
+          const code = this.normalizeLookupText(item.code);
+          const comparableName = normalizedName.length > 2 && name.length > 2
+            && (name.includes(normalizedName) || normalizedName.includes(name));
+
+          return (normalizedName && name === normalizedName)
+            || comparableName
+            || (normalizedCode && (code === normalizedCode || code === zoneCodeSuffix));
+        });
+        if (zone) this.addressForm.zone_id = zone.id;
+
+        return Boolean(zone);
       },
       clearAddressSuggestions(cancelPending = true) {
         window.clearTimeout(this.addressLookupTimer);
@@ -602,8 +683,17 @@
           if (countryId && countryId !== Number(this.addressForm.country_id)) {
             this.clearAddressSuggestions();
             this.addressForm.country_id = countryId;
-            this.countryChange(countryId, true);
+            this.countryChange(countryId, true).then(() => this.scheduleAddressLookup());
+            return;
           }
+
+          // Some browser/password-manager autofill implementations dispatch
+          // a change event without an input event. Run the same non-blocking
+          // parser/lookup path only after Vue has synchronized its model, so
+          // a complete address is never left with an empty city, region, or
+          // postal code. Keeping a single dirty revision lets a pending zone
+          // request apply its matching region instead of being discarded.
+          this.scheduleAddressLookup();
         });
       },
       selectSavedAddress(address, callback) {
