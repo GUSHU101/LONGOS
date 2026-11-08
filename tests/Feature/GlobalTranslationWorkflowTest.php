@@ -872,6 +872,68 @@ class GlobalTranslationWorkflowTest extends TestCase
         self::assertSame(0, (int) DB::table('lgt_jobs')->where('id', $jobId)->value('failed_items'));
         self::assertSame('ready', DB::table('lgt_job_items')->where('job_id', $jobId)->value('status'));
         self::assertNull(DB::table('lgt_job_items')->where('job_id', $jobId)->value('claim_token'));
+        $plan = json_decode((string) DB::table('lgt_jobs')->where('id', $jobId)->value('plan'), true);
+        self::assertSame('NO_VERIFIED_DISPATCH_ACCOUNT', $plan['pause']['code'] ?? null);
+    }
+
+    public function test_unsafe_source_is_rejected_before_a_provider_request_is_reserved(): void
+    {
+        (new TranslationSettings)->save(['mode' => TranslationSettings::MODE_FREE_ONLY, 'enabled_locales' => ['fr']]);
+        $accounts = new ProviderAccountService;
+        $account = $accounts->save([
+            'provider' => 'baidu', 'billing_identity' => 'source-preflight-account', 'enabled' => true,
+            'free_quota' => 1_000, 'soft_cap' => 1_000,
+        ], ['appid' => 'source-preflight-app', 'secret' => 'source-preflight-secret'], 11);
+        $accounts->markVerified((int) $account['id'], 11);
+        $accounts->setDispatch((int) $account['id'], true, 11);
+        $entryId = $this->queueSingleTranslationItem('unsafe-source-preflight', '<script>alert(1)</script>', 'a09d2c91-7d2a-4a1b-a5ac-120700000001');
+        $jobId = (int) DB::table('lgt_job_items')->where('entry_id', $entryId)->value('job_id');
+        $provider = new class implements TranslationProviderInterface
+        {
+            public int $calls = 0;
+
+            public function id(): string { return 'baidu'; }
+            public function validateCredentialShape(array $credentials): void {}
+            public function supports(string $sourceLocale, string $targetLocale): bool { return true; }
+            public function buildBatches(array $segments, string $sourceLocale, string $targetLocale): array { return [$segments]; }
+            public function send(TranslationProviderRequest $request, array $credentials): TranslationProviderResponse
+            {
+                $this->calls++;
+
+                return new TranslationProviderResponse(true, ['should not be called'], 'unexpected', null, null, 1);
+            }
+            public function classifyFailure(\Throwable|TranslationProviderResponse $failure): array
+            {
+                return ['kind' => 'definite_failure', 'code' => 'TEST', 'definitely_unbilled' => true];
+            }
+        };
+        $service = new TranslationJobService(new ContentScanner, new TranslationSettings, $accounts, new ProviderRegistry(['baidu' => $provider]), new UsageLedger, new TranslationLibrary);
+        $service->process($jobId, 1, 'f152f01b-4bfa-4ed7-bf63-120700000001');
+
+        self::assertSame(0, $provider->calls);
+        self::assertSame(0, DB::table('lgt_attempts')->count());
+        self::assertSame('SOURCE_TEXT_REJECTED', DB::table('lgt_job_items')->where('entry_id', $entryId)->value('failure_code'));
+    }
+
+    public function test_free_quota_pause_records_an_operator_actionable_reason(): void
+    {
+        (new TranslationSettings)->save(['mode' => TranslationSettings::MODE_FREE_ONLY, 'enabled_locales' => ['fr']]);
+        $accounts = new ProviderAccountService;
+        $account = $accounts->save([
+            'provider' => 'baidu', 'billing_identity' => 'capacity-pause-account', 'enabled' => true,
+            'free_quota' => 5, 'soft_cap' => 5,
+        ], ['appid' => 'capacity-pause-app', 'secret' => 'capacity-pause-secret'], 11);
+        $accounts->markVerified((int) $account['id'], 11);
+        $accounts->setDispatch((int) $account['id'], true, 11);
+        $entryId = $this->queueSingleTranslationItem('capacity-pause', 'A title that exceeds the remaining free quota.', 'e5c4e0bd-1438-451d-a2e2-120700000002');
+        $jobId = (int) DB::table('lgt_job_items')->where('entry_id', $entryId)->value('job_id');
+        $service = new TranslationJobService(new ContentScanner, new TranslationSettings, $accounts, new ProviderRegistry, new UsageLedger, new TranslationLibrary);
+        $service->process($jobId, 1, '2869c2bb-f609-48a3-b001-120700000002');
+
+        self::assertSame('paused', DB::table('lgt_jobs')->where('id', $jobId)->value('status'));
+        $plan = json_decode((string) DB::table('lgt_jobs')->where('id', $jobId)->value('plan'), true);
+        self::assertSame('FREE_QUOTA_EXHAUSTED', $plan['pause']['code'] ?? null);
+        self::assertSame('ready', DB::table('lgt_job_items')->where('entry_id', $entryId)->value('status'));
     }
 
     public function test_failed_worker_can_only_finish_claims_owned_by_its_run_token(): void

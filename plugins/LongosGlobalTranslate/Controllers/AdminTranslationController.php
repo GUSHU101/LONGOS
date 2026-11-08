@@ -287,11 +287,22 @@ final class AdminTranslationController extends Controller
         /** @var array<string, string> $credentials */
         $credentials = $this->submittedCredentials((array) ($data['credentials'] ?? []));
         $account     = $this->accounts->update($provider, $data, $credentials, $this->actorId());
+        // A quota/limit edit is an explicit administrator action. When it
+        // leaves an already verified, dispatch-enabled account usable, resume
+        // any free-only work that was safely paused for capacity instead of
+        // making the operator rediscover and recreate the job.
+        $resumed = (bool) ($account['enabled'] ?? false)
+            && (bool) ($account['dispatch_enabled'] ?? false)
+            && ! empty($account['verified_at'])
+            ? $this->jobs->resumePausedJobs() : 0;
 
         return $this->json([
             'account' => $account,
+            'resumed_jobs' => $resumed,
             'notice'  => $credentials === []
-                ? '服务商额度与运行设置已更新；已加密凭据和当前验证状态未被回传或改写。'
+                ? ($resumed > 0
+                    ? "服务商额度与运行设置已更新；已自动恢复 {$resumed} 个等待安全容量的任务。"
+                    : '服务商额度与运行设置已更新；已加密凭据和当前验证状态未被回传或改写。')
                 : '新的 API 凭据已加密保存。为保护额度，已关闭派发并需要重新验证。',
         ]);
     }
@@ -679,6 +690,13 @@ final class AdminTranslationController extends Controller
             $plan            = json_decode((string) ($job->plan ?? ''), true);
             $autoPublication = is_array($plan) && is_array($plan['auto_publication'] ?? null)
                 ? $plan['auto_publication'] : null;
+            $pause = is_array($plan) && is_array($plan['pause'] ?? null) ? $plan['pause'] : null;
+            // Jobs created before pause causes were persisted still need an
+            // actionable explanation.  Do not invent a specific historical
+            // cause; label it honestly as a legacy row instead.
+            if ($pause === null && (string) $job->status === 'paused') {
+                $pause = ['code' => 'PAUSE_REASON_UNAVAILABLE'];
+            }
 
             return [
                 'id'                      => (int) $job->id,
@@ -695,6 +713,10 @@ final class AdminTranslationController extends Controller
                 'failure_summary'         => $reasons,
                 'retryable_failure_count' => $this->jobs->retryableFailureCount((int) $job->id),
                 'auto_publication'        => $autoPublication,
+                'pause_reason'            => $pause === null ? null : [
+                    'code'  => (string) ($pause['code'] ?? 'PAUSE_REASON_UNAVAILABLE'),
+                    'label' => $this->pauseLabel((string) ($pause['code'] ?? 'PAUSE_REASON_UNAVAILABLE')),
+                ],
             ];
         })->all();
     }
@@ -722,10 +744,22 @@ final class AdminTranslationController extends Controller
             'UNKNOWN_PROTECTED_TOKEN'     => '译文出现非法的保护占位符，译文已被安全拒绝。',
             'PROVIDER_TOKEN_INCOMPATIBLE' => '该服务商会改写链接、价格或变量保护标记，未通过受控验证；请更换服务商或联系其技术支持。',
             'INVALID_TRANSLATION_TEXT'    => '译文为空、过长或不是有效 UTF-8，已被安全拒绝。',
+            'SOURCE_TEXT_REJECTED'        => '原文不符合安全文本契约，已在发送给服务商前拦截，未产生翻译请求。',
             'SEGMENT_TOO_LARGE', 'ATOMIC_TOKEN_TOO_LARGE' => '源文本中含有超过服务商安全长度的不可拆分片段，请人工缩短或排除。',
             'TRANSLATION_ROW_UNAVAILABLE', 'ENTRY_INSERT_FAILED' => '翻译库写入未完成；请稍后重试或查看系统日志。',
             'PROCESSING_EXCEPTION' => '发生未归类的本地处理异常；为避免重复计费已停止自动重试。请查看该任务时间点的应用日志。',
             default                => '任务处理失败；请打开任务详情或使用小范围任务验证服务商。',
+        };
+    }
+
+    private function pauseLabel(string $code): string
+    {
+        return match ($code) {
+            'FREE_QUOTA_EXHAUSTED' => '所有支持该语言的已验证账户均达到本周期本地免费额度上限；提高任一账户额度或开启备用账户后会自动恢复。',
+            'NO_VERIFIED_DISPATCH_ACCOUNT' => '没有已启用、已验证且允许派发的翻译账户；验证并开启至少一个账户后会自动恢复。',
+            'NO_PROVIDER_FOR_TARGET_LOCALE' => '现有可派发账户均不支持当前目标语言；添加支持该语种的账户后会自动恢复。',
+            'DISPATCH_MODE_CHANGED' => '翻译运行模式已变更为非“仅免费额度”；恢复该模式后可继续执行。',
+            default => '该任务在旧版本中暂停，未保存具体原因；请检查账户派发状态与本周期免费额度。',
         };
     }
 

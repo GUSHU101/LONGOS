@@ -3,7 +3,6 @@
 namespace Plugin\LongosGlobalTranslate\Services;
 
 use Illuminate\Support\Facades\DB;
-use InvalidArgumentException;
 use RuntimeException;
 
 final class TranslationLibrary
@@ -137,16 +136,11 @@ final class TranslationLibrary
 
     private function validatedText(string $text): string
     {
-        if (! mb_check_encoding($text, 'UTF-8') || trim($text) === '' || mb_strlen($text, 'UTF-8') > 100_000) {
-            throw new InvalidArgumentException('INVALID_TRANSLATION_TEXT');
-        }
-        // Rich text reconstruction is handled separately. A raw provider
-        // response is never permitted to introduce markup in this text field.
-        if (str_contains($text, '<') || str_contains($text, '>')) {
-            throw new InvalidArgumentException('UNSAFE_TRANSLATION');
-        }
-
-        return trim($text);
+        // Keep the incoming and persisted-text contracts identical.  The
+        // scanner has already separated public HTML into text nodes; this
+        // blocks actual markup without rejecting harmless comparison signs
+        // in product specifications.
+        return TextContract::assertSafePlainText($text);
     }
 
     private function version(int $translationId, int $revision, string $sourceHash, string $text, string $status, string $reason, ?int $actorId): void

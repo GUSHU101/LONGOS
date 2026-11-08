@@ -5,6 +5,7 @@ namespace Tests\Unit;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use Plugin\LongosGlobalTranslate\Services\TextContract;
+use Plugin\LongosGlobalTranslate\Services\TranslationLibrary;
 use Plugin\LongosGlobalTranslate\Services\TranslationQualityGate;
 
 class GlobalTranslationTextTest extends TestCase
@@ -82,6 +83,19 @@ class GlobalTranslationTextTest extends TestCase
     {
         $this->expectException(InvalidArgumentException::class);
         TextContract::restore('<img src=x onerror=alert(1)>', []);
+    }
+
+    public function test_plain_comparison_symbols_are_not_mistaken_for_markup(): void
+    {
+        $text = 'Fits displays > 6.1 in and cases < 2 mm thick.';
+
+        self::assertSame($text, TextContract::restore($text, []));
+
+        // The persistence layer must use the exact same plain-text contract
+        // as restore(), otherwise a safe provider response could still be
+        // rejected after the provider has already accepted the request.
+        $method = new \ReflectionMethod(TranslationLibrary::class, 'validatedText');
+        self::assertSame($text, $method->invoke(new TranslationLibrary, $text));
     }
 
     public function test_glossary_replacements_are_restored_without_sending_terms_to_a_provider(): void

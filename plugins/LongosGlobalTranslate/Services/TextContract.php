@@ -6,6 +6,29 @@ use InvalidArgumentException;
 
 final class TextContract
 {
+    /**
+     * Validate text that is going to cross the provider boundary or be saved
+     * back into the local dictionary.  This is deliberately more precise
+     * than the former "contains < or >" guard: product copy such as
+     * "fits screens > 6.1 in" is plain text, while an actual HTML/active
+     * markup fragment is not.
+     *
+     * All storefront dictionary writes are rendered through textContent, but
+     * retaining this boundary prevents a provider from introducing markup if
+     * a future theme accidentally weakens that contract.
+     */
+    public static function assertSafePlainText(string $text): string
+    {
+        if (! mb_check_encoding($text, 'UTF-8') || trim($text) === '' || mb_strlen($text, 'UTF-8') > 100_000) {
+            throw new InvalidArgumentException('INVALID_TRANSLATION_TEXT');
+        }
+        if (self::containsUnsafeMarkup($text)) {
+            throw new InvalidArgumentException('UNSAFE_TRANSLATION');
+        }
+
+        return trim($text);
+    }
+
     public static function units(string $text): array
     {
         if (! mb_check_encoding($text, 'UTF-8')) {
@@ -111,11 +134,22 @@ final class TextContract
         if (preg_match('~(?:LGTX[A-Fa-f0-9]{24}X[0-9]+X[A-Fa-f0-9]{8}|(?:__|\[\[)LGT(?:_|:)[A-Fa-f0-9]{24}(?:_|:)[0-9]+(?:_|:)[A-Fa-f0-9]{8}(?:__|\]\]))~i', $unknownTokenScan) === 1) {
             throw new InvalidArgumentException('UNKNOWN_PROTECTED_TOKEN');
         }
-        if (trim($translated) === '' || str_contains($translated, '<') || str_contains($translated, '>')) {
-            throw new InvalidArgumentException('UNSAFE_TRANSLATION');
-        }
+        $translated = self::assertSafePlainText($translated);
 
         return strtr($translated, $tokens);
+    }
+
+    /**
+     * Detect real markup rather than comparison operators.  The opening
+     * angle bracket must immediately start a tag-like token; ordinary public
+     * copy such as "< 2 mm" and "> 6.1 in" therefore stays translatable.
+     */
+    private static function containsUnsafeMarkup(string $text): bool
+    {
+        return preg_match(
+            '~<!--|<!\\[CDATA\\[|<!DOCTYPE\\b|<\\?|<%|</?[A-Za-z][A-Za-z0-9:-]*(?:\\s+[A-Za-z_:][-A-Za-z0-9_:.]*(?:\\s*=\\s*(?:"[^"]*"|\'[^\']*\'|[^\\s"\'=<>`]+))?)*\\s*/?>~iu',
+            $text,
+        ) === 1;
     }
 
     /**

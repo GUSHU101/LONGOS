@@ -224,7 +224,7 @@ final class TranslationJobService
         }
         $settings = $this->settings->all();
         if ($settings['mode'] !== TranslationSettings::MODE_FREE_ONLY || $job->mode !== TranslationSettings::MODE_FREE_ONLY) {
-            $this->setJobStatus($jobId, 'paused');
+            $this->pauseJob($jobId, 'DISPATCH_MODE_CHANGED');
 
             return;
         }
@@ -411,13 +411,34 @@ final class TranslationJobService
             $this->finishItem((int) $item->id, 'failed', $runToken, 'LOCKED_TRANSLATION_REQUIRES_REVIEW');
             return;
         }
+        // Validate the exact text contract before a provider reservation is
+        // made.  The scanner should already have reduced rich content to
+        // visible text nodes, but this second boundary keeps malformed legacy
+        // values, pasted markup and unsafe control content out of billable
+        // requests instead of discovering them after a provider reply.
+        try {
+            TextContract::assertSafePlainText((string) $entry->source_text);
+            $prepared = TextContract::protect((string) $entry->source_text, $this->protectedTerms($sourceLocale, (string) $item->target_locale));
+            TextContract::assertSafePlainText((string) $prepared['text']);
+            $segments = TextContract::segments($prepared['text'], 4500, 4800, array_keys($prepared['tokens']));
+        } catch (Throwable $exception) {
+            // No account has been reserved and no provider has received this
+            // text. This is a source-index issue, not a billable translation
+            // failure, and is safe to surface without any retry caveat.
+            $sourceFailure = in_array($exception->getMessage(), ['UNSAFE_TRANSLATION', 'INVALID_TRANSLATION_TEXT'], true)
+                ? 'SOURCE_TEXT_REJECTED'
+                : $this->failureCode($exception);
+            $this->finishItem((int) $item->id, 'failed', $runToken, $sourceFailure);
+
+            return;
+        }
         $accounts = $this->accountsFor($sourceLocale, (string) $item->target_locale);
         if ($accounts === []) {
             // No account is a recoverable operator configuration state, not
             // a source failure. Put this exact item back and stop dispatching
             // until an operator explicitly enables a verified account.
             $this->releaseItem((int) $item->id, $runToken);
-            $this->setJobStatus((int) $job->id, 'paused');
+            $this->pauseJob((int) $job->id, $this->noDispatchAccountReason($sourceLocale, (string) $item->target_locale));
 
             return;
         }
@@ -431,8 +452,6 @@ final class TranslationJobService
             (string) $entry->kind,
             (string) $entry->field,
         );
-        $prepared           = TextContract::protect((string) $entry->source_text, $this->protectedTerms($sourceLocale, (string) $item->target_locale));
-        $segments           = TextContract::segments($prepared['text'], 4500, 4800, array_keys($prepared['tokens']));
         $successful         = [];
         $translatedSegments = [];
         $providersUsed      = [];
@@ -458,7 +477,7 @@ final class TranslationJobService
                     // it safe to resume when an operator tops up or enables a
                     // further free provider.
                     $this->releaseItem((int) $item->id, $runToken);
-                    $this->setJobStatus((int) $job->id, 'paused');
+                    $this->pauseJob((int) $job->id, 'FREE_QUOTA_EXHAUSTED');
                 } else {
                     // Earlier segments may already have been accepted. Never
                     // requeue the whole field and risk charging them twice.
@@ -675,6 +694,35 @@ final class TranslationJobService
         return $accounts;
     }
 
+    /**
+     * A paused free-only job is intentional only when it has no remaining
+     * safe dispatch capacity.  Persist a compact cause in the durable job
+     * plan so the dashboard explains the stop and can tell the operator what
+     * action (top up, enable, or add a language-capable account) resumes it.
+     */
+    private function noDispatchAccountReason(string $source, string $target): string
+    {
+        $configured = DB::table('lgt_provider_accounts')
+            ->where('owner_scope', 'tenant')
+            ->where('enabled', true)
+            ->where('dispatch_enabled', true)
+            ->whereNotNull('verified_at')
+            ->get(['provider']);
+        if ($configured->isEmpty()) {
+            return 'NO_VERIFIED_DISPATCH_ACCOUNT';
+        }
+        foreach ($configured as $account) {
+            if ($this->providers->get((string) $account->provider)->supports($source, $target)) {
+                // This branch is normally reached only if an account changed
+                // between selection and processing. Use the capacity reason
+                // rather than pretending the target locale is unsupported.
+                return 'FREE_QUOTA_EXHAUSTED';
+            }
+        }
+
+        return 'NO_PROVIDER_FOR_TARGET_LOCALE';
+    }
+
     private function claim(int $jobId, string $runToken): ?object
     {
         return DB::transaction(function () use ($jobId, $runToken): ?object {
@@ -765,7 +813,44 @@ final class TranslationJobService
 
     private function setJobStatus(int $jobId, string $status, bool $finished = false): void
     {
-        DB::table('lgt_jobs')->where('id', $jobId)->update(['status' => $status, 'started_at' => $status === 'running' ? now() : DB::raw('started_at'), 'finished_at' => $finished ? now() : DB::raw('finished_at'), 'updated_at' => now()]);
+        DB::transaction(function () use ($jobId, $status, $finished): void {
+            $job = DB::table('lgt_jobs')->where('id', $jobId)->lockForUpdate()->first();
+            if ($job === null) {
+                return;
+            }
+            $updates = [
+                'status'     => $status,
+                'started_at' => $status === 'running' ? now() : DB::raw('started_at'),
+                'finished_at' => $finished ? now() : DB::raw('finished_at'),
+                'updated_at' => now(),
+            ];
+            if ($status === 'running') {
+                $plan = json_decode((string) ($job->plan ?? ''), true);
+                if (is_array($plan) && array_key_exists('pause', $plan)) {
+                    unset($plan['pause']);
+                    $updates['plan'] = json_encode($plan, JSON_UNESCAPED_UNICODE);
+                }
+            }
+            DB::table('lgt_jobs')->where('id', $jobId)->update($updates);
+        }, 3);
+    }
+
+    private function pauseJob(int $jobId, string $reason): void
+    {
+        DB::transaction(function () use ($jobId, $reason): void {
+            $job = DB::table('lgt_jobs')->where('id', $jobId)->lockForUpdate()->first();
+            if ($job === null || in_array((string) $job->status, ['completed', 'partial_failed', 'failed', 'cancelled'], true)) {
+                return;
+            }
+            $plan = json_decode((string) ($job->plan ?? ''), true);
+            $plan = is_array($plan) ? $plan : [];
+            $plan['pause'] = ['code' => $reason, 'at' => now()->toIso8601String()];
+            DB::table('lgt_jobs')->where('id', $jobId)->update([
+                'status'     => 'paused',
+                'plan'       => json_encode($plan, JSON_UNESCAPED_UNICODE),
+                'updated_at' => now(),
+            ]);
+        }, 3);
     }
 
     /**
