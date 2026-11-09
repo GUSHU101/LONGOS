@@ -17,6 +17,60 @@ final class TranslationLibrary
 
     public const STALE = 'stale';
 
+    /**
+     * Remove one target-language library and every immutable publication of
+     * it while retaining source entries, jobs, attempts and usage evidence.
+     * Active jobs are rejected to avoid racing a worker that is about to save
+     * a result for the same locale.
+     *
+     * @return array<string,int|string>
+     */
+    public function resetLocale(string $locale, ?int $actorId): array
+    {
+        $locale = TranslationSettings::locale($locale);
+        if ($locale === 'en') {
+            throw new RuntimeException('SOURCE_LOCALE_CANNOT_BE_RESET');
+        }
+        $active = DB::table('lgt_jobs')->whereIn('status', ['queued', 'scanning', 'running', 'pausing'])->get(['target_locales']);
+        foreach ($active as $job) {
+            $targets = json_decode((string) $job->target_locales, true);
+            if (is_array($targets) && in_array($locale, $targets, true)) {
+                throw new RuntimeException('LOCALE_HAS_ACTIVE_JOB');
+            }
+        }
+
+        return DB::transaction(function () use ($locale, $actorId): array {
+            $publicationIds = DB::table('lgt_publications')->where('locale', $locale)->lockForUpdate()->pluck('id')->all();
+            $translationIds = DB::table('lgt_translations')->where('locale', $locale)->lockForUpdate()->pluck('id')->all();
+            $counts         = [
+                'translations'    => count($translationIds),
+                'versions'        => $translationIds === [] ? 0 : DB::table('lgt_translation_versions')->whereIn('translation_id', $translationIds)->count(),
+                'publications'    => count($publicationIds),
+                'published_items' => $publicationIds === [] ? 0 : DB::table('lgt_publication_items')->whereIn('publication_id', $publicationIds)->count(),
+            ];
+            if ($publicationIds !== []) {
+                DB::table('lgt_publication_items')->whereIn('publication_id', $publicationIds)->delete();
+                DB::table('lgt_publications')->whereIn('id', $publicationIds)->delete();
+            }
+            if ($translationIds !== []) {
+                DB::table('lgt_translation_versions')->whereIn('translation_id', $translationIds)->delete();
+                DB::table('lgt_translations')->whereIn('id', $translationIds)->delete();
+            }
+            DB::table('lgt_audit_logs')->insert([
+                'actor_id'     => $actorId,
+                'action'       => 'translation_library_reset',
+                'subject_type' => 'locale',
+                'subject_id'   => null,
+                'before'       => json_encode(['locale' => $locale, ...$counts]),
+                'after'        => json_encode(['locale' => $locale, 'translations' => 0, 'publications' => 0]),
+                'created_at'   => now(),
+                'updated_at'   => now(),
+            ]);
+
+            return ['locale' => $locale, ...$counts];
+        }, 3);
+    }
+
     /** @return array<string, mixed> */
     public function saveMachineResult(int $entryId, string $locale, string $sourceHash, string $text, string $provider, ?int $accountId): array
     {

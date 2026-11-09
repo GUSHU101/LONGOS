@@ -52,8 +52,11 @@ class DirectPaymentService
             // A provider-owned approval URL is safe to open directly from
             // the tenant checkout. The dedicated account hostname remains
             // solely in PayPal's signed return/cancel URLs; it is never used
-            // as a customer-facing LONGOS payment screen.
-            for ($attempt = 0; $attempt < 2; $attempt++) {
+            // as a customer-facing LONGOS payment screen. Try every currently
+            // routable managed account once (with a hard safety bound) so an
+            // A/B outage cannot rotate to C and then stop before C is tried.
+            $maxAttempts = $this->paypalPreOrderAttemptLimit();
+            for ($attempt = 0; $attempt < $maxAttempts; $attempt++) {
                 try {
                     $session         = $this->sessions->claimProvider($session, 'paypal');
                     $result          = (new PlatformPaypalGateway($this->settings, null, $session))->create($session, $created['token']);
@@ -105,5 +108,21 @@ class DirectPaymentService
         } catch (Throwable) {
             // Account telemetry must never hide the original checkout error.
         }
+    }
+
+    private function paypalPreOrderAttemptLimit(): int
+    {
+        try {
+            $accounts = app(PlatformPaymentAccountService::class);
+            if ($accounts->hasManagedPaypalAccounts()) {
+                return max(1, min(10, $accounts->activePaypalAccounts()->count()));
+            }
+        } catch (Throwable) {
+            // A stale control schema must not make the legacy single-account
+            // path less available. Session creation still performs its own
+            // authoritative readiness checks.
+        }
+
+        return 1;
     }
 }

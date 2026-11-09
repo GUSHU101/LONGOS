@@ -25,6 +25,46 @@ final class UsageLedger
 
     public const UNCERTAIN = 'uncertain';
 
+    /**
+     * Credential-free local budget snapshot for the operator console.
+     * This is the authoritative LONGOS safety ledger, not a claim about a
+     * provider's remote billing console. External usage can be represented by
+     * the configured buffer without granting paid overage.
+     *
+     * @return array<string,int|string>
+     */
+    public function summary(object|array $account, ?CarbonImmutable $now = null): array
+    {
+        $account = (object) $account;
+        $now   ??= CarbonImmutable::now('UTC');
+        $cycle   = $now->setTimezone((string) ($account->cycle_timezone ?? 'UTC'))->format('Y-m');
+        $month   = DB::table('lgt_usage_months')
+            ->where('provider_account_id', (int) $account->id)
+            ->where('billing_cycle', $cycle)
+            ->first();
+        $limit     = $month === null ? $this->cap($account) : (int) $month->soft_limit;
+        $committed = (int) ($month->committed_units ?? 0);
+        $reserved  = (int) ($month->reserved_units ?? 0);
+        $sending   = (int) ($month->sending_units ?? 0);
+        $uncertain = (int) ($month->uncertain_units ?? 0);
+        $external  = (int) ($month->external_usage_buffer ?? $account->external_usage_buffer ?? 0);
+        $occupied  = $committed + $reserved + $sending + $uncertain + $external;
+
+        return [
+            'billing_cycle'         => $cycle,
+            'local_limit'           => $limit,
+            'committed'             => $committed,
+            'reserved'              => $reserved,
+            'sending'               => $sending,
+            'uncertain'             => $uncertain,
+            'external_buffer'       => $external,
+            'occupied'              => $occupied,
+            'remaining'             => max(0, $limit - $occupied),
+            'used_percent'          => $limit > 0 ? min(100, (int) floor(($occupied / $limit) * 100)) : 0,
+            'remote_quota_status'   => 'not_queried',
+        ];
+    }
+
     /** @return array{id:int,request_uuid:string,billing_cycle:string,units:int,state:string} */
     public function reserve(int $accountId, int $units, ?int $jobItemId = null, ?string $requestUuid = null, ?CarbonImmutable $now = null, bool $controlledVerification = false): array
     {

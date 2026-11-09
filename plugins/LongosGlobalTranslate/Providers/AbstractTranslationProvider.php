@@ -74,10 +74,38 @@ abstract class AbstractTranslationProvider implements TranslationProviderInterfa
             // A transfer exception can occur after a request left the process.
             return ['kind' => 'uncertain', 'code' => 'NETWORK_AFTER_SEND', 'definitely_unbilled' => false];
         }
+        if ($failure instanceof InvalidArgumentException) {
+            $code = strtoupper(trim($failure->getMessage()));
+            if (preg_match('/^[A-Z0-9_]{3,96}$/', $code) === 1) {
+                // Provider adapters throw these while validating a local
+                // request or decoding local credentials, before their HTTP
+                // client is invoked. They are safe to expose and release.
+                return ['kind' => 'definite_failure', 'code' => $code, 'definitely_unbilled' => true];
+            }
+        }
         if ($failure instanceof TranslationProviderResponse) {
-            $code = (string) ($failure->errorCode ?? 'UNKNOWN_PROVIDER_ERROR');
+            $code = strtoupper(trim((string) ($failure->errorCode ?? 'UNKNOWN_PROVIDER_ERROR')));
             if (in_array($code, ['INVALID_INPUT', 'UNSUPPORTED_LANGUAGE', 'AUTH', 'NOT_OPENED', 'RATE_LIMIT', 'BALANCE_EXHAUSTED'], true)) {
                 return ['kind' => 'definite_failure', 'code' => $code, 'definitely_unbilled' => true];
+            }
+
+            // Provider adapters already reduce upstream responses to a short
+            // non-secret code (for example DEEPL_429 or AZURE_401). Preserve
+            // that actionable code while keeping the conservative uncertain
+            // billing state. Collapsing every response to UNKNOWN made the
+            // control panel unable to tell an operator what must be fixed.
+            if (preg_match('/^[A-Z0-9_]{3,96}$/', $code) === 1) {
+                return ['kind' => 'uncertain', 'code' => $code, 'definitely_unbilled' => false];
+            }
+        }
+        if ($failure instanceof \Throwable) {
+            $code = strtoupper(trim($failure->getMessage()));
+            if (preg_match('/^[A-Z0-9_]{3,96}$/', $code) === 1) {
+                // A provider adapter or transport wrapper may surface a
+                // stable diagnostic as an exception. Preserve it for the
+                // operator but keep the attempt uncertain because the body
+                // may already have left the process.
+                return ['kind' => 'uncertain', 'code' => $code, 'definitely_unbilled' => false];
             }
         }
 

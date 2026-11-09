@@ -178,7 +178,8 @@
     // tenant endpoint, rather than exposing the account callback host as a
     // browser checkout page. A bounded retry prevents an unhealthy pool from
     // trapping a shopper in a loop.
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    const maxAttempts = Math.max(1, Math.min(10, Number(data.paypal?.max_preorder_attempts || 1)))
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       const result = await request(data.endpoints.paypal_create)
       if (result?.account_rotated !== true) return result
       setStatus(messages.processing)

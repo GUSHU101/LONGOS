@@ -423,6 +423,30 @@ final class AdminTranslationController extends Controller
         ]);
     }
 
+    public function resetLibrary(Request $request, string $locale): JsonResponse
+    {
+        $this->requireSchema();
+        $locale = TranslationSettings::locale($locale);
+        $data   = $request->validate(['confirmation' => ['required', 'string', 'max:40']]);
+        if (! hash_equals('RESET ' . strtoupper($locale), trim((string) $data['confirmation']))) {
+            throw ValidationException::withMessages(['confirmation' => '确认文字不正确，未删除任何数据。']);
+        }
+
+        try {
+            $result = $this->library->resetLocale($locale, $this->actorId());
+        } catch (\RuntimeException $exception) {
+            $message = match ($exception->getMessage()) {
+                'SOURCE_LOCALE_CANNOT_BE_RESET'  => '原始语言被锁定，不能删除。',
+                'LOCALE_HAS_ACTIVE_JOB'          => '该语言仍有运行中的翻译任务，请等待任务结束或暂停后再重置。',
+                default                          => '翻译库重置失败，未删除任何数据。',
+            };
+
+            throw ValidationException::withMessages(['locale' => $message]);
+        }
+
+        return $this->json(['deleted' => true, 'result' => $result]);
+    }
+
     /** Brand/SKU protection for future provider requests; never auto-resends existing text. */
     public function saveProtectedTerm(Request $request): JsonResponse
     {
@@ -723,8 +747,9 @@ final class AdminTranslationController extends Controller
 
     private function failureLabel(string $code): string
     {
-        if (str_starts_with($code, 'BAIDU_') || str_starts_with($code, 'ALIYUN_') || str_starts_with($code, 'VOLCENGINE_')) {
-            return '服务商返回了未归类的错误；未自动重试以避免重复计费。';
+        if (str_starts_with($code, 'BAIDU_') || str_starts_with($code, 'ALIYUN_') || str_starts_with($code, 'VOLCENGINE_')
+                                             || str_starts_with($code, 'DEEPL_') || str_starts_with($code, 'GOOGLE_') || str_starts_with($code, 'AZURE_')) {
+            return '服务商返回错误码 ' . $code . '；请检查账户权限、区域、语种、额度或服务状态。为避免重复计费，未对已发送请求自动重试。';
         }
 
         return match ($code) {
@@ -740,15 +765,16 @@ final class AdminTranslationController extends Controller
             'PRE_SEND_FAILURE' => '请求在发送前失败，请检查服务商配置后重试。',
             'PROVIDER_CREDENTIALS_MISSING', 'PROVIDER_CREDENTIALS_UNREADABLE', 'INVALID_PROVIDER_CREDENTIALS' => '服务商凭据缺失、无法解密或格式不正确；未发出翻译请求。',
             'PROVIDER_RATE_LIMIT_CLOCK_SKEW', 'PROVIDER_RATE_LIMIT_WAIT_INTERRUPTED' => '本地 QPS 安全限制异常，未发出请求；请检查服务器时间和账户 QPS 设置。',
-            'PROTECTED_TOKEN_CHANGED'     => '服务商改写了保护占位符（链接、价格、变量等），译文已被安全拒绝，请人工审核。',
+            'PROTECTED_TOKEN_CHANGED'     => '这是旧版任务的保护占位符失配记录。新任务已改为本地切片与重组，链接、价格、变量和邮箱不再发给服务商；请在发布新版后新建增量任务。',
             'UNKNOWN_PROTECTED_TOKEN'     => '译文出现非法的保护占位符，译文已被安全拒绝。',
-            'PROVIDER_TOKEN_INCOMPATIBLE' => '该服务商会改写链接、价格或变量保护标记，未通过受控验证；请更换服务商或联系其技术支持。',
+            'PROVIDER_TOKEN_INCOMPATIBLE' => '旧版服务商验证使用过保护占位符；新版已改用本地切片，请重新验证该账户。',
+            'PROVIDER_RESPONSE_UNSAFE'    => '服务商验证返回了空内容、无效编码或 HTML 标记，未通过安全检查。',
             'INVALID_TRANSLATION_TEXT'    => '译文为空、过长或不是有效 UTF-8，已被安全拒绝。',
             'SOURCE_TEXT_REJECTED'        => '原文不符合安全文本契约，已在发送给服务商前拦截，未产生翻译请求。',
             'SEGMENT_TOO_LARGE', 'ATOMIC_TOKEN_TOO_LARGE' => '源文本中含有超过服务商安全长度的不可拆分片段，请人工缩短或排除。',
             'TRANSLATION_ROW_UNAVAILABLE', 'ENTRY_INSERT_FAILED' => '翻译库写入未完成；请稍后重试或查看系统日志。',
             'PROCESSING_EXCEPTION' => '发生未归类的本地处理异常；为避免重复计费已停止自动重试。请查看该任务时间点的应用日志。',
-            default                => '任务处理失败；请打开任务详情或使用小范围任务验证服务商。',
+            default                => '未识别的失败代码 ' . $code . '；请保留任务 ID 并查看同一时间的应用日志，不会将已发送请求盲目重试。',
         };
     }
 

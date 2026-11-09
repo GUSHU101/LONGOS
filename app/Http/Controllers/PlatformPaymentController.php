@@ -89,7 +89,9 @@ class PlatformPaymentController extends Controller
                     $this->recordPaypalTechnicalFailure($session);
                     $replacement = $this->sessions->rotatePaypalAccountAfterPreOrderFailure($session);
                     if ($replacement) {
-                        // The tenant checkout retries this same endpoint once.
+                        // The tenant checkout retries this same endpoint with
+                        // the next account, bounded by the active account pool
+                        // size supplied when the checkout session is created.
                         // Deliberately return no callback-host URL: that host is
                         // provider-return infrastructure, not a shopper-facing
                         // payment page.

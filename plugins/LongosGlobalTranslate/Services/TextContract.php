@@ -89,18 +89,8 @@ final class TextContract
     {
         $tokens       = [];
         $nonce        = bin2hex(random_bytes(12));
-        $replacements = [];
-        foreach ($protectedTerms as $term => $replacement) {
-            $source = trim((string) (is_int($term) ? $replacement : $term));
-            if ($source === '') {
-                continue;
-            }
-            $target                = is_int($term) ? $source : trim((string) $replacement);
-            $replacements[$source] = $target !== '' ? $target : $source;
-        }
-        $quotedTerms = array_values(array_map(static fn (string $term): string => preg_quote($term, '~'), array_keys($replacements)));
-        $termPattern = $quotedTerms === [] ? '(?!)' : '(?:' . implode('|', $quotedTerms) . ')';
-        $masked      = preg_replace_callback('~' . $termPattern . '|https?://[^\s<>]+|[\w.+-]+@[\w.-]+\.[a-z]{2,}|\{\{[^{}]+\}\}|\{[\w]+\}|(?<!\w):[a-zA-Z_]+|%[sd]|[$€£]?\d+(?:[.,]\d+)*(?:%|\s?(?:kg|cm|mm|GB|TB))?~u', function (array $match) use (&$tokens, $nonce, $replacements): string {
+        $replacements = self::protectedReplacements($protectedTerms);
+        $masked       = preg_replace_callback(self::protectedPattern($replacements), function (array $match) use (&$tokens, $nonce, $replacements): string {
             // Translation engines routinely turn brackets, underscores and
             // punctuation into typographic variants. A single opaque ASCII
             // word has proved far more stable across all supported engines:
@@ -115,6 +105,44 @@ final class TextContract
         }, $text);
 
         return ['text' => $masked, 'tokens' => $tokens];
+    }
+
+    /**
+     * Split a source field before it crosses the provider boundary. Protected
+     * values are replaced locally and are never embedded in an opaque marker
+     * sent to an external service. This removes an entire class of provider
+     * token-mutation failures while keeping the strict restore() contract for
+     * historical attempts created by older plugin releases.
+     *
+     * @param list<string>|array<string, string> $protectedTerms
+     * @return list<array{translate:bool,text:string}>
+     */
+    public static function translationPlan(string $text, array $protectedTerms = []): array
+    {
+        self::assertSafePlainText($text);
+        $replacements = self::protectedReplacements($protectedTerms);
+        $matches      = [];
+        preg_match_all(self::protectedPattern($replacements), $text, $matches, PREG_OFFSET_CAPTURE);
+
+        $parts  = [];
+        $offset = 0;
+        foreach ($matches[0] ?? [] as $match) {
+            $source = (string) ($match[0] ?? '');
+            $start  = (int) ($match[1] ?? 0);
+            if ($start > $offset) {
+                self::appendPlanPart($parts, true, substr($text, $offset, $start - $offset));
+            }
+            self::appendPlanPart($parts, false, $replacements[$source] ?? $source);
+            $offset = $start + strlen($source);
+        }
+        if ($offset < strlen($text)) {
+            self::appendPlanPart($parts, true, substr($text, $offset));
+        }
+        if ($parts === []) {
+            $parts[] = ['translate' => true, 'text' => $text];
+        }
+
+        return $parts;
     }
 
     public static function restore(string $translated, array $tokens): string
@@ -150,6 +178,53 @@ final class TextContract
             '~<!--|<!\\[CDATA\\[|<!DOCTYPE\\b|<\\?|<%|</?[A-Za-z][A-Za-z0-9:-]*(?:\\s+[A-Za-z_:][-A-Za-z0-9_:.]*(?:\\s*=\\s*(?:"[^"]*"|\'[^\']*\'|[^\\s"\'=<>`]+))?)*\\s*/?>~iu',
             $text,
         ) === 1;
+    }
+
+    /** @param list<string>|array<string, string> $protectedTerms @return array<string,string> */
+    private static function protectedReplacements(array $protectedTerms): array
+    {
+        $replacements = [];
+        foreach ($protectedTerms as $term => $replacement) {
+            $source = trim((string) (is_int($term) ? $replacement : $term));
+            if ($source === '') {
+                continue;
+            }
+            $target                = is_int($term) ? $source : trim((string) $replacement);
+            $replacements[$source] = $target !== '' ? $target : $source;
+        }
+        uksort($replacements, static fn (string $left, string $right): int => strlen($right) <=> strlen($left));
+
+        return $replacements;
+    }
+
+    /** @param array<string,string> $replacements */
+    private static function protectedPattern(array $replacements): string
+    {
+        $quotedTerms = array_map(static fn (string $term): string => preg_quote($term, '~'), array_keys($replacements));
+        $termPattern = $quotedTerms === [] ? '(?!)' : '(?:' . implode('|', $quotedTerms) . ')';
+
+        return '~' . $termPattern . '|(?i:https?://[^\s<>]+|[\w.+-]+@[\w.-]+\.[a-z]{2,})|\{\{[^{}]+\}\}|\{[\w]+\}|(?<!\w):[a-zA-Z_]+|%[sd]|[$€£]?\d+(?:[.,]\d+)*(?:%|\s?(?:kg|cm|mm|GB|TB))?~u';
+    }
+
+    /** @param list<array{translate:bool,text:string}> $parts */
+    private static function appendPlanPart(array &$parts, bool $translate, string $text): void
+    {
+        if ($text === '') {
+            return;
+        }
+        // Whitespace, punctuation, emoji and already-protected numeric
+        // fragments have no linguistic content. Keeping them local reduces
+        // billable calls and prevents a provider from rewriting typography.
+        if ($translate && preg_match('/\p{L}/u', $text) !== 1) {
+            $translate = false;
+        }
+        $last = array_key_last($parts);
+        if ($last !== null && $parts[$last]['translate'] === $translate) {
+            $parts[$last]['text'] .= $text;
+
+            return;
+        }
+        $parts[] = ['translate' => $translate, 'text' => $text];
     }
 
     /**

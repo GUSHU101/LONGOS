@@ -113,6 +113,15 @@ class GlobalTranslationWorkflowTest extends TestCase
         $rolledBack = (new PublicationService)->rollback('fr', $publication['id'], 9);
         self::assertSame(2, $rolledBack['revision']);
         self::assertSame($publication['id'], DB::table('lgt_publications')->where('id', $rolledBack['id'])->value('rollback_of'));
+
+        $reset = $library->resetLocale('fr', 9);
+        self::assertSame('fr', $reset['locale']);
+        self::assertSame(1, $reset['translations']);
+        self::assertSame(2, $reset['publications']);
+        self::assertSame(0, DB::table('lgt_translations')->where('locale', 'fr')->count());
+        self::assertSame(0, DB::table('lgt_publications')->where('locale', 'fr')->count());
+        self::assertSame(1, DB::table('lgt_entries')->where('id', $entryId)->count(), 'A locale reset must preserve the scanned source library.');
+        self::assertSame('translation_library_reset', DB::table('lgt_audit_logs')->latest('id')->value('action'));
     }
 
     public function test_public_dictionary_uses_the_newest_published_snapshot_if_a_recovery_left_multiple_active_rows(): void
@@ -512,6 +521,12 @@ class GlobalTranslationWorkflowTest extends TestCase
         }
         $attempt = $ledger->reserve($accountId, 1, null, 'd07c8d2a-014f-4c54-a573-6c269d2ae118');
         self::assertSame($attempt['id'], $ledger->reserve($accountId, 1, null, 'd07c8d2a-014f-4c54-a573-6c269d2ae118')['id']);
+        $public = (new ProviderAccountService($ledger))->publicAccounts()[0]['local_usage'];
+        self::assertSame(100, $public['local_limit']);
+        self::assertSame(100, $public['reserved']);
+        self::assertSame(0, $public['remaining']);
+        self::assertSame(100, $public['used_percent']);
+        self::assertSame('not_queried', $public['remote_quota_status']);
         $this->expectException(RuntimeException::class);
         $ledger->reserve($accountId, 1);
     }
@@ -744,10 +759,10 @@ class GlobalTranslationWorkflowTest extends TestCase
         self::assertNotNull($verified['verified_at']);
         self::assertFalse((bool) $verified['dispatch_enabled']);
         self::assertSame('committed', DB::table('lgt_attempts')->value('state'));
-        self::assertGreaterThan(19, (int) DB::table('lgt_usage_months')->value('committed_units'));
+        self::assertGreaterThan(0, (int) DB::table('lgt_usage_months')->value('committed_units'));
     }
 
-    public function test_provider_verification_refuses_an_account_that_corrupts_protected_markers(): void
+    public function test_provider_verification_never_sends_brand_price_or_placeholder_to_provider(): void
     {
         $accounts = new ProviderAccountService;
         $account  = $accounts->save([
@@ -755,6 +770,8 @@ class GlobalTranslationWorkflowTest extends TestCase
         ], ['appid' => 'app-id', 'secret' => 'secret-value'], 8);
         $provider = new class implements TranslationProviderInterface
         {
+            public array $received = [];
+
             public function id(): string
             {
                 return 'baidu';
@@ -774,7 +791,9 @@ class GlobalTranslationWorkflowTest extends TestCase
 
             public function send(TranslationProviderRequest $request, array $credentials): TranslationProviderResponse
             {
-                return new TranslationProviderResponse(true, ['Vérification LONGOS sans marqueur'], 'provider-probe', null, hash('sha256', 'probe'), 1);
+                $this->received = $request->segments;
+
+                return new TranslationProviderResponse(true, ['montant de vérification'], 'provider-probe', null, hash('sha256', 'probe'), 1);
             }
 
             public function classifyFailure(\Throwable|TranslationProviderResponse $failure): array
@@ -783,14 +802,13 @@ class GlobalTranslationWorkflowTest extends TestCase
             }
         };
 
-        try {
-            (new ProviderVerificationService($accounts, new ProviderRegistry(['baidu' => $provider]), new UsageLedger))->verify((int) $account['id'], 8);
-            self::fail('A provider that drops protected markers must not become dispatchable.');
-        } catch (RuntimeException $exception) {
-            self::assertSame('PROVIDER_TOKEN_INCOMPATIBLE', $exception->getMessage());
-        }
+        (new ProviderVerificationService($accounts, new ProviderRegistry(['baidu' => $provider]), new UsageLedger))->verify((int) $account['id'], 8);
 
-        self::assertNull(DB::table('lgt_provider_accounts')->where('id', $account['id'])->value('verified_at'));
+        self::assertCount(1, $provider->received);
+        self::assertStringNotContainsString('LONGOS', $provider->received[0]);
+        self::assertStringNotContainsString('$19.99', $provider->received[0]);
+        self::assertStringNotContainsString('LGTX', $provider->received[0]);
+        self::assertNotNull(DB::table('lgt_provider_accounts')->where('id', $account['id'])->value('verified_at'));
         self::assertSame(UsageLedger::COMMITTED, DB::table('lgt_attempts')->where('provider_account_id', $account['id'])->value('state'));
     }
 
@@ -1425,6 +1443,68 @@ class GlobalTranslationWorkflowTest extends TestCase
         $ledger->recoverWorkerLoss($sending['id']);
         self::assertSame(UsageLedger::UNCERTAIN, DB::table('lgt_attempts')->where('id', $sending['id'])->value('state'));
         self::assertSame(10, (int) DB::table('lgt_usage_months')->where('provider_account_id', $account['id'])->value('uncertain_units'));
+    }
+
+    public function test_job_never_sends_links_prices_variables_or_emails_to_a_provider(): void
+    {
+        (new TranslationSettings)->save(['mode' => TranslationSettings::MODE_FREE_ONLY, 'enabled_locales' => ['fr']]);
+        $accounts = new ProviderAccountService;
+        $account  = $accounts->save([
+            'provider' => 'baidu', 'billing_identity' => 'local-fragment-contract', 'enabled' => true, 'free_quota' => 10_000, 'soft_cap' => 10_000,
+        ], ['appid' => 'fragment-app', 'secret' => 'fragment-secret'], 22);
+        $accounts->markVerified((int) $account['id'], 22);
+        $accounts->setDispatch((int) $account['id'], true, 22);
+        $source   = 'Send :name the $39.99 offer at https://example.com from shop@example.com.';
+        $entryId  = $this->queueSingleTranslationItem('local-fragment-contract', $source, 'aef78093-1284-4bde-8cbf-000000000001');
+        $jobId    = (int) DB::table('lgt_job_items')->where('entry_id', $entryId)->value('job_id');
+        $provider = new class implements TranslationProviderInterface
+        {
+            /** @var list<string> */
+            public array $received = [];
+
+            public function id(): string
+            {
+                return 'baidu';
+            }
+
+            public function validateCredentialShape(array $credentials): void {}
+
+            public function supports(string $sourceLocale, string $targetLocale): bool
+            {
+                return true;
+            }
+
+            public function buildBatches(array $segments, string $sourceLocale, string $targetLocale): array
+            {
+                return [$segments];
+            }
+
+            public function send(TranslationProviderRequest $request, array $credentials): TranslationProviderResponse
+            {
+                array_push($this->received, ...$request->segments);
+
+                return new TranslationProviderResponse(true, ['texte'], 'fragment-' . count($this->received), null, hash('sha256', 'fragment'), 1);
+            }
+
+            public function classifyFailure(\Throwable|TranslationProviderResponse $failure): array
+            {
+                return ['kind' => 'definite_failure', 'code' => 'TEST', 'definitely_unbilled' => true];
+            }
+        };
+        (new TranslationJobService(new ContentScanner, new TranslationSettings, $accounts, new ProviderRegistry(['baidu' => $provider]), new UsageLedger, new TranslationLibrary))
+            ->process($jobId, 1, '038dc1c3-d3d4-40bb-a959-000000000001');
+
+        $sent = implode('', $provider->received);
+        self::assertStringNotContainsString(':name', $sent);
+        self::assertStringNotContainsString('$39.99', $sent);
+        self::assertStringNotContainsString('https://example.com', $sent);
+        self::assertStringNotContainsString('shop@example.com', $sent);
+        $saved = (string) DB::table('lgt_translations')->where('entry_id', $entryId)->value('text');
+        self::assertStringContainsString(':name', $saved);
+        self::assertStringContainsString('$39.99', $saved);
+        self::assertStringContainsString('https://example.com', $saved);
+        self::assertStringContainsString('shop@example.com', $saved);
+        self::assertSame('completed', DB::table('lgt_job_items')->where('entry_id', $entryId)->value('status'));
     }
 
     private function queueSingleTranslationItem(string $key, string $source, string $jobPublicId): int

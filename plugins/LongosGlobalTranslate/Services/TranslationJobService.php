@@ -143,11 +143,15 @@ final class TranslationJobService
                     $rows = [];
                     foreach ($entries as $entry) {
                         foreach ($locales as $locale) {
-                            $pair        = (int) $entry->id . ':' . $locale;
-                            $translation = $savedByPair[$pair] ?? null;
-                            if ($translation                                               !== null && hash_equals((string) $entry->source_hash, (string) $translation->source_hash)
-                                                      && trim((string) $translation->text) !== ''
-                                                      && in_array((string) $translation->status, [TranslationLibrary::TRANSLATED, TranslationLibrary::NEEDS_REVIEW, TranslationLibrary::APPROVED], true)) {
+                            $pair                = (int) $entry->id . ':' . $locale;
+                            $translation         = $savedByPair[$pair] ?? null;
+                            $translationReusable = $translation !== null;
+                            if ($translationReusable) {
+                                $translationReusable = hash_equals((string) $entry->source_hash, (string) $translation->source_hash)
+                                    && trim((string) $translation->text) !== ''
+                                    && in_array((string) $translation->status, [TranslationLibrary::TRANSLATED, TranslationLibrary::NEEDS_REVIEW, TranslationLibrary::APPROVED], true);
+                            }
+                            if ($translationReusable) {
                                 $reusedTranslations++;
 
                                 continue;
@@ -207,12 +211,16 @@ final class TranslationJobService
                 ],
             ];
         }, 3);
-        $job = $result['job'];
-        if ($job['created'] && $job['mode'] === TranslationSettings::MODE_FREE_ONLY
-                            && (int) $job['total_items'] > 0) {
+        $job            = $result['job'];
+        $shouldDispatch = $job['created']
+            && $job['mode'] === TranslationSettings::MODE_FREE_ONLY
+            && (int) $job['total_items'] > 0;
+        $shouldResume = ! $job['created']
+            && $job['status'] === 'paused'
+            && $job['mode']   === TranslationSettings::MODE_FREE_ONLY;
+        if ($shouldDispatch) {
             ProcessTranslationJob::dispatch((int) $job['id'])->afterCommit();
-        } elseif (! $job['created'] && $job['status'] === 'paused'
-                                    && $job['mode']                           === TranslationSettings::MODE_FREE_ONLY) {
+        } elseif ($shouldResume) {
             $this->resumePausedJobs();
         }
 
@@ -403,9 +411,13 @@ final class TranslationJobService
         // review and version contracts; a new task is idempotent here.
         $existing = DB::table('lgt_translations')
             ->where('entry_id', $entry->id)->where('locale', $item->target_locale)->first();
-        if ($existing                                            !== null && hash_equals((string) $entry->source_hash, (string) $existing->source_hash)
-                               && trim((string) $existing->text) !== ''
-                               && in_array((string) $existing->status, [TranslationLibrary::TRANSLATED, TranslationLibrary::NEEDS_REVIEW, TranslationLibrary::APPROVED], true)) {
+        $existingReusable = $existing !== null;
+        if ($existingReusable) {
+            $existingReusable = hash_equals((string) $entry->source_hash, (string) $existing->source_hash)
+                && trim((string) $existing->text) !== ''
+                && in_array((string) $existing->status, [TranslationLibrary::TRANSLATED, TranslationLibrary::NEEDS_REVIEW, TranslationLibrary::APPROVED], true);
+        }
+        if ($existingReusable) {
             $this->finishItem((int) $item->id, 'completed', $runToken);
 
             return;
@@ -425,9 +437,27 @@ final class TranslationJobService
         // requests instead of discovering them after a provider reply.
         try {
             TextContract::assertSafePlainText((string) $entry->source_text);
-            $prepared = TextContract::protect((string) $entry->source_text, $this->protectedTerms($sourceLocale, (string) $item->target_locale));
-            TextContract::assertSafePlainText((string) $prepared['text']);
-            $segments = TextContract::segments($prepared['text'], 4500, 4800, array_keys($prepared['tokens']));
+            $planParts = TextContract::translationPlan(
+                (string) $entry->source_text,
+                $this->protectedTerms($sourceLocale, (string) $item->target_locale),
+            );
+            $segments        = [];
+            $translatedParts = [];
+            $partSuffixes    = [];
+            foreach ($planParts as $partIndex => $part) {
+                if (! $part['translate'] || trim($part['text']) === '') {
+                    $translatedParts[$partIndex] = $part['text'];
+
+                    continue;
+                }
+                preg_match('~^(\s*)(.*?)(\s*)$~us', $part['text'], $whitespace);
+                $core                        = (string) ($whitespace[2] ?? $part['text']);
+                $translatedParts[$partIndex] = (string) ($whitespace[1] ?? '');
+                $partSuffixes[$partIndex]    = (string) ($whitespace[3] ?? '');
+                foreach (TextContract::segments($core, 4500, 4800) as $segment) {
+                    $segments[] = ['part' => $partIndex, 'text' => $segment];
+                }
+            }
         } catch (Throwable $exception) {
             // No account has been reserved and no provider has received this
             // text. This is a source-index issue, not a billable translation
@@ -439,7 +469,18 @@ final class TranslationJobService
 
             return;
         }
-        $accounts = $this->accountsFor($sourceLocale, (string) $item->target_locale);
+        $accounts = $segments === [] ? [] : $this->accountsFor($sourceLocale, (string) $item->target_locale);
+        if ($segments === []) {
+            try {
+                $translated = TextContract::assertSafePlainText(implode('', $translatedParts));
+                $this->library->saveMachineResult((int) $entry->id, (string) $item->target_locale, (string) $entry->source_hash, $translated, 'local_rules', null);
+                $this->finishItem((int) $item->id, 'completed', $runToken);
+            } catch (Throwable $exception) {
+                $this->finishItem((int) $item->id, 'failed', $runToken, $this->failureCode($exception));
+            }
+
+            return;
+        }
         if ($accounts === []) {
             // No account is a recoverable operator configuration state, not
             // a source failure. Put this exact item back and stop dispatching
@@ -460,17 +501,16 @@ final class TranslationJobService
             (string) $entry->field,
         );
         $successful         = [];
-        $translatedSegments = [];
         $providersUsed      = [];
         $accountsUsed       = [];
-        foreach ($segments as $segment) {
+        foreach ($segments as $segmentPlan) {
             // A single segment is a valid request for every supported
             // provider.  Keeping this boundary provider-neutral makes it
             // safe to move from a Volcengine batch to an Aliyun/Baidu backup
             // without ever replaying or dropping part of a source field.
             $result = $this->translateSegmentWithFailover(
                 $accounts,
-                $segment,
+                $segmentPlan['text'],
                 $sourceLocale,
                 (string) $item->target_locale,
                 (string) $entry->source_hash,
@@ -499,18 +539,23 @@ final class TranslationJobService
 
                 return;
             }
-            $translatedSegments[] = $result['translation'];
+            $translatedParts[$segmentPlan['part']] .= $result['translation'];
             $successful[]         = $result['attempt'];
             $providersUsed[]      = $result['provider'];
             $accountsUsed[]       = $result['account_id'];
         }
 
+        foreach ($partSuffixes as $partIndex => $suffix) {
+            $translatedParts[$partIndex] .= $suffix;
+        }
+        ksort($translatedParts);
+
         try {
-            // Protected placeholders may be distributed across batches. Join
-            // the full provider response first, then restore and verify each
-            // token exactly once. Restoring batch-by-batch falsely fails when
-            // another batch owns a protected token.
-            $translated    = TextContract::restore(implode('', $translatedSegments), $prepared['tokens']);
+            // Links, prices, variables, e-mail addresses and protected terms
+            // were never sent to a provider. They are reassembled locally in
+            // their original positions, so no provider token normalisation is
+            // required and the final plain-text gate remains strict.
+            $translated    = TextContract::assertSafePlainText(implode('', $translatedParts));
             $providersUsed = array_values(array_unique($providersUsed));
             $accountsUsed  = array_values(array_unique($accountsUsed));
             $providerLabel = count($providersUsed) === 1 ? $providersUsed[0] : 'multi_provider';

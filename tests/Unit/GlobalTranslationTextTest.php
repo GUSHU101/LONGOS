@@ -107,6 +107,22 @@ class GlobalTranslationTextTest extends TestCase
         self::assertSame('朗格斯 ships the 阿特拉斯保护壳 worldwide.', TextContract::restore($protected['text'], $protected['tokens']));
     }
 
+    public function test_translation_plan_keeps_sensitive_and_commercial_tokens_local(): void
+    {
+        $parts = TextContract::translationPlan(
+            'LONGOS sends :name a $39.99 offer at https://example.com.',
+            ['LONGOS' => '朗格斯'],
+        );
+        $providerText = implode('', array_column(array_values(array_filter($parts, static fn (array $part): bool => $part['translate'])), 'text'));
+        $assembled    = implode('', array_column($parts, 'text'));
+
+        self::assertStringNotContainsString('LONGOS', $providerText);
+        self::assertStringNotContainsString(':name', $providerText);
+        self::assertStringNotContainsString('$39.99', $providerText);
+        self::assertStringNotContainsString('https://example.com', $providerText);
+        self::assertSame('朗格斯 sends :name a $39.99 offer at https://example.com.', $assembled);
+    }
+
     public function test_quality_gate_flags_only_safe_machine_output_anomalies(): void
     {
         self::assertSame('SOURCE_ECHO', TranslationQualityGate::evaluate('Enjoy free worldwide shipping on every order today', 'Enjoy free worldwide shipping on every order today'));

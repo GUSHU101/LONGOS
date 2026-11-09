@@ -167,12 +167,13 @@
   }
   const createPaypalOrder = async data => {
     let accountRotated = false
+    const maxAttempts = Math.max(1, Math.min(10, Number(data.paypal?.max_preorder_attempts || 1)))
 
     // A PayPal SDK instance is bound to one merchant Client ID. If that
     // account fails before order creation, do not attempt to pass the next
     // account's order ID into the old SDK. Instead open the next account's
     // official PayPal approval URL directly, without any LONGOS interstitial.
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       const result = await request(data.endpoints.paypal_create)
       if (result?.account_rotated === true) {
         accountRotated = true

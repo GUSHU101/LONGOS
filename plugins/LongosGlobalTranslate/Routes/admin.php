@@ -24,6 +24,7 @@ Route::prefix('global-translate')->name('longos_global_translate.')
         Route::post('glossary/protected', [AdminTranslationController::class, 'saveProtectedTerm'])->name('glossary.protected.save');
         Route::delete('glossary/protected/{term}', [AdminTranslationController::class, 'deleteProtectedTerm'])->whereNumber('term')->name('glossary.protected.delete');
         Route::get('translations', [AdminTranslationController::class, 'translations'])->name('translations.index');
+        Route::delete('library/{locale}', [AdminTranslationController::class, 'resetLibrary'])->where('locale', '[A-Za-z0-9_-]{2,24}')->name('library.reset');
         Route::put('translations/{translation}', [AdminTranslationController::class, 'updateTranslation'])->whereNumber('translation')->name('translations.update');
         Route::post('translations/{translation}/review', [AdminTranslationController::class, 'reviewTranslation'])->whereNumber('translation')->name('translations.review');
         Route::post('publications', [AdminTranslationController::class, 'publish'])->name('publications.publish');

@@ -297,6 +297,19 @@ class GlobalTranslationProviderTest extends TestCase
         self::assertFalse($ambiguous['definitely_unbilled']);
     }
 
+    public function test_structured_provider_exceptions_remain_actionable_without_guessing_billing_state(): void
+    {
+        $provider = new BaiduProvider;
+
+        $local = $provider->classifyFailure(new InvalidArgumentException('INVALID_BAIDU_REQUEST'));
+        self::assertSame('INVALID_BAIDU_REQUEST', $local['code']);
+        self::assertTrue($local['definitely_unbilled']);
+
+        $upstream = $provider->classifyFailure(new \RuntimeException('BAIDU_RESPONSE_SCHEMA_INVALID'));
+        self::assertSame('BAIDU_RESPONSE_SCHEMA_INVALID', $upstream['code']);
+        self::assertFalse($upstream['definitely_unbilled']);
+    }
+
     public function test_aliyun_signature_uses_canonical_sorted_query_and_changes_when_input_changes(): void
     {
         $provider   = new AliyunProvider;

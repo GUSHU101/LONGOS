@@ -19,6 +19,7 @@ use Illuminate\Filesystem\Filesystem;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\TestCase;
+use Plugin\LongosPlatformPay\Services\DirectPaymentService;
 
 class PlatformPaymentAccountRotationTest extends TestCase
 {
@@ -148,6 +149,25 @@ class PlatformPaymentAccountRotationTest extends TestCase
         Domain::query()->where('host', $first->callback_host)->update(['status' => Domain::STATUS_RETIRED]);
         self::assertTrue($service->activePaypalAccounts()->isEmpty());
         self::assertNull($service->selectNextActivePaypalAccount());
+    }
+
+    public function test_direct_checkout_attempt_limit_covers_the_entire_active_account_pool(): void
+    {
+        $service = new PlatformPaymentAccountService($this->createMock(SiteLifecycleService::class));
+        app()->instance(PlatformPaymentAccountService::class, $service);
+        $site = $this->site();
+        foreach (['A', 'B', 'C'] as $suffix) {
+            $account = $this->account("Receiver {$suffix}", "pay-{$suffix}.example.test", 'ready');
+            $this->callbackDomain($site, $account);
+        }
+
+        $direct = new DirectPaymentService(
+            $this->createMock(PlatformPaymentSessionService::class),
+            $this->createMock(PlatformPaymentSettings::class),
+        );
+        $method = new \ReflectionMethod($direct, 'paypalPreOrderAttemptLimit');
+
+        self::assertSame(3, $method->invoke($direct));
     }
 
     public function test_control_subdomain_changes_keep_callback_domains_routeable_and_undeletable(): void

@@ -5,6 +5,7 @@ namespace Plugin\LongosPlatformPay\Controllers;
 use App\Http\Controllers\PlatformPaymentController;
 use App\Saas\Models\PlatformPaymentSession;
 use App\Saas\Support\SensitiveValueRedactor;
+use App\Services\PlatformPayment\PlatformPaymentAccountService;
 use App\Services\PlatformPayment\PlatformPaymentAmount;
 use App\Services\PlatformPayment\PlatformPaymentCurrency;
 use App\Services\PlatformPayment\PlatformPaymentSessionService;
@@ -70,6 +71,9 @@ class CheckoutController
             $paypal   = in_array('paypal', $providers, true)
                 ? $settings->publicPaypalForSession($session)
                 : null;
+            if ($paypal !== null) {
+                $paypal['max_preorder_attempts'] = $this->paypalPreOrderAttemptLimit();
+            }
             $token    = $created['token'];
             $decimals = PlatformPaymentCurrency::decimalPlaces((string) $session->currency);
             $response = json_success(trans('LongosPlatformPay::common.session_created'), [
@@ -236,5 +240,20 @@ class CheckoutController
             'session_busy'      => 'session_busy',
             default             => 'payment_service_unavailable',
         };
+    }
+
+    private function paypalPreOrderAttemptLimit(): int
+    {
+        try {
+            $accounts = app(PlatformPaymentAccountService::class);
+            if ($accounts->hasManagedPaypalAccounts()) {
+                return max(1, min(10, $accounts->activePaypalAccounts()->count()));
+            }
+        } catch (Throwable) {
+            // Preserve the legacy one-account path while the control schema
+            // is being repaired; session creation remains authoritative.
+        }
+
+        return 1;
     }
 }

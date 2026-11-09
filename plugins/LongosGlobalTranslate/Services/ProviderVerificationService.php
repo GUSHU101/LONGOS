@@ -33,13 +33,19 @@ final class ProviderVerificationService
         // an upstream API and must never be presented as a billable unknown.
         $credentials = $this->accounts->credentials($account);
         $provider->validateCredentialShape($credentials);
-        // API-key acceptance alone is not enough. Production source text can
-        // contain prices, links and template variables, so verify one
-        // synthetic protected marker before this account may dispatch a full
-        // catalog. This reveals incompatible providers in one small, explicit
-        // probe instead of after thousands of billable translations.
-        $probe                = TextContract::protect('LONGOS verification amount $19.99.');
-        $source               = $probe['text'];
+        // Verify the same provider boundary used by production jobs. Brand,
+        // price and punctuation stay local; the upstream service receives
+        // only the linguistic fragment and therefore cannot corrupt an
+        // opaque placeholder. This also makes verification representative of
+        // the post-v1.4 translation pipeline.
+        $probeParts       = TextContract::translationPlan('LONGOS verification amount $19.99.', ['LONGOS']);
+        $translatableKeys = array_keys(array_filter($probeParts, static fn (array $part): bool => $part['translate']));
+        if (count($translatableKeys) !== 1) {
+            throw new RuntimeException('PROVIDER_VERIFICATION_PLAN_INVALID');
+        }
+        $translationIndex = (int) $translatableKeys[0];
+        preg_match('~^(\s*)(.*?)(\s*)$~us', $probeParts[$translationIndex]['text'], $whitespace);
+        $source               = (string) ($whitespace[2] ?? $probeParts[$translationIndex]['text']);
         $reservation          = $this->ledger->reserve($accountId, TextContract::units($source)['codepoints'], null, null, null, true);
         $requestMarkedSending = false;
 
@@ -61,14 +67,18 @@ final class ProviderVerificationService
             }
 
             try {
-                TextContract::restore((string) $response->translations[0], $probe['tokens']);
+                $translatedCore                        = TextContract::assertSafePlainText((string) $response->translations[0]);
+                $probeParts[$translationIndex]['text'] = (string) ($whitespace[1] ?? '')
+                    . $translatedCore
+                    . (string) ($whitespace[3] ?? '');
+                TextContract::assertSafePlainText(implode('', array_column($probeParts, 'text')));
             } catch (\InvalidArgumentException) {
                 // The request was accepted upstream, so retain its durable
-                // usage record. Do not mark this account verified: it would
-                // later corrupt or reject protected public storefront text.
+                // usage record. Do not mark this account verified when its
+                // response cannot pass the same plain-text gate as production.
                 $this->ledger->commit($reservation['id'], (string) ($response->requestId ?? ''));
 
-                throw new RuntimeException('PROVIDER_TOKEN_INCOMPATIBLE');
+                throw new RuntimeException('PROVIDER_RESPONSE_UNSAFE');
             }
             $this->ledger->commit($reservation['id'], (string) ($response->requestId ?? ''));
 

@@ -9,6 +9,13 @@ use InvalidArgumentException;
 
 final class ProviderAccountService
 {
+    private UsageLedger $ledger;
+
+    public function __construct(?UsageLedger $ledger = null)
+    {
+        $this->ledger = $ledger ?? new UsageLedger;
+    }
+
     public const PROVIDERS = ['aliyun', 'volcengine', 'baidu', 'deepl', 'google', 'azure'];
 
     /**
@@ -324,9 +331,11 @@ final class ProviderAccountService
     private function publicAccount(array $account): array
     {
         $configured = ! empty($account['credentials_ciphertext']);
+        $usage      = $this->ledger->summary($account);
         unset($account['credentials_ciphertext'], $account['credential_fingerprint'], $account['billing_identity_hash']);
         $account['credentials_configured'] = $configured;
         $account['paid_cap']               = 0;
+        $account['local_usage']            = $usage;
 
         return $account;
     }
