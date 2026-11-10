@@ -1,6 +1,6 @@
 # LONGOS Global Translation — implementation audit and rollback notes
 
-Last reviewed: 2026-11-10. Current plugin release: **v1.18.0**.
+Last reviewed: 2026-11-10. Current plugin release: **v1.18.1**.
 
 ## Architecture and trust boundaries
 
@@ -21,7 +21,7 @@ Last reviewed: 2026-11-10. Current plugin release: **v1.18.0**.
 | Credential safety | Encrypted credentials are redacted from controllers, logs and storefront JSON. Verification is an explicit administrator action. |
 | Billing safety | `UsageLedger` journals `reserved`, `sending`, `committed`, `definite_failed` and `uncertain`. Metered providers enforce character budgets; rate-only free models retain the audit ledger without an invented character cap. Unknown post-send outcomes are never blindly retried. |
 | Multi-worker safety | Opaque run tokens own claims. Job/item locks serialize pause, cancel, recovery and completion. A concurrent pause releases an unsent claim; a true cancellation consumes it. The dedicated pool defaults to 12 network-bound workers, clamps at 24 and dispatches no more runners than ready items. |
-| Provider pacing | Per-account QPS controls apply to metered providers. SiliconFlow bypasses that artificial gate and uses only durable provider-user-account/model RPM, TPM and remote-cooldown windows with delayed resume. |
+| Provider pacing | Per-account QPS controls apply to metered providers. SiliconFlow bypasses that artificial gate and uses durable provider-user-account/model RPM, TPM and remote-cooldown windows. In SaaS mode the reservation lock and history live on the central `saas` connection, keyed by the remote billing identity hash across every tenant; a missing control-plane table fails closed. |
 | Human precedence | Manual edits use version compare-and-swap; reviewed locked rows cannot be overwritten by machine output. |
 | Publication | Publication items are immutable snapshots. Rollback creates a new revision, and locale maintenance uses a shared mutex with planning/publication. |
 | Storefront safety | The widget uses a secure host-only HttpOnly locale cookie, bounded selectors and versioned dictionary responses; it is omitted from sensitive flows. |
