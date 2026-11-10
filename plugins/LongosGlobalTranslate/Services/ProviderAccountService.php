@@ -11,6 +11,10 @@ use Plugin\LongosGlobalTranslate\Providers\SiliconFlowProvider;
 
 final class ProviderAccountService
 {
+    public const BUDGET_METERED = 'metered';
+
+    public const BUDGET_RATE_ONLY = 'rate_only';
+
     private UsageLedger $ledger;
 
     public function __construct(?UsageLedger $ledger = null)
@@ -95,7 +99,7 @@ final class ProviderAccountService
                     ['value' => 'XingChenAGI/Xing4.0-29B', 'label' => 'Xing4.0-29B · 通用 AI 翻译'],
                 ],
                 'account_help' => '填写一个便于自己识别的 API Key 用途，例如：站点翻译。',
-                'quota_help'   => '可选已核实的免费模型；字符上限和 RPM/TPM 是不同限制。请按模型实际速率页填写，不保证永久免费。',
+                'quota_help'   => '当前免费模型不使用字符额度，系统只按每个 API 账户的 RPM/TPM 限速并记录用量审计；官方定价变更后需重新核对。',
             ],
         ];
     }
@@ -121,17 +125,19 @@ final class ProviderAccountService
                 ->where('billing_identity_hash', $identityHash)
                 ->lockForUpdate()
                 ->first();
-            $values = [
+            $budgetMode = $this->budgetMode($provider);
+            $values     = [
                 'owner_scope'            => 'tenant',
                 'account_tier'           => $this->short($input['account_tier'] ?? null, 48),
+                'budget_mode'            => $budgetMode,
                 'credentials_ciphertext' => $ciphertext,
                 'credential_fingerprint' => hash('sha256', json_encode($credentials, JSON_THROW_ON_ERROR)),
                 'credential_revision'    => $row ? (int) $row->credential_revision + 1 : 1,
-                'free_quota'             => $this->units($input['free_quota'] ?? 0),
-                'soft_cap'               => $this->units($input['soft_cap'] ?? 0),
+                'free_quota'             => $budgetMode === self::BUDGET_RATE_ONLY ? 0 : $this->units($input['free_quota'] ?? 0),
+                'soft_cap'               => $budgetMode === self::BUDGET_RATE_ONLY ? 0 : $this->units($input['soft_cap'] ?? 0),
                 // V1 never authorizes automatic paid overage.
                 'paid_cap'              => 0,
-                'external_usage_buffer' => $this->units($input['external_usage_buffer'] ?? 0),
+                'external_usage_buffer' => $budgetMode === self::BUDGET_RATE_ONLY ? 0 : $this->units($input['external_usage_buffer'] ?? 0),
                 'cycle_timezone'        => $this->timezone((string) ($input['cycle_timezone'] ?? 'UTC')),
                 'qps_limit'             => min(10, max(1, (int) ($input['qps_limit'] ?? 1))),
                 'rpm_limit'             => min(10000, max(1, (int) ($input['rpm_limit'] ?? 1000))),
@@ -226,15 +232,17 @@ final class ProviderAccountService
                 $this->validateCredentialShape((string) $row->provider, $credentials);
             }
 
-            $value   = static fn (string $key, mixed $current): mixed => array_key_exists($key, $input) ? $input[$key] : $current;
-            $enabled = (bool) $value('enabled', $row->enabled);
-            $values  = [
+            $value      = static fn (string $key, mixed $current): mixed => array_key_exists($key, $input) ? $input[$key] : $current;
+            $enabled    = (bool) $value('enabled', $row->enabled);
+            $budgetMode = $this->budgetMode((string) $row->provider);
+            $values     = [
                 'account_tier'           => $this->short($value('account_tier', $row->account_tier), 48),
-                'free_quota'             => $this->units($value('free_quota', $row->free_quota)),
-                'soft_cap'               => $this->units($value('soft_cap', $row->soft_cap)),
+                'budget_mode'            => $budgetMode,
+                'free_quota'             => $budgetMode === self::BUDGET_RATE_ONLY ? 0 : $this->units($value('free_quota', $row->free_quota)),
+                'soft_cap'               => $budgetMode === self::BUDGET_RATE_ONLY ? 0 : $this->units($value('soft_cap', $row->soft_cap)),
                 // V1 never authorizes automatic paid overage.
                 'paid_cap'               => 0,
-                'external_usage_buffer'  => $this->units($value('external_usage_buffer', $row->external_usage_buffer)),
+                'external_usage_buffer'  => $budgetMode === self::BUDGET_RATE_ONLY ? 0 : $this->units($value('external_usage_buffer', $row->external_usage_buffer)),
                 'cycle_timezone'         => $this->timezone((string) $value('cycle_timezone', $row->cycle_timezone)),
                 'qps_limit'              => min(10, max(1, (int) $value('qps_limit', $row->qps_limit))),
                 'rpm_limit'              => min(10000, max(1, (int) $value('rpm_limit', $row->rpm_limit))),
@@ -500,7 +508,9 @@ final class ProviderAccountService
         }
         $freeQuota     = (int) $values['free_quota'];
         $configuredCap = (int) $values['soft_cap'];
-        $newLimit      = max(0, $configuredCap > 0 ? min($freeQuota, $configuredCap) : (int) floor($freeQuota * 0.9));
+        $newLimit      = ($values['budget_mode'] ?? self::BUDGET_METERED) === self::BUDGET_RATE_ONLY
+            ? 0
+            : max(0, $configuredCap > 0 ? min($freeQuota, $configuredCap) : (int) floor($freeQuota * 0.9));
         DB::table('lgt_usage_months')->where('id', $month->id)->update([
             'soft_limit'            => $newLimit,
             'external_usage_buffer' => (int) $values['external_usage_buffer'],
@@ -525,6 +535,13 @@ final class ProviderAccountService
         if ($provider === 'siliconflow' && ! in_array($credentials['model'], SiliconFlowProvider::FREE_MODELS, true)) {
             throw new InvalidArgumentException('SILICONFLOW_FREE_MODEL_ONLY');
         }
+    }
+
+    private function budgetMode(string $provider): string
+    {
+        // This is server-derived. A browser cannot mark an arbitrary paid
+        // provider as unmetered by adding a request field.
+        return $provider === 'siliconflow' ? self::BUDGET_RATE_ONLY : self::BUDGET_METERED;
     }
 
     private function units(mixed $value): int

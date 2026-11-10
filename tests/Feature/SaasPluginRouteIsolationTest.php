@@ -229,6 +229,7 @@ class SaasPluginRouteIsolationTest extends TestCase
             '2026_11_09_000009_add_maintenance_query_indexes.php',
             '2026_11_09_000010_add_provider_archiving.php',
             '2026_11_09_000011_add_siliconflow_rate_pacing.php',
+            '2026_11_10_000012_add_provider_budget_modes.php',
         ] as $migrationFile) {
             $migration = require base_path('plugins/LongosGlobalTranslate/Migrations/' . $migrationFile);
             $migration->up();

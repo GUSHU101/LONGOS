@@ -903,9 +903,9 @@ final class TranslationJobService
                 if ($rateCallId !== null) {
                     $limiter->settle($rateCallId, $response->totalTokens);
                     if ($response->errorCode === 'RATE_LIMIT') {
-                        $rateDelay = max($rateDelay, $limiter->cooldown((string) $rateModel, $response->retryAfterSeconds));
+                        $rateDelay = max($rateDelay, $limiter->cooldown((int) $account->id, (string) $rateModel, $response->retryAfterSeconds));
                     } elseif ($response->ok) {
-                        $limiter->success((string) $rateModel);
+                        $limiter->success((int) $account->id, (string) $rateModel);
                     }
                 }
                 if ($response->ok && count($response->translations) === 1 && is_string($response->translations[0]) && trim($response->translations[0]) !== '') {

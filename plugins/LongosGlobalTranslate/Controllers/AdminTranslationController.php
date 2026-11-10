@@ -812,7 +812,7 @@ final class AdminTranslationController extends Controller
                 'mode'                  => $settings['mode'],
                 'dispatch_enabled'      => $dispatchEnabled,
                 'paid_cap'              => 0,
-                'provider_calls'        => $dispatchEnabled ? 'free_quota_only' : 'requires_operator_verification',
+                'provider_calls'        => $dispatchEnabled ? 'operator_verified_limits' : 'requires_operator_verification',
                 'tenant_resolved'       => current_site() !== null,
                 'core_locale_unchanged' => true,
                 'geo_localization'      => $geoDiagnostics,

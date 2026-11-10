@@ -44,6 +44,7 @@ final class TranslationSchema
         'lgt_audit_logs',
         'lgt_locale_maintenance',
         'lgt_siliconflow_rate_models',
+        'lgt_siliconflow_rate_account_models',
         'lgt_siliconflow_rate_calls',
     ];
 
@@ -65,7 +66,7 @@ final class TranslationSchema
         ],
         'lgt_provider_accounts' => [
             'id', 'provider', 'billing_identity_hash', 'owner_scope', 'account_tier', 'credentials_ciphertext',
-            'credential_fingerprint', 'credential_revision', 'free_quota', 'soft_cap',
+            'credential_fingerprint', 'credential_revision', 'budget_mode', 'free_quota', 'soft_cap',
             'paid_cap', 'external_usage_buffer', 'cycle_timezone', 'qps_limit', 'rpm_limit', 'tpm_limit', 'failover_priority', 'enabled',
             'last_dispatch_at_us', 'dispatch_enabled', 'verified_at', 'verified_by', 'source_link', 'archived_at', 'created_at', 'updated_at',
         ],
@@ -113,6 +114,10 @@ final class TranslationSchema
         'lgt_locale_maintenance'      => ['id', 'locale', 'created_at', 'updated_at'],
         'lgt_siliconflow_rate_models' => [
             'id', 'model', 'rpm_cap', 'tpm_cap', 'cap_window_at', 'cooldown_until', 'consecutive_429', 'last_pruned_at', 'created_at', 'updated_at',
+        ],
+        'lgt_siliconflow_rate_account_models' => [
+            'id', 'provider_account_id', 'model', 'rpm_cap', 'tpm_cap', 'cap_window_at', 'cooldown_until',
+            'consecutive_429', 'last_pruned_at', 'created_at', 'updated_at',
         ],
         'lgt_siliconflow_rate_calls' => [
             'id', 'provider_account_id', 'model', 'reserved_tokens', 'counted_tokens', 'dispatched_at', 'created_at', 'updated_at',

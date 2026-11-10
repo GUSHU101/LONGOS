@@ -16,6 +16,7 @@ use PHPUnit\Framework\TestCase;
 use Plugin\LongosGlobalTranslate\Controllers\ShopTranslationController;
 use Plugin\LongosGlobalTranslate\Jobs\ProcessTranslationJob;
 use Plugin\LongosGlobalTranslate\Providers\ProviderRegistry;
+use Plugin\LongosGlobalTranslate\Providers\SiliconFlowProvider;
 use Plugin\LongosGlobalTranslate\Providers\TranslationProviderInterface;
 use Plugin\LongosGlobalTranslate\Providers\TranslationProviderRequest;
 use Plugin\LongosGlobalTranslate\Providers\TranslationProviderResponse;
@@ -28,6 +29,7 @@ use Plugin\LongosGlobalTranslate\Services\PlatformPaymentLocaleBridge;
 use Plugin\LongosGlobalTranslate\Services\ProviderAccountService;
 use Plugin\LongosGlobalTranslate\Services\ProviderVerificationService;
 use Plugin\LongosGlobalTranslate\Services\PublicationService;
+use Plugin\LongosGlobalTranslate\Services\SiliconFlowRateLimiter;
 use Plugin\LongosGlobalTranslate\Services\StorefrontPresentationConfig;
 use Plugin\LongosGlobalTranslate\Services\TranslationJobService;
 use Plugin\LongosGlobalTranslate\Services\TranslationLibrary;
@@ -62,6 +64,7 @@ class GlobalTranslationWorkflowTest extends TestCase
             '2026_11_09_000009_add_maintenance_query_indexes.php',
             '2026_11_09_000010_add_provider_archiving.php',
             '2026_11_09_000011_add_siliconflow_rate_pacing.php',
+            '2026_11_10_000012_add_provider_budget_modes.php',
         ] as $migrationFile) {
             $migration = require base_path('plugins/LongosGlobalTranslate/Migrations/' . $migrationFile);
             $migration->up();
@@ -361,7 +364,7 @@ class GlobalTranslationWorkflowTest extends TestCase
 
         self::assertFalse($config->getData(true)['enabled']);
         self::assertSame(['en'], $config->getData(true)['locales']);
-        self::assertSame('1.16.0', $config->getData(true)['plugin_release']);
+        self::assertSame('1.17.0', $config->getData(true)['plugin_release']);
         self::assertSame([], $config->getData(true)['published_revisions']);
         self::assertSame('', $config->getData(true)['dictionary_url']);
         self::assertSame('', $config->getData(true)['batch_dictionary_url']);
@@ -604,6 +607,97 @@ class GlobalTranslationWorkflowTest extends TestCase
         self::assertSame('not_queried', $public['remote_quota_status']);
         $this->expectException(RuntimeException::class);
         $ledger->reserve($accountId, 1);
+    }
+
+    public function test_siliconflow_free_model_uses_rate_only_accounting_without_an_artificial_character_cap(): void
+    {
+        $accounts = new ProviderAccountService;
+        $account  = $accounts->save([
+            'provider'              => 'siliconflow',
+            'billing_identity'      => 'rate-only-free-model',
+            'enabled'               => true,
+            // Browser-supplied character limits must be ignored for this
+            // provider instead of becoming a hidden local quota.
+            'free_quota'            => 100_000,
+            'soft_cap'              => 90_000,
+            'external_usage_buffer' => 3_000,
+            'rpm_limit'             => 1_000,
+            'tpm_limit'             => 80_000,
+        ], [
+            'api_key' => 'sf-test-key',
+            'model'   => SiliconFlowProvider::DEFAULT_MODEL,
+        ], 31);
+
+        self::assertSame(ProviderAccountService::BUDGET_RATE_ONLY, $account['budget_mode']);
+        self::assertSame(0, (int) $account['free_quota']);
+        self::assertSame(0, (int) $account['soft_cap']);
+        self::assertSame(0, (int) $account['external_usage_buffer']);
+
+        $accounts->markVerified((int) $account['id'], 31);
+        $accounts->setDispatch((int) $account['id'], true, 31);
+        $ledger  = new UsageLedger;
+        $attempt = $ledger->reserve((int) $account['id'], 250_000);
+        $ledger->markSending($attempt['id']);
+        $ledger->commit($attempt['id'], 'sf-rate-only-request');
+
+        $usage = $accounts->publicAccounts()[0]['local_usage'];
+        self::assertFalse($usage['budget_enforced']);
+        self::assertNull($usage['local_limit']);
+        self::assertNull($usage['remaining']);
+        self::assertNull($usage['used_percent']);
+        self::assertSame(250_000, $usage['committed']);
+    }
+
+    public function test_budget_mode_migration_preserves_legacy_quota_values_for_safe_rollback(): void
+    {
+        $accountId = DB::table('lgt_provider_accounts')->insertGetId([
+            'provider'               => 'siliconflow',
+            'billing_identity_hash'  => hash('sha256', 'legacy-siliconflow'),
+            'owner_scope'            => 'tenant',
+            'budget_mode'            => ProviderAccountService::BUDGET_METERED,
+            'credentials_ciphertext' => 'legacy-encrypted-value',
+            'credential_revision'    => 1,
+            'free_quota'             => 100_000,
+            'soft_cap'               => 90_000,
+            'external_usage_buffer'  => 2_000,
+            'cycle_timezone'         => 'UTC',
+            'enabled'                => false,
+            'dispatch_enabled'       => false,
+            'created_at'             => now(),
+            'updated_at'             => now(),
+        ]);
+
+        $migration = require base_path('plugins/LongosGlobalTranslate/Migrations/2026_11_10_000012_add_provider_budget_modes.php');
+        $migration->up();
+        $row = DB::table('lgt_provider_accounts')->where('id', $accountId)->first();
+
+        self::assertSame(ProviderAccountService::BUDGET_RATE_ONLY, $row->budget_mode);
+        self::assertSame(100_000, (int) $row->free_quota);
+        self::assertSame(90_000, (int) $row->soft_cap);
+        self::assertSame(2_000, (int) $row->external_usage_buffer);
+    }
+
+    public function test_siliconflow_rate_windows_and_cooldowns_are_isolated_by_account_and_model(): void
+    {
+        $limiter = new SiliconFlowRateLimiter;
+        $model   = SiliconFlowProvider::DEFAULT_MODEL;
+
+        $first = $limiter->acquire(101, $model, 10, 2, 100);
+        self::assertTrue($first['allowed']);
+        self::assertGreaterThanOrEqual(60, $limiter->cooldown(101, $model, 5));
+
+        $blocked = $limiter->acquire(101, $model, 10, 2, 100);
+        $other   = $limiter->acquire(202, $model, 10, 2, 100);
+        self::assertFalse($blocked['allowed']);
+        self::assertSame('SILICONFLOW_REMOTE_COOLDOWN', $blocked['reason']);
+        self::assertTrue($other['allowed']);
+
+        $limiter->success(202, $model);
+        self::assertSame(1, (int) DB::table('lgt_siliconflow_rate_account_models')
+            ->where('provider_account_id', 101)->value('consecutive_429'));
+        self::assertSame(0, (int) DB::table('lgt_siliconflow_rate_account_models')
+            ->where('provider_account_id', 202)->value('consecutive_429'));
+        self::assertSame(2, DB::table('lgt_siliconflow_rate_account_models')->count());
     }
 
     public function test_provider_dispatch_is_durably_rate_limited_per_tenant_account(): void

@@ -110,7 +110,7 @@
 
 <a href="#lgt-main" class="lgt-skip">跳到翻译工作台主内容</a>
 <main id="lgt-main" class="lgt-workspace py-3" aria-labelledby="lgt-title">
-  <header class="lgt-hero"><div class="lgt-hero-main"><div><span class="lgt-overline">LONGOS / TRANSLATION</span><h1 id="lgt-title">翻译工作台 <span class="lgt-release">v1.16.0</span></h1><p>管理翻译、审核和发布。每个子站独立配置。</p></div><div class="lgt-hero-actions"><button class="btn btn-primary" type="button" data-lgt-go="library" data-lgt-library-view="jobs">开始翻译</button><button class="btn btn-outline-secondary" type="button" data-lgt-go="publish">发布译文</button></div></div><div class="lgt-topline"><span class="lgt-status-pill"><span class="lgt-dot {{ $diagnostics['dispatch_enabled'] ? '' : 'warning' }}"></span>{{ $diagnostics['dispatch_enabled'] ? '可派发' : '未开启派发' }}</span><span>{{ $modeLabels[$settings['mode']] ?? $settings['mode'] }}</span><span>{{ count($enabledLocales) }} 种目标语言</span></div></header>
+  <header class="lgt-hero"><div class="lgt-hero-main"><div><span class="lgt-overline">LONGOS / TRANSLATION</span><h1 id="lgt-title">翻译工作台 <span class="lgt-release">v1.17.0</span></h1><p>管理翻译、审核和发布。每个子站独立配置。</p></div><div class="lgt-hero-actions"><button class="btn btn-primary" type="button" data-lgt-go="library" data-lgt-library-view="jobs">开始翻译</button><button class="btn btn-outline-secondary" type="button" data-lgt-go="publish">发布译文</button></div></div><div class="lgt-topline"><span class="lgt-status-pill"><span class="lgt-dot {{ $diagnostics['dispatch_enabled'] ? '' : 'warning' }}"></span>{{ $diagnostics['dispatch_enabled'] ? '可派发' : '未开启派发' }}</span><span>{{ $modeLabels[$settings['mode']] ?? $settings['mode'] }}</span><span>{{ count($enabledLocales) }} 种目标语言</span></div></header>
 
   <p id="lgt-readiness-summary" class="lgt-inline-muted my-2" role="status" aria-live="polite">{{ ! $library_health['ready_to_display'] ? '尚无可展示的已发布词典' : '已发布词典可用' }}</p>
   <div id="lgt-readiness-counts" class="visually-hidden">已翻译 {{ $library_health['translated'] }} · 已发布语言 {{ $library_health['published_languages'] }}</div>
@@ -262,12 +262,20 @@
   key2.insertAdjacentElement('afterend',modelSelector);
   const sfRateFields=document.createElement('div');
   sfRateFields.className='lgt-field full';
-  sfRateFields.innerHTML='<div class="lgt-fields"><div class="lgt-field third"><label for="lgt-rpm">模型每分钟请求上限 (RPM)</label><input id="lgt-rpm" class="form-control" type="number" min="1" max="10000" value="1000"><p class="form-text">L0 截图示例：1,000；按该模型实际限制填写。</p></div><div class="lgt-field third"><label for="lgt-tpm">模型每分钟 Token 上限 (TPM)</label><input id="lgt-tpm" class="form-control" type="number" min="1" max="5000000" value="80000"><p class="form-text">L0 截图示例：80,000；免费模型不一定随等级变化。</p></div><div class="lgt-field third"><p class="form-text mt-3">同一模型在本子站跨 API Key 和 worker 共享分钟额度；触发 429 后自动冷却并延后恢复。</p></div></div>';
+  sfRateFields.innerHTML='<div class="lgt-fields"><div class="lgt-field third"><label for="lgt-rpm">该账户每分钟请求上限 (RPM)</label><input id="lgt-rpm" class="form-control" type="number" min="1" max="10000" value="1000"><p class="form-text">按官方账户与模型限制填写。</p></div><div class="lgt-field third"><label for="lgt-tpm">该账户每分钟 Token 上限 (TPM)</label><input id="lgt-tpm" class="form-control" type="number" min="1" max="5000000" value="80000"><p class="form-text">使用保守 Token 预留，响应后以真实用量结算。</p></div><div class="lgt-field third"><p class="form-text mt-3">每个 API 账户与模型独立计数；同一账户的 worker 共享窗口，触发 429 后自动冷却。</p></div></div>';
+  const rateOnlyNote=document.createElement('div');
+  rateOnlyNote.className='lgt-field full';rateOnlyNote.hidden=true;
+  rateOnlyNote.innerHTML='<div class="lgt-safe"><b>i</b><div><strong>免费模型采用仅速率限制</strong><p class="mb-0">不设置字符额度；系统按该 API 账户的 RPM/TPM 控制并发，同时保留处理字符与 Token 审计。</p></div></div>';
+  $('#lgt-qps').closest('.lgt-field').insertAdjacentElement('afterend',rateOnlyNote);
   $('#lgt-qps').closest('.lgt-field').insertAdjacentElement('afterend',sfRateFields);
   const profile=clear=>{
     const p=profiles[provider.value];if(!p)return;
     const [a,b]=p.credential_fields,editing=editingAccount!==null,multi=Array.isArray(p.model_options);
-    sfRateFields.hidden=!multi;sfRateFields.style.display=multi?'':'none';
+    const rateOnly=provider.value==='siliconflow';
+    sfRateFields.hidden=!multi;sfRateFields.style.display=multi?'':'none';rateOnlyNote.hidden=!rateOnly;
+    $('#lgt-free-quota').closest('.lgt-field').hidden=rateOnly;$('#lgt-soft-cap').closest('.lgt-field').hidden=rateOnly;$('#lgt-buffer').closest('.lgt-field').hidden=rateOnly;
+    $('#lgt-free-quota').disabled=rateOnly;$('#lgt-soft-cap').disabled=rateOnly;$('#lgt-buffer').disabled=rateOnly;
+    if(rateOnly){$('#lgt-free-quota').value='0';$('#lgt-soft-cap').value='0';$('#lgt-buffer').value='0';}
     $('#lgt-key-one-label').textContent=a.label;$('#lgt-key-two-label').textContent=b.label;
     $('#lgt-key-one-help').textContent=editing?`${a.help} 留空可保留已加密凭据。`:a.help;
     $('#lgt-key-two-help').textContent=multi?b.help:(editing?`${b.help} 留空可保留已加密凭据。`:b.help);
@@ -300,9 +308,6 @@
   provider.addEventListener('change',()=>{
     profile(true);
     if(!editingAccount&&provider.value==='siliconflow'){
-      // A conservative local character budget, not an official free allowance.
-      if(Number($('#lgt-free-quota').value||0)===0)$('#lgt-free-quota').value='100000';
-      if(Number($('#lgt-soft-cap').value||0)===0)$('#lgt-soft-cap').value='90000';
       $('#lgt-qps').value='1';$('#lgt-rpm').value='1000';$('#lgt-tpm').value='80000';
     }
   });profile(false);
@@ -493,7 +498,13 @@
       const timestamp=j.updated_at||j.created_at;const parsed=timestamp?new Date(timestamp):null;time.textContent=parsed&&!Number.isNaN(parsed.getTime())?parsed.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}):timestamp||'—';r.append(id,state,mode,progress,time,actions);body.append(r);
     });
   };
-  const renderAccountUsage=accounts=>{(accounts||[]).forEach(account=>{const button=$(`.lgt-provider-edit[data-id="${CSS.escape(String(account.id))}"]`);const quota=button?.closest('tr')?.querySelector('.lgt-quota');const usage=account.local_usage||null;if(!quota||!usage)return;const remaining=Number(usage.remaining||0).toLocaleString('zh-CN'),committed=Number(usage.committed||0).toLocaleString('zh-CN'),processing=Number(usage.reserved||0)+Number(usage.sending||0),uncertain=Number(usage.uncertain||0).toLocaleString('zh-CN'),limit=Number(usage.local_limit||0).toLocaleString('zh-CN'),percent=Math.max(0,Math.min(100,Number(usage.used_percent||0)));const strong=quota.querySelector('.lgt-quota-head strong'),rate=quota.querySelector('.lgt-quota-head span'),bar=quota.querySelector('.lgt-quota-bar span'),details=quota.querySelectorAll('small');if(strong)strong.textContent=`剩余 ${remaining}`;if(rate)rate.textContent=`${percent}%`;if(bar)bar.style.width=`${percent}%`;if(details[0])details[0].textContent=`${usage.billing_cycle||'当前周期'} · 已提交 ${committed} · 处理中 ${processing.toLocaleString('zh-CN')} · 不确定 ${uncertain}`;if(details[1])details[1].textContent=`本地上限 ${limit} · ${account.qps_limit||1} QPS`;});};
+  const renderAccountUsage=accounts=>{(accounts||[]).forEach(account=>{
+    const button=$(`.lgt-provider-edit[data-id="${CSS.escape(String(account.id))}"]`),quota=button?.closest('tr')?.querySelector('.lgt-quota'),usage=account.local_usage||null;if(!quota||!usage)return;
+    const committed=Number(usage.committed||0).toLocaleString('zh-CN'),processing=Number(usage.reserved||0)+Number(usage.sending||0),uncertain=Number(usage.uncertain||0).toLocaleString('zh-CN'),strong=quota.querySelector('.lgt-quota-head strong'),rate=quota.querySelector('.lgt-quota-head span'),bar=quota.querySelector('.lgt-quota-bar span'),details=quota.querySelectorAll('small');
+    if(usage.budget_enforced===false){if(strong)strong.textContent='仅速率限制';if(rate)rate.textContent=`${account.rpm_limit||1000} RPM`;if(bar)bar.style.width='100%';if(details[0])details[0].textContent=`${usage.billing_cycle||'当前周期'} · 已提交 ${committed} · 处理中 ${processing.toLocaleString('zh-CN')} · 不确定 ${uncertain}`;if(details[1])details[1].textContent=`${account.rpm_limit||1000} RPM · ${Number(account.tpm_limit||80000).toLocaleString('zh-CN')} TPM · ${account.qps_limit||1} QPS`;return;}
+    const remaining=Number(usage.remaining||0).toLocaleString('zh-CN'),limit=Number(usage.local_limit||0).toLocaleString('zh-CN'),percent=Math.max(0,Math.min(100,Number(usage.used_percent||0)));if(strong)strong.textContent=`剩余 ${remaining}`;if(rate)rate.textContent=`${percent}%`;if(bar)bar.style.width=`${percent}%`;if(details[0])details[0].textContent=`${usage.billing_cycle||'当前周期'} · 已提交 ${committed} · 处理中 ${processing.toLocaleString('zh-CN')} · 不确定 ${uncertain}`;if(details[1])details[1].textContent=`本地上限 ${limit} · ${account.qps_limit||1} QPS`;
+  });};
+  renderAccountUsage(configuredAccounts);
   const renderSelfcheck = data => {
     const runtime=data.runtime||{};
     const version=runtime.version||'未知';

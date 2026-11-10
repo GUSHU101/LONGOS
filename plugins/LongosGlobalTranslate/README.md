@@ -1,13 +1,14 @@
 # LONGOS Global Translation
 
-LONGOS 的租户隔离型店面翻译与本地化插件。当前版本为 **v1.16.0**。
+LONGOS 的租户隔离型店面翻译与本地化插件。当前版本为 **v1.17.0**。
 
 ## 主要能力
 
 - 扫描公开商品、分类、页面、页面分类、已发布 Builder 内容、店面 chrome 与受控商务界面文本。
 - 使用不可变发布快照、版本化审核、人工锁定和回滚，避免草稿或过期原文进入店面。
 - 支持阿里云、火山引擎、百度、DeepL、Google Cloud、Azure Translator 与硅基流动。
-- 免费额度优先调度，持久化记录 `reserved`、`sending`、`committed`、`definite_failed` 与 `uncertain`，不盲目重试结果不明的请求。
+- 字符计量服务商使用本地安全额度；硅基流动免费模型使用仅速率模式，按每个 API 账户和模型独立执行 RPM/TPM。
+- 持久化记录 `reserved`、`sending`、`committed`、`definite_failed` 与 `uncertain`，不盲目重试结果不明的请求。
 - 通过专用队列、多 worker 领取令牌、任务暂停/恢复和维护互斥锁安全执行批量翻译。
 - 提供受保护术语、翻译记忆、质量门禁、批量维护、自动发布与可操作诊断。
 - 可按受信任的 Cloudflare 访客国家或离线 GeoLite2 规则选择展示语言，同时保留访客手动切换权。

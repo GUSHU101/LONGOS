@@ -31,7 +31,7 @@ final class UsageLedger
      * provider's remote billing console. External usage can be represented by
      * the configured buffer without granting paid overage.
      *
-     * @return array<string,int|string>
+     * @return array<string,int|string|bool|null>
      */
     public function summary(object|array $account, ?CarbonImmutable $now = null): array
     {
@@ -42,25 +42,29 @@ final class UsageLedger
             ->where('provider_account_id', (int) $account->id)
             ->where('billing_cycle', $cycle)
             ->first();
-        $limit     = $month === null ? $this->cap($account) : (int) $month->soft_limit;
-        $committed = (int) ($month->committed_units ?? 0);
-        $reserved  = (int) ($month->reserved_units ?? 0);
-        $sending   = (int) ($month->sending_units ?? 0);
-        $uncertain = (int) ($month->uncertain_units ?? 0);
-        $external  = (int) ($month->external_usage_buffer ?? $account->external_usage_buffer ?? 0);
-        $occupied  = $committed + $reserved + $sending + $uncertain + $external;
+        $budgetMode = $this->budgetMode($account);
+        $enforced   = $budgetMode === 'metered';
+        $limit      = $month      === null ? $this->cap($account) : (int) $month->soft_limit;
+        $committed  = (int) ($month->committed_units ?? 0);
+        $reserved   = (int) ($month->reserved_units ?? 0);
+        $sending    = (int) ($month->sending_units ?? 0);
+        $uncertain  = (int) ($month->uncertain_units ?? 0);
+        $external   = (int) ($month->external_usage_buffer ?? $account->external_usage_buffer ?? 0);
+        $occupied   = $committed + $reserved + $sending + $uncertain + $external;
 
         return [
             'billing_cycle'         => $cycle,
-            'local_limit'           => $limit,
+            'budget_mode'           => $budgetMode,
+            'budget_enforced'       => $enforced,
+            'local_limit'           => $enforced ? $limit : null,
             'committed'             => $committed,
             'reserved'              => $reserved,
             'sending'               => $sending,
             'uncertain'             => $uncertain,
             'external_buffer'       => $external,
             'occupied'              => $occupied,
-            'remaining'             => max(0, $limit - $occupied),
-            'used_percent'          => $limit > 0 ? min(100, (int) floor(($occupied / $limit) * 100)) : 0,
+            'remaining'             => $enforced ? max(0, $limit - $occupied) : null,
+            'used_percent'          => $enforced && $limit > 0 ? min(100, (int) floor(($occupied / $limit) * 100)) : null,
             'remote_quota_status'   => 'not_queried',
         ];
     }
@@ -107,7 +111,8 @@ final class UsageLedger
                 return ['id' => (int) $existing->id, 'request_uuid' => $requestUuid, 'billing_cycle' => (string) $existing->billing_cycle, 'units' => (int) $existing->source_units_reserved, 'state' => (string) $existing->state];
             }
             $occupied = (int) $month->committed_units + (int) $month->reserved_units + (int) $month->sending_units + (int) $month->uncertain_units + (int) $month->external_usage_buffer;
-            if ($occupied + $units > (int) $month->soft_limit) {
+            if ($this->budgetMode($account) === 'metered'
+                && $occupied + $units > (int) $month->soft_limit) {
                 throw new RuntimeException('LOCAL_BUDGET_EXHAUSTED');
             }
             $attemptId = DB::table('lgt_attempts')->insertGetId([
@@ -292,11 +297,19 @@ final class UsageLedger
 
     private function cap(object $account): int
     {
+        if ($this->budgetMode($account) === 'rate_only') {
+            return 0;
+        }
         $quota      = (int) $account->free_quota;
         $configured = (int) $account->soft_cap;
         $cap        = $configured > 0 ? min($quota, $configured) : (int) floor($quota * 0.9);
 
         return max(0, $cap);
+    }
+
+    private function budgetMode(object $account): string
+    {
+        return ($account->budget_mode ?? null) === 'rate_only' ? 'rate_only' : 'metered';
     }
 
     /**

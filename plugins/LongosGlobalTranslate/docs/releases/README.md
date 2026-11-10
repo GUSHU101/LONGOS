@@ -4,6 +4,7 @@
 
 | 版本 | 主题 |
 |---|---|
+| [v1.17.0](v1.17.0.md) | 免费模型额度语义修正、账户级 RPM/TPM 隔离 |
 | [v1.16.0](v1.16.0.md) | 多 worker 暂停竞态修复、发布门禁与文档整理 |
 | [v1.15.0](README_AI_GEO_SELF_CHECK_v1.15.0.md) | AI 自检与 IP 本地化完善 |
 | [v1.14.0](README_ADMIN_WORKBENCH_REFACTOR_v1.14.0.md) | 管理工作台重构 |

@@ -1,6 +1,6 @@
 # LONGOS Global Translation — implementation audit and rollback notes
 
-Last reviewed: 2026-11-10. Current plugin release: **v1.16.0**.
+Last reviewed: 2026-11-10. Current plugin release: **v1.17.0**.
 
 ## Architecture and trust boundaries
 
@@ -19,7 +19,7 @@ Last reviewed: 2026-11-10. Current plugin release: **v1.16.0**.
 | Public-content allowlist | The scanner covers public catalog/page records, explicitly supported published Builder display fields, storefront chrome and controlled commerce UI strings. Transactional and private areas are excluded. |
 | Source freshness | Dictionaries re-check the current public parent, source hash and Builder publication revision before returning a translation. |
 | Credential safety | Encrypted credentials are redacted from controllers, logs and storefront JSON. Verification is an explicit administrator action. |
-| Billing safety | `UsageLedger` journals `reserved`, `sending`, `committed`, `definite_failed` and `uncertain`. Unknown post-send outcomes keep their budget occupied and are never blindly retried. |
+| Billing safety | `UsageLedger` journals `reserved`, `sending`, `committed`, `definite_failed` and `uncertain`. Metered providers enforce character budgets; rate-only free models retain the audit ledger without an invented character cap. Unknown post-send outcomes are never blindly retried. |
 | Multi-worker safety | Opaque run tokens own claims. Job/item locks serialize pause, cancel, recovery and completion. A concurrent pause releases an unsent claim; a true cancellation consumes it. |
 | Provider pacing | Per-account QPS controls apply to standard providers. SiliconFlow additionally uses durable account/model RPM, TPM and remote-cooldown windows with delayed resume. |
 | Human precedence | Manual edits use version compare-and-swap; reviewed locked rows cannot be overwritten by machine output. |
@@ -29,7 +29,7 @@ Last reviewed: 2026-11-10. Current plugin release: **v1.16.0**.
 
 ## Provider scope
 
-The registry supports Aliyun, Volcengine, Baidu, DeepL, Google Cloud Translation, Azure Translator and SiliconFlow. SiliconFlow is restricted to the plugin allowlist of free chat models and applies conservative local limits even if the account advertises a higher remote quota.
+The registry supports Aliyun, Volcengine, Baidu, DeepL, Google Cloud Translation, Azure Translator and SiliconFlow. SiliconFlow is restricted to the plugin allowlist of models verified as free for this release. It does not use an artificial character allowance: each API account/model has an isolated durable RPM/TPM window and 429 cooldown, while processed characters and actual response tokens remain auditable.
 
 Provider availability, free pricing, account authorization and billing identity are external facts. Automated tests use mocked providers and never send a real translation request. An operator must deliberately verify an account and separately enable dispatch.
 

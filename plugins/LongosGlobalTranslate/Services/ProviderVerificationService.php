@@ -73,9 +73,9 @@ final class ProviderVerificationService
             if ($rateCallId !== null) {
                 $limiter->settle($rateCallId, $response->totalTokens);
                 if ($response->errorCode === 'RATE_LIMIT') {
-                    $limiter->cooldown((string) $credentials['model'], $response->retryAfterSeconds);
+                    $limiter->cooldown($accountId, (string) $credentials['model'], $response->retryAfterSeconds);
                 } elseif ($response->ok) {
-                    $limiter->success((string) $credentials['model']);
+                    $limiter->success($accountId, (string) $credentials['model']);
                 }
             }
             if (! $response->ok || count($response->translations) !== 1) {

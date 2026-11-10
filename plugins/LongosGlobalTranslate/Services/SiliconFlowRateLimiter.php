@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
 /**
- * Tenant-local, model-wide rolling 60-second RPM/TPM admission control.
+ * Tenant-local, account-and-model rolling 60-second RPM/TPM admission control.
  * A database row lock, not a process-local cache, serializes all workers.
  * Reservations remain charged for unknown network outcomes: a timeout may
  * have reached the remote model, and replaying it is not safe.
@@ -21,11 +21,13 @@ final class SiliconFlowRateLimiter
         }
 
         return DB::transaction(function () use ($accountId, $model, $tokenCeiling, $rpmLimit, $tpmLimit): array {
-            DB::table('lgt_siliconflow_rate_models')->insertOrIgnore([
-                'model'      => $model, 'rpm_cap' => $rpmLimit, 'tpm_cap' => $tpmLimit,
-                'created_at' => now(), 'updated_at' => now(),
+            DB::table('lgt_siliconflow_rate_account_models')->insertOrIgnore([
+                'provider_account_id' => $accountId,
+                'model'               => $model, 'rpm_cap' => $rpmLimit, 'tpm_cap' => $tpmLimit,
+                'created_at'          => now(), 'updated_at' => now(),
             ]);
-            $row = DB::table('lgt_siliconflow_rate_models')->where('model', $model)->lockForUpdate()->first();
+            $row = DB::table('lgt_siliconflow_rate_account_models')
+                ->where('provider_account_id', $accountId)->where('model', $model)->lockForUpdate()->first();
             if ($row === null) {
                 throw new RuntimeException('SILICONFLOW_RATE_STATE_MISSING');
             }
@@ -34,12 +36,12 @@ final class SiliconFlowRateLimiter
             $windowStart = $now->copy()->subSeconds(60);
             $oldWindow   = $row->cap_window_at === null
                 || \Illuminate\Support\Carbon::parse($row->cap_window_at)->lessThanOrEqualTo($windowStart);
-            // If multiple keys target one model, use the lowest configured
-            // limit observed in the active minute; keys do not grant quotas.
+            // An account/model's limit may be reduced during an active minute;
+            // never let a settings edit create capacity retroactively.
             $rpm = $oldWindow ? $rpmLimit : min((int) $row->rpm_cap, $rpmLimit);
             $tpm = $oldWindow ? $tpmLimit : min((int) $row->tpm_cap, $tpmLimit);
             if ($oldWindow || $rpm !== (int) $row->rpm_cap || $tpm !== (int) $row->tpm_cap) {
-                DB::table('lgt_siliconflow_rate_models')->where('id', $row->id)->update([
+                DB::table('lgt_siliconflow_rate_account_models')->where('id', $row->id)->update([
                     'rpm_cap'       => $rpm, 'tpm_cap' => $tpm,
                     'cap_window_at' => $oldWindow ? $now : $row->cap_window_at,
                     'updated_at'    => $now,
@@ -54,7 +56,8 @@ final class SiliconFlowRateLimiter
                 return $this->blocked('SILICONFLOW_SEGMENT_EXCEEDS_TPM', 60);
             }
 
-            $calls = DB::table('lgt_siliconflow_rate_calls')->where('model', $model)
+            $calls = DB::table('lgt_siliconflow_rate_calls')->where('provider_account_id', $accountId)
+                ->where('model', $model)
                 ->where('dispatched_at', '>', $windowStart);
             $count  = (clone $calls)->count();
             $tokens = (int) (clone $calls)->sum('counted_tokens');
@@ -72,7 +75,7 @@ final class SiliconFlowRateLimiter
             ]);
             if ($row->last_pruned_at === null || $row->last_pruned_at <= $now->copy()->subSeconds(60)) {
                 DB::table('lgt_siliconflow_rate_calls')->where('dispatched_at', '<', $now->copy()->subMinutes(2))->delete();
-                DB::table('lgt_siliconflow_rate_models')->where('id', $row->id)->update(['last_pruned_at' => $now]);
+                DB::table('lgt_siliconflow_rate_account_models')->where('id', $row->id)->update(['last_pruned_at' => $now]);
             }
 
             return ['allowed' => true, 'id' => (int) $id, 'retry_after' => 0, 'reason' => ''];
@@ -92,7 +95,9 @@ final class SiliconFlowRateLimiter
             }
             // Reconciliation uses the same model lock as admission to avoid
             // over-admission between a token refund and the next reservation.
-            DB::table('lgt_siliconflow_rate_models')->where('model', $call->model)->lockForUpdate()->first();
+            DB::table('lgt_siliconflow_rate_account_models')
+                ->where('provider_account_id', $call->provider_account_id)
+                ->where('model', $call->model)->lockForUpdate()->first();
             DB::table('lgt_siliconflow_rate_calls')->where('id', $callId)->update([
                 'counted_tokens' => $actualTokens, 'updated_at' => now(),
             ]);
@@ -107,23 +112,26 @@ final class SiliconFlowRateLimiter
             if ($call === null) {
                 return;
             }
-            DB::table('lgt_siliconflow_rate_models')->where('model', $call->model)->lockForUpdate()->first();
+            DB::table('lgt_siliconflow_rate_account_models')
+                ->where('provider_account_id', $call->provider_account_id)
+                ->where('model', $call->model)->lockForUpdate()->first();
             DB::table('lgt_siliconflow_rate_calls')->where('id', $callId)->delete();
         }, 3);
     }
 
-    /** Apply provider 429 Retry-After and exponential per-model cooldown. */
-    public function cooldown(string $model, ?int $retryAfter): int
+    /** Apply provider 429 Retry-After and exponential account/model cooldown. */
+    public function cooldown(int $accountId, string $model, ?int $retryAfter): int
     {
-        return DB::transaction(function () use ($model, $retryAfter): int {
-            $row = DB::table('lgt_siliconflow_rate_models')->where('model', $model)->lockForUpdate()->first();
+        return DB::transaction(function () use ($accountId, $model, $retryAfter): int {
+            $row = DB::table('lgt_siliconflow_rate_account_models')
+                ->where('provider_account_id', $accountId)->where('model', $model)->lockForUpdate()->first();
             if ($row === null) {
                 throw new RuntimeException('SILICONFLOW_RATE_STATE_MISSING');
             }
             $failures = min(10, (int) $row->consecutive_429 + 1);
             $seconds  = min(600, max($retryAfter ?? 0, 15 * (2 ** min(5, $failures)), 60));
             $until    = now()->addSeconds($seconds);
-            DB::table('lgt_siliconflow_rate_models')->where('id', $row->id)->update([
+            DB::table('lgt_siliconflow_rate_account_models')->where('id', $row->id)->update([
                 'consecutive_429' => $failures, 'cooldown_until' => $until, 'updated_at' => now(),
             ]);
 
@@ -131,9 +139,10 @@ final class SiliconFlowRateLimiter
         }, 3);
     }
 
-    public function success(string $model): void
+    public function success(int $accountId, string $model): void
     {
-        DB::table('lgt_siliconflow_rate_models')->where('model', $model)
+        DB::table('lgt_siliconflow_rate_account_models')
+            ->where('provider_account_id', $accountId)->where('model', $model)
             ->update(['consecutive_429' => 0, 'updated_at' => now()]);
     }
 
