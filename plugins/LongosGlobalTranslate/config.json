@@ -9,7 +9,7 @@
     "en": "Tenant-isolated storefront translation management."
   },
   "type": "feature",
-  "version": "v1.18.0",
+  "version": "v1.18.1",
   "icon": "/image/longos-favicon.svg",
   "author": {
     "name": "LONGOS",

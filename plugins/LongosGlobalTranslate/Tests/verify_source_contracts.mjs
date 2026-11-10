@@ -165,7 +165,7 @@ assert.match(jobs, /\$report\s*=\s*\$this->scanner->scan\(\$kinds, \$actorId\)/)
 assert.match(builderRuntimeTest, /ContentScanner::builderDisplayFields/);
 assert.match(builderRuntimeTest, /'seo\.title'/);
 assert.match(builderRuntimeTest, /'blocks\.0\.cta_text'/);
-assert.match(read('Services/StorefrontPresentationConfig.php'), /PLUGIN_RELEASE = '1\.18\.0'/);
+assert.match(read('Services/StorefrontPresentationConfig.php'), /PLUGIN_RELEASE = '1\.18\.1'/);
 
 const inlineScript = admin.match(/<script>([\s\S]*?)<\/script>/)?.[1];
 assert.ok(inlineScript, 'Admin JS script exists');
@@ -178,7 +178,7 @@ for (const match of inlineScript.matchAll(/\$\('#(lgt-[\w-]+)'\)/g)) {
 }
 
 const config = JSON.parse(read('config.json'));
-assert.equal(config.version, 'v1.18.0');
+assert.equal(config.version, 'v1.18.1');
 assert.ok(longosConfig.includes("min(24, max(1, (int) env('LONGOS_TRANSLATION_WORKERS', 12)))"));
 assert.ok(workerEntrypoint.includes('LONGOS_TRANSLATION_WORKERS:-12'));
 assert.ok(workerEntrypoint.includes('if [ "$translation_workers" -gt 24 ]; then translation_workers=24; fi'));
@@ -190,11 +190,17 @@ const limiter = read('Services/SiliconFlowRateLimiter.php');
 const verification = read('Services/ProviderVerificationService.php');
 const siliconflowMigration = read('Migrations/2026_11_09_000011_add_siliconflow_rate_pacing.php');
 const budgetModeMigration = read('Migrations/2026_11_10_000012_add_provider_budget_modes.php');
+const sharedRateMigration = read('../../database/migrations/2026_11_10_000001_create_saas_translation_rate_limits.php');
 for (const marker of ['lockForUpdate()', "where('dispatched_at', '>', $windowStart)", 'counted_tokens', 'consecutive_429', 'cooldown_until', 'function acquire(', 'function settle(']) assert.ok(limiter.includes(marker), marker);
 for (const marker of ['lgt_siliconflow_rate_models','lgt_siliconflow_rate_calls','rpm_limit','tpm_limit']) {assert.ok(schema.includes(marker), marker);assert.ok(siliconflowMigration.includes(marker), marker);}
 for (const marker of ['budget_mode','lgt_siliconflow_rate_account_models']) {assert.ok(schema.includes(marker), marker);assert.ok(budgetModeMigration.includes(marker), marker);}
 assert.ok(budgetModeMigration.includes('rate_only'));
-assert.ok(limiter.includes("where('provider_account_id', $accountId)"));
+for (const marker of ["config('saas.enabled'", "DB::connection('saas')", 'SAAS_TRANSLATION_RATE_TABLES_MISSING', 'SILICONFLOW_BILLING_IDENTITY_MISSING', 'billing_identity_hash']) {
+  assert.ok(limiter.includes(marker), marker);
+}
+for (const marker of ['saas_translation_rate_accounts', 'saas_translation_rate_calls', 'billing_identity_hash', "DB::getDefaultConnection() === 'tenant'"]) {
+  assert.ok(sharedRateMigration.includes(marker), marker);
+}
 for (const marker of ['resumeSiliconFlowRateWindow', 'ResumeSiliconFlowTranslationJob::dispatch', '$limiter->acquire(', '$limiter->settle(', 'SILICONFLOW_RATE_WINDOW']) assert.ok(jobs.includes(marker), marker);
 assert.ok(verification.includes('$limiter->acquire('));
 assert.ok(siliconflow.includes('usage'));assert.ok(siliconflow.includes('tokenCeiling'));
@@ -220,7 +226,7 @@ assert.ok(storefront.includes("'widget_visible'"));
 assert.ok(boot.includes('TranslationSettings::presentationActive($settings)'));
 assert.ok(!boot.includes('forRequest(request(), $settings)'));
 assert.ok(!view.includes('longos-global-translate-bootstrap'));
-assert.ok(view.includes('widget.css') && view.includes('?v=1.18.0'));
+assert.ok(view.includes('widget.css') && view.includes('?v=1.18.1'));
 assert.ok(widget.includes("request(root.dataset.configUrl, {cache: 'no-store'})"));
 assert.ok(widget.includes('root.hidden = !data.widget_visible'));
 assert.ok(widget.includes('observeNewPublicModules'));

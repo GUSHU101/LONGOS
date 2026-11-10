@@ -364,7 +364,7 @@ class GlobalTranslationWorkflowTest extends TestCase
 
         self::assertFalse($config->getData(true)['enabled']);
         self::assertSame(['en'], $config->getData(true)['locales']);
-        self::assertSame('1.18.0', $config->getData(true)['plugin_release']);
+        self::assertSame('1.18.1', $config->getData(true)['plugin_release']);
         self::assertSame([], $config->getData(true)['published_revisions']);
         self::assertSame('', $config->getData(true)['dictionary_url']);
         self::assertSame('', $config->getData(true)['batch_dictionary_url']);
@@ -730,6 +730,75 @@ class GlobalTranslationWorkflowTest extends TestCase
         self::assertSame(0, (int) DB::table('lgt_siliconflow_rate_account_models')
             ->where('provider_account_id', 202)->value('consecutive_429'));
         self::assertSame(2, DB::table('lgt_siliconflow_rate_account_models')->count());
+    }
+
+    public function test_siliconflow_saas_rate_limit_is_shared_by_remote_identity_across_tenants(): void
+    {
+        $previousSaas = config('saas.enabled');
+        $previousConnection = config('database.connections.saas');
+        config([
+            'saas.enabled' => true,
+            'database.connections.saas' => ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => ''],
+            'database.connections.lgt_second_tenant' => ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => 'second_'],
+        ]);
+        DB::purge('saas');
+        DB::purge('lgt_second_tenant');
+
+        try {
+            $migration = require base_path('database/migrations/2026_11_10_000001_create_saas_translation_rate_limits.php');
+            $migration->up();
+            $identity = hash('sha256', "siliconflow\0shared-siliconflow-user");
+            DB::table('lgt_provider_accounts')->insert([
+                'id' => 101, 'provider' => 'siliconflow', 'billing_identity_hash' => $identity,
+                'owner_scope' => 'tenant', 'credentials_ciphertext' => 'not-used',
+                'credential_revision' => 1, 'cycle_timezone' => 'UTC',
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+            $limiter = new SiliconFlowRateLimiter;
+            $model = SiliconFlowProvider::DEFAULT_MODEL;
+            $first = $limiter->acquire(101, $model, 40, 1, 100);
+            self::assertTrue($first['allowed']);
+
+            Schema::connection('lgt_second_tenant')->create('lgt_provider_accounts', function (Blueprint $table): void {
+                $table->id();
+                $table->string('provider');
+                $table->char('billing_identity_hash', 64);
+            });
+            DB::connection('lgt_second_tenant')->table('lgt_provider_accounts')->insert([
+                'id' => 909, 'provider' => 'siliconflow', 'billing_identity_hash' => $identity,
+            ]);
+            DB::setDefaultConnection('lgt_second_tenant');
+
+            // Different local IDs and prefixed tenant databases cannot split
+            // a single remote SiliconFlow user's minute allowance.
+            // Even a second tenant configured with a higher RPM cannot
+            // raise the shared limit that was already established.
+            $second = $limiter->acquire(909, $model, 40, 2, 200);
+            self::assertFalse($second['allowed']);
+            self::assertSame('SILICONFLOW_LOCAL_RPM_LIMIT', $second['reason']);
+            self::assertSame(1, DB::connection('saas')->table('saas_translation_rate_calls')->count());
+            self::assertSame(1, (int) DB::connection('saas')->table('saas_translation_rate_accounts')->value('rpm_cap'));
+
+            $limiter->release((int) $first['id']);
+            self::assertTrue($limiter->acquire(909, $model, 40, 2, 200)['allowed']);
+            self::assertSame(1, DB::connection('saas')->table('saas_translation_rate_accounts')->count());
+
+            $limiter->cooldown(909, $model, 10);
+            DB::setDefaultConnection('lgt_workflow');
+            $cooldown = $limiter->acquire(101, $model, 40, 1, 100);
+            self::assertSame('SILICONFLOW_REMOTE_COOLDOWN', $cooldown['reason']);
+            DB::setDefaultConnection('lgt_second_tenant');
+
+            Schema::connection('saas')->drop('saas_translation_rate_calls');
+            $this->expectException(RuntimeException::class);
+            $this->expectExceptionMessage('SAAS_TRANSLATION_RATE_TABLES_MISSING');
+            $limiter->acquire(909, $model, 40, 1, 100);
+        } finally {
+            DB::setDefaultConnection('lgt_workflow');
+            DB::disconnect('lgt_second_tenant');
+            DB::purge('saas');
+            config(['saas.enabled' => $previousSaas, 'database.connections.saas' => $previousConnection]);
+        }
     }
 
     public function test_provider_dispatch_is_durably_rate_limited_per_tenant_account(): void
