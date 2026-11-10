@@ -12,5 +12,7 @@ final readonly class TranslationProviderResponse
         public ?string $errorCode,
         public string $rawResponseHash,
         public int $roundTripMs,
+        public ?int $totalTokens = null,
+        public ?int $retryAfterSeconds = null,
     ) {}
 }

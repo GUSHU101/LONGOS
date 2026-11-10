@@ -76,7 +76,7 @@ final class UsageLedger
 
         return DB::transaction(function () use ($accountId, $units, $jobItemId, $requestUuid, $now, $controlledVerification): array {
             $account = DB::table('lgt_provider_accounts')->where('id', $accountId)->lockForUpdate()->first();
-            if ($account === null || $account->owner_scope !== 'tenant' || ! $account->enabled) {
+            if ($account === null || $account->archived_at !== null || $account->owner_scope !== 'tenant' || ! $account->enabled) {
                 throw new RuntimeException('PROVIDER_ACCOUNT_NOT_DISPATCHABLE');
             }
             if (! $controlledVerification && (! $account->dispatch_enabled || $account->verified_at === null)) {
@@ -137,9 +137,28 @@ final class UsageLedger
     /** Mark journaled immediately before the external HTTP request, after transaction commit. */
     public function markSending(int $attemptId, ?CarbonImmutable $now = null): void
     {
-        DB::transaction(function () use ($attemptId, $now): void {
+        // Canonical order: account -> billing month -> attempt. Reserve()
+        // uses the same order, and transition() locks month before attempt.
+        $identity = DB::table('lgt_attempts')->where('id', $attemptId)
+            ->first(['provider_account_id', 'billing_cycle']);
+        if ($identity === null) {
+            throw new RuntimeException('ATTEMPT_NOT_FOUND');
+        }
+        DB::transaction(function () use ($attemptId, $identity, $now): void {
+            $account = DB::table('lgt_provider_accounts')->where('id', $identity->provider_account_id)->lockForUpdate()->first();
+            if ($account === null) {
+                throw new RuntimeException('PROVIDER_ACCOUNT_NOT_FOUND');
+            }
+            $month = DB::table('lgt_usage_months')
+                ->where('provider_account_id', $identity->provider_account_id)
+                ->where('billing_cycle', $identity->billing_cycle)
+                ->lockForUpdate()->first();
+            if ($month === null) {
+                throw new RuntimeException('USAGE_MONTH_NOT_FOUND');
+            }
             $attempt = DB::table('lgt_attempts')->where('id', $attemptId)->lockForUpdate()->first();
-            if ($attempt === null) {
+            if ($attempt === null || (int) $attempt->provider_account_id !== (int) $identity->provider_account_id
+                                  || (string) $attempt->billing_cycle    !== (string) $identity->billing_cycle) {
                 throw new RuntimeException('ATTEMPT_NOT_FOUND');
             }
             if ((string) $attempt->state === self::SENDING) {
@@ -148,11 +167,6 @@ final class UsageLedger
             if ((string) $attempt->state !== self::RESERVED) {
                 throw new RuntimeException('INVALID_ATTEMPT_TRANSITION');
             }
-            $account = DB::table('lgt_provider_accounts')->where('id', $attempt->provider_account_id)->lockForUpdate()->first();
-            if ($account === null) {
-                throw new RuntimeException('PROVIDER_ACCOUNT_NOT_FOUND');
-            }
-
             $effectiveNow = $this->paceAccount($account, $now);
             $this->transition($attemptId, self::RESERVED, self::SENDING, $effectiveNow, 'sending');
         }, 3);
@@ -224,9 +238,26 @@ final class UsageLedger
     private function transition(int $attemptId, string|array $from, string $to, ?CarbonImmutable $now, string $event, array $patch = []): void
     {
         $now ??= CarbonImmutable::now('UTC');
-        DB::transaction(function () use ($attemptId, $from, $to, $now, $event, $patch): void {
+        // Read immutable identity without a row lock, then lock the month
+        // before the attempt. The reverse order deadlocks reserve() when a
+        // retried request UUID looks up an existing attempt under its month.
+        $identity = DB::table('lgt_attempts')->where('id', $attemptId)
+            ->first(['provider_account_id', 'billing_cycle']);
+        if ($identity === null) {
+            throw new RuntimeException('ATTEMPT_NOT_FOUND');
+        }
+        DB::transaction(function () use ($attemptId, $identity, $from, $to, $now, $event, $patch): void {
+            $month = DB::table('lgt_usage_months')
+                ->where('provider_account_id', $identity->provider_account_id)
+                ->where('billing_cycle', $identity->billing_cycle)
+                ->lockForUpdate()
+                ->first();
+            if ($month === null) {
+                throw new RuntimeException('USAGE_MONTH_NOT_FOUND');
+            }
             $attempt = DB::table('lgt_attempts')->where('id', $attemptId)->lockForUpdate()->first();
-            if ($attempt === null) {
+            if ($attempt === null || (int) $attempt->provider_account_id !== (int) $identity->provider_account_id
+                                  || (string) $attempt->billing_cycle    !== (string) $identity->billing_cycle) {
                 throw new RuntimeException('ATTEMPT_NOT_FOUND');
             }
             $allowed = (array) $from;
@@ -235,14 +266,6 @@ final class UsageLedger
             }
             if (! in_array((string) $attempt->state, $allowed, true)) {
                 throw new RuntimeException('INVALID_ATTEMPT_TRANSITION');
-            }
-            $month = DB::table('lgt_usage_months')
-                ->where('provider_account_id', $attempt->provider_account_id)
-                ->where('billing_cycle', $attempt->billing_cycle)
-                ->lockForUpdate()
-                ->first();
-            if ($month === null) {
-                throw new RuntimeException('USAGE_MONTH_NOT_FOUND');
             }
             $units        = (int) $attempt->source_units_reserved;
             $updates      = ['state' => $to, 'updated_at' => $now, ...$patch];

@@ -32,14 +32,15 @@ class GlobalTranslationWidgetSafetyTest extends TestCase
         self::assertStringContainsString('safeFallbackParent', $script);
         self::assertStringContainsString('[data-lgt-private]', $script);
         self::assertStringContainsString('sensitivePath()', $script);
-        self::assertStringContainsString('root.hidden = false;', $script);
-        self::assertStringContainsString('inlineBootstrap', $script);
+        self::assertStringContainsString('root.hidden = !data.widget_visible;', $script);
+        self::assertStringContainsString("request(root.dataset.configUrl, {cache: 'no-store'})", $script);
+        self::assertStringNotContainsString('inlineBootstrap', $script);
         self::assertStringContainsString('window.sessionStorage', $script);
         self::assertStringContainsString('published_revisions', $script);
         self::assertStringContainsString('isCurrentDictionary', $script);
         self::assertStringContainsString('window.requestIdleCallback', $script);
         self::assertStringContainsString('scheduleFallback(locale, epoch);', $script);
-        self::assertStringContainsString('longos-global-translate-bootstrap', $view);
+        self::assertStringNotContainsString('longos-global-translate-bootstrap', $view);
         self::assertStringContainsString('hidden', $view);
     }
 

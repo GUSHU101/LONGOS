@@ -237,7 +237,14 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringContainsString('memory_limit="${PHP_WORKER_MEMORY_LIMIT:-512M}"', $this->read('docker/nginx/start.sh'));
         self::assertStringContainsString('PHP_WORKER_MEMORY_LIMIT: ${PHP_WORKER_MEMORY_LIMIT:-512M}', $compose);
         self::assertStringContainsString('--memory=384', $this->read('docker/nginx/start.sh'));
+        self::assertStringContainsString('--queue=translations --sleep=1 --tries=1 --timeout=650 --memory=224', $this->read('docker/nginx/start.sh'));
+        self::assertStringContainsString('LONGOS_TRANSLATION_WORKERS: ${LONGOS_TRANSLATION_WORKERS:-4}', $compose);
+        self::assertStringContainsString('LONGOS_TRANSLATION_BATCH_SIZE: ${LONGOS_TRANSLATION_BATCH_SIZE:-20}', $compose);
+        self::assertStringContainsString('CURRENCY_TRUST_CDN_COUNTRY_HEADERS: ${CURRENCY_TRUST_CDN_COUNTRY_HEADERS:-true}', $compose);
+        self::assertStringContainsString('CURRENCY_GEOLITE2_PATH: ${CURRENCY_GEOLITE2_PATH:-/var/www/html/storage/app/GeoLite2-Country.mmdb}', $compose);
         self::assertStringContainsString('/var/www/.cache/fontconfig', $this->read('docker/nginx/Dockerfile'));
+        self::assertMatchesRegularExpression('/plugins=\([\s\S]*?LongosGlobalTranslate[\s\S]*?\)/', $ci);
+        self::assertStringContainsString('test -f "plugins/${plugin}/Bootstrap.php"', $ci);
         self::assertStringContainsString('wait_for_healthy worker', $ci);
         self::assertStringContainsString('wait_for_healthy scheduler', $ci);
         self::assertStringContainsString('--network coolify --entrypoint curl', $ci);

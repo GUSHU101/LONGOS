@@ -50,7 +50,7 @@ final class ShopTranslationController extends Controller
         // A disabled selector has no public presentation surface.  Returning
         // an empty dictionary here keeps a previously injected, cached script
         // from becoming an alternative content-discovery endpoint.
-        if (! (bool) data_get($settings, 'widget.enabled', false)) {
+        if (! TranslationSettings::presentationActive($settings)) {
             return $this->json(['revision' => null, 'items' => []]);
         }
         $decision = $this->locales->decide($request);
@@ -76,7 +76,7 @@ final class ShopTranslationController extends Controller
             return $this->json(['dictionaries' => []]);
         }
         $settings = $this->settings->all();
-        if (! (bool) data_get($settings, 'widget.enabled', false)) {
+        if (! TranslationSettings::presentationActive($settings)) {
             return $this->json(['dictionaries' => []]);
         }
         $data = $request->validate([
@@ -123,7 +123,7 @@ final class ShopTranslationController extends Controller
             return $this->json(['revision' => null, 'items' => []]);
         }
         $settings = $this->settings->all();
-        if (! (bool) data_get($settings, 'widget.enabled', false)) {
+        if (! TranslationSettings::presentationActive($settings)) {
             return $this->json(['revision' => null, 'items' => []]);
         }
         $decision = $this->locales->decide($request);
@@ -141,7 +141,7 @@ final class ShopTranslationController extends Controller
         return response()->json($payload, $status, [
             'Cache-Control'          => 'private, no-store',
             'Pragma'                 => 'no-cache',
-            'Vary'                   => 'Cookie',
+            'Vary'                   => 'Cookie, Accept-Language',
             'X-Content-Type-Options' => 'nosniff',
             'Referrer-Policy'        => 'same-origin',
         ]);

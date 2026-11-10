@@ -5,7 +5,9 @@ namespace Plugin\LongosGlobalTranslate\Services;
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
+use Plugin\LongosGlobalTranslate\Providers\SiliconFlowProvider;
 
 final class ProviderAccountService
 {
@@ -16,7 +18,7 @@ final class ProviderAccountService
         $this->ledger = $ledger ?? new UsageLedger;
     }
 
-    public const PROVIDERS = ['aliyun', 'volcengine', 'baidu', 'deepl', 'google', 'azure'];
+    public const PROVIDERS = ['aliyun', 'volcengine', 'baidu', 'deepl', 'google', 'azure', 'siliconflow'];
 
     /**
      * The API credential contract is provider-specific. Keep this metadata
@@ -81,6 +83,20 @@ final class ProviderAccountService
                 'account_help' => '建议填写 Azure 订阅、资源名称或用途，便于区分额度。',
                 'quota_help'   => '填写该 Azure 资源本周期可安全使用的字符额度；本地上限始终优先。',
             ],
+            'siliconflow' => [
+                'label'             => '硅基流动（免费 AI 翻译）',
+                'credential_fields' => [
+                    ['key' => 'api_key', 'label' => 'SiliconFlow API Key', 'placeholder' => '输入硅基流动 API Key', 'help' => '从硅基流动控制台创建。密钥加密保管，不会传给前台。', 'input_type' => 'password'],
+                    ['key' => 'model', 'label' => '免费翻译模型', 'placeholder' => SiliconFlowProvider::DEFAULT_MODEL, 'help' => '仅提供当前官方价格页标注免费的模型；更换模型后需重新验证，不会改用付费模型。', 'input_type' => 'text'],
+                ],
+                'default_model' => SiliconFlowProvider::DEFAULT_MODEL,
+                'model_options' => [
+                    ['value' => 'tencent/Hunyuan-MT-7B', 'label' => 'Hunyuan-MT-7B · 专用翻译（默认）'],
+                    ['value' => 'XingChenAGI/Xing4.0-29B', 'label' => 'Xing4.0-29B · 通用 AI 翻译'],
+                ],
+                'account_help' => '填写一个便于自己识别的 API Key 用途，例如：站点翻译。',
+                'quota_help'   => '可选已核实的免费模型；字符上限和 RPM/TPM 是不同限制。请按模型实际速率页填写，不保证永久免费。',
+            ],
         ];
     }
 
@@ -118,17 +134,29 @@ final class ProviderAccountService
                 'external_usage_buffer' => $this->units($input['external_usage_buffer'] ?? 0),
                 'cycle_timezone'        => $this->timezone((string) ($input['cycle_timezone'] ?? 'UTC')),
                 'qps_limit'             => min(10, max(1, (int) ($input['qps_limit'] ?? 1))),
+                'rpm_limit'             => min(10000, max(1, (int) ($input['rpm_limit'] ?? 1000))),
+                'tpm_limit'             => min(5000000, max(1, (int) ($input['tpm_limit'] ?? 80000))),
                 // Lower numbers are selected first. This is deliberately
                 // independent of provider type so a tenant can order Baidu,
                 // Aliyun and Volcengine as primary/secondary/tertiary.
                 'failover_priority'     => min(1000, max(1, (int) ($input['failover_priority'] ?? 100))),
                 'enabled'               => (bool) ($input['enabled'] ?? false),
                 'dispatch_enabled'      => false,
+                // Re-adding the same billing identity is an explicit
+                // credential rotation, not a fresh quota account. Reuse
+                // this row so the historical usage ledger is not reset.
+                'archived_at'           => null,
                 'verified_at'           => null,
                 'verified_by'           => null,
                 'source_link'           => $this->url($input['source_link'] ?? null),
                 'updated_at'            => now(),
             ];
+            if ($row !== null && $row->archived_at !== null) {
+                // Reinstating an archived billing identity must retain the
+                // old cycle timezone even if the add form defaults to UTC.
+                $values['cycle_timezone'] = (string) $row->cycle_timezone;
+            }
+            $this->assertBillingTimezoneSafe($row, (string) $values['cycle_timezone']);
             if ($row === null) {
                 $values += ['provider' => $provider, 'billing_identity_hash' => $identityHash, 'created_at' => now()];
                 $id = DB::table('lgt_provider_accounts')->insertGetId($values);
@@ -136,6 +164,7 @@ final class ProviderAccountService
                 DB::table('lgt_provider_accounts')->where('id', $row->id)->update($values);
                 $id = (int) $row->id;
             }
+            $this->syncCurrentMonthBudget($id, $values);
             $this->audit('provider_credentials_updated', 'provider_account', $id, $actorId, [], [
                 'provider'            => $provider,
                 'credential_revision' => $values['credential_revision'],
@@ -163,8 +192,33 @@ final class ProviderAccountService
 
         return DB::transaction(function () use ($accountId, $input, $credentials, $actorId): array {
             $row = DB::table('lgt_provider_accounts')->where('id', $accountId)->lockForUpdate()->first();
-            if ($row === null) {
+            if ($row === null || $row->archived_at !== null) {
                 throw new InvalidArgumentException('PROVIDER_ACCOUNT_NOT_FOUND');
+            }
+
+            // Switching a free model must not make an operator re-enter the
+            // encrypted API Key. A model-only update is accepted exclusively
+            // for SiliconFlow; changing models revokes verification/dispatch.
+            if ((string) $row->provider === 'siliconflow'
+                && array_key_exists('model', $credentials)
+                && ! array_key_exists('api_key', $credentials)) {
+                $existing = $this->credentials($row);
+                if (($existing['model'] ?? null) === $credentials['model']) {
+                    $credentials = [];
+                } else {
+                    $inFlight = DB::table('lgt_attempts')->where('provider_account_id', $accountId)
+                        ->whereIn('state', [UsageLedger::RESERVED, UsageLedger::SENDING])->exists();
+                    $claimed = DB::table('lgt_job_items as item')
+                        ->join('lgt_attempts as attempt', 'attempt.id', '=', 'item.attempt_id')
+                        ->where('attempt.provider_account_id', $accountId)
+                        ->where('item.status', 'claimed')->exists();
+                    if ($inFlight || $claimed) {
+                        throw ValidationException::withMessages([
+                            'model' => '该账户仍有在途翻译请求，请暂停并等待结算后再切换模型。',
+                        ]);
+                    }
+                    $credentials = ['api_key' => $existing['api_key'] ?? '', 'model' => $credentials['model']];
+                }
             }
 
             $credentialsChanged = $credentials !== [];
@@ -183,6 +237,8 @@ final class ProviderAccountService
                 'external_usage_buffer'  => $this->units($value('external_usage_buffer', $row->external_usage_buffer)),
                 'cycle_timezone'         => $this->timezone((string) $value('cycle_timezone', $row->cycle_timezone)),
                 'qps_limit'              => min(10, max(1, (int) $value('qps_limit', $row->qps_limit))),
+                'rpm_limit'              => min(10000, max(1, (int) $value('rpm_limit', $row->rpm_limit))),
+                'tpm_limit'              => min(5000000, max(1, (int) $value('tpm_limit', $row->tpm_limit))),
                 'failover_priority'      => min(1000, max(1, (int) $value('failover_priority', $row->failover_priority))),
                 'enabled'                => $enabled,
                 // Never silently re-enable delivery. A credential rotation or
@@ -203,12 +259,16 @@ final class ProviderAccountService
                 ];
             }
 
+            $this->assertBillingTimezoneSafe($row, (string) $values['cycle_timezone']);
             DB::table('lgt_provider_accounts')->where('id', $accountId)->update($values);
+            $this->syncCurrentMonthBudget($accountId, $values);
             $this->audit('provider_account_updated', 'provider_account', $accountId, $actorId, [
                 'account_tier'        => $row->account_tier,
                 'free_quota'          => (int) $row->free_quota,
                 'soft_cap'            => (int) $row->soft_cap,
                 'qps_limit'           => (int) $row->qps_limit,
+                'rpm_limit'           => (int) $row->rpm_limit,
+                'tpm_limit'           => (int) $row->tpm_limit,
                 'failover_priority'   => (int) $row->failover_priority,
                 'enabled'             => (bool) $row->enabled,
                 'dispatch_enabled'    => (bool) $row->dispatch_enabled,
@@ -218,6 +278,8 @@ final class ProviderAccountService
                 'free_quota'          => $values['free_quota'],
                 'soft_cap'            => $values['soft_cap'],
                 'qps_limit'           => $values['qps_limit'],
+                'rpm_limit'           => $values['rpm_limit'],
+                'tpm_limit'           => $values['tpm_limit'],
                 'failover_priority'   => $values['failover_priority'],
                 'enabled'             => $values['enabled'],
                 'dispatch_enabled'    => $values['dispatch_enabled'],
@@ -251,9 +313,61 @@ final class ProviderAccountService
     /** @return list<array<string, mixed>> */
     public function publicAccounts(): array
     {
-        return DB::table('lgt_provider_accounts')->orderBy('failover_priority')->orderBy('id')->get()->map(
+        return DB::table('lgt_provider_accounts')->whereNull('archived_at')->orderBy('failover_priority')->orderBy('id')->get()->map(
             fn (object $account): array => $this->publicAccount((array) $account)
         )->all();
+    }
+
+    /**
+     * Remove an API account from active configuration without destroying
+     * its usage ledger, verified request history or audit trail. The stored
+     * credential is erased; this is not a physical billing-row deletion.
+     */
+    public function archive(int $accountId, ?int $actorId): void
+    {
+        DB::transaction(function () use ($accountId, $actorId): void {
+            $account = DB::table('lgt_provider_accounts')->where('id', $accountId)->lockForUpdate()->first();
+            if ($account === null || $account->archived_at !== null) {
+                throw ValidationException::withMessages(['provider' => '该服务商账户不存在或已被删除，请刷新列表。']);
+            }
+
+            // Reserve() holds the same account row before it inserts an
+            // attempt, so no new reservation can slip past this check.
+            // An already sent request must settle before we erase its key.
+            $unsettled = DB::table('lgt_attempts')
+                ->where('provider_account_id', $accountId)
+                ->whereIn('state', [UsageLedger::RESERVED, UsageLedger::SENDING])
+                ->exists();
+            $claimed = DB::table('lgt_job_items as item')
+                ->join('lgt_attempts as attempt', 'attempt.id', '=', 'item.attempt_id')
+                ->where('attempt.provider_account_id', $accountId)
+                ->where('item.status', 'claimed')
+                ->exists();
+            if ($unsettled || $claimed) {
+                throw ValidationException::withMessages([
+                    'provider' => '该账户仍有正在处理的翻译请求。请先停止相关任务并等待结算，超时请求请在任务列表中执行保守恢复后再删除。',
+                ]);
+            }
+
+            DB::table('lgt_provider_accounts')->where('id', $accountId)->update([
+                'enabled'                 => false,
+                'dispatch_enabled'        => false,
+                'credentials_ciphertext'  => null,
+                'credential_fingerprint'  => null,
+                'credential_revision'     => (int) $account->credential_revision + 1,
+                'verified_at'             => null,
+                'verified_by'             => null,
+                'account_tier'            => null,
+                'source_link'             => null,
+                'archived_at'             => now(),
+                'updated_at'              => now(),
+            ]);
+            $this->audit('provider_account_archived', 'provider_account', $accountId, $actorId, [
+                'provider'         => $account->provider,
+                'enabled'          => (bool) $account->enabled,
+                'dispatch_enabled' => (bool) $account->dispatch_enabled,
+            ], ['archived' => true, 'credentials_erased' => true]);
+        }, 3);
     }
 
     /** @return array<string, mixed> */
@@ -261,7 +375,7 @@ final class ProviderAccountService
     {
         return DB::transaction(function () use ($accountId, $actorId): array {
             $account = DB::table('lgt_provider_accounts')->where('id', $accountId)->lockForUpdate()->first();
-            if ($account === null || ! $account->enabled || (int) $account->paid_cap !== 0) {
+            if ($account === null || $account->archived_at !== null || ! $account->enabled || (int) $account->paid_cap !== 0) {
                 throw new InvalidArgumentException('PROVIDER_ACCOUNT_NOT_VERIFIABLE');
             }
             DB::table('lgt_provider_accounts')->where('id', $accountId)->update([
@@ -278,7 +392,7 @@ final class ProviderAccountService
     {
         return DB::transaction(function () use ($accountId, $enabled, $actorId): array {
             $account = DB::table('lgt_provider_accounts')->where('id', $accountId)->lockForUpdate()->first();
-            if ($account === null) {
+            if ($account === null || $account->archived_at !== null) {
                 throw new InvalidArgumentException('PROVIDER_ACCOUNT_NOT_FOUND');
             }
             if ($enabled && (! $account->enabled || $account->verified_at === null || (int) $account->paid_cap !== 0)) {
@@ -311,7 +425,7 @@ final class ProviderAccountService
 
         DB::transaction(function () use ($accountId, $reason): void {
             $account = DB::table('lgt_provider_accounts')->where('id', $accountId)->lockForUpdate()->first();
-            if ($account === null || ! (bool) $account->dispatch_enabled) {
+            if ($account === null || $account->archived_at !== null || ! (bool) $account->dispatch_enabled) {
                 return;
             }
             DB::table('lgt_provider_accounts')->where('id', $accountId)->update([
@@ -332,12 +446,67 @@ final class ProviderAccountService
     {
         $configured = ! empty($account['credentials_ciphertext']);
         $usage      = $this->ledger->summary($account);
+        if (($account['provider'] ?? null) === 'siliconflow' && $configured) {
+            try {
+                $stored = $this->credentials($account);
+                // The model ID is public configuration; the API Key never is.
+                $account['selected_model'] = in_array($stored['model'] ?? null, SiliconFlowProvider::FREE_MODELS, true)
+                    ? $stored['model'] : null;
+            } catch (InvalidArgumentException) {
+                $account['selected_model'] = null;
+            }
+        }
         unset($account['credentials_ciphertext'], $account['credential_fingerprint'], $account['billing_identity_hash']);
         $account['credentials_configured'] = $configured;
         $account['paid_cap']               = 0;
         $account['local_usage']            = $usage;
 
         return $account;
+    }
+
+    /**
+     * The billing timezone is part of the ledger's identity. Switching it
+     * after a month was recorded could effectively restart local free quota
+     * by selecting another YYYY-MM record for the same provider account.
+     */
+    private function assertBillingTimezoneSafe(?object $account, string $timezone): void
+    {
+        if ($account === null || (string) $account->cycle_timezone === $timezone) {
+            return;
+        }
+        if (DB::table('lgt_usage_months')->where('provider_account_id', $account->id)->exists()) {
+            throw ValidationException::withMessages([
+                'cycle_timezone' => '该账户已有额度台账，为防重复使用免费额度，不能直接更改计费时区。请保留原时区，或配置新的独立计费账户。',
+            ]);
+        }
+    }
+
+    /**
+     * Quota edits previously left the current lgt_usage_months.soft_limit
+     * frozen at its first value, making an approved increase ineffective and
+     * a decrease invisible. Update only the current cycle's safety fields;
+     * never reset committed, reserved, sending or uncertain usage.
+     * Called inside the account-row-locked save/update transaction.
+     *
+     * @param array<string,mixed> $values
+     */
+    private function syncCurrentMonthBudget(int $accountId, array $values): void
+    {
+        $cycle = now()->setTimezone((string) $values['cycle_timezone'])->format('Y-m');
+        $month = DB::table('lgt_usage_months')->where('provider_account_id', $accountId)
+            ->where('billing_cycle', $cycle)->lockForUpdate()->first();
+        if ($month === null) {
+            return;
+        }
+        $freeQuota     = (int) $values['free_quota'];
+        $configuredCap = (int) $values['soft_cap'];
+        $newLimit      = max(0, $configuredCap > 0 ? min($freeQuota, $configuredCap) : (int) floor($freeQuota * 0.9));
+        DB::table('lgt_usage_months')->where('id', $month->id)->update([
+            'soft_limit'            => $newLimit,
+            'external_usage_buffer' => (int) $values['external_usage_buffer'],
+            'version'               => (int) $month->version + 1,
+            'updated_at'            => now(),
+        ]);
     }
 
     /** @param array<string, string> $credentials */
@@ -352,6 +521,9 @@ final class ProviderAccountService
             if (! isset($credentials[$key]) || trim($credentials[$key]) === '' || mb_strlen($credentials[$key]) > 1024) {
                 throw new InvalidArgumentException('INVALID_PROVIDER_CREDENTIALS');
             }
+        }
+        if ($provider === 'siliconflow' && ! in_array($credentials['model'], SiliconFlowProvider::FREE_MODELS, true)) {
+            throw new InvalidArgumentException('SILICONFLOW_FREE_MODEL_ONLY');
         }
     }
 

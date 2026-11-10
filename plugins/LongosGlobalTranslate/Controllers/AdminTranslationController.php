@@ -3,6 +3,7 @@
 namespace Plugin\LongosGlobalTranslate\Controllers;
 
 use Beike\Admin\Http\Controllers\Controller;
+use Beike\Services\VisitorCurrencyService;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -32,6 +33,7 @@ final class AdminTranslationController extends Controller
         private readonly PublicationService $publications,
         private readonly CountryLocaleCatalog $countries,
         private readonly LocaleCoverageService $coverage,
+        private readonly VisitorCurrencyService $visitorCurrency,
     ) {}
 
     public function index()
@@ -97,7 +99,7 @@ final class AdminTranslationController extends Controller
         $health  = $dashboard['library_health'];
         $issues  = [];
         if ($runtime['asset_current'] === false) {
-            $issues[] = '前端 widget.js 与插件源码不同步：ZIP 覆盖不会自动重新发布 public/plugin 静态资源。请通过 LONGOS 的正式 Git/Coolify 发布流程同步插件与资源。';
+            $issues[] = '前端 widget.js 或 widget.css 与插件源码不同步：请通过 LONGOS 正式发布流程同步 public/plugin 静态资源并刷新 CDN。';
         }
         if ($runtime['asset_current'] === null) {
             $issues[] = '未找到可对比的前端静态脚本：请检查插件资源是否发布到 public/plugin/longos_global_translate。';
@@ -130,8 +132,13 @@ final class AdminTranslationController extends Controller
         } elseif ($commerceExpected > 0 && $enabledLocaleCount > 0 && $commerceReadyLanguages < $enabledLocaleCount) {
             $issues[] = "结账、账户与支付的固定界面词典尚未完整发布到全部启用语言（{$commerceReadyLanguages}/{$enabledLocaleCount}）：商品词典已发布并不表示关键结账页面已翻译。";
         }
-        if (! $health['widget_enabled']) {
-            $issues[] = '前台语言选择器处于关闭状态：发布成功后还需开启。';
+        if (! ($health['presentation_enabled'] ?? false)) {
+            $issues[] = '前端本地化展示尚未开启：请启用地区自动语言匹配、浏览器语言回退或语言选择器。';
+        }
+        $geoDiagnostics = (array) ($dashboard['diagnostics']['geo_localization'] ?? []);
+        if (($dashboard['settings']['geo_auto_switch_enabled'] ?? false)
+            && ! ($geoDiagnostics['detection_ready'] ?? false)) {
+            $issues[] = '已开启 IP 自动本地化，但当前请求未检测到可信 Cloudflare 国家头或可用 GeoLite2 数据库；请检查 Cloudflare 访客位置头和 Caddy 信任链。';
         }
 
         return $this->json([
@@ -307,6 +314,18 @@ final class AdminTranslationController extends Controller
         ]);
     }
 
+    public function deleteProvider(Request $request, int $provider): JsonResponse
+    {
+        $this->requireSchema();
+        $request->validate(['confirm_delete' => ['required', 'accepted']]);
+        $this->accounts->archive($provider, $this->actorId());
+
+        return $this->json([
+            'deleted' => true,
+            'notice'  => '服务商账户已移除，保存的 API 密钥已清除。历史用量和审计记录已保留。',
+        ]);
+    }
+
     public function verifyProvider(Request $request, int $provider): JsonResponse
     {
         $this->requireSchema();
@@ -376,6 +395,64 @@ final class AdminTranslationController extends Controller
         ]);
     }
 
+    public function cancelJob(Request $request, int $job): JsonResponse
+    {
+        $this->requireSchema();
+        $request->validate(['confirm_cancel' => ['accepted']]);
+
+        try {
+            $result = $this->jobs->cancelJob($job, $this->actorId());
+        } catch (\RuntimeException $exception) {
+            throw ValidationException::withMessages(['job' => match ($exception->getMessage()) {
+                'JOB_NOT_FOUND'        => '任务不存在或已从列表删除。',
+                'JOB_ALREADY_FINISHED' => '任务已经结束，可直接从列表删除。',
+                default                => '任务停止失败，请刷新并重试。',
+            }]);
+        }
+
+        return $this->json(['result' => $result, 'notice' => $result['inflight'] > 0
+            ? "已取消后续派发，仍有 {$result['inflight']} 条已领取的请求在收尾。待其结束后可删除任务或清理译文。"
+            : '任务已停止，未处理条目不再派发。现在可以删除任务或清理该语言翻译库。']);
+    }
+
+    public function archiveJob(Request $request, int $job): JsonResponse
+    {
+        $this->requireSchema();
+        $request->validate(['confirm_archive' => ['accepted']]);
+
+        try {
+            $this->jobs->archiveJob($job, $this->actorId());
+        } catch (\RuntimeException $exception) {
+            throw ValidationException::withMessages(['job' => match ($exception->getMessage()) {
+                'JOB_MUST_BE_STOPPED'       => '请先停止任务，再执行删除。',
+                'JOB_HAS_INFLIGHT_REQUESTS' => '仍有已发送或正在处理的请求，完成收尾后才能删除任务。',
+                'JOB_NOT_FOUND'             => '任务已删除或不存在。',
+                default                     => '任务删除失败，请刷新后重试。',
+            }]);
+        }
+
+        return $this->json(['deleted' => true, 'notice' => '任务已从列表移除；计费、请求与审计记录继续保留。']);
+    }
+
+    public function recoverJobClaims(Request $request, int $job): JsonResponse
+    {
+        $this->requireSchema();
+        $request->validate(['confirm_recovery' => ['accepted']]);
+
+        try {
+            $result = $this->jobs->recoverTimedOutClaims($job, $this->actorId());
+        } catch (\RuntimeException $exception) {
+            throw ValidationException::withMessages(['job' => match ($exception->getMessage()) {
+                'JOB_CLAIMS_NOT_STALE' => '请求尚未超过 30 分钟的安全等待期，或缺少领取时间；不能贸然清理。',
+                'JOB_MUST_BE_STOPPED'  => '请先停止任务，才能恢复超时中的请求。',
+                default                => '超时请求恢复失败，请查看队列运行情况。',
+            }]);
+        }
+
+        return $this->json(['result' => $result,
+            'notice'                 => "已安全结束 {$result['recovered']} 条超时领取记录，剩余 {$result['remaining']} 条。结果不确定的服务商请求不会自动重试。"]);
+    }
+
     /**
      * Small, searchable, paginated review queue. Avoid downloading 100+ raw
      * translations (and a merchant's entire inventory) on every click.
@@ -384,7 +461,7 @@ final class AdminTranslationController extends Controller
     {
         $this->requireSchema();
         $data = $request->validate([
-            'locale' => ['nullable', 'string', 'max:24'],
+            'locale' => ['nullable', 'string', 'max:24', 'regex:/^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8}){0,2}$/'],
             'status' => ['nullable', 'in:pending,translated,needs_review,approved,stale'],
             'kind'   => ['nullable', 'in:product,category,page,page_category,builder,chrome,commerce_ui'],
             'q'      => ['nullable', 'string', 'max:100'],
@@ -392,13 +469,27 @@ final class AdminTranslationController extends Controller
         ]);
         $page    = (int) ($data['page'] ?? 1);
         $perPage = 25;
-        $query   = DB::table('lgt_translations as t')->join('lgt_entries as e', 'e.id', '=', 't.entry_id')
-            ->where('e.is_public', true)->where('e.is_tombstoned', false);
-        if (! empty($data['locale'])) {
-            $query->where('t.locale', TranslationSettings::locale((string) $data['locale']));
+        $locale  = ! empty($data['locale']) ? TranslationSettings::locale((string) $data['locale']) : null;
+        // With one selected locale include scanned sources that have no
+        // translation yet, rather than displaying a misleading empty library.
+        // The all-language view remains bounded to actual translation rows.
+        $query = DB::table('lgt_entries as e');
+        if ($locale !== null) {
+            $query->leftJoin('lgt_translations as t', static function ($join) use ($locale): void {
+                $join->on('e.id', '=', 't.entry_id')->where('t.locale', '=', $locale);
+            });
+        } else {
+            $query->join('lgt_translations as t', 'e.id', '=', 't.entry_id');
         }
+        $query->where('e.is_public', true)->where('e.is_tombstoned', false);
         if (! empty($data['status'])) {
-            $query->where('t.status', $data['status']);
+            if ($data['status'] === 'pending' && $locale !== null) {
+                $query->where(static function ($builder): void {
+                    $builder->whereNull('t.id')->orWhere('t.status', 'pending');
+                });
+            } else {
+                $query->where('t.status', $data['status']);
+            }
         }
         if (! empty($data['kind'])) {
             $query->where('e.kind', $data['kind']);
@@ -411,16 +502,76 @@ final class AdminTranslationController extends Controller
             });
         }
         $total = (clone $query)->count();
-        $items = $query->orderByDesc('t.id')->forPage($page, $perPage)->get([
+        $items = $query->orderByDesc('e.id')->orderBy('t.locale')->forPage($page, $perPage)->get([
             't.id', 't.locale', 't.text', 't.status', 't.locked', 't.version', 't.quality_code',
             't.source_hash as translation_hash', 't.updated_at', 'e.kind', 'e.entity_id',
             'e.field', 'e.source_text', 'e.source_hash',
         ]);
 
         return $this->json([
-            'items' => $items, 'page' => $page, 'per_page' => $perPage,
+            'items' => $items->map(static function (object $item) use ($locale): object {
+                $item->locale = $item->locale ?: $locale;
+                $item->status = $item->status ?: 'pending';
+
+                return $item;
+            }), 'page' => $page, 'per_page' => $perPage,
             'total' => $total, 'has_more' => $page * $perPage < $total,
         ]);
+    }
+
+    public function deleteTranslations(Request $request): JsonResponse
+    {
+        $this->requireSchema();
+        $data = $request->validate([
+            'ids'          => ['required', 'array', 'min:1', 'max:100'],
+            'ids.*'        => ['required', 'integer', 'min:1', 'distinct'],
+            'confirmation' => ['required', 'string', 'max:40'],
+        ]);
+        if (! hash_equals('DELETE ' . count($data['ids']), trim($data['confirmation']))) {
+            throw ValidationException::withMessages(['confirmation' => '删除确认文字不匹配。']);
+        }
+
+        try {
+            $result = $this->library->deleteTranslations($data['ids'], $this->actorId());
+        } catch (\RuntimeException $exception) {
+            throw ValidationException::withMessages(['ids' => $this->libraryDeletionError($exception)]);
+        }
+
+        return $this->json(['deleted' => true, 'result' => $result]);
+    }
+
+    public function resetLibraries(Request $request): JsonResponse
+    {
+        $this->requireSchema();
+        $data = $request->validate([
+            'locales'      => ['required', 'array', 'min:1', 'max:24'],
+            'locales.*'    => ['required', 'string', 'max:24', 'distinct', 'regex:/^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8}){0,2}$/'],
+            'confirmation' => ['required', 'string', 'max:200'],
+        ]);
+        $locales = array_values(array_unique(array_map(static fn ($locale) => TranslationSettings::locale($locale), $data['locales'])));
+        sort($locales, SORT_STRING);
+        if (! hash_equals('RESET ' . strtoupper(implode(',', $locales)), trim($data['confirmation']))) {
+            throw ValidationException::withMessages(['confirmation' => '语言列表与确认文字不一致，未删除任何数据。']);
+        }
+
+        try {
+            $result = $this->library->resetLocales($locales, $this->actorId());
+        } catch (\RuntimeException $exception) {
+            throw ValidationException::withMessages(['locales' => $this->libraryDeletionError($exception)]);
+        }
+
+        return $this->json(['deleted' => true, 'result' => $result]);
+    }
+
+    private function libraryDeletionError(\RuntimeException $exception): string
+    {
+        return match ($exception->getMessage()) {
+            'SOURCE_LOCALE_CANNOT_BE_RESET' => '不能删除英语原文。',
+            'LOCALE_HAS_ACTIVE_JOB'         => '所选语言有待执行、运行或暂停的任务。请先停止对应任务。',
+            'LOCALE_HAS_INFLIGHT_REQUEST'   => '仍有已领取的翻译请求；请等待任务收尾后再删除。',
+            'TRANSLATION_SELECTION_CHANGED' => '条目已发生变化，请重新查询并选择。',
+            default                         => '删除操作失败，未完成提交。请刷新后重试。',
+        };
     }
 
     public function resetLibrary(Request $request, string $locale): JsonResponse
@@ -435,13 +586,7 @@ final class AdminTranslationController extends Controller
         try {
             $result = $this->library->resetLocale($locale, $this->actorId());
         } catch (\RuntimeException $exception) {
-            $message = match ($exception->getMessage()) {
-                'SOURCE_LOCALE_CANNOT_BE_RESET'  => '原始语言被锁定，不能删除。',
-                'LOCALE_HAS_ACTIVE_JOB'          => '该语言仍有运行中的翻译任务，请等待任务结束或暂停后再重置。',
-                default                          => '翻译库重置失败，未删除任何数据。',
-            };
-
-            throw ValidationException::withMessages(['locale' => $message]);
+            throw ValidationException::withMessages(['locale' => $this->libraryDeletionError($exception)]);
         }
 
         return $this->json(['deleted' => true, 'result' => $result]);
@@ -569,6 +714,8 @@ final class AdminTranslationController extends Controller
             'external_usage_buffer' => ['nullable', 'integer', 'min:0', 'max:10000000000'],
             'cycle_timezone'        => ['nullable', 'string', 'max:64'],
             'qps_limit'             => ['nullable', 'integer', 'min:1', 'max:10'],
+            'rpm_limit'             => ['nullable', 'integer', 'min:1', 'max:10000'],
+            'tpm_limit'             => ['nullable', 'integer', 'min:1', 'max:5000000'],
             'failover_priority'     => ['nullable', 'integer', 'min:1', 'max:1000'],
             'enabled'               => ['boolean'],
             'source_link'           => ['nullable', 'url', 'max:512'],
@@ -591,16 +738,20 @@ final class AdminTranslationController extends Controller
      */
     private function runtimeReleaseHealth(): array
     {
-        $root      = dirname(__DIR__);
-        $manifest  = json_decode((string) @file_get_contents($root . '/config.json'), true);
-        $source    = $root . '/Static/public/widget.js';
-        $published = public_path('plugin/longos_global_translate/widget.js');
+        $root       = dirname(__DIR__);
+        $manifest   = json_decode((string) @file_get_contents($root . '/config.json'), true);
+        $assetPairs = [
+            [$root . '/Static/public/widget.js', public_path('plugin/longos_global_translate/widget.js')],
+            [$root . '/Static/public/widget.css', public_path('plugin/longos_global_translate/widget.css')],
+        ];
+        $allPresent = collect($assetPairs)->every(static fn (array $pair): bool => is_file($pair[0]) && is_file($pair[1]));
 
         return [
             'version'       => (string) (is_array($manifest) ? ($manifest['version'] ?? 'unknown') : 'unknown'),
-            'asset_current' => is_file($source) && is_file($published)
-                ? hash_equals((string) hash_file('sha256', $source), (string) hash_file('sha256', $published))
-                : null,
+            'asset_current' => $allPresent
+                ? collect($assetPairs)->every(static fn (array $pair): bool => hash_equals(
+                    (string) hash_file('sha256', $pair[0]), (string) hash_file('sha256', $pair[1]),
+                )) : null,
             'queue_connection' => (string) config('queue.default', 'unknown'),
         ];
     }
@@ -617,11 +768,20 @@ final class AdminTranslationController extends Controller
         // JSON projection used by the live-poll endpoint is built separately
         // in workspaceStatus(); mixing those contracts caused a 500 whenever
         // a tenant already had a task history.
-        $jobs          = $this->safeDashboardValue('job history', fn () => DB::table('lgt_jobs')->latest('id')->limit(12)->get(), collect(), $warnings);
-        $publications  = $this->safeDashboardValue('publication history', fn () => DB::table('lgt_publications')->orderByDesc('published_at')->limit(24)->get(), collect(), $warnings);
-        $countryRules  = $this->safeDashboardValue('country defaults', fn () => DB::table('lgt_country_rules')->orderBy('country')->limit(250)->get(), collect(), $warnings);
-        $countries     = $this->safeDashboardValue('system countries', fn (): array => $this->countries->enabledCountries(), [], $warnings);
-        $glossaryTerms = $this->safeDashboardValue('protected glossary', fn () => DB::table('lgt_glossary_terms')->where('source_locale', 'en')->whereNull('target_locale')->where('protect', true)->orderBy('term')->limit(200)->get(['id', 'term']), collect(), $warnings);
+        $jobs           = $this->safeDashboardValue('job history', fn () => DB::table('lgt_jobs')->whereNull('archived_at')->latest('id')->limit(12)->get(), collect(), $warnings);
+        $publications   = $this->safeDashboardValue('publication history', fn () => DB::table('lgt_publications')->orderByDesc('published_at')->limit(24)->get(), collect(), $warnings);
+        $countryRules   = $this->safeDashboardValue('country defaults', fn () => DB::table('lgt_country_rules')->orderBy('country')->limit(250)->get(), collect(), $warnings);
+        $countries      = $this->safeDashboardValue('system countries', fn (): array => $this->countries->enabledCountries(), [], $warnings);
+        $glossaryTerms  = $this->safeDashboardValue('protected glossary', fn () => DB::table('lgt_glossary_terms')->where('source_locale', 'en')->whereNull('target_locale')->where('protect', true)->orderBy('term')->limit(200)->get(['id', 'term']), collect(), $warnings);
+        $geoDiagnostics = $this->safeDashboardValue(
+            'geo localization',
+            fn (): array => $this->visitorCurrency->diagnostics(request()),
+            [
+                'detection_ready' => false, 'resolution_source' => 'unavailable',
+                'blocking_issue'  => 'diagnostic_failed', 'detected_country' => null,
+            ],
+            $warnings,
+        );
 
         $dispatchEnabled = collect($accounts)->contains(static fn (mixed $account): bool => (bool) data_get($account, 'dispatch_enabled', false));
 
@@ -630,7 +790,7 @@ final class AdminTranslationController extends Controller
             fn (): array => $this->coverage->snapshot($settings),
             ['source_entries'                  => 0, 'translated' => 0, 'approved' => 0,
                 'published_languages'          => 0, 'published_items' => 0, 'widget_enabled' => false,
-                'ready_to_display'             => false, 'commerce_ui_expected' => 0,
+                'presentation_enabled'         => false, 'ready_to_display' => false, 'commerce_ui_expected' => 0,
                 'commerce_ui_sources'          => 0, 'commerce_ui_ready_languages' => 0,
                 'commerce_ui_ready_to_display' => false, 'locales' => []],
             $warnings,
@@ -655,6 +815,7 @@ final class AdminTranslationController extends Controller
                 'provider_calls'        => $dispatchEnabled ? 'free_quota_only' : 'requires_operator_verification',
                 'tenant_resolved'       => current_site() !== null,
                 'core_locale_unchanged' => true,
+                'geo_localization'      => $geoDiagnostics,
             ],
         ];
     }
@@ -666,6 +827,7 @@ final class AdminTranslationController extends Controller
             'mode'                    => TranslationSettings::MODE_PREVIEW,
             'source_locale'           => 'en',
             'enabled_locales'         => [],
+            'geo_auto_switch_enabled' => true,
             'accept_language_enabled' => false,
             'publication'             => ['auto_publish_safe' => true, 'auto_enable_widget' => true],
             'widget'                  => [
@@ -683,7 +845,7 @@ final class AdminTranslationController extends Controller
      */
     private function jobSummaries(): array
     {
-        return DB::table('lgt_jobs')->latest('id')->limit(12)->get()->map(function (object $job): array {
+        return DB::table('lgt_jobs')->whereNull('archived_at')->latest('id')->limit(12)->get()->map(function (object $job): array {
             $total     = (int) $job->total_items;
             $completed = (int) $job->completed_items;
             $failed    = (int) $job->failed_items;
@@ -736,6 +898,7 @@ final class AdminTranslationController extends Controller
                 'active'                  => in_array((string) $job->status, ['queued', 'scanning', 'running', 'pausing'], true),
                 'failure_summary'         => $reasons,
                 'retryable_failure_count' => $this->jobs->retryableFailureCount((int) $job->id),
+                'inflight_items'          => DB::table('lgt_job_items')->where('job_id', $job->id)->where('status', 'claimed')->count(),
                 'auto_publication'        => $autoPublication,
                 'pause_reason'            => $pause === null ? null : [
                     'code'  => (string) ($pause['code'] ?? 'PAUSE_REASON_UNAVAILABLE'),
@@ -748,7 +911,8 @@ final class AdminTranslationController extends Controller
     private function failureLabel(string $code): string
     {
         if (str_starts_with($code, 'BAIDU_') || str_starts_with($code, 'ALIYUN_') || str_starts_with($code, 'VOLCENGINE_')
-                                             || str_starts_with($code, 'DEEPL_') || str_starts_with($code, 'GOOGLE_') || str_starts_with($code, 'AZURE_')) {
+                                             || str_starts_with($code, 'DEEPL_') || str_starts_with($code, 'GOOGLE_') || str_starts_with($code, 'AZURE_')
+                                             || str_starts_with($code, 'SILICONFLOW_')) {
             return '服务商返回错误码 ' . $code . '；请检查账户权限、区域、语种、额度或服务状态。为避免重复计费，未对已发送请求自动重试。';
         }
 
@@ -762,7 +926,9 @@ final class AdminTranslationController extends Controller
             'UNSAFE_TRANSLATION' => '译文包含不允许的标记，已安全拒绝。',
             'STALE_SOURCE'       => '原文在翻译期间已变更，请重新扫描。',
             'NETWORK_AFTER_SEND', 'WORKER_EXCEPTION', 'WORKER_EXHAUSTED' => '请求结果不确定，为避免重复计费已停止自动重试。',
-            'PRE_SEND_FAILURE' => '请求在发送前失败，请检查服务商配置后重试。',
+            'RATE_LIMIT_AFTER_PARTIAL_SEGMENT', 'JOB_STOPPED_AFTER_PARTIAL_SEGMENT' => '该字段已有部分片段被服务商接受；为避免重复计费，系统未重放整个字段，请人工复核后重新提交。',
+            'PRIOR_BILLING_OUTCOME_UNRESOLVED' => '同一原文存在已发送但未确认或已计费却未保存的请求；为防重复收费已阻止新调用，请人工核对。',
+            'PRE_SEND_FAILURE'                 => '请求在发送前失败，请检查服务商配置后重试。',
             'PROVIDER_CREDENTIALS_MISSING', 'PROVIDER_CREDENTIALS_UNREADABLE', 'INVALID_PROVIDER_CREDENTIALS' => '服务商凭据缺失、无法解密或格式不正确；未发出翻译请求。',
             'PROVIDER_RATE_LIMIT_CLOCK_SKEW', 'PROVIDER_RATE_LIMIT_WAIT_INTERRUPTED' => '本地 QPS 安全限制异常，未发出请求；请检查服务器时间和账户 QPS 设置。',
             'PROTECTED_TOKEN_CHANGED'     => '这是旧版任务的保护占位符失配记录。新任务已改为本地切片与重组，链接、价格、变量和邮箱不再发给服务商；请在发布新版后新建增量任务。',
@@ -785,6 +951,7 @@ final class AdminTranslationController extends Controller
             'NO_VERIFIED_DISPATCH_ACCOUNT'  => '没有已启用、已验证且允许派发的翻译账户；验证并开启至少一个账户后会自动恢复。',
             'NO_PROVIDER_FOR_TARGET_LOCALE' => '现有可派发账户均不支持当前目标语言；添加支持该语种的账户后会自动恢复。',
             'DISPATCH_MODE_CHANGED'         => '翻译运行模式已变更为非“仅免费额度”；恢复该模式后可继续执行。',
+            'SILICONFLOW_RATE_WINDOW'       => '硅基流动免费模型达到当前分钟速率窗口；系统已安排冷却后自动恢复，无需重复创建任务。',
             default                         => '该任务在旧版本中暂停，未保存具体原因；请检查账户派发状态与本周期免费额度。',
         };
     }

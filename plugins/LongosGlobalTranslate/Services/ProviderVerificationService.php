@@ -4,6 +4,7 @@ namespace Plugin\LongosGlobalTranslate\Services;
 
 use Illuminate\Support\Facades\DB;
 use Plugin\LongosGlobalTranslate\Providers\ProviderRegistry;
+use Plugin\LongosGlobalTranslate\Providers\SiliconFlowProvider;
 use Plugin\LongosGlobalTranslate\Providers\TranslationProviderRequest;
 use RuntimeException;
 use Throwable;
@@ -18,13 +19,14 @@ final class ProviderVerificationService
         private readonly ProviderAccountService $accounts,
         private readonly ProviderRegistry $providers,
         private readonly UsageLedger $ledger,
+        private readonly ?SiliconFlowRateLimiter $siliconFlowLimits = null,
     ) {}
 
     /** @return array<string, mixed> */
     public function verify(int $accountId, ?int $actorId): array
     {
         $account = DB::table('lgt_provider_accounts')->where('id', $accountId)->first();
-        if ($account === null || ! $account->enabled || (int) $account->paid_cap !== 0) {
+        if ($account === null || $account->archived_at !== null || ! $account->enabled || (int) $account->paid_cap !== 0) {
             throw new RuntimeException('PROVIDER_ACCOUNT_NOT_VERIFIABLE');
         }
         $provider = $this->providers->get((string) $account->provider);
@@ -48,13 +50,34 @@ final class ProviderVerificationService
         $source               = (string) ($whitespace[2] ?? $probeParts[$translationIndex]['text']);
         $reservation          = $this->ledger->reserve($accountId, TextContract::units($source)['codepoints'], null, null, null, true);
         $requestMarkedSending = false;
+        $rateCallId           = null;
+        $limiter              = $this->siliconFlowLimits ?? new SiliconFlowRateLimiter;
+        $request              = new TranslationProviderRequest(
+            $reservation['request_uuid'], $accountId, 'en', 'fr', [$source], hash('sha256', $source), 8,
+        );
 
         try {
+            if ($provider instanceof SiliconFlowProvider) {
+                $admission = $limiter->acquire(
+                    $accountId, (string) $credentials['model'], $provider->tokenCeiling($request, (string) $credentials['model']),
+                    (int) ($account->rpm_limit ?? 1000), (int) ($account->tpm_limit ?? 80000),
+                );
+                if (! $admission['allowed']) {
+                    throw new RuntimeException($admission['reason']);
+                }
+                $rateCallId = (int) $admission['id'];
+            }
             $this->ledger->markSending($reservation['id']);
             $requestMarkedSending = true;
-            $response             = $provider->send(new TranslationProviderRequest(
-                $reservation['request_uuid'], $accountId, 'en', 'fr', [$source], hash('sha256', $source), 8,
-            ), $credentials);
+            $response             = $provider->send($request, $credentials);
+            if ($rateCallId !== null) {
+                $limiter->settle($rateCallId, $response->totalTokens);
+                if ($response->errorCode === 'RATE_LIMIT') {
+                    $limiter->cooldown((string) $credentials['model'], $response->retryAfterSeconds);
+                } elseif ($response->ok) {
+                    $limiter->success((string) $credentials['model']);
+                }
+            }
             if (! $response->ok || count($response->translations) !== 1) {
                 $failure = $provider->classifyFailure($response);
                 if ($failure['definitely_unbilled']) {
@@ -85,6 +108,10 @@ final class ProviderVerificationService
             return $this->accounts->markVerified($accountId, $actorId);
         } catch (RuntimeException $exception) {
             if (! $requestMarkedSending) {
+                if ($rateCallId !== null) {
+                    $limiter->release($rateCallId);
+                }
+
                 try {
                     $this->ledger->definiteFailure($reservation['id'], 'PRE_SEND_FAILURE');
                 } catch (Throwable) {
@@ -98,6 +125,9 @@ final class ProviderVerificationService
                 if ($requestMarkedSending) {
                     $this->ledger->uncertain($reservation['id'], 'VERIFICATION_EXCEPTION');
                 } else {
+                    if ($rateCallId !== null) {
+                        $limiter->release($rateCallId);
+                    }
                     $this->ledger->definiteFailure($reservation['id'], 'PRE_SEND_FAILURE');
                 }
             } catch (Throwable) {

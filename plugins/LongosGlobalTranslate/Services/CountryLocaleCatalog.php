@@ -99,6 +99,12 @@ final class CountryLocaleCatalog
     public function suggestedLocale(string $country): ?string
     {
         $country = strtoupper(trim($country));
+        // Do not force French on English-speaking Canadians or French on
+        // Dutch-speaking Belgians. The resolver can use browser hints for
+        // these multilingual markets, while an explicit country rule wins.
+        if (in_array($country, ['CA', 'BE', 'CH', 'SG', 'HK', 'LU'], true)) {
+            return null;
+        }
         foreach (self::COUNTRY_GROUPS as $locale => $countries) {
             if (in_array($country, $countries, true)) {
                 return $locale;
@@ -106,6 +112,20 @@ final class CountryLocaleCatalog
         }
 
         return null;
+    }
+
+    /** Ordered defaults for markets that cannot be reduced to one language. */
+    public function candidateLocales(string $country): array
+    {
+        return match (strtoupper(trim($country))) {
+            'CA'    => ['en', 'fr'],
+            'BE'    => ['nl', 'fr', 'de'],
+            'CH'    => ['de', 'fr', 'it'],
+            'SG'    => ['en', 'zh-cn'],
+            'HK'    => ['zh-tw', 'en'],
+            'LU'    => ['fr', 'de'],
+            default => [],
+        };
     }
 
     public static function label(string $locale): ?string

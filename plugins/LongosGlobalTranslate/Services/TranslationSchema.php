@@ -42,6 +42,9 @@ final class TranslationSchema
         'lgt_source_exclusions',
         'lgt_coverage_snapshots',
         'lgt_audit_logs',
+        'lgt_locale_maintenance',
+        'lgt_siliconflow_rate_models',
+        'lgt_siliconflow_rate_calls',
     ];
 
     /** @var array<string, list<string>> */
@@ -63,8 +66,8 @@ final class TranslationSchema
         'lgt_provider_accounts' => [
             'id', 'provider', 'billing_identity_hash', 'owner_scope', 'account_tier', 'credentials_ciphertext',
             'credential_fingerprint', 'credential_revision', 'free_quota', 'soft_cap',
-            'paid_cap', 'external_usage_buffer', 'cycle_timezone', 'qps_limit', 'failover_priority', 'enabled',
-            'last_dispatch_at_us', 'dispatch_enabled', 'verified_at', 'verified_by', 'source_link', 'created_at', 'updated_at',
+            'paid_cap', 'external_usage_buffer', 'cycle_timezone', 'qps_limit', 'rpm_limit', 'tpm_limit', 'failover_priority', 'enabled',
+            'last_dispatch_at_us', 'dispatch_enabled', 'verified_at', 'verified_by', 'source_link', 'archived_at', 'created_at', 'updated_at',
         ],
         'lgt_usage_months' => [
             'id', 'provider_account_id', 'billing_cycle', 'committed_units', 'reserved_units',
@@ -82,7 +85,7 @@ final class TranslationSchema
         'lgt_jobs' => [
             'id', 'public_id', 'status', 'mode', 'scope', 'target_locales', 'plan',
             'settings_revision', 'created_by', 'total_items', 'completed_items', 'failed_items', 'version',
-            'started_at', 'finished_at', 'created_at', 'updated_at',
+            'started_at', 'finished_at', 'archived_at', 'created_at', 'updated_at',
         ],
         'lgt_job_items' => [
             'id', 'job_id', 'entry_id', 'target_locale', 'source_hash', 'status',
@@ -106,6 +109,13 @@ final class TranslationSchema
         'lgt_coverage_snapshots' => ['id', 'scope', 'report', 'created_by', 'created_at', 'updated_at'],
         'lgt_audit_logs'         => [
             'id', 'actor_id', 'action', 'subject_type', 'subject_id', 'before', 'after', 'created_at', 'updated_at',
+        ],
+        'lgt_locale_maintenance'      => ['id', 'locale', 'created_at', 'updated_at'],
+        'lgt_siliconflow_rate_models' => [
+            'id', 'model', 'rpm_cap', 'tpm_cap', 'cap_window_at', 'cooldown_until', 'consecutive_429', 'last_pruned_at', 'created_at', 'updated_at',
+        ],
+        'lgt_siliconflow_rate_calls' => [
+            'id', 'provider_account_id', 'model', 'reserved_tokens', 'counted_tokens', 'dispatched_at', 'created_at', 'updated_at',
         ],
     ];
 

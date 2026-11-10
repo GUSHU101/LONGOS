@@ -19,6 +19,7 @@ use Plugin\LongosGlobalTranslate\Providers\BaiduProvider;
 use Plugin\LongosGlobalTranslate\Providers\DeepLProvider;
 use Plugin\LongosGlobalTranslate\Providers\GoogleCloudProvider;
 use Plugin\LongosGlobalTranslate\Providers\ProviderRegistry;
+use Plugin\LongosGlobalTranslate\Providers\SiliconFlowProvider;
 use Plugin\LongosGlobalTranslate\Providers\TranslationProviderRequest;
 use Plugin\LongosGlobalTranslate\Providers\VolcengineProvider;
 
@@ -26,7 +27,7 @@ class GlobalTranslationProviderTest extends TestCase
 {
     public static function supportCases(): iterable
     {
-        foreach ([AliyunProvider::class, VolcengineProvider::class, BaiduProvider::class, DeepLProvider::class, GoogleCloudProvider::class, AzureTranslatorProvider::class] as $provider) {
+        foreach ([AliyunProvider::class, VolcengineProvider::class, BaiduProvider::class, DeepLProvider::class, GoogleCloudProvider::class, AzureTranslatorProvider::class, SiliconFlowProvider::class] as $provider) {
             yield $provider . ' supports en-fr' => [$provider, 'en', 'fr', true];
             yield $provider . ' supports en-us-de' => [$provider, 'en-US', 'de', true];
             yield $provider . ' rejects same language' => [$provider, 'en', 'en', false];
@@ -36,7 +37,7 @@ class GlobalTranslationProviderTest extends TestCase
 
     public static function storefrontTargetLocales(): iterable
     {
-        foreach ([AliyunProvider::class, VolcengineProvider::class, BaiduProvider::class, DeepLProvider::class, GoogleCloudProvider::class, AzureTranslatorProvider::class] as $provider) {
+        foreach ([AliyunProvider::class, VolcengineProvider::class, BaiduProvider::class, DeepLProvider::class, GoogleCloudProvider::class, AzureTranslatorProvider::class, SiliconFlowProvider::class] as $provider) {
             foreach (['ar', 'de', 'es', 'fr', 'id', 'it', 'ja', 'ko', 'nl', 'pl', 'pt', 'ru', 'th', 'tr', 'vi', 'zh-cn', 'zh-tw'] as $locale) {
                 yield $provider . ' supports storefront target ' . $locale => [$provider, $locale];
             }
@@ -154,6 +155,60 @@ class GlobalTranslationProviderTest extends TestCase
         self::assertInstanceOf(DeepLProvider::class, $registry->get('deepl'));
         self::assertInstanceOf(GoogleCloudProvider::class, $registry->get('google'));
         self::assertInstanceOf(AzureTranslatorProvider::class, $registry->get('azure'));
+        self::assertInstanceOf(SiliconFlowProvider::class, $registry->get('siliconflow'));
+    }
+
+    public function test_siliconflow_translation_trace_usage_rate_limit_and_truncation_contracts(): void
+    {
+        $history = [];
+        $stack   = HandlerStack::create(new MockHandler([
+            new Response(200, ['Content-Type' => 'application/json', 'x-siliconcloud-trace-id' => 'trace-fallback'], json_encode([
+                'id'      => 'sf-request',
+                'choices' => [['message' => ['content' => 'Coque de téléphone'], 'finish_reason' => 'stop']],
+                'usage'   => ['total_tokens' => 123],
+            ], JSON_THROW_ON_ERROR)),
+        ]));
+        $stack->push(Middleware::history($history));
+        $provider = new SiliconFlowProvider(new Client(['handler' => $stack, 'http_errors' => false]));
+        $result   = $provider->send($this->request(['Phone case']), [
+            'api_key' => 'siliconflow-secret', 'model' => SiliconFlowProvider::DEFAULT_MODEL,
+        ]);
+
+        self::assertTrue($result->ok);
+        self::assertSame(['Coque de téléphone'], $result->translations);
+        self::assertSame('sf-request', $result->requestId);
+        self::assertSame(123, $result->totalTokens);
+        self::assertSame('', $history[0]['request']->getUri()->getQuery());
+        self::assertSame('Bearer siliconflow-secret', $history[0]['request']->getHeaderLine('Authorization'));
+        self::assertSame('8224d0b9-ae7e-4f7a-9634-9eed9263b42a', $history[0]['request']->getHeaderLine('X-Trace-Id'));
+        self::assertStringContainsString('silently verify', (string) $history[0]['request']->getBody());
+
+        $rateLimited = new SiliconFlowProvider(new Client([
+            'handler' => HandlerStack::create(new MockHandler([
+                new Response(429, ['Content-Type' => 'application/json', 'Retry-After' => '17', 'x-siliconcloud-trace-id' => 'sf-rate-trace'], json_encode(['message' => 'limited'], JSON_THROW_ON_ERROR)),
+            ])),
+            'http_errors' => false,
+        ]));
+        $rate = $rateLimited->send($this->request(['Phone case']), [
+            'api_key' => 'siliconflow-secret', 'model' => SiliconFlowProvider::DEFAULT_MODEL,
+        ]);
+        self::assertFalse($rate->ok);
+        self::assertSame('RATE_LIMIT', $rate->errorCode);
+        self::assertSame('sf-rate-trace', $rate->requestId);
+        self::assertSame(17, $rate->retryAfterSeconds);
+        self::assertTrue($rateLimited->classifyFailure($rate)['definitely_unbilled']);
+
+        $truncated = new SiliconFlowProvider(new Client([
+            'handler' => HandlerStack::create(new MockHandler([
+                new Response(200, ['Content-Type' => 'application/json'], json_encode([
+                    'choices' => [['message' => ['content' => 'Partial'], 'finish_reason' => 'length']],
+                ], JSON_THROW_ON_ERROR)),
+            ])),
+            'http_errors' => false,
+        ]));
+        self::assertSame('MODEL_OUTPUT_TRUNCATED', $truncated->send($this->request(['Phone case']), [
+            'api_key' => 'siliconflow-secret', 'model' => SiliconFlowProvider::DEFAULT_MODEL,
+        ])->errorCode);
     }
 
     public function test_deepl_uses_its_free_endpoint_and_formal_context_without_leaking_the_key_to_the_url(): void

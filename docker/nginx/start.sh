@@ -238,8 +238,45 @@ case "$role" in
   worker)
     wait_for_application
     refresh_package_manifest
-    exec su -s /bin/sh www-data -c \
-      'php -d memory_limit="${PHP_WORKER_MEMORY_LIMIT:-512M}" artisan queue:work --sleep=3 --tries=5 --backoff=30 --timeout=3300 --memory=384 --max-time=3600'
+    translation_workers="${LONGOS_TRANSLATION_WORKERS:-4}"
+    case "$translation_workers" in
+      ''|*[!0-9]*) translation_workers=4 ;;
+    esac
+    if [ "$translation_workers" -lt 1 ]; then translation_workers=1; fi
+    if [ "$translation_workers" -gt 4 ]; then translation_workers=4; fi
+
+    worker_pids=""
+    su -s /bin/sh www-data -c \
+      'exec php -d memory_limit="${PHP_WORKER_MEMORY_LIMIT:-512M}" artisan queue:work --queue=default --sleep=3 --tries=5 --backoff=30 --timeout=3300 --memory=384 --max-time=3600' &
+    worker_pids="$worker_pids $!"
+
+    translation_index=1
+    while [ "$translation_index" -le "$translation_workers" ]; do
+      su -s /bin/sh www-data -c \
+        'exec php -d memory_limit=256M artisan queue:work --queue=translations --sleep=1 --tries=1 --timeout=650 --memory=224 --max-time=3600' &
+      worker_pids="$worker_pids $!"
+      translation_index=$((translation_index + 1))
+    done
+
+    shutdown_queue_workers() {
+      trap - TERM INT
+      kill -TERM $worker_pids 2>/dev/null || true
+      for worker_pid in $worker_pids; do
+        wait "$worker_pid" 2>/dev/null || true
+      done
+    }
+
+    trap 'shutdown_queue_workers; exit 0' TERM INT
+    while :; do
+      for worker_pid in $worker_pids; do
+        if ! kill -0 "$worker_pid" 2>/dev/null; then
+          echo "LONGOS queue worker $worker_pid exited unexpectedly; terminating the worker pool." >&2
+          shutdown_queue_workers
+          exit 1
+        fi
+      done
+      sleep 2
+    done
     ;;
   scheduler)
     wait_for_application

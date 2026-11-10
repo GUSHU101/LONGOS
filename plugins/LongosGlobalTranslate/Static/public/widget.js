@@ -10,6 +10,9 @@
   const options = root.querySelector('.lgt-widget__options');
   const status = root.querySelector('.lgt-widget__status');
   const current = root.querySelector('.lgt-widget__current');
+  const hint = root.querySelector('.lgt-widget__hint');
+  const searchWrap = root.querySelector('.lgt-widget__search-wrap');
+  const searchInput = root.querySelector('.lgt-widget__search');
   if (!toggle || !close || !panel || !options || !status || !current) {
     root.remove();
     return;
@@ -23,6 +26,7 @@
   } catch (_) { /* Strict privacy contexts can block cookie reads entirely. */ }
   const contentKeyCache = new Map();
   let config = null;
+  let switching = false;
   let presentationEpoch = 0;
   let applyEpoch = 0;
   const fallbackTranslations = new Map();
@@ -45,23 +49,25 @@
   // without ever querying a provider from the browser or touching a
   // form/payment/customer value.
   const publishedTextOriginals = new Map();
+  let publicContentObserver = null;
+  let publicRefreshQueued = false;
 
   const label = locale => {
     try {
       return typeof Intl.DisplayNames === 'function'
-        ? new Intl.DisplayNames([document.documentElement.lang || 'en'], {type: 'language'}).of(locale) || locale
+        ? new Intl.DisplayNames([locale], {type: 'language'}).of(locale) || locale
         : locale;
     } catch (_) {
       return locale;
     }
   };
 
-  const setOpen = open => {
+  const setOpen = (open, restoreFocus = false) => {
     root.classList.toggle('is-open', open);
     toggle.setAttribute('aria-expanded', String(open));
     panel.setAttribute('aria-hidden', String(!open));
-    if (open) options.querySelector('button')?.focus();
-    else toggle.focus();
+    if (open) (searchWrap?.hidden ? options.querySelector('button') : searchInput)?.focus();
+    else if (restoreFocus) toggle.focus();
   };
 
   const request = (url, init = {}) => {
@@ -86,7 +92,7 @@
   };
 
   const debugEnabled = new URLSearchParams(window.location.search).get('lgt_debug') === '1';
-  const widgetRelease = '1.5.7';
+  const widgetRelease = '1.16.0';
   // Render every public root on a normal catalogue/listing page. Requests
   // remain bounded and are split into server-validated batches below, so a
   // long collection cannot silently stop translating after the first screen.
@@ -105,8 +111,9 @@
       const country = config.country ? ` for ${config.country}` : '';
       return `Language suggested${country}, but no published translation is available yet. Showing the original language.`;
     }
-    const country = config.country ? ` for ${config.country}` : '';
-    return `Language was applied automatically from the visitor’s region${country}.`;
+    if (config.locale_source === 'accept_language') return 'Language selected from browser preferences.';
+    if (config.locale_source === 'geo_browser') return 'Language selected from region and browser preferences.';
+    return config.country ? `Language selected for ${config.country}.` : 'Language selected automatically.';
   };
 
   // Translation publications are immutable.  The server supplies their
@@ -583,7 +590,10 @@
       // the browser is idle prevents a long catalogue DOM from competing with
       // first input, scrolling or the checkout button.
       void loadFallback(locale, epoch).then(fallbackApplied => {
-        if (fallbackApplied > 0) debug('background-fallback-applied', {locale, applied:fallbackApplied});
+        if (fallbackApplied > 0 && epoch === presentationEpoch) {
+          document.documentElement.lang = locale;
+          debug('background-fallback-applied', {locale, applied:fallbackApplied});
+        }
       }).catch(error => debug('background-fallback-error', {message:String(error?.message || error)}));
     };
     if (typeof window.requestIdleCallback === 'function') {
@@ -656,7 +666,32 @@
     debug('presentation', {locale, applied, markedRegions: regions().length, publicFallbackSources: fallbackTranslations.size, commerceInterface:commerceUiEnabled()});
     // A pending old locale request must not change the current page language.
     if (epoch === applyEpoch) document.documentElement.lang = applied || locale === sourceLocale() ? locale : sourceLocale();
-    return {applied, available: content.available || commerce.available};
+    return {applied, available: isPublished(locale)};
+  };
+
+  const observeNewPublicModules = () => {
+    if (publicContentObserver || !document.body) return;
+    publicContentObserver = new MutationObserver(records => {
+      if (!config || shownLocale(config.locale) === sourceLocale() || publicRefreshQueued) return;
+      // Only newly mounted, marked public modules. Rewriting a translated
+      // text node also emits a mutation; ignoring text nodes avoids a loop.
+      const newModule = records.some(record => [...record.addedNodes].some(node =>
+        node.nodeType === Node.ELEMENT_NODE && (
+          node.matches?.('[data-lgt-root], [data-lgt-field], [data-lgt-richtext]')
+          || node.querySelector?.('[data-lgt-root], [data-lgt-field], [data-lgt-richtext]')
+        ),
+      ));
+      if (!newModule) return;
+      publicRefreshQueued = true;
+      requestAnimationFrame(() => {
+        publicRefreshQueued = false;
+        if (config && shownLocale(config.locale) !== sourceLocale()) {
+          void applyPresentation(shownLocale(config.locale)).catch(error =>
+            debug('new-module-reapply-failed', {message: String(error?.message || error)}));
+        }
+      });
+    });
+    publicContentObserver.observe(document.body, {childList: true, subtree: true});
   };
 
   const optionButton = locale => {
@@ -669,14 +704,16 @@
     button.className = 'lgt-widget__option';
     button.dataset.locale = locale;
     button.setAttribute('aria-pressed', String(locale === selected));
-    name.textContent = locale === 'auto' ? 'Automatic' : label(locale);
-    code.textContent = locale === 'auto' ? 'AUTO' : available ? locale.toUpperCase() : 'Not published';
+    name.textContent = locale === 'auto' ? 'Automatic (region)' : label(locale);
+    code.textContent = locale === 'auto' ? 'AUTO' : locale.toUpperCase();
     button.disabled = !available;
     if (!available) button.title = 'Publish the reviewed translation before visitors can switch to this language.';
     button.append(name, code);
     button.addEventListener('click', async () => {
+      if (switching) return;
+      switching = true;
       status.textContent = '';
-      button.disabled = true;
+      options.querySelectorAll('button').forEach(option => { option.disabled = true; });
       try {
         const saved = await request(root.dataset.localeUrl, {
           method: 'POST',
@@ -692,10 +729,10 @@
         render();
         try {
           const result = await applyPresentation(saved.locale);
-          current.textContent = (result?.available ? shownLocale(saved.locale) : sourceLocale()).toUpperCase();
-          status.textContent = result?.available
+          current.textContent = shownLocale(saved.locale).toUpperCase();
+          status.textContent = result?.applied > 0
             ? 'Language updated.'
-            : 'Language saved. No published translation exists for the visible content yet.';
+            : 'Preference saved. Some content on this page is not translated yet.';
         } catch (_) {
           // The preference was saved, but the source language is the only
           // safe display state while a publication cannot be read.
@@ -705,7 +742,8 @@
       } catch (error) {
         status.textContent = error.message || 'Unable to save language preference.';
       } finally {
-        button.disabled = false;
+        switching = false;
+        render();
       }
     });
     return button;
@@ -713,28 +751,36 @@
 
   const render = () => {
     options.replaceChildren();
-    ['auto', ...new Set([config.source_locale, ...(config.locales || [])])]
+    const availableLocales = [...new Set([config.source_locale, ...(config.locales || [])])]
+      .filter(locale => isPublished(locale));
+    ['auto', ...availableLocales]
       .forEach(locale => options.append(optionButton(locale)));
+    if (hint) {
+      hint.textContent = config.locale_source === 'explicit' ? 'Manual preference saved.' : autoExplanation();
+      hint.hidden = !hint.textContent;
+    }
+    if (searchWrap && searchInput) {
+      searchWrap.hidden = availableLocales.length < 8;
+      searchInput.value = '';
+    }
     current.textContent = shownLocale(config.locale || config.source_locale).toUpperCase();
   };
 
-  toggle.addEventListener('click', () => setOpen(!root.classList.contains('is-open')));
-  close.addEventListener('click', () => setOpen(false));
-  document.addEventListener('keydown', event => {
-    if (event.key === 'Escape' && root.classList.contains('is-open')) setOpen(false);
+  searchInput?.addEventListener('input', () => {
+    const query = searchInput.value.trim().toLocaleLowerCase();
+    options.querySelectorAll('button').forEach(button => {
+      button.hidden = Boolean(query) && !(button.textContent || '').toLocaleLowerCase().includes(query);
+    });
   });
 
-  const inlineBootstrap = () => {
-    const node = document.getElementById('longos-global-translate-bootstrap');
-    if (!node?.textContent) return null;
-    try {
-      const parsed = JSON.parse(node.textContent);
-      return parsed && typeof parsed === 'object' ? parsed : null;
-    } catch (error) {
-      debug('inline-bootstrap-invalid', {message:String(error?.message || error)});
-      return null;
-    }
-  };
+  toggle.addEventListener('click', () => setOpen(!root.classList.contains('is-open')));
+  close.addEventListener('click', () => setOpen(false, true));
+  document.addEventListener('pointerdown', event => {
+    if (root.classList.contains('is-open') && !root.contains(event.target)) setOpen(false);
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && root.classList.contains('is-open')) setOpen(false, true);
+  });
 
   const start = async data => {
     debug('config-loaded', {release:widgetRelease, serverRelease:data.plugin_release || 'unknown', enabled: !!data.enabled, configuredLocales:(data.locales||[]).length, publishedLocales:(data.published_locales||[]).length});
@@ -749,13 +795,13 @@
     }
     config = data;
     render();
-    root.hidden = false;
+    root.hidden = !data.widget_visible;
+    observeNewPublicModules();
     try {
       const result = await applyPresentation(shownLocale(config.locale));
-      current.textContent = (result?.available ? shownLocale(config.locale) : sourceLocale()).toUpperCase();
-      status.textContent = (!result?.available && shownLocale(config.locale) !== sourceLocale())
-        ? 'This page has no matching published translations. Showing the original language.'
-        : (autoExplanation() || '');
+      current.textContent = shownLocale(config.locale).toUpperCase();
+      status.textContent = (result?.applied === 0 && shownLocale(config.locale) !== sourceLocale())
+        ? 'Some content on this page is not translated yet.' : (autoExplanation() || '');
     } catch (error) {
       debug('initial-translation-error', {message:String(error?.message||error)});
       status.textContent = 'Showing original English while translations are unavailable.';
@@ -764,13 +810,8 @@
     }
   };
 
-  // New pages render a tenant-scoped, non-secret locale decision directly in
-  // their HTML. This avoids a serial AJAX request before the first dictionary
-  // lookup. The network path remains as a safe compatibility fallback for a
-  // partially upgraded deployment or a cached old layout.
-  const bootstrap = inlineBootstrap();
-  const configPromise = bootstrap && typeof bootstrap.enabled === 'boolean'
-    ? Promise.resolve(bootstrap)
-    : request(root.dataset.configUrl);
+  // Locale decisions must be calculated per visitor, even when a CDN caches
+  // the HTML. Never reuse another visitor's inlined country/cookie decision.
+  const configPromise = request(root.dataset.configUrl, {cache: 'no-store'});
   configPromise.then(start).catch(error => {debug('widget-config-error',{message:String(error?.message||error)});root.remove();});
 })();

@@ -23,6 +23,9 @@ final class TranslationQualityGate
         if ($translationLength === 0) {
             return 'EMPTY_OUTPUT';
         }
+        if (self::hasModelMetaOutput($translation)) {
+            return 'MODEL_META_OUTPUT';
+        }
         if (self::isRepeated($translation)) {
             return 'REPEATED_OUTPUT';
         }
@@ -40,6 +43,9 @@ final class TranslationQualityGate
         }
         if (self::isMissingRequiredTargetScript($translation, $source, $targetLocale)) {
             return 'TARGET_SCRIPT_MISSING';
+        }
+        if (self::isSourceLanguageDominant($translation, $source, $targetLocale)) {
+            return 'SOURCE_LANGUAGE_DOMINANT';
         }
 
         return null;
@@ -65,18 +71,56 @@ final class TranslationQualityGate
             'th'    => '\\p{Thai}',
             default => null,
         };
-        if ($requiredScript === null || mb_strlen(trim($source), 'UTF-8') < 40) {
+        if ($requiredScript === null || mb_strlen(trim($source), 'UTF-8') < 18) {
             return false;
         }
 
-        preg_match_all('/[A-Za-z]{2,}/', $source, $words);
+        $words = self::latinWords($source);
         // Require natural-language-like English before rejecting output. This
         // keeps part numbers and all-brand titles out of the heuristic.
-        if (count(array_unique(array_map('strtolower', $words[0] ?? []))) < 5) {
+        if (count($words) < 4) {
             return false;
         }
 
         return preg_match('/(?:' . $requiredScript . ')/u', $translation) !== 1;
+    }
+
+    /**
+     * AI chat models sometimes wrap an otherwise usable translation in an
+     * explanation, a Markdown fence, or a JSON envelope. Persist the text for
+     * review, but never allow that model chatter into an automatic release.
+     */
+    private static function hasModelMetaOutput(string $translation): bool
+    {
+        $trimmed = trim($translation);
+
+        return str_starts_with($trimmed, '```')
+            || preg_match('/^\s*\{\s*["\'](?:translation|translated_text)["\']\s*:/iu', $trimmed)                                                       === 1
+            || preg_match('/^\s*(?:translation|translated\s+text|here(?:\'s|\s+is)\s+the\s+translation|译文|翻译结果|翻译如下)\s*[:：\-]/iu', $trimmed) === 1;
+    }
+
+    /**
+     * Catch partially translated Latin-script output without pretending to
+     * perform semantic language detection. At least eight distinct source
+     * words and an 82% overlap are required, keeping brand-heavy short titles
+     * and legitimate cognates out of the quarantine path.
+     */
+    private static function isSourceLanguageDominant(string $translation, string $source, ?string $targetLocale): bool
+    {
+        $targetLocale = strtolower(str_replace('_', '-', trim((string) $targetLocale)));
+        if ($targetLocale === '' || str_starts_with($targetLocale, 'en')) {
+            return false;
+        }
+
+        $sourceWords      = self::latinWords($source);
+        $translationWords = self::latinWords($translation);
+        if (count($sourceWords) < 8 || count($translationWords) < 6) {
+            return false;
+        }
+
+        $overlap = count(array_intersect($sourceWords, $translationWords)) / count($sourceWords);
+
+        return $overlap >= 0.82 && self::canonical($translation) !== self::canonical($source);
     }
 
     private static function isLikelySourceEcho(string $translation, string $source): bool
@@ -109,5 +153,13 @@ final class TranslationQualityGate
         $value = mb_strtolower(trim($value), 'UTF-8');
 
         return preg_replace('/[^\p{L}\p{N}]+/u', '', $value) ?? '';
+    }
+
+    /** @return list<string> */
+    private static function latinWords(string $value): array
+    {
+        preg_match_all('/[A-Za-z]{3,}/', mb_strtolower($value, 'UTF-8'), $matches);
+
+        return array_values(array_unique($matches[0] ?? []));
     }
 }

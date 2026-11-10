@@ -16,13 +16,14 @@ final class ProviderRegistry
         }
 
         return match ($provider) {
-            'aliyun'     => new AliyunProvider,
-            'volcengine' => new VolcengineProvider,
-            'baidu'      => new BaiduProvider,
-            'deepl'      => new DeepLProvider,
-            'google'     => new GoogleCloudProvider,
-            'azure'      => new AzureTranslatorProvider,
-            default      => throw new InvalidArgumentException('UNKNOWN_PROVIDER'),
+            'aliyun'      => new AliyunProvider,
+            'volcengine'  => new VolcengineProvider,
+            'baidu'       => new BaiduProvider,
+            'deepl'       => new DeepLProvider,
+            'google'      => new GoogleCloudProvider,
+            'azure'       => new AzureTranslatorProvider,
+            'siliconflow' => new SiliconFlowProvider,
+            default       => throw new InvalidArgumentException('UNKNOWN_PROVIDER'),
         };
     }
 }

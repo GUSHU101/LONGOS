@@ -5,13 +5,24 @@ namespace Plugin\LongosGlobalTranslate\Services;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Plugin\LongosGlobalTranslate\Jobs\ProcessTranslationJob;
+use Plugin\LongosGlobalTranslate\Jobs\ResumeSiliconFlowTranslationJob;
 use Plugin\LongosGlobalTranslate\Providers\ProviderRegistry;
+use Plugin\LongosGlobalTranslate\Providers\SiliconFlowProvider;
 use Plugin\LongosGlobalTranslate\Providers\TranslationProviderRequest;
 use RuntimeException;
 use Throwable;
 
 final class TranslationJobService
 {
+    /** @var array<string, array<string, string>> */
+    private array $protectedTermsCache = [];
+
+    /** @var array<string, list<object>> */
+    private array $accountsCache = [];
+
+    /** @var array<string, string> */
+    private array $translationMemoryCache = [];
+
     /**
      * These are explicit, pre-translation provider replies. They are safe to
      * try on the next verified account because no translation result was
@@ -53,6 +64,7 @@ final class TranslationJobService
         private readonly UsageLedger $ledger,
         private readonly TranslationLibrary $library,
         private readonly ?PublicationService $publications = null,
+        private readonly ?SiliconFlowRateLimiter $siliconFlowLimits = null,
     ) {}
 
     /** @param list<string> $locales @param list<string> $kinds
@@ -76,6 +88,7 @@ final class TranslationJobService
         // enqueue billable provider requests; storefront reads never do so.
         $report = $this->scanner->scan($kinds, $actorId);
         $result = DB::transaction(function () use ($locales, $kinds, $settings, $actorId): array {
+            TranslationMaintenanceGuard::lockLocales($locales);
             $existing = DB::table('lgt_jobs')
                 ->whereIn('status', ['planned', 'queued', 'scanning', 'running', 'pausing', 'paused'])
                 ->where('scope', json_encode($kinds))
@@ -126,6 +139,24 @@ final class TranslationJobService
                     foreach ($jobItems as $item) {
                         $queuedByPair[(int) $item->entry_id . ':' . $item->target_locale] = (string) $item->source_hash;
                     }
+                    // A different scope creates a different job. The old
+                    // planner only checked this job's items, so overlapping
+                    // product/full-site jobs could dispatch the same pair
+                    // twice. Locale maintenance locks serialize planners;
+                    // active items from *other* jobs must also be considered.
+                    $otherActiveByPair = [];
+                    $otherActive       = DB::table('lgt_job_items as prior_item')
+                        ->join('lgt_jobs as prior_job', 'prior_job.id', '=', 'prior_item.job_id')
+                        ->whereIn('prior_item.entry_id', $entryIds)
+                        ->whereIn('prior_item.target_locale', $locales)
+                        ->where('prior_item.job_id', '!=', $jobId)
+                        ->whereIn('prior_item.status', ['ready', 'claimed'])
+                        ->whereIn('prior_job.status', ['queued', 'scanning', 'running', 'pausing', 'paused'])
+                        ->where('prior_job.mode', TranslationSettings::MODE_FREE_ONLY)
+                        ->get(['prior_item.entry_id', 'prior_item.target_locale', 'prior_item.source_hash']);
+                    foreach ($otherActive as $priorItem) {
+                        $otherActiveByPair[(int) $priorItem->entry_id . ':' . $priorItem->target_locale . ':' . $priorItem->source_hash] = true;
+                    }
                     // A task may be recreated after an operator fixes a
                     // provider. Do not silently replay an unchanged source
                     // that has an unresolved request from *another* task:
@@ -135,7 +166,15 @@ final class TranslationJobService
                         ->join('lgt_job_items as prior_item', 'prior_item.id', '=', 'attempt.job_item_id')
                         ->whereIn('prior_item.entry_id', $entryIds)
                         ->whereIn('prior_item.target_locale', $locales)
-                        ->where('attempt.state', UsageLedger::UNCERTAIN)
+                        ->where(static function ($query): void {
+                            $query->whereIn('attempt.state', [UsageLedger::SENDING, UsageLedger::UNCERTAIN])
+                                ->orWhere(static function ($committed): void {
+                                    // A committed request followed by a
+                                    // failed local write must not be rebilled.
+                                    $committed->where('attempt.state', UsageLedger::COMMITTED)
+                                        ->where('prior_item.status', 'failed');
+                                });
+                        })
                         ->get(['prior_item.entry_id', 'prior_item.target_locale', 'prior_item.source_hash']);
                     foreach ($uncertainAttempts as $attempt) {
                         $uncertainByPair[(int) $attempt->entry_id . ':' . $attempt->target_locale . ':' . $attempt->source_hash] = true;
@@ -164,6 +203,11 @@ final class TranslationJobService
                                 continue;
                             }
                             if (isset($uncertainByPair[$pair . ':' . $entry->source_hash])) {
+                                $deferredChanges++;
+
+                                continue;
+                            }
+                            if (isset($otherActiveByPair[$pair . ':' . $entry->source_hash])) {
                                 $deferredChanges++;
 
                                 continue;
@@ -219,7 +263,7 @@ final class TranslationJobService
             && $job['status'] === 'paused'
             && $job['mode']   === TranslationSettings::MODE_FREE_ONLY;
         if ($shouldDispatch) {
-            ProcessTranslationJob::dispatch((int) $job['id'])->afterCommit();
+            $this->dispatchWorkerPool((int) $job['id']);
         } elseif ($shouldResume) {
             $this->resumePausedJobs();
         }
@@ -229,8 +273,13 @@ final class TranslationJobService
 
     public function process(int $jobId, int $limit = 50, ?string $runToken = null): void
     {
-        $runToken = $runToken ?: (string) Str::uuid();
-        $job      = DB::table('lgt_jobs')->where('id', $jobId)->first();
+        // Cache only immutable/read-mostly routing data for this bounded queue
+        // run. A fresh worker job reloads provider and glossary changes.
+        $this->protectedTermsCache    = [];
+        $this->accountsCache          = [];
+        $this->translationMemoryCache = [];
+        $runToken                     = $runToken ?: (string) Str::uuid();
+        $job                          = DB::table('lgt_jobs')->where('id', $jobId)->first();
         if ($job === null || in_array($job->status, ['cancelled', 'completed', 'partial_failed', 'paused'], true)) {
             return;
         }
@@ -240,10 +289,19 @@ final class TranslationJobService
 
             return;
         }
-        $this->setJobStatus($jobId, 'running');
+        if (! $this->setJobStatus($jobId, 'running')) {
+            return;
+        }
         for ($i = 0; $i < min(50, max(1, $limit)); $i++) {
             $item = $this->claim($jobId, $runToken);
             if ($item === null) {
+                break;
+            }
+
+            // The operator can cancel between claim() and the provider call.
+            if (DB::table('lgt_jobs')->where('id', $jobId)->value('status') !== 'running') {
+                $this->settleInterruptedItem((int) $item->id, $runToken);
+
                 break;
             }
 
@@ -270,6 +328,11 @@ final class TranslationJobService
     public function failClaimsForRun(int $jobId, string $runToken): void
     {
         $attemptIds = DB::transaction(function () use ($jobId, $runToken): array {
+            // Claim/cancel/recovery all lock the job before its items.
+            $job = DB::table('lgt_jobs')->where('id', $jobId)->lockForUpdate()->first();
+            if ($job === null) {
+                return [];
+            }
             $items = DB::table('lgt_job_items')
                 ->where('job_id', $jobId)
                 ->where('status', 'claimed')
@@ -287,14 +350,11 @@ final class TranslationJobService
                 ]);
             }
             if ($items->isNotEmpty()) {
-                $job = DB::table('lgt_jobs')->where('id', $jobId)->lockForUpdate()->first();
-                if ($job !== null) {
-                    DB::table('lgt_jobs')->where('id', $jobId)->update([
-                        'completed_items' => (int) $job->completed_items + $items->count(),
-                        'failed_items'    => (int) $job->failed_items    + $items->count(),
-                        'updated_at'      => now(),
-                    ]);
-                }
+                DB::table('lgt_jobs')->where('id', $jobId)->update([
+                    'completed_items' => (int) $job->completed_items + $items->count(),
+                    'failed_items'    => (int) $job->failed_items    + $items->count(),
+                    'updated_at'      => now(),
+                ]);
             }
 
             return array_values(array_unique($attemptIds));
@@ -317,7 +377,7 @@ final class TranslationJobService
             return 0;
         }
         $ids = DB::transaction(function (): array {
-            $jobs = DB::table('lgt_jobs')->where('status', 'paused')->where('mode', TranslationSettings::MODE_FREE_ONLY)->lockForUpdate()->get(['id']);
+            $jobs = DB::table('lgt_jobs')->where('status', 'paused')->whereNull('archived_at')->where('mode', TranslationSettings::MODE_FREE_ONLY)->lockForUpdate()->get(['id']);
             if ($jobs->isEmpty()) {
                 return [];
             }
@@ -327,10 +387,121 @@ final class TranslationJobService
             return $ids;
         }, 3);
         foreach ($ids as $id) {
-            ProcessTranslationJob::dispatch($id)->afterCommit();
+            $this->dispatchWorkerPool($id);
         }
 
         return count($ids);
+    }
+
+    /**
+     * Stop future claims and queued work without discarding billing evidence.
+     * A provider call that was already sent cannot be recalled; its claimed
+     * item finishes normally, but cancelled jobs never auto-publish or resume.
+     *
+     * @return array{status:string,discarded_ready:int,inflight:int}
+     */
+    public function cancelJob(int $jobId, ?int $actorId): array
+    {
+        return DB::transaction(function () use ($jobId, $actorId): array {
+            $job = DB::table('lgt_jobs')->where('id', $jobId)->lockForUpdate()->first();
+            if ($job === null || $job->archived_at !== null) {
+                throw new RuntimeException('JOB_NOT_FOUND');
+            }
+            if (in_array((string) $job->status, ['completed', 'partial_failed', 'failed'], true)) {
+                throw new RuntimeException('JOB_ALREADY_FINISHED');
+            }
+            if ($job->status === 'cancelled') {
+                return [
+                    'status'   => 'cancelled', 'discarded_ready' => 0,
+                    'inflight' => DB::table('lgt_job_items')->where('job_id', $jobId)->where('status', 'claimed')->count(),
+                ];
+            }
+            $discarded = DB::table('lgt_job_items')->where('job_id', $jobId)->where('status', 'ready')->update([
+                'status' => 'cancelled', 'completed_at' => now(), 'updated_at' => now(),
+            ]);
+            $inflight = DB::table('lgt_job_items')->where('job_id', $jobId)->where('status', 'claimed')->count();
+            $plan     = json_decode((string) ($job->plan ?? ''), true);
+            $plan     = is_array($plan) ? $plan : [];
+            unset($plan['pause']);
+            $plan['cancellation'] = ['at' => now()->toIso8601String(), 'actor_id' => $actorId, 'inflight_at_cancel' => $inflight];
+            DB::table('lgt_jobs')->where('id', $jobId)->update([
+                'status'      => 'cancelled', 'plan' => json_encode($plan, JSON_UNESCAPED_UNICODE),
+                'finished_at' => now(), 'updated_at' => now(),
+            ]);
+            $this->auditJob('translation_job_cancelled', $jobId, $actorId, ['status' => $job->status], ['discarded_ready' => $discarded, 'inflight' => $inflight]);
+
+            return ['status' => 'cancelled', 'discarded_ready' => $discarded, 'inflight' => $inflight];
+        }, 3);
+    }
+
+    /**
+     * 'Delete' removes the task from the operational list, but preserves
+     * attempts, claims and billing evidence. An in-flight call must settle.
+     */
+    public function archiveJob(int $jobId, ?int $actorId): void
+    {
+        DB::transaction(function () use ($jobId, $actorId): void {
+            $job = DB::table('lgt_jobs')->where('id', $jobId)->lockForUpdate()->first();
+            if ($job === null || $job->archived_at !== null) {
+                throw new RuntimeException('JOB_NOT_FOUND');
+            }
+            if (! in_array((string) $job->status, ['completed', 'partial_failed', 'failed', 'cancelled'], true)) {
+                throw new RuntimeException('JOB_MUST_BE_STOPPED');
+            }
+            if (DB::table('lgt_job_items')->where('job_id', $jobId)->where('status', 'claimed')->exists()) {
+                throw new RuntimeException('JOB_HAS_INFLIGHT_REQUESTS');
+            }
+            DB::table('lgt_jobs')->where('id', $jobId)->update(['archived_at' => now(), 'updated_at' => now()]);
+            $this->auditJob('translation_job_archived', $jobId, $actorId, ['status' => $job->status], ['archived' => true]);
+        }, 3);
+    }
+
+    /**
+     * Manual crash recovery for a cancelled job only. Waiting at least 30
+     * minutes exceeds the normal ten-minute queue timeout and avoids treating
+     * a still-running provider call as definitely failed. Ledger recovery
+     * retains uncertain billing; it never resends the request.
+     *
+     * @return array{recovered:int,remaining:int}
+     */
+    public function recoverTimedOutClaims(int $jobId, ?int $actorId): array
+    {
+        $claims = DB::transaction(function () use ($jobId): array {
+            $job = DB::table('lgt_jobs')->where('id', $jobId)->lockForUpdate()->first();
+            if ($job === null || $job->archived_at !== null || $job->status !== 'cancelled') {
+                throw new RuntimeException('JOB_MUST_BE_STOPPED');
+            }
+            $claims = DB::table('lgt_job_items')->where('job_id', $jobId)->where('status', 'claimed')
+                ->lockForUpdate()->get(['claim_token', 'claimed_at']);
+            foreach ($claims as $claim) {
+                if (! $claim->claim_token || $claim->claimed_at === null
+                                          || (string) $claim->claimed_at > now()->subMinutes(30)->toDateTimeString()) {
+                    throw new RuntimeException('JOB_CLAIMS_NOT_STALE');
+                }
+            }
+
+            return ['tokens' => $claims->pluck('claim_token')->unique()->values()->all(), 'count' => $claims->count()];
+        }, 3);
+
+        foreach ($claims['tokens'] as $token) {
+            $this->failClaimsForRun($jobId, (string) $token);
+        }
+        $remaining = DB::table('lgt_job_items')->where('job_id', $jobId)->where('status', 'claimed')->count();
+        $result    = ['recovered' => max(0, $claims['count'] - $remaining), 'remaining' => $remaining];
+        $this->auditJob('translation_job_claims_recovered', $jobId, $actorId, [], $result);
+
+        return $result;
+    }
+
+    /** @param array<string,mixed> $before @param array<string,mixed> $after */
+    private function auditJob(string $action, int $jobId, ?int $actorId, array $before, array $after): void
+    {
+        DB::table('lgt_audit_logs')->insert([
+            'actor_id'   => $actorId, 'action' => $action, 'subject_type' => 'job', 'subject_id' => $jobId,
+            'before'     => json_encode($before, JSON_UNESCAPED_UNICODE),
+            'after'      => json_encode($after, JSON_UNESCAPED_UNICODE),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
     }
 
     /**
@@ -343,7 +514,7 @@ final class TranslationJobService
     {
         $count = DB::transaction(function () use ($jobId): int {
             $job = DB::table('lgt_jobs')->where('id', $jobId)->lockForUpdate()->first();
-            if ($job === null || ! in_array((string) $job->status, ['completed', 'partial_failed'], true)) {
+            if ($job === null || $job->archived_at !== null || ! in_array((string) $job->status, ['completed', 'partial_failed'], true)) {
                 throw new RuntimeException('JOB_NOT_RETRYABLE');
             }
             $items = DB::table('lgt_job_items as item')
@@ -381,7 +552,7 @@ final class TranslationJobService
             return $count;
         }, 3);
         if ($count > 0) {
-            ProcessTranslationJob::dispatch($jobId)->afterCommit();
+            $this->dispatchWorkerPool($jobId);
         }
 
         return $count;
@@ -430,6 +601,29 @@ final class TranslationJobService
             return;
         }
 
+        // Legacy queued jobs may overlap even after the new planner has been
+        // deployed. Do not replay an unresolved send, or a provider result
+        // already billed but lost by a failed local write. An administrator
+        // must reconcile these explicitly before requesting new translation.
+        $priorRisk = DB::table('lgt_attempts as attempt')
+            ->join('lgt_job_items as prior_item', 'prior_item.id', '=', 'attempt.job_item_id')
+            ->where('prior_item.entry_id', $item->entry_id)
+            ->where('prior_item.target_locale', $item->target_locale)
+            ->where('prior_item.source_hash', $item->source_hash)
+            ->where('prior_item.id', '!=', $item->id)
+            ->where(static function ($query): void {
+                $query->whereIn('attempt.state', [UsageLedger::SENDING, UsageLedger::UNCERTAIN])
+                    ->orWhere(static function ($committed): void {
+                        $committed->where('attempt.state', UsageLedger::COMMITTED)
+                            ->where('prior_item.status', 'failed');
+                    });
+            })->exists();
+        if ($priorRisk) {
+            $this->finishItem((int) $item->id, 'failed', $runToken, 'PRIOR_BILLING_OUTCOME_UNRESOLVED');
+
+            return;
+        }
+
         // Validate the exact text contract before a provider reservation is
         // made.  The scanner should already have reduced rich content to
         // visible text nodes, but this second boundary keeps malformed legacy
@@ -469,11 +663,42 @@ final class TranslationJobService
 
             return;
         }
+
+        // Reuse an already accepted machine translation only when the
+        // source locale, target locale, content kind, field, source format
+        // and normalized source hash all match. This is tenant-local because
+        // every worker runs on the active tenant connection. It removes a
+        // large amount of duplicate provider traffic for repeated storefront
+        // labels without ever sharing shopper, order or payment data.
+        $memoryText = $this->translationMemoryText($entry, (string) $item->target_locale);
+        if ($memoryText !== null) {
+            try {
+                $this->library->saveMachineResult(
+                    (int) $entry->id,
+                    (string) $item->target_locale,
+                    (string) $entry->source_hash,
+                    $memoryText,
+                    'translation_memory',
+                    null,
+                );
+                $this->finishItem((int) $item->id, 'completed', $runToken);
+            } catch (Throwable $exception) {
+                $this->finishItem((int) $item->id, 'failed', $runToken, $this->failureCode($exception));
+            }
+
+            return;
+        }
         $accounts = $segments === [] ? [] : $this->accountsFor($sourceLocale, (string) $item->target_locale);
         if ($segments === []) {
             try {
+                if (! $this->jobItemStillRunning((int) $item->id)) {
+                    $this->finishItem((int) $item->id, 'cancelled', $runToken);
+
+                    return;
+                }
                 $translated = TextContract::assertSafePlainText(implode('', $translatedParts));
                 $this->library->saveMachineResult((int) $entry->id, (string) $item->target_locale, (string) $entry->source_hash, $translated, 'local_rules', null);
+                $this->rememberTranslation($entry, (string) $item->target_locale, $translated);
                 $this->finishItem((int) $item->id, 'completed', $runToken);
             } catch (Throwable $exception) {
                 $this->finishItem((int) $item->id, 'failed', $runToken, $this->failureCode($exception));
@@ -517,18 +742,45 @@ final class TranslationJobService
                 (int) $item->id,
                 $translationContext,
             );
-            if ($result['state'] === 'exhausted') {
+            if ($result['state'] === 'exhausted' || $result['state'] === 'rate_limited') {
                 $this->commitSuccessfulAttempts($successful);
+                $rateLimited = $result['state'] === 'rate_limited';
+                $pauseReason = $rateLimited ? 'SILICONFLOW_RATE_WINDOW' : 'FREE_QUOTA_EXHAUSTED';
                 if ($successful === []) {
-                    // No provider has received this field, so pausing leaves
-                    // it safe to resume when an operator tops up or enables a
-                    // further free provider.
+                    // No segment yielded an accepted translation. A 429 may
+                    // have received bytes, but the provider explicitly
+                    // rejected the call without producing a translation.
+                    $pauseNonce = $this->pauseJob((int) $job->id, $pauseReason);
+                    // Pause first: claim() locks the job status, so no other
+                    // worker can pick up this ready item during the handoff.
                     $this->releaseItem((int) $item->id, $runToken);
-                    $this->pauseJob((int) $job->id, 'FREE_QUOTA_EXHAUSTED');
+                    if ($pauseNonce !== null && $rateLimited) {
+                        ResumeSiliconFlowTranslationJob::dispatch((int) $job->id, $pauseNonce)
+                            ->delay(now()->addSeconds((int) ($result['retry_after'] ?? 65)))
+                            ->afterCommit();
+                    }
                 } else {
                     // Earlier segments may already have been accepted. Never
                     // requeue the whole field and risk charging them twice.
-                    $this->finishItem($item->id, 'failed', $runToken, 'FREE_QUOTA_EXHAUSTED_AFTER_PARTIAL_SEGMENT');
+                    $this->finishItem($item->id, 'failed', $runToken, $rateLimited
+                        ? 'RATE_LIMIT_AFTER_PARTIAL_SEGMENT' : 'FREE_QUOTA_EXHAUSTED_AFTER_PARTIAL_SEGMENT');
+                }
+
+                return;
+            }
+            if ($result['state'] === 'cancelled') {
+                $this->commitSuccessfulAttempts($successful);
+                if ($successful === []) {
+                    // Another worker can pause the shared job after this
+                    // worker claims an item but before it sends anything.
+                    // A paused claim is safe to return to the ready queue;
+                    // an operator-cancelled claim is terminal instead.
+                    $this->settleInterruptedItem((int) $item->id, $runToken);
+                } else {
+                    // Earlier segments were accepted by a provider. Never
+                    // replay the whole field after a concurrent stop because
+                    // that could duplicate billable work.
+                    $this->finishItem((int) $item->id, 'failed', $runToken, 'JOB_STOPPED_AFTER_PARTIAL_SEGMENT');
                 }
 
                 return;
@@ -566,6 +818,7 @@ final class TranslationJobService
                     $this->ledger->commit((int) $attempt['attempt_id'], (string) $attempt['request_id']);
                 }
             }, 3);
+            $this->rememberTranslation($entry, (string) $item->target_locale, $translated);
         } catch (Throwable $exception) {
             // The provider has already accepted each successful batch. Commit
             // its durable cost even if a stale source or token integrity check
@@ -586,16 +839,21 @@ final class TranslationJobService
      * their original account so a retry cannot create duplicate billable work.
      *
      * @param list<object> $accounts
-     * @return array{state:'success',translation:string,attempt:array{attempt_id:int,request_id:string},provider:string,account_id:int}|array{state:'exhausted'}|array{state:'failed',failure_code:string}
+     * @return array<string,mixed>
      */
     private function translateSegmentWithFailover(array $accounts, string $segment, string $sourceLocale, string $targetLocale, string $sourceHash, int $jobItemId, array $translationContext): array
     {
-        $units = TextContract::units($segment)['codepoints'];
+        $units     = TextContract::units($segment)['codepoints'];
+        $rateDelay = 0;
         foreach ($accounts as $account) {
+            if (! $this->jobItemStillRunning($jobItemId)) {
+                return ['state' => 'cancelled'];
+            }
+
             try {
                 $reservation = $this->ledger->reserve((int) $account->id, $units, $jobItemId);
             } catch (RuntimeException $exception) {
-                if ($exception->getMessage() === 'LOCAL_BUDGET_EXHAUSTED') {
+                if (in_array($exception->getMessage(), ['LOCAL_BUDGET_EXHAUSTED', 'PROVIDER_ACCOUNT_NOT_DISPATCHABLE'], true)) {
                     continue;
                 }
 
@@ -603,6 +861,9 @@ final class TranslationJobService
             }
             DB::table('lgt_job_items')->where('id', $jobItemId)->update(['attempt_id' => $reservation['id'], 'updated_at' => now()]);
             $requestMarkedSending = false;
+            $rateCallId           = null;
+            $rateModel            = null;
+            $limiter              = $this->siliconFlowLimits ?? new SiliconFlowRateLimiter;
 
             try {
                 $provider = $this->providers->get((string) $account->provider);
@@ -611,12 +872,42 @@ final class TranslationJobService
                 // reservation into the conservative `sending` state.
                 $credentials = $this->accounts->credentials($account);
                 $provider->validateCredentialShape($credentials);
-                $this->ledger->markSending($reservation['id']);
-                $requestMarkedSending = true;
-                $response             = $provider->send(new TranslationProviderRequest(
+                // The account rate limiter/credential lookup can be slow.
+                // Re-check before crossing the external-send boundary.
+                if (! $this->jobItemStillRunning($jobItemId)) {
+                    $this->ledger->definiteFailure($reservation['id'], 'JOB_CANCELLED_BEFORE_SEND');
+
+                    return ['state' => 'cancelled'];
+                }
+                $request = new TranslationProviderRequest(
                     $reservation['request_uuid'], (int) $account->id, $sourceLocale, $targetLocale, [$segment], $sourceHash,
                     context: $translationContext,
-                ), $credentials);
+                );
+                if ($provider instanceof SiliconFlowProvider) {
+                    $rateModel = (string) $credentials['model'];
+                    $admission = $limiter->acquire(
+                        (int) $account->id, $rateModel, $provider->tokenCeiling($request, $rateModel),
+                        (int) ($account->rpm_limit ?? 1000), (int) ($account->tpm_limit ?? 80000),
+                    );
+                    if (! $admission['allowed']) {
+                        $rateDelay = max($rateDelay, (int) $admission['retry_after']);
+                        $this->ledger->definiteFailure($reservation['id'], $admission['reason']);
+
+                        continue;
+                    }
+                    $rateCallId = (int) $admission['id'];
+                }
+                $this->ledger->markSending($reservation['id']);
+                $requestMarkedSending = true;
+                $response             = $provider->send($request, $credentials);
+                if ($rateCallId !== null) {
+                    $limiter->settle($rateCallId, $response->totalTokens);
+                    if ($response->errorCode === 'RATE_LIMIT') {
+                        $rateDelay = max($rateDelay, $limiter->cooldown((string) $rateModel, $response->retryAfterSeconds));
+                    } elseif ($response->ok) {
+                        $limiter->success((string) $rateModel);
+                    }
+                }
                 if ($response->ok && count($response->translations) === 1 && is_string($response->translations[0]) && trim($response->translations[0]) !== '') {
                     return [
                         'state'       => 'success',
@@ -628,6 +919,9 @@ final class TranslationJobService
                 }
                 $failure     = $provider->classifyFailure($response);
                 $failureCode = $this->safeFailureCode((string) $failure['code']);
+                if ($failureCode === 'RATE_LIMIT' && $rateCallId !== null) {
+                    $rateDelay = max($rateDelay, 60);
+                }
                 if ($failure['definitely_unbilled']) {
                     $this->ledger->definiteFailure($reservation['id'], $failureCode);
                     if (in_array($failureCode, ['AUTH', 'NOT_OPENED', 'BALANCE_EXHAUSTED'], true)) {
@@ -645,6 +939,9 @@ final class TranslationJobService
 
                 return ['state' => 'failed', 'failure_code' => $failureCode];
             } catch (Throwable $exception) {
+                if (! $requestMarkedSending && $rateCallId !== null) {
+                    $limiter->release($rateCallId);
+                }
                 // Once markSending succeeds, an exception might have occurred
                 // after the provider received bytes. Before it succeeds no
                 // external request exists, so release the reservation instead
@@ -687,7 +984,16 @@ final class TranslationJobService
             }
         }
 
-        return ['state' => 'exhausted'];
+        return $rateDelay > 0
+            ? ['state' => 'rate_limited', 'retry_after' => min(600, $rateDelay + 5)]
+            : ['state' => 'exhausted'];
+    }
+
+    private function jobItemStillRunning(int $jobItemId): bool
+    {
+        return DB::table('lgt_job_items as item')->join('lgt_jobs as job', 'job.id', '=', 'item.job_id')
+            ->where('item.id', $jobItemId)->where('item.status', 'claimed')
+            ->where('job.status', 'running')->whereNull('job.archived_at')->exists();
     }
 
     /** @param list<array{attempt_id:int,request_id:string}> $attempts */
@@ -706,6 +1012,10 @@ final class TranslationJobService
     /** @return array<string, string> Exact source term => protected replacement. */
     private function protectedTerms(string $sourceLocale, string $targetLocale): array
     {
+        $cacheKey = $sourceLocale . ':' . $targetLocale;
+        if (array_key_exists($cacheKey, $this->protectedTermsCache)) {
+            return $this->protectedTermsCache[$cacheKey];
+        }
         $tenantTerms = DB::table('lgt_glossary_terms')
             ->where('source_locale', $sourceLocale)
             ->where('protect', true)
@@ -730,20 +1040,89 @@ final class TranslationJobService
         // an explicitly saved tenant term wins on the same exact source
         // phrase. Both routes stay local and are masked before the external
         // MT call, so a provider cannot alter a protected commercial term.
-        return array_replace(CommerceTranslationProfile::protectedTerms($sourceLocale, $targetLocale), $tenantTerms);
+        return $this->protectedTermsCache[$cacheKey] = array_replace(
+            CommerceTranslationProfile::protectedTerms($sourceLocale, $targetLocale),
+            $tenantTerms,
+        );
+    }
+
+    private function translationMemoryText(object $entry, string $targetLocale): ?string
+    {
+        $key = $this->translationMemoryKey($entry, $targetLocale);
+        if (array_key_exists($key, $this->translationMemoryCache)) {
+            return $this->translationMemoryCache[$key];
+        }
+
+        $translation = DB::table('lgt_translations as translation')
+            ->join('lgt_entries as source_entry', 'source_entry.id', '=', 'translation.entry_id')
+            ->where('source_entry.id', '<>', (int) $entry->id)
+            ->where('source_entry.is_public', true)
+            ->where('source_entry.is_tombstoned', false)
+            ->where('source_entry.source_locale', (string) $entry->source_locale)
+            ->where('source_entry.source_format', (string) $entry->source_format)
+            ->where('source_entry.kind', (string) $entry->kind)
+            ->where('source_entry.field', (string) $entry->field)
+            ->where('source_entry.source_hash', (string) $entry->source_hash)
+            ->where('translation.locale', $targetLocale)
+            ->whereColumn('translation.source_hash', 'source_entry.source_hash')
+            ->where('translation.locked', false)
+            ->whereIn('translation.status', [TranslationLibrary::APPROVED, TranslationLibrary::TRANSLATED])
+            ->whereNotNull('translation.text')
+            ->where('translation.text', '<>', '')
+            // APPROVED sorts before TRANSLATED and uses the tenant-aware
+            // query grammar instead of a raw alias that would bypass table
+            // prefix rewriting on prefix-isolated databases.
+            ->orderBy('translation.status')
+            ->orderByDesc('translation.updated_at')
+            ->first(['translation.text']);
+
+        if ($translation === null) {
+            // Do not cache a miss: another worker may commit the matching
+            // translation while this bounded queue run is still active.
+            return null;
+        }
+
+        try {
+            $text = TextContract::assertSafePlainText((string) $translation->text);
+        } catch (Throwable) {
+            return null;
+        }
+
+        return $this->translationMemoryCache[$key] = $text;
+    }
+
+    private function rememberTranslation(object $entry, string $targetLocale, string $text): void
+    {
+        $this->translationMemoryCache[$this->translationMemoryKey($entry, $targetLocale)] = $text;
+    }
+
+    private function translationMemoryKey(object $entry, string $targetLocale): string
+    {
+        return implode(':', [
+            (string) $entry->source_locale,
+            $targetLocale,
+            (string) $entry->source_format,
+            (string) $entry->kind,
+            (string) $entry->field,
+            (string) $entry->source_hash,
+        ]);
     }
 
     /** @return list<object> */
     private function accountsFor(string $source, string $target): array
     {
+        $cacheKey = $source . ':' . $target;
+        if (array_key_exists($cacheKey, $this->accountsCache)) {
+            return $this->accountsCache[$cacheKey];
+        }
         $accounts = [];
-        foreach (DB::table('lgt_provider_accounts')->where('owner_scope', 'tenant')->where('enabled', true)->where('dispatch_enabled', true)->whereNotNull('verified_at')->orderBy('failover_priority')->orderBy('id')->get() as $account) {
+        foreach (DB::table('lgt_provider_accounts')->whereNull('archived_at')->where('owner_scope', 'tenant')->where('enabled', true)->where('dispatch_enabled', true)->whereNotNull('verified_at')->orderBy('failover_priority')->orderBy('id')->get() as $account) {
             if ($this->providers->get((string) $account->provider)->supports($source, $target)) {
                 $accounts[] = $account;
             }
         }
 
-        return $accounts;
+        return $this->accountsCache[$cacheKey] = $accounts;
     }
 
     /**
@@ -755,6 +1134,7 @@ final class TranslationJobService
     private function noDispatchAccountReason(string $source, string $target): string
     {
         $configured = DB::table('lgt_provider_accounts')
+            ->whereNull('archived_at')
             ->where('owner_scope', 'tenant')
             ->where('enabled', true)
             ->where('dispatch_enabled', true)
@@ -786,6 +1166,30 @@ final class TranslationJobService
             if ($item === null) {
                 return null;
             }
+            // Serialize claims for the same source entry across separate
+            // jobs. This row lock is short-lived: no HTTP call runs inside
+            // the transaction. The durable 'claimed' flag guards the period
+            // after the transaction commits and before a provider replies.
+            DB::table('lgt_entries')->where('id', $item->entry_id)->lockForUpdate()->first(['id']);
+            $alreadyClaimed = DB::table('lgt_job_items')
+                ->where('entry_id', $item->entry_id)
+                ->where('target_locale', $item->target_locale)
+                ->where('source_hash', $item->source_hash)
+                ->where('status', 'claimed')
+                ->where('id', '!=', $item->id)
+                ->exists();
+            if ($alreadyClaimed) {
+                DB::table('lgt_job_items')->where('id', $item->id)->where('status', 'ready')->update([
+                    'status'       => 'skipped', 'failure_code' => 'DUPLICATE_ACTIVE_REQUEST',
+                    'completed_at' => now(), 'version' => (int) $item->version + 1,
+                    'updated_at'   => now(),
+                ]);
+                DB::table('lgt_jobs')->where('id', $jobId)->update([
+                    'completed_items' => (int) $job->completed_items + 1, 'updated_at' => now(),
+                ]);
+
+                return null;
+            }
             $updated = DB::table('lgt_job_items')->where('id', $item->id)->where('status', 'ready')->where('version', $item->version)->update([
                 'status' => 'claimed', 'claim_token' => $runToken, 'claimed_at' => now(), 'version' => (int) $item->version + 1, 'updated_at' => now(),
             ]);
@@ -801,12 +1205,74 @@ final class TranslationJobService
         ]);
     }
 
+    /**
+     * Resolve a claim whose job stopped between claim and external send.
+     *
+     * A shared pause is resumable and must not consume the item. A terminal
+     * stop is an operator cancellation and does consume it. Locking the job
+     * before the item keeps this decision atomic with pause/cancel/recovery.
+     */
+    private function settleInterruptedItem(int $itemId, string $runToken): void
+    {
+        $jobId = DB::table('lgt_job_items')->where('id', $itemId)->value('job_id');
+        if ($jobId === null) {
+            return;
+        }
+
+        DB::transaction(function () use ($itemId, $jobId, $runToken): void {
+            $job = DB::table('lgt_jobs')->where('id', $jobId)->lockForUpdate()->first();
+            if ($job === null) {
+                return;
+            }
+            $item = DB::table('lgt_job_items')->where('id', $itemId)->lockForUpdate()->first();
+            if ($item === null || (int) $item->job_id !== (int) $jobId || $item->status !== 'claimed'
+                               || ! hash_equals((string) $item->claim_token, $runToken)) {
+                return;
+            }
+
+            if (in_array((string) $job->status, ['planned', 'queued', 'scanning', 'running', 'pausing', 'paused'], true)) {
+                DB::table('lgt_job_items')->where('id', $itemId)->update([
+                    'status'       => 'ready',
+                    'failure_code' => null,
+                    'claim_token'  => null,
+                    'claimed_at'   => null,
+                    'version'      => (int) $item->version + 1,
+                    'updated_at'   => now(),
+                ]);
+
+                return;
+            }
+
+            DB::table('lgt_job_items')->where('id', $itemId)->update([
+                'status'       => 'cancelled',
+                'failure_code' => null,
+                'claim_token'  => null,
+                'completed_at' => now(),
+                'version'      => (int) $item->version + 1,
+                'updated_at'   => now(),
+            ]);
+            DB::table('lgt_jobs')->where('id', $jobId)->update([
+                'completed_items' => (int) $job->completed_items + 1,
+                'updated_at'      => now(),
+            ]);
+        }, 3);
+    }
+
     private function finishItem(int $itemId, string $status, string $runToken, ?string $failureCode = null): void
     {
         $failureCode = $status === 'failed' ? $this->safeFailureCode($failureCode ?: 'PROCESSING_EXCEPTION') : null;
-        DB::transaction(function () use ($itemId, $status, $runToken, $failureCode): void {
+        $jobId       = DB::table('lgt_job_items')->where('id', $itemId)->value('job_id');
+        if ($jobId === null) {
+            return;
+        }
+        DB::transaction(function () use ($itemId, $jobId, $status, $runToken, $failureCode): void {
+            $job = DB::table('lgt_jobs')->where('id', $jobId)->lockForUpdate()->first();
+            if ($job === null) {
+                return;
+            }
             $item = DB::table('lgt_job_items')->where('id', $itemId)->lockForUpdate()->first();
-            if ($item === null || $item->status !== 'claimed' || ! hash_equals((string) $item->claim_token, $runToken)) {
+            if ($item === null || (int) $item->job_id !== (int) $jobId || $item->status !== 'claimed'
+                               || ! hash_equals((string) $item->claim_token, $runToken)) {
                 return;
             }
             DB::table('lgt_job_items')->where('id', $itemId)->update([
@@ -817,8 +1283,7 @@ final class TranslationJobService
                 'version'      => (int) $item->version + 1,
                 'updated_at'   => now(),
             ]);
-            $job = DB::table('lgt_jobs')->where('id', $item->job_id)->lockForUpdate()->first();
-            DB::table('lgt_jobs')->where('id', $item->job_id)->update([
+            DB::table('lgt_jobs')->where('id', $jobId)->update([
                 'completed_items' => (int) $job->completed_items + 1,
                 'failed_items'    => (int) $job->failed_items    + ($status === 'failed' ? 1 : 0),
                 'updated_at'      => now(),
@@ -859,16 +1324,38 @@ final class TranslationJobService
             return;
         }
         $terminalStatus = (int) ($job->failed_items ?? 0) > 0 ? 'partial_failed' : 'completed';
-        $this->setJobStatus($jobId, $terminalStatus, true);
-        $this->autoPublishSafeResults($jobId);
+        if ($this->setJobStatus($jobId, $terminalStatus, true)) {
+            $this->autoPublishSafeResults($jobId);
+        }
     }
 
-    private function setJobStatus(int $jobId, string $status, bool $finished = false): void
+    /**
+     * Prime the dedicated translation queue with one job per bounded worker.
+     * Each completing worker enqueues one replacement in finishIfTerminal(),
+     * maintaining steady concurrency without creating an unbounded backlog.
+     */
+    private function dispatchWorkerPool(int $jobId): void
     {
-        DB::transaction(function () use ($jobId, $status, $finished): void {
+        $workers = min(4, max(1, (int) config('longos.translation.workers', 4)));
+        for ($index = 0; $index < $workers; $index++) {
+            ProcessTranslationJob::dispatch($jobId)->afterCommit();
+        }
+    }
+
+    private function setJobStatus(int $jobId, string $status, bool $finished = false): bool
+    {
+        return DB::transaction(function () use ($jobId, $status, $finished): bool {
             $job = DB::table('lgt_jobs')->where('id', $jobId)->lockForUpdate()->first();
-            if ($job === null) {
-                return;
+            if ($job === null || $job->archived_at !== null) {
+                return false;
+            }
+            // A queued worker may start after cancellation, or a finishing
+            // worker may race with the cancel request. Neither may revive it.
+            if ($status === 'running' && ! in_array((string) $job->status, ['queued', 'running'], true)) {
+                return false;
+            }
+            if ($status !== 'running' && $job->status !== 'running') {
+                return false;
             }
             $updates = [
                 'status'      => $status,
@@ -884,25 +1371,60 @@ final class TranslationJobService
                 }
             }
             DB::table('lgt_jobs')->where('id', $jobId)->update($updates);
+
+            return true;
         }, 3);
     }
 
-    private function pauseJob(int $jobId, string $reason): void
+    private function pauseJob(int $jobId, string $reason): ?string
     {
-        DB::transaction(function () use ($jobId, $reason): void {
+        return DB::transaction(function () use ($jobId, $reason): ?string {
             $job = DB::table('lgt_jobs')->where('id', $jobId)->lockForUpdate()->first();
-            if ($job === null || in_array((string) $job->status, ['completed', 'partial_failed', 'failed', 'cancelled'], true)) {
-                return;
+            if ($job === null || $job->status === 'paused' || $job->archived_at !== null
+                              || in_array((string) $job->status, ['completed', 'partial_failed', 'failed', 'cancelled'], true)) {
+                return null;
             }
             $plan          = json_decode((string) ($job->plan ?? ''), true);
             $plan          = is_array($plan) ? $plan : [];
-            $plan['pause'] = ['code' => $reason, 'at' => now()->toIso8601String()];
+            $nonce         = (string) Str::uuid();
+            $plan['pause'] = ['code' => $reason, 'at' => now()->toIso8601String(), 'nonce' => $nonce];
             DB::table('lgt_jobs')->where('id', $jobId)->update([
                 'status'     => 'paused',
                 'plan'       => json_encode($plan, JSON_UNESCAPED_UNICODE),
                 'updated_at' => now(),
             ]);
+
+            return $nonce;
         }, 3);
+    }
+
+    /** Wake only the specific rate-limited pause; never revive an operator pause or cancelled job. */
+    public function resumeSiliconFlowRateWindow(int $jobId, string $pauseNonce): void
+    {
+        if ($this->settings->all()['mode'] !== TranslationSettings::MODE_FREE_ONLY) {
+            return;
+        }
+        $resumed = DB::transaction(function () use ($jobId, $pauseNonce): bool {
+            $job = DB::table('lgt_jobs')->where('id', $jobId)->lockForUpdate()->first();
+            if ($job === null || $job->archived_at !== null || $job->status !== 'paused'
+                              || $job->mode        !== TranslationSettings::MODE_FREE_ONLY) {
+                return false;
+            }
+            $plan = json_decode((string) ($job->plan ?? ''), true);
+            if (! is_array($plan) || ($plan['pause']['code'] ?? '') !== 'SILICONFLOW_RATE_WINDOW'
+                                  || ! hash_equals((string) ($plan['pause']['nonce'] ?? ''), $pauseNonce)) {
+                return false;
+            }
+            unset($plan['pause']);
+            DB::table('lgt_jobs')->where('id', $jobId)->update([
+                'status' => 'queued', 'plan' => json_encode($plan, JSON_UNESCAPED_UNICODE), 'updated_at' => now(),
+            ]);
+
+            return true;
+        }, 3);
+        if ($resumed) {
+            $this->dispatchWorkerPool($jobId);
+        }
     }
 
     /**
@@ -918,7 +1440,8 @@ final class TranslationJobService
         if (! (bool) ($settings['publication']['auto_publish_safe'] ?? true)) {
             return;
         }
-        $job = DB::table('lgt_jobs')->where('id', $jobId)->first(['id', 'target_locales', 'plan']);
+        $job = DB::table('lgt_jobs')->where('id', $jobId)->whereIn('status', ['completed', 'partial_failed'])
+            ->whereNull('archived_at')->first(['id', 'target_locales', 'plan']);
         if ($job === null) {
             return;
         }

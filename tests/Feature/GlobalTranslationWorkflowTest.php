@@ -19,6 +19,7 @@ use Plugin\LongosGlobalTranslate\Providers\ProviderRegistry;
 use Plugin\LongosGlobalTranslate\Providers\TranslationProviderInterface;
 use Plugin\LongosGlobalTranslate\Providers\TranslationProviderRequest;
 use Plugin\LongosGlobalTranslate\Providers\TranslationProviderResponse;
+use Plugin\LongosGlobalTranslate\Services\CloudflareVisitorCountry;
 use Plugin\LongosGlobalTranslate\Services\CommerceUiCatalog;
 use Plugin\LongosGlobalTranslate\Services\ContentScanner;
 use Plugin\LongosGlobalTranslate\Services\DictionaryService;
@@ -57,6 +58,10 @@ class GlobalTranslationWorkflowTest extends TestCase
             '2026_11_03_000005_add_provider_failover_priority.php',
             '2026_11_04_000006_add_job_item_failure_codes.php',
             '2026_11_04_000007_backfill_job_item_failure_codes.php',
+            '2026_11_09_000008_add_job_archiving.php',
+            '2026_11_09_000009_add_maintenance_query_indexes.php',
+            '2026_11_09_000010_add_provider_archiving.php',
+            '2026_11_09_000011_add_siliconflow_rate_pacing.php',
         ] as $migrationFile) {
             $migration = require base_path('plugins/LongosGlobalTranslate/Migrations/' . $migrationFile);
             $migration->up();
@@ -295,8 +300,10 @@ class GlobalTranslationWorkflowTest extends TestCase
     {
         DB::table('products')->insert(['id' => 45, 'active' => true]);
         DB::table('products')->insert(['id' => 46, 'active' => true]);
+        DB::table('products')->insert(['id' => 48, 'active' => true]);
         DB::table('product_descriptions')->insert(['product_id' => 45, 'locale' => 'en', 'name' => 'Machine source']);
         DB::table('product_descriptions')->insert(['product_id' => 46, 'locale' => 'en', 'name' => 'Human source']);
+        DB::table('product_descriptions')->insert(['product_id' => 48, 'locale' => 'en', 'name' => 'Enjoy reliable worldwide shipping, secure checkout, and easy returns for every order today.']);
         $library = new TranslationLibrary;
 
         $machineEntry = DB::table('lgt_entries')->insertGetId([
@@ -312,6 +319,21 @@ class GlobalTranslationWorkflowTest extends TestCase
         $machine = $library->saveMachineResult($machineEntry, 'fr', ContentScanner::sourceHash('Machine source'), 'Source automatique', 'baidu', 10);
         $human   = $library->saveMachineResult($humanEntry, 'fr', ContentScanner::sourceHash('Human source'), 'Source humaine', 'baidu', 10);
         $library->edit((int) $human['id'], (int) $human['version'], 'Texte révisé manuellement', 11, true);
+        // Simulate a clean-looking row written by an older release before the
+        // current source-language-dominance check existed. The publish action
+        // must re-evaluate it instead of trusting the historical null code.
+        $legacySource = 'Enjoy reliable worldwide shipping, secure checkout, and easy returns for every order today.';
+        $legacyEntry  = DB::table('lgt_entries')->insertGetId([
+            'content_key'   => hash('sha256', 'product-48-name'), 'kind' => 'product', 'entity_id' => 48, 'field' => 'name',
+            'source_locale' => 'en', 'source_format' => 'plain', 'source_text' => $legacySource, 'source_hash' => ContentScanner::sourceHash($legacySource),
+            'is_public'     => true, 'is_tombstoned' => false, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $legacyTranslation = DB::table('lgt_translations')->insertGetId([
+            'entry_id'     => $legacyEntry, 'locale' => 'fr', 'source_hash' => ContentScanner::sourceHash($legacySource),
+            'text'         => 'Enjoy reliable worldwide shipping, secure checkout, and easy returns for every commande today.',
+            'status'       => TranslationLibrary::TRANSLATED, 'provider' => 'siliconflow', 'provider_account_id' => 10,
+            'quality_code' => null, 'locked' => false, 'version' => 1, 'created_at' => now(), 'updated_at' => now(),
+        ]);
 
         $result = (new PublicationService)->publishReady('fr', 12, $library);
 
@@ -319,6 +341,9 @@ class GlobalTranslationWorkflowTest extends TestCase
         self::assertSame(1, $result['publication']['coverage']['approved']);
         self::assertSame(TranslationLibrary::APPROVED, DB::table('lgt_translations')->where('id', $machine['id'])->value('status'));
         self::assertSame(TranslationLibrary::NEEDS_REVIEW, DB::table('lgt_translations')->where('id', $human['id'])->value('status'));
+        self::assertSame(TranslationLibrary::NEEDS_REVIEW, DB::table('lgt_translations')->where('id', $legacyTranslation)->value('status'));
+        self::assertSame('SOURCE_LANGUAGE_DOMINANT', DB::table('lgt_translations')->where('id', $legacyTranslation)->value('quality_code'));
+        self::assertSame('automatic_quality_recheck', DB::table('lgt_translation_versions')->where('translation_id', $legacyTranslation)->orderByDesc('id')->value('reason'));
         self::assertNull(DB::table('lgt_translations')->where('id', $human['id'])->value('provider'));
         self::assertSame('auto_basic_check', DB::table('lgt_translation_versions')->where('translation_id', $machine['id'])->orderByDesc('id')->value('reason'));
     }
@@ -336,7 +361,7 @@ class GlobalTranslationWorkflowTest extends TestCase
 
         self::assertFalse($config->getData(true)['enabled']);
         self::assertSame(['en'], $config->getData(true)['locales']);
-        self::assertSame('1.5.7', $config->getData(true)['plugin_release']);
+        self::assertSame('1.16.0', $config->getData(true)['plugin_release']);
         self::assertSame([], $config->getData(true)['published_revisions']);
         self::assertSame('', $config->getData(true)['dictionary_url']);
         self::assertSame('', $config->getData(true)['batch_dictionary_url']);
@@ -353,6 +378,28 @@ class GlobalTranslationWorkflowTest extends TestCase
             'enabled_locales'         => ['fr', 'ja'],
             'geo_auto_switch_enabled' => true,
         ]);
+        foreach (['ja' => '地域向けの公開テキスト', 'fr' => 'Texte régional publié'] as $locale => $translatedText) {
+            $source  = 'Published regional storefront text for ' . $locale;
+            $hash    = ContentScanner::sourceHash($source);
+            $entryId = DB::table('lgt_entries')->insertGetId([
+                'content_key'   => hash('sha256', 'geo-' . $locale), 'kind' => CommerceUiCatalog::KIND,
+                'entity_id'     => CommerceUiCatalog::ENTITY_ID, 'field' => 'geo.' . $locale,
+                'source_locale' => 'en', 'source_format' => 'plain', 'source_text' => $source, 'source_hash' => $hash,
+                'is_public'     => true, 'is_tombstoned' => false, 'created_at' => now(), 'updated_at' => now(),
+            ]);
+            $translationId = DB::table('lgt_translations')->insertGetId([
+                'entry_id' => $entryId, 'locale' => $locale, 'source_hash' => $hash, 'text' => $translatedText,
+                'status'   => TranslationLibrary::APPROVED, 'version' => 1, 'created_at' => now(), 'updated_at' => now(),
+            ]);
+            $publicationId = DB::table('lgt_publications')->insertGetId([
+                'locale'     => $locale, 'revision' => 1, 'state' => 'published', 'published_at' => now(),
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+            DB::table('lgt_publication_items')->insert([
+                'publication_id' => $publicationId, 'translation_id' => $translationId, 'translation_version' => 1,
+                'source_hash'    => $hash, 'text' => $translatedText, 'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
         config(['currency.trust_cdn_country_headers' => true]);
 
         $request = Request::create('/products/44');
@@ -376,6 +423,34 @@ class GlobalTranslationWorkflowTest extends TestCase
         $ruleDecision = $resolver->decide($request);
         self::assertSame('fr', $ruleDecision->locale);
         self::assertSame('geo_rule', $ruleDecision->source);
+    }
+
+    public function test_ip_localization_trusts_the_verified_caddy_edge_but_never_an_unpublished_or_forged_locale(): void
+    {
+        $settings = new TranslationSettings;
+        $settings->save([
+            ...$settings->all(),
+            'enabled_locales'         => ['ja'],
+            'geo_auto_switch_enabled' => true,
+        ]);
+        config(['currency.trust_cdn_country_headers' => true]);
+
+        $forged = Request::create('/products/44', 'GET', [], [], [], ['REMOTE_ADDR' => '203.0.113.20']);
+        $forged->headers->set('CF-IPCountry', 'JP');
+        self::assertNull((new CloudflareVisitorCountry)->countryCode($forged));
+
+        $verified = Request::create('/products/44', 'GET', [], [], [], ['REMOTE_ADDR' => '172.18.0.5']);
+        $verified->headers->set('CF-IPCountry', 'JP');
+        $verified->attributes->set(CloudflareIpRangeService::REQUEST_ATTRIBUTE, true);
+        self::assertSame('JP', (new CloudflareVisitorCountry)->countryCode($verified));
+
+        // Merely enabling Japanese must not switch a visitor before a reviewed
+        // immutable Japanese publication actually exists.
+        $decision = app(\Plugin\LongosGlobalTranslate\Services\PresentationLocaleResolver::class)->decide($verified);
+        self::assertSame('en', $decision->locale);
+        self::assertSame('default', $decision->source);
+        self::assertSame('JP', $decision->country);
+        self::assertTrue($decision->fallback);
     }
 
     public function test_reviewed_commerce_interface_labels_publish_without_exposing_transaction_values(): void
@@ -894,6 +969,91 @@ class GlobalTranslationWorkflowTest extends TestCase
         self::assertSame('NO_VERIFIED_DISPATCH_ACCOUNT', $plan['pause']['code'] ?? null);
     }
 
+    public function test_concurrent_pause_releases_an_unsent_claim_instead_of_cancelling_it(): void
+    {
+        (new TranslationSettings)->save(['mode' => TranslationSettings::MODE_FREE_ONLY, 'enabled_locales' => ['fr']]);
+        $accounts = new ProviderAccountService;
+        $account  = $accounts->save([
+            'provider'   => 'baidu', 'billing_identity' => 'concurrent-pause-account', 'enabled' => true,
+            'free_quota' => 1_000, 'soft_cap' => 1_000,
+        ], ['appid' => 'concurrent-pause-app', 'secret' => 'concurrent-pause-secret'], 11);
+        $accounts->markVerified((int) $account['id'], 11);
+        $accounts->setDispatch((int) $account['id'], true, 11);
+        $entryId = $this->queueSingleTranslationItem(
+            'concurrent-pause-claim',
+            'An item claimed immediately before another worker pauses the job.',
+            '6fb222c6-5bb5-4c77-8ae1-120700000003',
+        );
+        $jobId    = (int) DB::table('lgt_job_items')->where('entry_id', $entryId)->value('job_id');
+        $provider = new class implements TranslationProviderInterface
+        {
+            public int $calls = 0;
+
+            public int $jobId = 0;
+
+            public function id(): string
+            {
+                return 'baidu';
+            }
+
+            public function validateCredentialShape(array $credentials): void
+            {
+                // Simulate a second translation worker reaching a shared
+                // quota window while this worker is preparing its request.
+                DB::table('lgt_jobs')->where('id', $this->jobId)->update([
+                    'status'     => 'paused',
+                    'plan'       => json_encode(['pause' => ['code' => 'SILICONFLOW_RATE_WINDOW']]),
+                    'updated_at' => now(),
+                ]);
+            }
+
+            public function supports(string $sourceLocale, string $targetLocale): bool
+            {
+                return true;
+            }
+
+            public function buildBatches(array $segments, string $sourceLocale, string $targetLocale): array
+            {
+                return [$segments];
+            }
+
+            public function send(TranslationProviderRequest $request, array $credentials): TranslationProviderResponse
+            {
+                $this->calls++;
+
+                return new TranslationProviderResponse(true, ['unexpected'], 'unexpected', null, null, 1);
+            }
+
+            public function classifyFailure(\Throwable|TranslationProviderResponse $failure): array
+            {
+                return ['kind' => 'definite_failure', 'code' => 'TEST', 'definitely_unbilled' => true];
+            }
+        };
+        $provider->jobId = $jobId;
+        $service         = new TranslationJobService(
+            new ContentScanner,
+            new TranslationSettings,
+            $accounts,
+            new ProviderRegistry(['baidu' => $provider]),
+            new UsageLedger,
+            new TranslationLibrary,
+        );
+
+        $service->process($jobId, 1, '171668df-05ea-4033-b01b-120700000003');
+
+        $item = DB::table('lgt_job_items')->where('entry_id', $entryId)->first();
+        self::assertSame(0, $provider->calls, 'A provider request must not cross the send boundary after a shared pause.');
+        self::assertSame('paused', DB::table('lgt_jobs')->where('id', $jobId)->value('status'));
+        self::assertSame(0, (int) DB::table('lgt_jobs')->where('id', $jobId)->value('completed_items'));
+        self::assertSame(0, (int) DB::table('lgt_jobs')->where('id', $jobId)->value('failed_items'));
+        self::assertSame('ready', $item->status);
+        self::assertNull($item->claim_token);
+        self::assertNull($item->claimed_at);
+        self::assertNull($item->completed_at);
+        self::assertSame(UsageLedger::DEFINITE_FAILED, DB::table('lgt_attempts')->where('job_item_id', $item->id)->value('state'));
+        self::assertSame('JOB_CANCELLED_BEFORE_SEND', DB::table('lgt_attempts')->where('job_item_id', $item->id)->value('failure_code'));
+    }
+
     public function test_unsafe_source_is_rejected_before_a_provider_request_is_reserved(): void
     {
         (new TranslationSettings)->save(['mode' => TranslationSettings::MODE_FREE_ONLY, 'enabled_locales' => ['fr']]);
@@ -945,6 +1105,42 @@ class GlobalTranslationWorkflowTest extends TestCase
         self::assertSame(0, $provider->calls);
         self::assertSame(0, DB::table('lgt_attempts')->count());
         self::assertSame('SOURCE_TEXT_REJECTED', DB::table('lgt_job_items')->where('entry_id', $entryId)->value('failure_code'));
+    }
+
+    public function test_identical_public_text_in_the_same_context_reuses_tenant_translation_memory_without_a_provider(): void
+    {
+        (new TranslationSettings)->save(['mode' => TranslationSettings::MODE_FREE_ONLY, 'enabled_locales' => ['fr']]);
+        $source = 'Free worldwide shipping';
+        $hash   = ContentScanner::sourceHash($source);
+        $seedId = DB::table('lgt_entries')->insertGetId([
+            'content_key'   => hash('sha256', 'translation-memory-seed'), 'kind' => 'product', 'entity_id' => 7001, 'field' => 'name',
+            'source_locale' => 'en', 'source_format' => 'plain', 'source_text' => $source, 'source_hash' => $hash,
+            'is_public'     => true, 'is_tombstoned' => false, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        (new TranslationLibrary)->saveMachineResult($seedId, 'fr', $hash, 'Livraison gratuite dans le monde entier', 'baidu', null);
+        $entryId = $this->queueSingleTranslationItem(
+            'translation-memory-target',
+            $source,
+            'a09d2c91-7d2a-4a1b-a5ac-120700000099',
+        );
+        $jobId   = (int) DB::table('lgt_job_items')->where('entry_id', $entryId)->value('job_id');
+        $service = new TranslationJobService(
+            new ContentScanner,
+            new TranslationSettings,
+            new ProviderAccountService,
+            new ProviderRegistry,
+            new UsageLedger,
+            new TranslationLibrary,
+        );
+
+        $service->process($jobId, 1, 'f152f01b-4bfa-4ed7-bf63-120700000099');
+
+        $translation = DB::table('lgt_translations')->where('entry_id', $entryId)->first();
+        self::assertNotNull($translation);
+        self::assertSame('Livraison gratuite dans le monde entier', $translation->text);
+        self::assertSame('translation_memory', $translation->provider);
+        self::assertSame('completed', DB::table('lgt_job_items')->where('entry_id', $entryId)->value('status'));
+        self::assertSame(0, DB::table('lgt_attempts')->count());
     }
 
     public function test_free_quota_pause_records_an_operator_actionable_reason(): void
@@ -1385,7 +1581,10 @@ class GlobalTranslationWorkflowTest extends TestCase
         self::assertSame(1, $service->retryableFailureCount($jobId));
         self::assertSame(1, $service->retryDefiniteFailures($jobId));
 
-        Queue::assertPushed(ProcessTranslationJob::class, fn (ProcessTranslationJob $job): bool => $job->translationJobId === $jobId);
+        Queue::assertPushedTimes(ProcessTranslationJob::class, 4);
+        Queue::assertPushed(ProcessTranslationJob::class, fn (ProcessTranslationJob $job): bool => $job->translationJobId === $jobId
+            && $job->queue                                                                                                === 'translations'
+            && $job->timeout                                                                                              === 600);
         self::assertSame('ready', DB::table('lgt_job_items')->where('id', $safeItem)->value('status'));
         self::assertNull(DB::table('lgt_job_items')->where('id', $safeItem)->value('attempt_id'));
         self::assertSame('failed', DB::table('lgt_job_items')->where('id', $uncertainItem)->value('status'));

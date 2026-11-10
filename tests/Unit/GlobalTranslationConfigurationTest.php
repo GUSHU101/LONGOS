@@ -11,7 +11,7 @@ class GlobalTranslationConfigurationTest extends TestCase
     {
         $profiles = ProviderAccountService::profiles();
 
-        self::assertSame(['aliyun', 'volcengine', 'baidu', 'deepl', 'google', 'azure'], array_keys($profiles));
+        self::assertSame(['aliyun', 'volcengine', 'baidu', 'deepl', 'google', 'azure', 'siliconflow'], array_keys($profiles));
         self::assertSame(
             ['access_key_id', 'access_key_secret'],
             array_column($profiles['aliyun']['credential_fields'], 'key'),
@@ -35,6 +35,10 @@ class GlobalTranslationConfigurationTest extends TestCase
         self::assertSame(
             ['subscription_key', 'region'],
             array_column($profiles['azure']['credential_fields'], 'key'),
+        );
+        self::assertSame(
+            ['api_key', 'model'],
+            array_column($profiles['siliconflow']['credential_fields'], 'key'),
         );
 
         foreach ($profiles as $profile) {

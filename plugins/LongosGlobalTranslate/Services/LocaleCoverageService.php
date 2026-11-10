@@ -17,9 +17,10 @@ final class LocaleCoverageService
      */
     public function snapshot(array $settings): array
     {
-        $locales       = array_values(array_unique((array) ($settings['enabled_locales'] ?? [])));
-        $widgetEnabled = (bool) data_get($settings, 'widget.enabled', false);
-        $sources       = DB::table('lgt_entries')
+        $locales             = array_values(array_unique((array) ($settings['enabled_locales'] ?? [])));
+        $widgetEnabled       = (bool) data_get($settings, 'widget.enabled', false);
+        $presentationEnabled = TranslationSettings::presentationActive($settings);
+        $sources             = DB::table('lgt_entries')
             ->where('is_public', true)->where('is_tombstoned', false)->count();
         // Unlike product or Builder content, fixed checkout/account/payment
         // labels are needed on every sensitive storefront route. Count them
@@ -32,7 +33,7 @@ final class LocaleCoverageService
             ->where('is_public', true)->where('is_tombstoned', false)
             ->count();
         if ($locales === []) {
-            return $this->emptySnapshot((int) $sources, $widgetEnabled, $commerceUiExpected, (int) $commerceUiSources);
+            return $this->emptySnapshot((int) $sources, $widgetEnabled, $commerceUiExpected, (int) $commerceUiSources, $presentationEnabled);
         }
 
         // Laravel prefixes SQL aliases together with table names on the
@@ -124,7 +125,7 @@ final class LocaleCoverageService
                     $approved,
                     $reviewable,
                     $publishedCount,
-                    $widgetEnabled,
+                    $presentationEnabled,
                     $commerceUiExpected,
                     (int) $commerceUiSources,
                     $commerceUiPublished,
@@ -139,14 +140,15 @@ final class LocaleCoverageService
             'published_languages'          => $publishedLanguages,
             'published_items'              => $publishedItems,
             'widget_enabled'               => $widgetEnabled,
-            'ready_to_display'             => $publishedLanguages > 0 && $widgetEnabled,
+            'presentation_enabled'         => $presentationEnabled,
+            'ready_to_display'             => $publishedLanguages > 0 && $presentationEnabled,
             'commerce_ui_expected'         => $commerceUiExpected,
             'commerce_ui_sources'          => (int) $commerceUiSources,
             'commerce_ui_ready_languages'  => $commerceUiReadyLanguages,
             'commerce_ui_ready_to_display' => $locales !== []
                 && $commerceUiSources > 0
                 && $commerceUiReadyLanguages === count($locales)
-                && $widgetEnabled,
+                && $presentationEnabled,
             'locales' => $rows,
         ];
     }
@@ -178,7 +180,7 @@ final class LocaleCoverageService
             return '暂无可发布译文，请检查翻译结果';
         }
         if (! $widget) {
-            return '已有发布词典，请开启前台语言选择器';
+            return '已有发布词典，请开启地区自动本地化或语言选择器';
         }
         if ($commerceUiExpected > 0 && $commerceUiSources < $commerceUiExpected) {
             return "结账、账户与支付的固定界面词典尚未完整扫描（{$commerceUiSources}/{$commerceUiExpected}）；请创建包含“固定界面文案”的任务";
@@ -194,12 +196,12 @@ final class LocaleCoverageService
     }
 
     /** @return array<string, mixed> */
-    private function emptySnapshot(int $sources, bool $widget, int $commerceUiExpected, int $commerceUiSources): array
+    private function emptySnapshot(int $sources, bool $widget, int $commerceUiExpected, int $commerceUiSources, bool $presentationEnabled): array
     {
         return [
             'source_entries'               => $sources, 'translated' => 0, 'approved' => 0,
             'published_languages'          => 0, 'published_items' => 0,
-            'widget_enabled'               => $widget, 'ready_to_display' => false,
+            'widget_enabled'               => $widget, 'presentation_enabled' => $presentationEnabled, 'ready_to_display' => false,
             'commerce_ui_expected'         => $commerceUiExpected,
             'commerce_ui_sources'          => $commerceUiSources,
             'commerce_ui_ready_languages'  => 0,

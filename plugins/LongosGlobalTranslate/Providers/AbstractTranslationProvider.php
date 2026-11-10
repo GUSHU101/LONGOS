@@ -112,7 +112,7 @@ abstract class AbstractTranslationProvider implements TranslationProviderInterfa
         return ['kind' => 'uncertain', 'code' => 'UNKNOWN_PROVIDER_FAILURE', 'definitely_unbilled' => false];
     }
 
-    protected function response(array $payload, int $startedAt, ?string $requestId = null, ?string $errorCode = null, array $translations = []): TranslationProviderResponse
+    protected function response(array $payload, int $startedAt, ?string $requestId = null, ?string $errorCode = null, array $translations = [], ?int $totalTokens = null, ?int $retryAfterSeconds = null): TranslationProviderResponse
     {
         return new TranslationProviderResponse(
             $errorCode === null,
@@ -121,6 +121,8 @@ abstract class AbstractTranslationProvider implements TranslationProviderInterfa
             $errorCode,
             hash('sha256', json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: ''),
             max(0, (int) floor((hrtime(true) - $startedAt) / 1_000_000)),
+            $totalTokens,
+            $retryAfterSeconds,
         );
     }
 }

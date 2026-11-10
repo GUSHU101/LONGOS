@@ -8,16 +8,14 @@ use Illuminate\Support\Facades\DB;
 /**
  * Builds the tiny, non-secret storefront bootstrap contract.
  *
- * It runs while the original HTML request is already resolving the visitor's
- * country.  Rendering this contract inline removes the extra `/config` round
- * trip that previously delayed every first translated paint.  It deliberately
- * contains only locale decisions, public publication revisions and public
- * route URLs — never a visitor IP, account data, provider credential or a
- * translation payload.
+ * Runs as a fresh, non-shared /config response so Cloudflare country and
+ * visitor cookie preferences cannot leak across cached storefront HTML.
+ * It deliberately contains only locale decisions, public publication
+ * revisions and route URLs — never visitor IPs or provider credentials.
  */
 final class StorefrontPresentationConfig
 {
-    public const PLUGIN_RELEASE = '1.5.7';
+    public const PLUGIN_RELEASE = '1.16.0';
 
     public function __construct(
         private readonly TranslationSettings $settings,
@@ -35,11 +33,13 @@ final class StorefrontPresentationConfig
         }
 
         $settings = $resolvedSettings ?? $this->settings->all();
-        if (! (bool) data_get($settings, 'widget.enabled', false)) {
-            return $this->disabled();
+        if (! TranslationSettings::presentationActive($settings)) {
+            return $this->disabled('presentation_disabled');
         }
-
-        $decision = $this->locales->decide($request, $settings);
+        if (((array) ($settings['enabled_locales'] ?? [])) === []
+            && ! (bool) data_get($settings, 'widget.enabled', false)) {
+            return $this->disabled('no_enabled_locales');
+        }
         // A recovered database can temporarily retain more than one published
         // row for a locale.  Use the same newest-revision rule as
         // DictionaryService, so the browser cache key always names the exact
@@ -69,6 +69,10 @@ final class StorefrontPresentationConfig
         }
 
         $enabled        = array_flip((array) $settings['enabled_locales']);
+        $published      = array_intersect_key($published, $enabled);
+        // Decide *after* loading publications. A location-matched but still
+        // untranslated language must not mask an available browser fallback.
+        $decision       = $this->locales->decide($request, $settings, array_keys($published));
         $publicationIds = array_values(array_map(
             static fn (array $publication): int => $publication['id'],
             array_intersect_key($published, $enabled),
@@ -83,7 +87,8 @@ final class StorefrontPresentationConfig
 
         return [
             'plugin_release'           => self::PLUGIN_RELEASE,
-            'enabled'                  => true,
+            'enabled'                  => $published !== [] || (bool) data_get($settings, 'widget.enabled', false),
+            'widget_visible'           => (bool) data_get($settings, 'widget.enabled', false),
             'source_locale'            => $settings['source_locale'],
             'locales'                  => array_values(array_unique(array_merge([$settings['source_locale']], $settings['enabled_locales']))),
             'published_locales'        => array_keys($published),
@@ -100,18 +105,19 @@ final class StorefrontPresentationConfig
     }
 
     /** @return array<string, mixed> */
-    private function disabled(): array
+    private function disabled(string $reason = 'schema_not_ready'): array
     {
         return [
             'plugin_release'           => self::PLUGIN_RELEASE,
             'enabled'                  => false,
+            'widget_visible'           => false,
             'source_locale'            => 'en',
             'locales'                  => ['en'],
             'published_locales'        => [],
             'published_revisions'      => [],
             'builder_entities'         => [],
             'locale'                   => 'en',
-            'locale_source'            => 'schema_not_ready',
+            'locale_source'            => $reason,
             'country'                  => null,
             'fallback'                 => true,
             'dictionary_url'           => '',

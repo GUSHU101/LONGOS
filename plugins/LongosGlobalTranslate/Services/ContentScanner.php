@@ -198,7 +198,18 @@ final class ContentScanner
                 ]);
                 $report['changed']++;
             } else {
-                DB::table('lgt_entries')->where('id', $entry->id)->update(['is_public' => true, 'is_tombstoned' => false, 'last_scanned_at' => now(), 'updated_at' => now()]);
+                // A new published Builder version can add one module while
+                // every existing module retains identical English text.
+                // Refresh its revision without marking valid translations
+                // stale, otherwise all previously published Builder labels
+                // disappear simply because one module was added.
+                DB::table('lgt_entries')->where('id', $entry->id)->update([
+                    'source_revision' => $revision,
+                    'is_public'       => true,
+                    'is_tombstoned'   => false,
+                    'last_scanned_at' => now(),
+                    'updated_at'      => now(),
+                ]);
             }
             $report['found']++;
         });
@@ -312,7 +323,7 @@ final class ContentScanner
                 // finite code token; do not normalise or traverse arbitrary
                 // merchant payload keys.
                 $code     = self::canonicalBuilderCode($rawCode);
-                if ($moduleId === '' || ! in_array($code, $this->supportedBuilderCodes(), true)) {
+                if ($moduleId === '' || $code === '') {
                     if ($rawCode !== '') {
                         $report['unsupported_components'][] = $rawCode;
                     }
@@ -321,12 +332,34 @@ final class ContentScanner
                 }
                 $entityId = $this->stableBuilderId($moduleId);
                 $content  = (array) ($module['content'] ?? []);
-                foreach ($this->builderFields($code, $content) as $field => $value) {
+                // The published Builder state contains only the tenant's
+                // currently configured modules; never index the global
+                // component registry, unused drafts or hidden modules.
+                // Known components keep their exact field contracts. A safe
+                // display-key walk adds new/legacy components without
+                // reading URLs, SEO, media metadata or transactional fields.
+                $plainFields = $this->builderFields($code, $content);
+                $htmlFields  = $this->builderHtmlFields($code, $content);
+                $discovered  = self::builderDisplayFields($content);
+                foreach ($discovered['plain'] as $field => $value) {
+                    if (! array_key_exists($field, $plainFields) && ! array_key_exists($field, $htmlFields)) {
+                        $plainFields[$field] = $value;
+                    }
+                }
+                foreach ($discovered['html'] as $field => $value) {
+                    if (! array_key_exists($field, $plainFields) && ! array_key_exists($field, $htmlFields)) {
+                        $htmlFields[$field] = $value;
+                    }
+                }
+                if ($plainFields === [] && $htmlFields === [] && ! in_array($code, $this->supportedBuilderCodes(), true)) {
+                    $report['unsupported_components'][] = $rawCode;
+                }
+                foreach ($plainFields as $field => $value) {
                     $path = 'module.' . $moduleId . '.' . $field;
                     $this->record('builder', $entityId, $path, $value, 'en', 'plain', $revision, $report);
                     $seen[] = hash('sha256', implode(':', ['lgt-content-v2', 'builder', $entityId, $path, 'en']));
                 }
-                foreach ($this->builderHtmlFields($code, $content) as $field => $html) {
+                foreach ($htmlFields as $field => $html) {
                     $path   = 'module.' . $moduleId . '.' . $field;
                     $fields = $this->recordHtmlTextFields('builder', $entityId, $path, $html, $revision, $report);
                     foreach (array_keys($fields) as $nodePath) {
@@ -472,6 +505,113 @@ final class ContentScanner
             // broadening the provider boundary to image metadata or URLs.
             ['slideshow', 'image100', 'image200', 'image300', 'image301', 'image400', 'image401', 'shopify_announcement_bar'],
         )));
+    }
+
+    /**
+     * Extensible public-display discovery for modules that are actually
+     * present in the tenant's published Builder state. This is a conservative
+     * semantic allowlist, NOT a traversal of every string in the design JSON.
+     * In particular, SEO, assets, payment details, URLs and style settings
+     * must never enter an AI provider request.
+     *
+     * @param array<string, mixed> $content
+     * @return array{plain:array<string,string>,html:array<string,string>}
+     */
+    public static function builderDisplayFields(array $content): array
+    {
+        $plain = [];
+        $html  = [];
+        $count = 0;
+        $walk  = static function (mixed $value, string $path, int $depth, bool $display) use (&$walk, &$plain, &$html, &$count): void {
+            if ($count >= 1100 || $depth > 10) {
+                return;
+            }
+            if (is_array($value)) {
+                if (self::builderItemHidden($value)) {
+                    return;
+                }
+                // The source language is locked to English; other locale
+                // values are never mixed into an English translation task.
+                if (array_key_exists('en', $value) && is_scalar($value['en'])) {
+                    $walk((string) $value['en'], $path, $depth + 1, $display);
+
+                    return;
+                }
+                foreach (array_slice($value, 0, 200, true) as $key => $child) {
+                    $segment = (string) $key;
+                    if (! preg_match('/^(?:[A-Za-z][A-Za-z0-9_]{0,63}|[0-9]{1,5})$/D', $segment)
+                        || self::builderPrivateSegment($segment)) {
+                        continue;
+                    }
+                    // Preserve a display hint through numeric list items,
+                    // not through arbitrary nested configuration objects.
+                    $childDisplay = ctype_digit($segment) ? $display : self::builderDisplayKey($segment);
+                    $walk($child, $path === '' ? $segment : $path . '.' . $segment, $depth + 1, $childDisplay);
+                    if ($count >= 1100) {
+                        break;
+                    }
+                }
+
+                return;
+            }
+            if (! $display || ! is_string($value) || $path === '' || ! mb_check_encoding($value, 'UTF-8')) {
+                return;
+            }
+            $value = trim($value);
+            if ($value === '' || mb_strlen($value) > 100_000 || self::builderNonDisplayValue($value)) {
+                return;
+            }
+            $isHtml = preg_match('/<\/?[a-z][^>]*>/i', $value) === 1;
+            if ($isHtml) {
+                if (self::htmlTextFields($path, $value) !== []) {
+                    $html[$path] = $value;
+                    $count++;
+                }
+            } elseif (self::normalizePlainText($value) !== '') {
+                $plain[$path] = $value;
+                $count++;
+            }
+        };
+        $walk($content, '', 0, false);
+
+        return ['plain' => $plain, 'html' => $html];
+    }
+
+    /** @param array<string|int, mixed> $item */
+    private static function builderItemHidden(array $item): bool
+    {
+        foreach (['visible', 'active', 'show', 'isShow'] as $flag) {
+            if (array_key_exists($flag, $item) && $item[$flag] === false) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function builderPrivateSegment(string $segment): bool
+    {
+        $key = strtolower(preg_replace('/([a-z])([A-Z])/', '$1_$2', $segment) ?? $segment);
+
+        return preg_match('/^(?:seo|meta|head|open_graph|og|style|styles|css|script|scripts|json|schema|config|tracking|analytics|pixel|secret|password|token|api_key|credentials|customer|customers|user|users|order|orders|checkout|billing|shipping|payment|transactions|transaction|form|input|inputs|address|phone|email|url|uri|href|src|path|asset|file|filename|alt|image_alt|icon|color|colour|background|bg|font|width|height|padding|margin|alignment|position|desktop|mobile|responsive|sku|price|currency|quantity|stock|inventory|barcode|product_id|variant_id|target|rel|id|uuid|handle|slug)$/D', $key) === 1
+            || preg_match('/(?:^|_)(?:seo|meta|open_graph|og|tracking|analytics|pixel|secret|password|token|api_key|credentials|customer|order|checkout|payment|transaction|url|href|src|sku|barcode|inventory|schema|alt|aria|email|phone|address)(?:$|_)/D', $key)                                                                                                                                                                                                                                                                                                                                                     === 1;
+    }
+
+    private static function builderDisplayKey(string $segment): bool
+    {
+        $key = strtolower(preg_replace('/([a-z])([A-Z])/', '$1_$2', $segment) ?? $segment);
+
+        return preg_match('/(?:^|_)(?:title|subtitle|sub_title|heading|subheading|headline|caption|description|summary|text|texts|content|copy|paragraph|body|richtext|rich_text|html|message|announcement|label|quote|question|answer|eyebrow|badge|benefit|condition|terms|detail|details|tagline|slogan|button|buttons|cta|link_label|bullet|bullets|points|highlight|highlights|notice|intro)(?:$|_)/D', $key) === 1;
+    }
+
+    private static function builderNonDisplayValue(string $value): bool
+    {
+        return preg_match('~^(?:https?://|//|data:|mailto:|tel:|/\S+\.(?:png|jpe?g|webp|svg|gif|mp4|pdf)(?:\?.*)?$)~iu', $value) === 1
+            || preg_match('/^\s*[\[{].*[\]}]\s*$/sD', $value)                                                                    === 1
+            || preg_match('/^[A-Za-z0-9+\/=_-]{128,}$/D', $value)                                                                === 1
+            || preg_match('/^#(?:[a-f0-9]{3}|[a-f0-9]{6}|[a-f0-9]{8})$/iD', $value)                                              === 1
+            || preg_match('/^[-+]?\d+(?:[.,]\d+)?(?:%|px|rem|em)?$/D', $value)                                                   === 1
+            || preg_match('/^[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}$/D', $value)                                                         === 1;
     }
 
     /**
@@ -682,7 +822,7 @@ final class ContentScanner
         }
         foreach ($contract['collections'] ?? [] as $collection => $fieldNames) {
             foreach (array_slice((array) ($content[$collection] ?? []), 0, 24, true) as $index => $item) {
-                if (! is_array($item)) {
+                if (! is_array($item) || self::builderItemHidden($item)) {
                     continue;
                 }
                 foreach ($fieldNames as $field) {
@@ -710,7 +850,7 @@ final class ContentScanner
         }
         foreach ($contract['collections'] ?? [] as $collection => $fieldNames) {
             foreach (array_slice((array) ($content[$collection] ?? []), 0, 24, true) as $index => $item) {
-                if (! is_array($item)) {
+                if (! is_array($item) || self::builderItemHidden($item)) {
                     continue;
                 }
                 foreach ($fieldNames as $field) {

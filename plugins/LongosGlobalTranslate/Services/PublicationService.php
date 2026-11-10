@@ -14,7 +14,12 @@ final class PublicationService
         $locale = TranslationSettings::locale($locale);
 
         return DB::transaction(function () use ($locale, $actorId): array {
-            $last         = DB::table('lgt_publications')->where('locale', $locale)->lockForUpdate()->max('revision');
+            TranslationMaintenanceGuard::lockLocales([$locale]);
+            // Locale maintenance row already serializes publishers. A
+            // FOR UPDATE aggregate (MAX) is invalid on some SQL engines;
+            // lock the latest concrete revision row instead.
+            $last         = DB::table('lgt_publications')->where('locale', $locale)
+                ->orderByDesc('revision')->lockForUpdate()->value('revision');
             $revision     = (int) $last + 1;
             $translations = DB::table('lgt_translations as t')
                 ->join('lgt_entries as e', 'e.id', '=', 't.entry_id')
@@ -22,11 +27,10 @@ final class PublicationService
                 ->where('t.status', TranslationLibrary::APPROVED)
                 ->whereColumn('t.source_hash', 'e.source_hash')
                 ->where('e.is_public', true)
-                ->where('e.is_tombstoned', false)
-                ->orderBy('t.id')
-                ->get(['t.id', 't.version', 't.source_hash', 't.text']);
+                ->where('e.is_tombstoned', false);
+            $approved = (clone $translations)->count();
             $coverage = [
-                'approved'       => $translations->count(),
+                'approved'       => $approved,
                 'stale'          => DB::table('lgt_translations')->where('locale', $locale)->where('status', TranslationLibrary::STALE)->count(),
                 'pending_review' => DB::table('lgt_translations')->where('locale', $locale)->where('status', TranslationLibrary::NEEDS_REVIEW)->count(),
             ];
@@ -40,7 +44,7 @@ final class PublicationService
             // or a human review always produces a new snapshot as expected.
             $current = DB::table('lgt_publications')->where('locale', $locale)
                 ->where('state', 'published')->orderByDesc('revision')->orderByDesc('id')->first();
-            if ($current !== null && $this->samePublishedSnapshot((int) $current->id, $translations)) {
+            if ($current !== null && $this->samePublishedSnapshot((int) $current->id, $translations, $approved)) {
                 return [
                     'id'       => (int) $current->id, 'locale' => $locale,
                     'revision' => (int) $current->revision, 'coverage' => $coverage, 'unchanged' => true,
@@ -56,17 +60,20 @@ final class PublicationService
                 'created_at'        => now(),
                 'updated_at'        => now(),
             ]);
-            foreach ($translations->chunk(250) as $chunk) {
-                DB::table('lgt_publication_items')->insert($chunk->map(static fn (object $translation): array => [
-                    'publication_id'      => $publicationId,
-                    'translation_id'      => $translation->id,
-                    'translation_version' => $translation->version,
-                    'source_hash'         => $translation->source_hash,
-                    'text'                => $translation->text,
-                    'created_at'          => now(),
-                    'updated_at'          => now(),
-                ])->all());
-            }
+            // Bounded SQL pages avoid loading an entire large merchant
+            // catalog in PHP just to publish a frozen dictionary.
+            (clone $translations)->select('t.id as id', 't.version', 't.source_hash', 't.text')
+                ->chunkById(250, function ($chunk) use ($publicationId): void {
+                    DB::table('lgt_publication_items')->insert($chunk->map(static fn (object $translation): array => [
+                        'publication_id'      => $publicationId,
+                        'translation_id'      => $translation->id,
+                        'translation_version' => $translation->version,
+                        'source_hash'         => $translation->source_hash,
+                        'text'                => $translation->text,
+                        'created_at'          => now(),
+                        'updated_at'          => now(),
+                    ])->all());
+                }, 't.id', 'id');
             DB::table('lgt_publications')->where('locale', $locale)->where('state', 'published')->where('id', '!=', $publicationId)->update(['state' => 'superseded', 'updated_at' => now()]);
 
             return ['id' => $publicationId, 'locale' => $locale, 'revision' => $revision, 'coverage' => $coverage];
@@ -85,6 +92,7 @@ final class PublicationService
         $locale = TranslationSettings::locale($locale);
 
         return DB::transaction(function () use ($locale, $actorId, $library): array {
+            TranslationMaintenanceGuard::lockLocales([$locale]);
             $eligible = DB::table('lgt_translations as t')
                 ->join('lgt_entries as e', 'e.id', '=', 't.entry_id')
                 ->where('t.locale', $locale)
@@ -103,7 +111,12 @@ final class PublicationService
             }
             $approved = 0;
             foreach ($eligible as $row) {
-                $library->review((int) $row->id, (int) $row->version, true, $actorId, 'auto_basic_check');
+                $checked = $library->recheckMachineResult((int) $row->id, (int) $row->version);
+                if (($checked['quality_code'] ?? null) !== null
+                    || ($checked['status'] ?? null)    !== TranslationLibrary::TRANSLATED) {
+                    continue;
+                }
+                $library->review((int) $row->id, (int) $checked['version'], true, $actorId, 'auto_basic_check');
                 $approved++;
             }
             $publication = $this->publish($locale, $actorId);
@@ -121,11 +134,13 @@ final class PublicationService
         $locale = TranslationSettings::locale($locale);
 
         return DB::transaction(function () use ($locale, $publicationId, $actorId): array {
+            TranslationMaintenanceGuard::lockLocales([$locale]);
             $source = DB::table('lgt_publications')->where('id', $publicationId)->where('locale', $locale)->lockForUpdate()->first();
             if ($source === null || ! in_array($source->state, ['published', 'superseded'], true)) {
                 throw new RuntimeException('PUBLICATION_NOT_RECOVERABLE');
             }
-            $revision = (int) DB::table('lgt_publications')->where('locale', $locale)->lockForUpdate()->max('revision') + 1;
+            $revision = (int) DB::table('lgt_publications')->where('locale', $locale)
+                ->orderByDesc('revision')->lockForUpdate()->value('revision') + 1;
             $targetId = DB::table('lgt_publications')->insertGetId([
                 'locale'            => $locale,
                 'revision'          => $revision,
@@ -137,17 +152,18 @@ final class PublicationService
                 'created_at'        => now(),
                 'updated_at'        => now(),
             ]);
-            foreach (DB::table('lgt_publication_items')->where('publication_id', $source->id)->orderBy('id')->get()->chunk(250) as $chunk) {
-                DB::table('lgt_publication_items')->insert($chunk->map(static fn (object $item): array => [
-                    'publication_id'      => $targetId,
-                    'translation_id'      => $item->translation_id,
-                    'translation_version' => $item->translation_version,
-                    'source_hash'         => $item->source_hash,
-                    'text'                => $item->text,
-                    'created_at'          => now(),
-                    'updated_at'          => now(),
-                ])->all());
-            }
+            DB::table('lgt_publication_items')->where('publication_id', $source->id)
+                ->chunkById(250, function ($chunk) use ($targetId): void {
+                    DB::table('lgt_publication_items')->insert($chunk->map(static fn (object $item): array => [
+                        'publication_id'      => $targetId,
+                        'translation_id'      => $item->translation_id,
+                        'translation_version' => $item->translation_version,
+                        'source_hash'         => $item->source_hash,
+                        'text'                => $item->text,
+                        'created_at'          => now(),
+                        'updated_at'          => now(),
+                    ])->all());
+                });
             DB::table('lgt_publications')->where('locale', $locale)->where('state', 'published')->where('id', '!=', $targetId)->update(['state' => 'superseded', 'updated_at' => now()]);
 
             return ['id' => $targetId, 'locale' => $locale, 'revision' => $revision, 'coverage' => (array) json_decode((string) $source->coverage_snapshot, true)];
@@ -157,29 +173,43 @@ final class PublicationService
     /**
      * Compare the exact, versioned text snapshot. Keep the comparison
      * streaming so a large catalog does not double the database result in RAM.
-     * @param \Illuminate\Support\Collection<int, object> $translations
+     * @param \Illuminate\Database\Query\Builder $translations
      */
-    private function samePublishedSnapshot(int $publicationId, $translations): bool
+    private function samePublishedSnapshot(int $publicationId, $translations, int $approved): bool
     {
-        if (DB::table('lgt_publication_items')->where('publication_id', $publicationId)->count() !== $translations->count()) {
+        if (DB::table('lgt_publication_items')->where('publication_id', $publicationId)->count() !== $approved) {
             return false;
         }
-        $rows = DB::table('lgt_publication_items')->where('publication_id', $publicationId)
-            ->orderBy('translation_id')->cursor();
-        $index = 0;
-        foreach ($rows as $item) {
-            $translation = $translations[$index] ?? null;
-            if ($translation === null
-                || (int) $item->translation_id      !== (int) $translation->id
-                || (int) $item->translation_version !== (int) $translation->version
-                || ! hash_equals((string) $item->source_hash, (string) $translation->source_hash)
-                || ! hash_equals((string) $item->text, (string) $translation->text)) {
-                return false;
-            }
-            $index++;
-        }
+        $same    = true;
+        $visited = 0;
+        (clone $translations)->select('t.id as id', 't.version', 't.source_hash', 't.text')
+            ->chunkById(250, function ($chunk) use ($publicationId, &$same, &$visited): bool {
+                $visited += $chunk->count();
+                $items = DB::table('lgt_publication_items')->where('publication_id', $publicationId)
+                    ->whereIn('translation_id', $chunk->pluck('id')->all())
+                    ->get(['translation_id', 'translation_version', 'source_hash', 'text'])
+                    ->keyBy('translation_id');
+                if ($items->count() !== $chunk->count()) {
+                    $same = false;
 
-        return $index === $translations->count();
+                    return false;
+                }
+                foreach ($chunk as $translation) {
+                    $item = $items->get($translation->id);
+                    if ($item === null
+                        || (int) $item->translation_version !== (int) $translation->version
+                        || ! hash_equals((string) $item->source_hash, (string) $translation->source_hash)
+                        || ! hash_equals((string) $item->text, (string) $translation->text)) {
+                        $same = false;
+
+                        return false;
+                    }
+                }
+
+                return true;
+            }, 't.id', 'id');
+
+        return $same && $visited === $approved;
     }
 
     public function currentRevision(string $locale): ?int

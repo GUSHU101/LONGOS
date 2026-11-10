@@ -36,6 +36,7 @@ jobs:
           set -euo pipefail
           plugins=(
             FlatShipping
+            LongosGlobalTranslate
             LongosLiveChat
             LongosPlatformPay
             LongosProductReviews

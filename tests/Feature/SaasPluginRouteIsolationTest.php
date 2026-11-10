@@ -225,6 +225,10 @@ class SaasPluginRouteIsolationTest extends TestCase
             '2026_11_03_000005_add_provider_failover_priority.php',
             '2026_11_04_000006_add_job_item_failure_codes.php',
             '2026_11_04_000007_backfill_job_item_failure_codes.php',
+            '2026_11_09_000008_add_job_archiving.php',
+            '2026_11_09_000009_add_maintenance_query_indexes.php',
+            '2026_11_09_000010_add_provider_archiving.php',
+            '2026_11_09_000011_add_siliconflow_rate_pacing.php',
         ] as $migrationFile) {
             $migration = require base_path('plugins/LongosGlobalTranslate/Migrations/' . $migrationFile);
             $migration->up();
@@ -285,10 +289,9 @@ class SaasPluginRouteIsolationTest extends TestCase
         self::assertStringContainsString('secret_access_key', $response->getContent());
         self::assertStringContainsString('APP ID', $response->getContent());
         self::assertStringContainsString('按系统国家／地区快捷启用语言', $response->getContent());
-        self::assertStringContainsString('安全接力机制', $response->getContent());
-        self::assertStringContainsString('任务后台异步运行，此表每 8 秒自动更新', $response->getContent());
+        self::assertStringContainsString('费用与派发规则', $response->getContent());
+        self::assertStringContainsString('自动刷新进度；可停止、重试或归档任务。', $response->getContent());
         self::assertStringContainsString('France', $response->getContent());
-        self::assertStringContainsString('55c2d6d6-c754-4af3-a73b-84cbd134d001', $response->getContent());
         self::assertStringNotContainsString('Japan（JP）', $response->getContent());
         self::assertStringNotContainsString('Presentation mode', $response->getContent());
         self::assertStringNotContainsString('Safe repair pending', $response->getContent());
@@ -297,6 +300,7 @@ class SaasPluginRouteIsolationTest extends TestCase
         self::assertSame(200, $statusResponse->getStatusCode());
         self::assertTrue($statusResponse->getData(true)['ready']);
         self::assertArrayHasKey('jobs', $statusResponse->getData(true));
+        self::assertSame('55c2d6d6-c754-4af3-a73b-84cbd134d001', $statusResponse->getData(true)['jobs'][0]['public_id']);
 
         $controller      = app(\Plugin\LongosGlobalTranslate\Controllers\AdminTranslationController::class);
         $countryResponse = $controller
@@ -327,7 +331,8 @@ class SaasPluginRouteIsolationTest extends TestCase
         self::assertStringContainsString('const {headers = {}, ...options} = init', $script);
         self::assertStringContainsString("'X-CSRF-TOKEN': csrf", $script);
         self::assertStringContainsString('replaceCommerceInterface', $script);
-        self::assertStringContainsString('inlineBootstrap', $script);
+        self::assertStringNotContainsString('inlineBootstrap', $script);
+        self::assertStringContainsString("request(root.dataset.configUrl, {cache: 'no-store'})", $script);
         self::assertStringContainsString('sessionStorage', $script);
         self::assertStringContainsString('applyPresentation(shownLocale(config.locale))', $script);
         self::assertStringContainsString('safeInterfaceElement', $script);

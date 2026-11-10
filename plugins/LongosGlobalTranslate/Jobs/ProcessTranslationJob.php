@@ -19,7 +19,7 @@ final class ProcessTranslationJob implements ShouldQueue
     use Queueable;
     use SerializesModels;
 
-    public int $timeout = 90;
+    public int $timeout = 600;
 
     public int $tries = 1;
 
@@ -28,6 +28,7 @@ final class ProcessTranslationJob implements ShouldQueue
     public function __construct(public readonly int $translationJobId, ?string $runToken = null)
     {
         $this->runToken = $runToken ?: (string) Str::uuid();
+        $this->onQueue((string) config('longos.translation.queue', 'translations'));
     }
 
     public function handle(TranslationJobService $service): void
@@ -40,7 +41,11 @@ final class ProcessTranslationJob implements ShouldQueue
         }
         // LONGOS queues are tenant-aware by default. The payload contains only
         // a tenant-local job ID; it never serializes source text or credentials.
-        $service->process($this->translationJobId, 50, $this->runToken);
+        $service->process(
+            $this->translationJobId,
+            (int) config('longos.translation.batch_size', 20),
+            $this->runToken,
+        );
     }
 
     public function failed(Throwable $exception): void

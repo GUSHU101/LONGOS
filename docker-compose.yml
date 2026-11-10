@@ -29,6 +29,11 @@ x-app-environment: &app-environment
   # the background worker above PHP's 128 MiB CLI default while retaining a
   # finite ceiling suitable for a small Coolify host.
   PHP_WORKER_MEMORY_LIMIT: ${PHP_WORKER_MEMORY_LIMIT:-512M}
+  # Translation jobs have their own bounded worker pool. Provider-account QPS
+  # settings still serialize outbound calls, so this improves throughput only
+  # up to the explicit limit saved by the operator.
+  LONGOS_TRANSLATION_WORKERS: ${LONGOS_TRANSLATION_WORKERS:-4}
+  LONGOS_TRANSLATION_BATCH_SIZE: ${LONGOS_TRANSLATION_BATCH_SIZE:-20}
   LONGOS_DEPLOYMENT_PLATFORM: coolify
   LONGOS_UPDATER_ENABLED: "false"
   LONGOS_PROXY_TOKEN: ${SERVICE_PASSWORD_64_PROXYTOKEN}
@@ -61,6 +66,10 @@ x-app-environment: &app-environment
   SAAS_TLS_EXTERNAL_CONTROL_DOMAIN: "false"
   SAAS_DNS_TARGETS: ${SAAS_DNS_TARGETS:-}
   LONGOS_CLOUDFLARE_MODE: ${LONGOS_CLOUDFLARE_MODE:-optional}
+  # Storefront currency and translation locale selection share the same
+  # middleware-verified CF-IPCountry trust boundary.
+  CURRENCY_TRUST_CDN_COUNTRY_HEADERS: ${CURRENCY_TRUST_CDN_COUNTRY_HEADERS:-true}
+  CURRENCY_GEOLITE2_PATH: ${CURRENCY_GEOLITE2_PATH:-/var/www/html/storage/app/GeoLite2-Country.mmdb}
   # Optional DNS automation. Keep the token in Coolify's secret environment
   # store; never commit it to .env or the repository.
   CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}

@@ -41,7 +41,7 @@ final class PlatformPaymentLocaleBridge
                 }
 
                 $settings = app(TranslationSettings::class)->all();
-                if (! (bool) data_get($settings, 'widget.enabled', false)) {
+                if (! TranslationSettings::presentationActive($settings)) {
                     return $fallbackLocale;
                 }
 

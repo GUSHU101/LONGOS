@@ -138,5 +138,26 @@ class GlobalTranslationTextTest extends TestCase
             ),
         );
         self::assertNull(TranslationQualityGate::evaluate('适用于每笔订单的可靠全球配送、安全结账和轻松退货。', 'Enjoy reliable worldwide shipping, secure checkout, and easy returns for every order today.', 'zh-cn'));
+        self::assertSame(
+            'TARGET_SCRIPT_MISSING',
+            TranslationQualityGate::evaluate('Premium leather phone case edition', 'Premium leather phone case', 'ja'),
+        );
+        self::assertSame(
+            'MODEL_META_OUTPUT',
+            TranslationQualityGate::evaluate('Translation: Coque de téléphone premium', 'Premium leather phone case', 'fr'),
+        );
+        self::assertSame(
+            'MODEL_META_OUTPUT',
+            TranslationQualityGate::evaluate('{"translation":"Coque de téléphone"}', 'Premium leather phone case', 'fr'),
+        );
+        self::assertSame(
+            'SOURCE_LANGUAGE_DOMINANT',
+            TranslationQualityGate::evaluate(
+                'Enjoy reliable worldwide shipping, secure checkout, and easy returns for every commande today.',
+                'Enjoy reliable worldwide shipping, secure checkout, and easy returns for every order today.',
+                'fr',
+            ),
+        );
+        self::assertNull(TranslationQualityGate::evaluate('Coque en cuir premium avec expédition mondiale fiable et retours faciles.', 'Premium leather phone case with reliable worldwide shipping and easy returns.', 'fr'));
     }
 }

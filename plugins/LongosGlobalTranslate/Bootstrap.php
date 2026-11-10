@@ -3,7 +3,6 @@
 namespace Plugin\LongosGlobalTranslate;
 
 use Plugin\LongosGlobalTranslate\Services\PublishedProductVariantLocalizer;
-use Plugin\LongosGlobalTranslate\Services\StorefrontPresentationConfig;
 use Plugin\LongosGlobalTranslate\Services\TranslationSchema;
 use Plugin\LongosGlobalTranslate\Services\TranslationSettings;
 
@@ -48,10 +47,9 @@ class Bootstrap
             if (current_site() === null) {
                 return $output;
             }
-            // `widget.enabled` is the only storefront switch.  Requiring a
-            // second, unrelated visual-builder app-embed flag made a fully
-            // configured translation library silently disappear on themes
-            // that never expose that old editor setting.
+            // A hidden language selector must not disable automatic display
+            // of already-published dictionaries. Conversely, turning off
+            // all three presentation controls disables storefront mutation.
             foreach (['shop.longos_global_translate.config', 'shop.longos_global_translate.locale', 'shop.longos_global_translate.dictionary', 'shop.longos_global_translate.interface-dictionary', 'shop.longos_global_translate.dictionary-batch'] as $route) {
                 if (! app('router')->has($route)) {
                     return $output;
@@ -69,7 +67,9 @@ class Bootstrap
                 return $output;
             }
             $settings = app(TranslationSettings::class)->all();
-            if (! (bool) data_get($settings, 'widget.enabled', false)) {
+            if (! TranslationSettings::presentationActive($settings)
+                || (((array) ($settings['enabled_locales'] ?? [])) === []
+                    && ! (bool) data_get($settings, 'widget.enabled', false))) {
                 return $output;
             }
 
@@ -82,15 +82,12 @@ class Bootstrap
             // PlatformPaymentLocaleBridge; it cannot use these tenant-host
             // relative browser endpoints.
             $commerceUi = str_starts_with($routeName, 'shop.');
-            // The request is already carrying the trusted edge country header
-            // (or an offline GeoIP result).  Serialising the tiny decision
-            // contract here removes the old first AJAX `/config` round trip,
-            // which was the largest source of visible auto-language delay.
-            // It contains no translation text, IP address, credentials or
-            // transactional values; dictionaries remain bounded endpoints.
-            $bootstrap = app(StorefrontPresentationConfig::class)->forRequest(request(), $settings);
 
-            return $output . view('LongosGlobalTranslate::shop.widget', compact('settings', 'commerceUi', 'bootstrap'))->render();
+            // Do not inline a visitor-specific IP/cookie decision into HTML:
+            // CDN/full-page caches can reuse HTML across visitors. The small
+            // /config endpoint is private, no-store and runs per visitor;
+            // immutable dictionary payloads are still session-cached.
+            return $output . view('LongosGlobalTranslate::shop.widget', compact('settings', 'commerceUi'))->render();
         });
     }
 }

@@ -1,65 +1,59 @@
 # LONGOS Global Translation — implementation audit and rollback notes
 
-## Gate 0 record
+Last reviewed: 2026-11-10. Current plugin release: **v1.16.0**.
 
-- Baseline: `8f8e9849e3d2bd9480efbd4c36e653634d2a5ae2` on a feature branch; no deployment branch was modified.
-- The operator-supplied V2.0 manual, chapters 16–34, was reviewed before implementation. Its hard constraints are reflected in code rather than treated as UI copy.
-- `beike/Shop/Providers/PluginServiceProvider.php` registers plugin routes with runtime `plugin.enabled` guards. The plugin therefore does not rely on a first-request tenant decision.
-- `beike/Plugin/RuntimeGuard.php` applies the enabled-state check to long-running runtime execution.
-- `app/Saas/TenantManager.php` and the tenant connection/prefix lifecycle supply the isolation boundary. Translation tables contain no request-controlled tenant id.
-- `SetLocaleFromSession`, `SetLocaleShopApi`, and `SetLocaleAdmin` keep the platform source behavior intact. `PresentationLocaleResolver` never mutates Laravel's locale.
-- `VisitorCurrencyService::countryCode()` is used only for country selection; its currency resolution path is not called.
-- `BuilderStateService::published()` is the only Builder state examined by the scanner. Draft and preview state is excluded; every indexed Builder field has a matching stable `data-lgt-*` storefront marker.
-- `PluginRepo::publishPluginFiles()` is now called by the bundled synchronizer so a widget asset is released with the normal immutable image upgrade.
+## Architecture and trust boundaries
+
+- Plugin routes are registered behind the normal LONGOS plugin runtime guards. Long-running work re-enters the tenant runtime before accessing translation data.
+- Every plugin table uses the active tenant connection or tenant table prefix. Public and admin requests never accept a tenant identifier.
+- `PresentationLocaleResolver` chooses only the presentation locale and never mutates Laravel's source locale. English remains the immutable source contract.
+- Country headers are accepted only when the immediate peer is in Cloudflare's verified IP ranges. GeoLite2 is an optional offline fallback.
+- Storefront routes read settings and immutable publication dictionaries only. Provider calls occur exclusively in administrator-initiated verification or queued translation work.
+- Plugin files and assets are released by `BundledPluginSynchronizer`; Git/Coolify owns application updates.
 
 ## Implemented controls
 
 | Invariant | Implementation |
 |---|---|
-| English source lock | `TranslationSettings` rejects another source locale; UI makes it read-only. |
-| Tenant isolation | All plugin tables are created on the active tenant connection. No public route accepts a tenant identifier. |
-| Content allowlist | Scanner accepts only active product names, category names, page titles, and explicit plain-text fields from nine published Builder components with matching storefront markers. Orders, checkout, payment, customers, reviews, chat, metadata and HTML bodies are excluded. |
-| No GET billing | Storefront endpoints only read settings and an immutable publication dictionary. Provider calls exist only in queued free-only jobs or an explicit administrator verification action. |
-| Secret isolation | Credential ciphertext is encrypted, redacted from all responses, never added to logs or storefront JSON. |
-| Budget safety | `UsageLedger` journals `reserved`, `sending`, `committed`, `definite_failed`, and `uncertain`; uncertain sends retain budget and have no automatic retry. A lost worker releases only a provably pre-send reservation and quarantines any `sending` request. Paid overage is forced to zero. |
-| Queue recovery | Each worker run owns an opaque claim token. A failed worker can finish only its own claim; missing provider authorization pauses and preserves work until an administrator explicitly enables a verified free-only provider. |
-| Human precedence | Manual edit uses a version CAS check; a locked row cannot be overwritten by a machine result. |
-| Publication | Publication items are immutable snapshots tied to source hashes. Rollback creates a new revision; it never mutates history. |
-| Storefront safety | Widget has a host-only secure HttpOnly locale cookie, bounded root selectors, no whole-DOM scan, and is omitted from cart, checkout, sign-in and account flows. |
-| Source freshness/removal | Dictionary reads re-check public parent state and the current allowlisted source hash (or Builder published revision), so a changed or deactivated source cannot expose a prior translation. |
+| Tenant isolation | Translation tables, settings, credentials, queues, publications and audit records stay on the active tenant connection. |
+| Public-content allowlist | The scanner covers public catalog/page records, explicitly supported published Builder display fields, storefront chrome and controlled commerce UI strings. Transactional and private areas are excluded. |
+| Source freshness | Dictionaries re-check the current public parent, source hash and Builder publication revision before returning a translation. |
+| Credential safety | Encrypted credentials are redacted from controllers, logs and storefront JSON. Verification is an explicit administrator action. |
+| Billing safety | `UsageLedger` journals `reserved`, `sending`, `committed`, `definite_failed` and `uncertain`. Unknown post-send outcomes keep their budget occupied and are never blindly retried. |
+| Multi-worker safety | Opaque run tokens own claims. Job/item locks serialize pause, cancel, recovery and completion. A concurrent pause releases an unsent claim; a true cancellation consumes it. |
+| Provider pacing | Per-account QPS controls apply to standard providers. SiliconFlow additionally uses durable account/model RPM, TPM and remote-cooldown windows with delayed resume. |
+| Human precedence | Manual edits use version compare-and-swap; reviewed locked rows cannot be overwritten by machine output. |
+| Publication | Publication items are immutable snapshots. Rollback creates a new revision, and locale maintenance uses a shared mutex with planning/publication. |
+| Storefront safety | The widget uses a secure host-only HttpOnly locale cookie, bounded selectors and versioned dictionary responses; it is omitted from sensitive flows. |
+| Recovery | Only definite failures are retryable. Stale claims distinguish pre-send reservations from possible post-send requests before releasing quota. |
 
-## Verification run
+## Provider scope
 
-Local, credential-free tests that must remain green:
+The registry supports Aliyun, Volcengine, Baidu, DeepL, Google Cloud Translation, Azure Translator and SiliconFlow. SiliconFlow is restricted to the plugin allowlist of free chat models and applies conservative local limits even if the account advertises a higher remote quota.
+
+Provider availability, free pricing, account authorization and billing identity are external facts. Automated tests use mocked providers and never send a real translation request. An operator must deliberately verify an account and separately enable dispatch.
+
+## Verification
+
+Credential-free plugin gates:
 
 ```powershell
-vendor\bin\phpunit tests\Feature\GlobalTranslationContentTest.php tests\Feature\GlobalTranslationWorkflowTest.php tests\Unit\GlobalTranslationTextTest.php tests\Unit\GlobalTranslationProviderTest.php
-vendor\bin\pint --config=pint.json plugins\LongosGlobalTranslate tests\Feature\GlobalTranslationContentTest.php tests\Feature\GlobalTranslationWorkflowTest.php tests\Unit\GlobalTranslationTextTest.php tests\Unit\GlobalTranslationProviderTest.php
-node --check plugins\LongosGlobalTranslate\Static\public\widget.js
+php vendor/bin/phpunit tests/Unit/GlobalTranslationConfigurationTest.php tests/Unit/GlobalTranslationProviderTest.php tests/Unit/GlobalTranslationTextTest.php tests/Unit/GlobalTranslationWidgetSafetyTest.php tests/Feature/GlobalTranslationWorkflowTest.php
+php plugins/LongosGlobalTranslate/Tests/verify_builder_display_contract.php
+php plugins/LongosGlobalTranslate/Tests/verify_cloudflare_country_contract.php
+node plugins/LongosGlobalTranslate/Tests/verify_source_contracts.mjs
+node --check plugins/LongosGlobalTranslate/Static/public/widget.js
 ```
 
-The implementation tests source-change invalidation, manual locks, immutable publication and rollback, source deactivation, quota hard stops, credential redaction, text-token integrity, and mocked Aliyun/Volcengine/Baidu response paths. They never make a real API request.
-
-## Deliberate operator boundary
-
-External provider verification can incur a provider-side free-quota charge. It is **not** treated as automated CI evidence. The admin must explicitly confirm a small verification request, inspect the local ledger, then separately enable dispatch. A real provider account, billing identity, free quota, DNS/network policy, and account authorization are external facts that automated repository tests cannot assert.
+Repository release gates additionally run Composer validation/audit, Pint, the full PHPUnit suite, frontend quality/build checks, npm audit, deployment contracts and a release-owned plugin source check. `LongosGlobalTranslate` is explicitly included in that source check.
 
 ## Coolify deployment and rollback
 
-1. Back up the matching tenant database through Coolify.
-2. Push the reviewed commit to the configured Git branch and use the normal Git-based Compose deployment. The image startup upgrade runs the plugin migrations; do not run Composer, migrations, or asset publishing manually in a production container.
-3. In the tenant admin, enable the plugin, save language policy, then enable the page-builder app embed only after an approved publication exists.
-4. To disable presentation instantly, turn off the app embed or plugin. Published snapshots and ledger records remain intact.
-5. To roll back code, select the prior successful Coolify deployment. The migrations are additive/non-destructive; restore the matching database backup only if an operator needs to revert data state too.
+1. Back up the matching MySQL database and persistent volumes through Coolify.
+2. Push a reviewed commit to the configured Git branch or select Deploy. The immutable image contains locked dependencies and built assets.
+3. The application entrypoint takes the shared deployment lock and runs the resumable install or `saas:upgrade --if-needed`; do not run Composer, npm or migrations manually in a production container.
+4. Enable the plugin per tenant, configure and verify providers, create a scan/translation job, review output, then publish an immutable snapshot.
+5. To stop presentation immediately, disable the plugin or its widget. Publications and ledger history remain intact.
+6. Roll back to the previous successful Coolify deployment. If a release used irreversible data changes, restore the matching database backup as documented in `docs/COOLIFY.md`.
 
-## Known V1 scope
-
-Rich HTML, transaction-related text, arbitrary metadata and any Builder component without a stable field marker are intentionally not published. Translating arbitrary markup safely requires a separate structural node contract, content-sanitization review, and browser regression suite. This V1 refuses to represent that as completed support.
-
-## Release hardening — 2026-11-03
-
-- Aliyun translation traffic now uses a signed TLS POST form. Credentials and source text never enter a request URL.
-- A tenant-local, row-locked QPS limiter records microsecond dispatch state before each provider call. A pre-send failure releases its reservation; a post-send failure remains uncertain and budget-occupied.
-- `2026_11_03_000004_add_provider_dispatch_rate_limit.php` makes this additive for already-deployed tenants. The normal Coolify Git release applies it; there is no manual production migration step.
-- Storefront reads fail closed while the selector is off, use the newest active publication deterministically, and ignore obsolete async language responses.
-- Release gates additionally run the full PHP suite, `npm run test:quality`, and `npm audit --omit=dev --json`.
+Historical release notes live in `plugins/LongosGlobalTranslate/docs/releases/`.

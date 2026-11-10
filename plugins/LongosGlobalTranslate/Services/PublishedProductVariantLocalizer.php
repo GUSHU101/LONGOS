@@ -33,7 +33,7 @@ final class PublishedProductVariantLocalizer
         }
 
         $settings = $this->settings->all();
-        if (! (bool) data_get($settings, 'widget.enabled', false)) {
+        if (! TranslationSettings::presentationActive($settings)) {
             return $payload;
         }
         $locale = $this->locales->decide($request)->locale;

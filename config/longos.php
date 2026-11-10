@@ -117,6 +117,16 @@ return [
     /* Hard cap for images copied from a remote URL into the tenant store. */
     'remote_image_max_bytes' => (int) env('LONGOS_REMOTE_IMAGE_MAX_BYTES', 10 * 1024 * 1024),
 
+    /* Translation work uses a dedicated queue so a large catalogue cannot
+     * delay orders, mail, webhooks or other storefront jobs. Keep the worker
+     * pool deliberately bounded for the supported small Coolify hosts; the
+     * per-provider durable QPS gate remains the final outbound rate limit. */
+    'translation' => [
+        'queue'      => 'translations',
+        'workers'    => min(4, max(1, (int) env('LONGOS_TRANSLATION_WORKERS', 4))),
+        'batch_size' => min(50, max(5, (int) env('LONGOS_TRANSLATION_BATCH_SIZE', 20))),
+    ],
+
     'network' => [
         // Exact IPs/CIDRs of operator-controlled reverse proxies. Wildcards
         // are deliberately rejected by TrustProxies.

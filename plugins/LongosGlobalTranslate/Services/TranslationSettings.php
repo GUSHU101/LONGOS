@@ -18,6 +18,19 @@ final class TranslationSettings
 
     public const MODE_OFFLINE = 'offline_dictionary';
 
+    /** Displaying the selector is optional; published locale presentation is not. */
+    public static function presentationActive(array $settings): bool
+    {
+        $widgetEnabled = (bool) data_get($settings, 'widget.enabled', false);
+        if (! $widgetEnabled && ((array) ($settings['enabled_locales'] ?? [])) === []) {
+            return false;
+        }
+
+        return $widgetEnabled
+            || (bool) ($settings['geo_auto_switch_enabled'] ?? false)
+            || (bool) ($settings['accept_language_enabled'] ?? false);
+    }
+
     /** @return array<string, mixed> */
     public function all(): array
     {
