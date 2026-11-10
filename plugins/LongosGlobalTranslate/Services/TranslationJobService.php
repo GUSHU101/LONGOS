@@ -1336,7 +1336,13 @@ final class TranslationJobService
      */
     private function dispatchWorkerPool(int $jobId): void
     {
-        $workers = min(4, max(1, (int) config('longos.translation.workers', 4)));
+        $configuredWorkers = min(24, max(1, (int) config('longos.translation.workers', 12)));
+        // Do not enqueue idle runners for small/retried jobs. Large jobs still
+        // receive the full network-bound pool and can use the provider's RPM/
+        // TPM allowance instead of being artificially serialized to four
+        // external requests at a time.
+        $readyItems = DB::table('lgt_job_items')->where('job_id', $jobId)->where('status', 'ready')->count();
+        $workers    = min($configuredWorkers, $readyItems);
         for ($index = 0; $index < $workers; $index++) {
             ProcessTranslationJob::dispatch($jobId)->afterCommit();
         }

@@ -104,6 +104,9 @@ final class AdminTranslationController extends Controller
         if ($runtime['asset_current'] === null) {
             $issues[] = '未找到可对比的前端静态脚本：请检查插件资源是否发布到 public/plugin/longos_global_translate。';
         }
+        if ($runtime['translation_workers'] < 8) {
+            $issues[] = "当前翻译并发仅为 {$runtime['translation_workers']}：若非内存受限主机，请在 Coolify 将 LONGOS_TRANSLATION_WORKERS 设为默认值 12 并重新部署。";
+        }
         if (empty($dashboard['settings']['enabled_locales'])) {
             $issues[] = '还没有保存目标语言：先启用并保存至少一种语言。';
         }
@@ -734,7 +737,7 @@ final class AdminTranslationController extends Controller
      * Release diagnostic: do not read source text, provider credentials, or
      * a browser-supplied path. This checks the exact installed artifact that
      * the immutable LONGOS container is serving, not the uploaded ZIP name.
-     * @return array{version:string,asset_current:?bool,queue_connection:string}
+     * @return array{version:string,asset_current:?bool,queue_connection:string,translation_workers:int}
      */
     private function runtimeReleaseHealth(): array
     {
@@ -752,7 +755,8 @@ final class AdminTranslationController extends Controller
                 ? collect($assetPairs)->every(static fn (array $pair): bool => hash_equals(
                     (string) hash_file('sha256', $pair[0]), (string) hash_file('sha256', $pair[1]),
                 )) : null,
-            'queue_connection' => (string) config('queue.default', 'unknown'),
+            'queue_connection'    => (string) config('queue.default', 'unknown'),
+            'translation_workers' => min(24, max(1, (int) config('longos.translation.workers', 12))),
         ];
     }
 

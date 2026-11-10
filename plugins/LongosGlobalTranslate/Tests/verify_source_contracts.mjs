@@ -27,6 +27,8 @@ const providerArchiving = read('Migrations/2026_11_09_000010_add_provider_archiv
 const siliconflow = read('Providers/SiliconFlowProvider.php');
 const registry = read('Providers/ProviderRegistry.php');
 const admin = read('Views/admin/index.blade.php');
+const longosConfig = read('../../config/longos.php');
+const workerEntrypoint = read('../../docker/nginx/start.sh');
 
 for (const [endpoint, action] of [
   ['providers/{provider}', 'deleteProvider'],
@@ -163,7 +165,7 @@ assert.match(jobs, /\$report\s*=\s*\$this->scanner->scan\(\$kinds, \$actorId\)/)
 assert.match(builderRuntimeTest, /ContentScanner::builderDisplayFields/);
 assert.match(builderRuntimeTest, /'seo\.title'/);
 assert.match(builderRuntimeTest, /'blocks\.0\.cta_text'/);
-assert.match(read('Services/StorefrontPresentationConfig.php'), /PLUGIN_RELEASE = '1\.17\.1'/);
+assert.match(read('Services/StorefrontPresentationConfig.php'), /PLUGIN_RELEASE = '1\.18\.0'/);
 
 const inlineScript = admin.match(/<script>([\s\S]*?)<\/script>/)?.[1];
 assert.ok(inlineScript, 'Admin JS script exists');
@@ -176,7 +178,14 @@ for (const match of inlineScript.matchAll(/\$\('#(lgt-[\w-]+)'\)/g)) {
 }
 
 const config = JSON.parse(read('config.json'));
-assert.equal(config.version, 'v1.17.1');
+assert.equal(config.version, 'v1.18.0');
+assert.ok(longosConfig.includes("min(24, max(1, (int) env('LONGOS_TRANSLATION_WORKERS', 12)))"));
+assert.ok(workerEntrypoint.includes('LONGOS_TRANSLATION_WORKERS:-12'));
+assert.ok(workerEntrypoint.includes('if [ "$translation_workers" -gt 24 ]; then translation_workers=24; fi'));
+assert.ok(jobs.includes("where('status', 'ready')->count()"));
+assert.ok(jobs.includes('min($configuredWorkers, $readyItems)'));
+assert.ok(controller.includes("$runtime['translation_workers'] < 8"));
+assert.ok(admin.includes('翻译并发 ${workers}'));
 const limiter = read('Services/SiliconFlowRateLimiter.php');
 const verification = read('Services/ProviderVerificationService.php');
 const siliconflowMigration = read('Migrations/2026_11_09_000011_add_siliconflow_rate_pacing.php');
@@ -211,7 +220,7 @@ assert.ok(storefront.includes("'widget_visible'"));
 assert.ok(boot.includes('TranslationSettings::presentationActive($settings)'));
 assert.ok(!boot.includes('forRequest(request(), $settings)'));
 assert.ok(!view.includes('longos-global-translate-bootstrap'));
-assert.ok(view.includes('widget.css') && view.includes('?v=1.17.1'));
+assert.ok(view.includes('widget.css') && view.includes('?v=1.18.0'));
 assert.ok(widget.includes("request(root.dataset.configUrl, {cache: 'no-store'})"));
 assert.ok(widget.includes('root.hidden = !data.widget_visible'));
 assert.ok(widget.includes('observeNewPublicModules'));

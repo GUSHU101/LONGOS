@@ -110,7 +110,7 @@
 
 <a href="{{ admin_route('longos_global_translate.index') }}#lgt-main" class="lgt-skip">跳到翻译工作台主内容</a>
 <main id="lgt-main" class="lgt-workspace py-3" aria-labelledby="lgt-title">
-  <header class="lgt-hero"><div class="lgt-hero-main"><div><span class="lgt-overline">LONGOS / TRANSLATION</span><h1 id="lgt-title">翻译工作台 <span class="lgt-release">v1.17.1</span></h1><p>管理翻译、审核和发布。每个子站独立配置。</p></div><div class="lgt-hero-actions"><button class="btn btn-primary" type="button" data-lgt-go="library" data-lgt-library-view="jobs">开始翻译</button><button class="btn btn-outline-secondary" type="button" data-lgt-go="publish">发布译文</button></div></div><div class="lgt-topline"><span class="lgt-status-pill"><span class="lgt-dot {{ $diagnostics['dispatch_enabled'] ? '' : 'warning' }}"></span>{{ $diagnostics['dispatch_enabled'] ? '可派发' : '未开启派发' }}</span><span>{{ $modeLabels[$settings['mode']] ?? $settings['mode'] }}</span><span>{{ count($enabledLocales) }} 种目标语言</span></div></header>
+  <header class="lgt-hero"><div class="lgt-hero-main"><div><span class="lgt-overline">LONGOS / TRANSLATION</span><h1 id="lgt-title">翻译工作台 <span class="lgt-release">v1.18.0</span></h1><p>管理翻译、审核和发布。每个子站独立配置。</p></div><div class="lgt-hero-actions"><button class="btn btn-primary" type="button" data-lgt-go="library" data-lgt-library-view="jobs">开始翻译</button><button class="btn btn-outline-secondary" type="button" data-lgt-go="publish">发布译文</button></div></div><div class="lgt-topline"><span class="lgt-status-pill"><span class="lgt-dot {{ $diagnostics['dispatch_enabled'] ? '' : 'warning' }}"></span>{{ $diagnostics['dispatch_enabled'] ? '可派发' : '未开启派发' }}</span><span>{{ $modeLabels[$settings['mode']] ?? $settings['mode'] }}</span><span>{{ count($enabledLocales) }} 种目标语言</span></div></header>
 
   <p id="lgt-readiness-summary" class="lgt-inline-muted my-2" role="status" aria-live="polite">{{ ! $library_health['ready_to_display'] ? '尚无可展示的已发布词典' : '已发布词典可用' }}</p>
   <div id="lgt-readiness-counts" class="visually-hidden">已翻译 {{ $library_health['translated'] }} · 已发布语言 {{ $library_health['published_languages'] }}</div>
@@ -514,8 +514,8 @@
     const runtime=data.runtime||{};
     const version=runtime.version||'未知';
     const asset=runtime.asset_current===true?'前端脚本已同步':(runtime.asset_current===false?'前端脚本版本不匹配':'尚无法验证脚本');
-    const queue=runtime.queue_connection||'未知';
-    $('#lgt-selfcheck-summary').textContent=`插件 ${version} · ${asset} · 队列驱动 ${queue} · ${data.generated_at||''}`;
+    const queue=runtime.queue_connection||'未知',workers=Number(runtime.translation_workers||1);
+    $('#lgt-selfcheck-summary').textContent=`插件 ${version} · ${asset} · 队列驱动 ${queue} · 翻译并发 ${workers} · ${data.generated_at||''}`;
     const container=$('#lgt-selfcheck-issues');container.replaceChildren();
     const issues=Array.isArray(data.actionable_issues)?data.actionable_issues:[];
     $('#lgt-issue-count').textContent=issues.length?`${issues.length} 项需处理`:'未发现配置异常';

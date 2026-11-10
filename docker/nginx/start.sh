@@ -238,12 +238,12 @@ case "$role" in
   worker)
     wait_for_application
     refresh_package_manifest
-    translation_workers="${LONGOS_TRANSLATION_WORKERS:-4}"
+    translation_workers="${LONGOS_TRANSLATION_WORKERS:-12}"
     case "$translation_workers" in
-      ''|*[!0-9]*) translation_workers=4 ;;
+      ''|*[!0-9]*) translation_workers=12 ;;
     esac
     if [ "$translation_workers" -lt 1 ]; then translation_workers=1; fi
-    if [ "$translation_workers" -gt 4 ]; then translation_workers=4; fi
+    if [ "$translation_workers" -gt 24 ]; then translation_workers=24; fi
 
     worker_pids=""
     su -s /bin/sh www-data -c \

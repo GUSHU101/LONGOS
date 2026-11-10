@@ -118,12 +118,13 @@ return [
     'remote_image_max_bytes' => (int) env('LONGOS_REMOTE_IMAGE_MAX_BYTES', 10 * 1024 * 1024),
 
     /* Translation work uses a dedicated queue so a large catalogue cannot
-     * delay orders, mail, webhooks or other storefront jobs. Keep the worker
-     * pool deliberately bounded for the supported small Coolify hosts; the
-     * per-provider durable QPS gate remains the final outbound rate limit. */
+     * delay orders, mail, webhooks or other storefront jobs. Translation is
+     * network-bound, so twelve workers are a practical default while the
+     * bounded ceiling protects smaller Coolify hosts. Durable provider RPM,
+     * TPM, QPS and cooldown gates remain the final outbound limits. */
     'translation' => [
         'queue'      => 'translations',
-        'workers'    => min(4, max(1, (int) env('LONGOS_TRANSLATION_WORKERS', 4))),
+        'workers'    => min(24, max(1, (int) env('LONGOS_TRANSLATION_WORKERS', 12))),
         'batch_size' => min(50, max(5, (int) env('LONGOS_TRANSLATION_BATCH_SIZE', 20))),
     ],
 

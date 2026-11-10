@@ -364,7 +364,7 @@ class GlobalTranslationWorkflowTest extends TestCase
 
         self::assertFalse($config->getData(true)['enabled']);
         self::assertSame(['en'], $config->getData(true)['locales']);
-        self::assertSame('1.17.1', $config->getData(true)['plugin_release']);
+        self::assertSame('1.18.0', $config->getData(true)['plugin_release']);
         self::assertSame([], $config->getData(true)['published_revisions']);
         self::assertSame('', $config->getData(true)['dictionary_url']);
         self::assertSame('', $config->getData(true)['batch_dictionary_url']);
@@ -1707,7 +1707,9 @@ class GlobalTranslationWorkflowTest extends TestCase
         self::assertSame(1, $service->retryableFailureCount($jobId));
         self::assertSame(1, $service->retryDefiniteFailures($jobId));
 
-        Queue::assertPushedTimes(ProcessTranslationJob::class, 4);
+        // Only the single safely retryable item needs a runner; a large job
+        // still receives the full configured translation worker pool.
+        Queue::assertPushedTimes(ProcessTranslationJob::class, 1);
         Queue::assertPushed(ProcessTranslationJob::class, fn (ProcessTranslationJob $job): bool => $job->translationJobId === $jobId
             && $job->queue                                                                                                === 'translations'
             && $job->timeout                                                                                              === 600);
@@ -1718,6 +1720,48 @@ class GlobalTranslationWorkflowTest extends TestCase
         self::assertSame('queued', DB::table('lgt_jobs')->where('id', $jobId)->value('status'));
         self::assertSame(1, (int) DB::table('lgt_jobs')->where('id', $jobId)->value('completed_items'));
         self::assertSame(1, (int) DB::table('lgt_jobs')->where('id', $jobId)->value('failed_items'));
+    }
+
+    public function test_translation_worker_pool_uses_configured_parallelism_without_enqueuing_idle_runners(): void
+    {
+        Queue::fake();
+        config(['longos.translation.workers' => 12]);
+        $entryId = $this->queueSingleTranslationItem(
+            'parallel-pool-entry-1',
+            'Parallel pool entry 1',
+            'bda5881d-7122-4b45-a5ea-000000000012',
+        );
+        $jobId = (int) DB::table('lgt_job_items')->where('entry_id', $entryId)->value('job_id');
+
+        for ($index = 2; $index <= 20; $index++) {
+            $source = "Parallel pool entry {$index}";
+            $hash   = ContentScanner::sourceHash($source);
+            $entry  = DB::table('lgt_entries')->insertGetId([
+                'content_key'   => hash('sha256', "parallel-pool-entry-{$index}"),
+                'kind'          => 'product', 'entity_id' => 70_000 + $index, 'field' => 'name',
+                'source_locale' => 'en', 'source_format' => 'plain', 'source_text' => $source, 'source_hash' => $hash,
+                'is_public'     => true, 'is_tombstoned' => false, 'created_at' => now(), 'updated_at' => now(),
+            ]);
+            DB::table('lgt_job_items')->insert([
+                'job_id' => $jobId, 'entry_id' => $entry, 'target_locale' => 'fr', 'source_hash' => $hash,
+                'status' => 'ready', 'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+
+        $service = new TranslationJobService(
+            new ContentScanner,
+            new TranslationSettings,
+            new ProviderAccountService,
+            new ProviderRegistry,
+            new UsageLedger,
+            new TranslationLibrary,
+        );
+        $method = new \ReflectionMethod($service, 'dispatchWorkerPool');
+        $method->invoke($service, $jobId);
+
+        Queue::assertPushedTimes(ProcessTranslationJob::class, 12);
+        Queue::assertPushed(ProcessTranslationJob::class, fn (ProcessTranslationJob $job): bool => $job->translationJobId === $jobId
+            && $job->queue                                                                                                === 'translations');
     }
 
     public function test_failure_code_backfill_recovers_a_safe_historical_reason_from_the_ledger(): void

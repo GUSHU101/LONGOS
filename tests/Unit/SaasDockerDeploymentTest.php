@@ -238,7 +238,8 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringContainsString('PHP_WORKER_MEMORY_LIMIT: ${PHP_WORKER_MEMORY_LIMIT:-512M}', $compose);
         self::assertStringContainsString('--memory=384', $this->read('docker/nginx/start.sh'));
         self::assertStringContainsString('--queue=translations --sleep=1 --tries=1 --timeout=650 --memory=224', $this->read('docker/nginx/start.sh'));
-        self::assertStringContainsString('LONGOS_TRANSLATION_WORKERS: ${LONGOS_TRANSLATION_WORKERS:-4}', $compose);
+        self::assertStringContainsString('LONGOS_TRANSLATION_WORKERS: ${LONGOS_TRANSLATION_WORKERS:-12}', $compose);
+        self::assertStringContainsString('if [ "$translation_workers" -gt 24 ]; then translation_workers=24; fi', $this->read('docker/nginx/start.sh'));
         self::assertStringContainsString('LONGOS_TRANSLATION_BATCH_SIZE: ${LONGOS_TRANSLATION_BATCH_SIZE:-20}', $compose);
         self::assertStringContainsString('CURRENCY_TRUST_CDN_COUNTRY_HEADERS: ${CURRENCY_TRUST_CDN_COUNTRY_HEADERS:-true}', $compose);
         self::assertStringContainsString('CURRENCY_GEOLITE2_PATH: ${CURRENCY_GEOLITE2_PATH:-/var/www/html/storage/app/GeoLite2-Country.mmdb}', $compose);

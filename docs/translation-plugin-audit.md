@@ -1,6 +1,6 @@
 # LONGOS Global Translation — implementation audit and rollback notes
 
-Last reviewed: 2026-11-10. Current plugin release: **v1.17.1**.
+Last reviewed: 2026-11-10. Current plugin release: **v1.18.0**.
 
 ## Architecture and trust boundaries
 
@@ -20,7 +20,7 @@ Last reviewed: 2026-11-10. Current plugin release: **v1.17.1**.
 | Source freshness | Dictionaries re-check the current public parent, source hash and Builder publication revision before returning a translation. |
 | Credential safety | Encrypted credentials are redacted from controllers, logs and storefront JSON. Verification is an explicit administrator action. |
 | Billing safety | `UsageLedger` journals `reserved`, `sending`, `committed`, `definite_failed` and `uncertain`. Metered providers enforce character budgets; rate-only free models retain the audit ledger without an invented character cap. Unknown post-send outcomes are never blindly retried. |
-| Multi-worker safety | Opaque run tokens own claims. Job/item locks serialize pause, cancel, recovery and completion. A concurrent pause releases an unsent claim; a true cancellation consumes it. |
+| Multi-worker safety | Opaque run tokens own claims. Job/item locks serialize pause, cancel, recovery and completion. A concurrent pause releases an unsent claim; a true cancellation consumes it. The dedicated pool defaults to 12 network-bound workers, clamps at 24 and dispatches no more runners than ready items. |
 | Provider pacing | Per-account QPS controls apply to metered providers. SiliconFlow bypasses that artificial gate and uses only durable provider-user-account/model RPM, TPM and remote-cooldown windows with delayed resume. |
 | Human precedence | Manual edits use version compare-and-swap; reviewed locked rows cannot be overwritten by machine output. |
 | Publication | Publication items are immutable snapshots. Rollback creates a new revision, and locale maintenance uses a shared mutex with planning/publication. |

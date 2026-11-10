@@ -29,10 +29,10 @@ x-app-environment: &app-environment
   # the background worker above PHP's 128 MiB CLI default while retaining a
   # finite ceiling suitable for a small Coolify host.
   PHP_WORKER_MEMORY_LIMIT: ${PHP_WORKER_MEMORY_LIMIT:-512M}
-  # Translation jobs have their own bounded worker pool. Provider-account QPS
-  # settings still serialize outbound calls, so this improves throughput only
-  # up to the explicit limit saved by the operator.
-  LONGOS_TRANSLATION_WORKERS: ${LONGOS_TRANSLATION_WORKERS:-4}
+  # Translation jobs have their own bounded worker pool. Provider-account
+  # RPM/TPM/QPS gates still cap outbound calls, so concurrency cannot bypass
+  # the explicit limits saved by the operator.
+  LONGOS_TRANSLATION_WORKERS: ${LONGOS_TRANSLATION_WORKERS:-12}
   LONGOS_TRANSLATION_BATCH_SIZE: ${LONGOS_TRANSLATION_BATCH_SIZE:-20}
   LONGOS_DEPLOYMENT_PLATFORM: coolify
   LONGOS_UPDATER_ENABLED: "false"
