@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\DB;
  */
 final class StorefrontPresentationConfig
 {
-    public const PLUGIN_RELEASE = '1.17.0';
+    public const PLUGIN_RELEASE = '1.17.1';
 
     public function __construct(
         private readonly TranslationSettings $settings,

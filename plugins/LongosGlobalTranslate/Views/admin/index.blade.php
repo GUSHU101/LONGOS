@@ -108,9 +108,9 @@
 @media(min-width:1081px){#lgt-provider-details>.lgt-grid>.lgt-7{grid-column:span 9}#lgt-provider-details>.lgt-grid>.lgt-5{grid-column:span 3}}
 </style>
 
-<a href="#lgt-main" class="lgt-skip">跳到翻译工作台主内容</a>
+<a href="{{ admin_route('longos_global_translate.index') }}#lgt-main" class="lgt-skip">跳到翻译工作台主内容</a>
 <main id="lgt-main" class="lgt-workspace py-3" aria-labelledby="lgt-title">
-  <header class="lgt-hero"><div class="lgt-hero-main"><div><span class="lgt-overline">LONGOS / TRANSLATION</span><h1 id="lgt-title">翻译工作台 <span class="lgt-release">v1.17.0</span></h1><p>管理翻译、审核和发布。每个子站独立配置。</p></div><div class="lgt-hero-actions"><button class="btn btn-primary" type="button" data-lgt-go="library" data-lgt-library-view="jobs">开始翻译</button><button class="btn btn-outline-secondary" type="button" data-lgt-go="publish">发布译文</button></div></div><div class="lgt-topline"><span class="lgt-status-pill"><span class="lgt-dot {{ $diagnostics['dispatch_enabled'] ? '' : 'warning' }}"></span>{{ $diagnostics['dispatch_enabled'] ? '可派发' : '未开启派发' }}</span><span>{{ $modeLabels[$settings['mode']] ?? $settings['mode'] }}</span><span>{{ count($enabledLocales) }} 种目标语言</span></div></header>
+  <header class="lgt-hero"><div class="lgt-hero-main"><div><span class="lgt-overline">LONGOS / TRANSLATION</span><h1 id="lgt-title">翻译工作台 <span class="lgt-release">v1.17.1</span></h1><p>管理翻译、审核和发布。每个子站独立配置。</p></div><div class="lgt-hero-actions"><button class="btn btn-primary" type="button" data-lgt-go="library" data-lgt-library-view="jobs">开始翻译</button><button class="btn btn-outline-secondary" type="button" data-lgt-go="publish">发布译文</button></div></div><div class="lgt-topline"><span class="lgt-status-pill"><span class="lgt-dot {{ $diagnostics['dispatch_enabled'] ? '' : 'warning' }}"></span>{{ $diagnostics['dispatch_enabled'] ? '可派发' : '未开启派发' }}</span><span>{{ $modeLabels[$settings['mode']] ?? $settings['mode'] }}</span><span>{{ count($enabledLocales) }} 种目标语言</span></div></header>
 
   <p id="lgt-readiness-summary" class="lgt-inline-muted my-2" role="status" aria-live="polite">{{ ! $library_health['ready_to_display'] ? '尚无可展示的已发布词典' : '已发布词典可用' }}</p>
   <div id="lgt-readiness-counts" class="visually-hidden">已翻译 {{ $library_health['translated'] }} · 已发布语言 {{ $library_health['published_languages'] }}</div>
@@ -217,6 +217,11 @@
   const notify = (text,error=false) => { clearTimeout(toastTimer); toast.textContent=text; toast.classList.toggle('error',error); toast.classList.add('show'); toastTimer=setTimeout(()=>toast.classList.remove('show'),error?7000:4500); };
   const api = async (url,method='GET',body) => { const r=await fetch(url,{method,credentials:'same-origin',headers:{Accept:'application/json','Content-Type':'application/json','X-CSRF-TOKEN':csrf},body:body===undefined?undefined:JSON.stringify(body)}); const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(Object.values(d.errors||{}).flat().find(Boolean)||d.message||'请求未完成，请检查填写内容后重试。'); return d; };
   const busy = async (button,work) => { const label=button.textContent; button.disabled=true; button.textContent='处理中…'; try{return await work();}finally{button.disabled=false;button.textContent=label;} };
+  // The admin layout declares <base href="/admin/">. A bare `#fragment`
+  // passed to replaceState resolves against that base and silently rewrites
+  // this page to `/admin/#fragment`; the next refresh then opens the admin
+  // home page. Always write an absolute path for this workspace instead.
+  const setWorkspaceHash=hash=>{const url=new URL(window.location.href);url.hash=hash;history.replaceState(null,'',`${url.pathname}${url.search}${url.hash}`);};
 
   // One task per view: jobs and translation editing never compete for the
   // same horizontal space, but their existing forms/endpoints stay intact.
@@ -232,7 +237,7 @@
     currentWorkview=view==='translations'?'translations':'jobs';
     $$('[data-lgt-workview-content]').forEach(el=>el.hidden=el.dataset.lgtWorkviewContent!==currentWorkview);
     $$('[data-lgt-workview]').forEach(b=>{const active=b.dataset.lgtWorkview===currentWorkview;b.setAttribute('aria-pressed',String(active));});
-    if(updateUrl&&!$('#lgt-panel-library').hidden)history.replaceState(null,'',`#lgt-library-${currentWorkview}`);
+    if(updateUrl&&!$('#lgt-panel-library').hidden)setWorkspaceHash(`lgt-library-${currentWorkview}`);
     if(currentWorkview==='translations'&&!libraryLoaded)loadLibrary(1).catch(x=>notify(x.message,true));
   };
   const showPanel=(name,scroll=false,workview='jobs')=>{
@@ -240,7 +245,7 @@
     $$('[data-lgt-panel]').forEach(p=>p.hidden=p!==target);
     $$('.lgt-step').forEach(b=>{const active=b.dataset.lgtGo===name;b.setAttribute('aria-selected',String(active));b.tabIndex=active?0:-1;});
     if(name==='library')selectWorkview(workview,false);
-    history.replaceState(null,'',name==='library'?`#lgt-library-${currentWorkview}`:`#lgt-${name}`);
+    setWorkspaceHash(name==='library'?`lgt-library-${currentWorkview}`:`lgt-${name}`);
     if(scroll)target.scrollIntoView({behavior:'smooth',block:'start'});
   };
   $$('[data-lgt-go]').forEach(b=>b.addEventListener('click',()=>showPanel(b.dataset.lgtGo,true,b.dataset.lgtLibraryView||'jobs')));

@@ -1,6 +1,6 @@
 # LONGOS Global Translation — implementation audit and rollback notes
 
-Last reviewed: 2026-11-10. Current plugin release: **v1.17.0**.
+Last reviewed: 2026-11-10. Current plugin release: **v1.17.1**.
 
 ## Architecture and trust boundaries
 

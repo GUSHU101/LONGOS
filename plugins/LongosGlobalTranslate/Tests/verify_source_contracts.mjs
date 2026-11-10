@@ -139,6 +139,15 @@ assert.match(admin, /data-lgt-workview="translations"/);
 assert.match(admin, /function\s+renderNextAction|const renderNextAction/);
 assert.match(admin, /let dispatchReady = @json\(\$dispatchReady\)/);
 assert.match(admin, /const selectWorkview=/);
+assert.match(admin, /const setWorkspaceHash=/);
+assert.match(admin, /`\$\{url\.pathname\}\$\{url\.search\}\$\{url\.hash\}`/);
+assert.doesNotMatch(admin, /replaceState\(null,'',`#lgt-/);
+assert.doesNotMatch(admin, /href="#lgt-/);
+const adminBase = new URL('/admin/', 'https://tenant.example');
+assert.equal(new URL('#lgt-providers', adminBase).pathname, '/admin/', 'A bare hash is unsafe under the admin base URL');
+const workspaceUrl = new URL('https://tenant.example/admin/global-translate?scope=all#lgt-overview');
+workspaceUrl.hash = 'lgt-providers';
+assert.equal(`${workspaceUrl.pathname}${workspaceUrl.search}${workspaceUrl.hash}`, '/admin/global-translate?scope=all#lgt-providers');
 assert.match(admin, /if\(currentWorkview==='translations'&&!libraryLoaded\)loadLibrary/);
 assert.match(admin, /refreshTimer=setTimeout\(refresh,nextPoll\)/);
 assert.doesNotMatch(admin, /setInterval\(refresh,8000\)/);
@@ -154,7 +163,7 @@ assert.match(jobs, /\$report\s*=\s*\$this->scanner->scan\(\$kinds, \$actorId\)/)
 assert.match(builderRuntimeTest, /ContentScanner::builderDisplayFields/);
 assert.match(builderRuntimeTest, /'seo\.title'/);
 assert.match(builderRuntimeTest, /'blocks\.0\.cta_text'/);
-assert.match(read('Services/StorefrontPresentationConfig.php'), /PLUGIN_RELEASE = '1\.17\.0'/);
+assert.match(read('Services/StorefrontPresentationConfig.php'), /PLUGIN_RELEASE = '1\.17\.1'/);
 
 const inlineScript = admin.match(/<script>([\s\S]*?)<\/script>/)?.[1];
 assert.ok(inlineScript, 'Admin JS script exists');
@@ -167,7 +176,7 @@ for (const match of inlineScript.matchAll(/\$\('#(lgt-[\w-]+)'\)/g)) {
 }
 
 const config = JSON.parse(read('config.json'));
-assert.equal(config.version, 'v1.17.0');
+assert.equal(config.version, 'v1.17.1');
 const limiter = read('Services/SiliconFlowRateLimiter.php');
 const verification = read('Services/ProviderVerificationService.php');
 const siliconflowMigration = read('Migrations/2026_11_09_000011_add_siliconflow_rate_pacing.php');
@@ -202,7 +211,7 @@ assert.ok(storefront.includes("'widget_visible'"));
 assert.ok(boot.includes('TranslationSettings::presentationActive($settings)'));
 assert.ok(!boot.includes('forRequest(request(), $settings)'));
 assert.ok(!view.includes('longos-global-translate-bootstrap'));
-assert.ok(view.includes('widget.css') && view.includes('?v=1.17.0'));
+assert.ok(view.includes('widget.css') && view.includes('?v=1.17.1'));
 assert.ok(widget.includes("request(root.dataset.configUrl, {cache: 'no-store'})"));
 assert.ok(widget.includes('root.hidden = !data.widget_visible'));
 assert.ok(widget.includes('observeNewPublicModules'));

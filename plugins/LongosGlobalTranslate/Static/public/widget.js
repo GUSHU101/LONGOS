@@ -92,7 +92,7 @@
   };
 
   const debugEnabled = new URLSearchParams(window.location.search).get('lgt_debug') === '1';
-  const widgetRelease = '1.17.0';
+  const widgetRelease = '1.17.1';
   // Render every public root on a normal catalogue/listing page. Requests
   // remain bounded and are split into server-validated batches below, so a
   // long collection cannot silently stop translating after the first screen.
