@@ -677,6 +677,38 @@ class GlobalTranslationWorkflowTest extends TestCase
         self::assertSame(2_000, (int) $row->external_usage_buffer);
     }
 
+    public function test_siliconflow_rate_only_dispatch_does_not_apply_the_generic_qps_ceiling(): void
+    {
+        $accounts = new ProviderAccountService;
+        $account  = $accounts->save([
+            'provider'          => 'siliconflow',
+            'billing_identity'  => 'qps-bypass-account',
+            'enabled'           => true,
+            'qps_limit'         => 1,
+            'rpm_limit'         => 1_000,
+            'tpm_limit'         => 80_000,
+        ], [
+            'api_key' => 'sf-qps-bypass-key',
+            'model'   => SiliconFlowProvider::DEFAULT_MODEL,
+        ], 32);
+        $accounts->markVerified((int) $account['id'], 32);
+        $accounts->setDispatch((int) $account['id'], true, 32);
+
+        $at    = CarbonImmutable::parse('2026-11-10 12:00:00.123456', 'UTC');
+        $nowUs = ((int) $at->format('U')) * 1_000_000 + (int) $at->format('u');
+        DB::table('lgt_provider_accounts')->where('id', $account['id'])->update([
+            // The generic 1 QPS limiter would reject this future timestamp.
+            'last_dispatch_at_us' => $nowUs + 900_000,
+        ]);
+        $ledger  = new UsageLedger;
+        $attempt = $ledger->reserve((int) $account['id'], 10);
+
+        $ledger->markSending($attempt['id'], $at);
+
+        self::assertSame(UsageLedger::SENDING, DB::table('lgt_attempts')->where('id', $attempt['id'])->value('state'));
+        self::assertSame($nowUs, (int) DB::table('lgt_provider_accounts')->where('id', $account['id'])->value('last_dispatch_at_us'));
+    }
+
     public function test_siliconflow_rate_windows_and_cooldowns_are_isolated_by_account_and_model(): void
     {
         $limiter = new SiliconFlowRateLimiter;

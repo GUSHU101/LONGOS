@@ -273,7 +273,7 @@
     const [a,b]=p.credential_fields,editing=editingAccount!==null,multi=Array.isArray(p.model_options);
     const rateOnly=provider.value==='siliconflow';
     sfRateFields.hidden=!multi;sfRateFields.style.display=multi?'':'none';rateOnlyNote.hidden=!rateOnly;
-    $('#lgt-free-quota').closest('.lgt-field').hidden=rateOnly;$('#lgt-soft-cap').closest('.lgt-field').hidden=rateOnly;$('#lgt-buffer').closest('.lgt-field').hidden=rateOnly;
+    $('#lgt-free-quota').closest('.lgt-field').hidden=rateOnly;$('#lgt-soft-cap').closest('.lgt-field').hidden=rateOnly;$('#lgt-buffer').closest('.lgt-field').hidden=rateOnly;$('#lgt-qps').closest('.lgt-field').hidden=rateOnly;
     $('#lgt-free-quota').disabled=rateOnly;$('#lgt-soft-cap').disabled=rateOnly;$('#lgt-buffer').disabled=rateOnly;
     if(rateOnly){$('#lgt-free-quota').value='0';$('#lgt-soft-cap').value='0';$('#lgt-buffer').value='0';}
     $('#lgt-key-one-label').textContent=a.label;$('#lgt-key-two-label').textContent=b.label;
@@ -501,7 +501,7 @@
   const renderAccountUsage=accounts=>{(accounts||[]).forEach(account=>{
     const button=$(`.lgt-provider-edit[data-id="${CSS.escape(String(account.id))}"]`),quota=button?.closest('tr')?.querySelector('.lgt-quota'),usage=account.local_usage||null;if(!quota||!usage)return;
     const committed=Number(usage.committed||0).toLocaleString('zh-CN'),processing=Number(usage.reserved||0)+Number(usage.sending||0),uncertain=Number(usage.uncertain||0).toLocaleString('zh-CN'),strong=quota.querySelector('.lgt-quota-head strong'),rate=quota.querySelector('.lgt-quota-head span'),bar=quota.querySelector('.lgt-quota-bar span'),details=quota.querySelectorAll('small');
-    if(usage.budget_enforced===false){if(strong)strong.textContent='仅速率限制';if(rate)rate.textContent=`${account.rpm_limit||1000} RPM`;if(bar)bar.style.width='100%';if(details[0])details[0].textContent=`${usage.billing_cycle||'当前周期'} · 已提交 ${committed} · 处理中 ${processing.toLocaleString('zh-CN')} · 不确定 ${uncertain}`;if(details[1])details[1].textContent=`${account.rpm_limit||1000} RPM · ${Number(account.tpm_limit||80000).toLocaleString('zh-CN')} TPM · ${account.qps_limit||1} QPS`;return;}
+    if(usage.budget_enforced===false){if(strong)strong.textContent='仅速率限制';if(rate)rate.textContent=`${account.rpm_limit||1000} RPM`;if(bar)bar.style.width='100%';if(details[0])details[0].textContent=`${usage.billing_cycle||'当前周期'} · 已提交 ${committed} · 处理中 ${processing.toLocaleString('zh-CN')} · 不确定 ${uncertain}`;if(details[1])details[1].textContent=`用户账户 + 模型总上限：${account.rpm_limit||1000} RPM · ${Number(account.tpm_limit||80000).toLocaleString('zh-CN')} TPM`;return;}
     const remaining=Number(usage.remaining||0).toLocaleString('zh-CN'),limit=Number(usage.local_limit||0).toLocaleString('zh-CN'),percent=Math.max(0,Math.min(100,Number(usage.used_percent||0)));if(strong)strong.textContent=`剩余 ${remaining}`;if(rate)rate.textContent=`${percent}%`;if(bar)bar.style.width=`${percent}%`;if(details[0])details[0].textContent=`${usage.billing_cycle||'当前周期'} · 已提交 ${committed} · 处理中 ${processing.toLocaleString('zh-CN')} · 不确定 ${uncertain}`;if(details[1])details[1].textContent=`本地上限 ${limit} · ${account.qps_limit||1} QPS`;
   });};
   renderAccountUsage(configuredAccounts);

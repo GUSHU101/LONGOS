@@ -320,8 +320,21 @@ final class UsageLedger
      */
     private function paceAccount(object $account, ?CarbonImmutable $now): CarbonImmutable
     {
-        $qps = min(10, max(1, (int) $account->qps_limit));
         $now ??= CarbonImmutable::now('UTC');
+        if ($this->budgetMode($account) === 'rate_only') {
+            // SiliconFlow documents chat limits as RPM/TPM at the provider
+            // user-account + model level. Its dedicated durable limiter owns
+            // that window; applying the generic QPS gate here would turn the
+            // official 1,000 RPM ceiling into an artificial 60 RPM ceiling.
+            DB::table('lgt_provider_accounts')->where('id', $account->id)->update([
+                'last_dispatch_at_us' => $this->epochMicroseconds($now),
+                'updated_at'          => $now,
+            ]);
+
+            return $now;
+        }
+
+        $qps        = min(10, max(1, (int) $account->qps_limit));
         $nowUs      = $this->epochMicroseconds($now);
         $intervalUs = (int) ceil(1_000_000 / $qps);
         $lastUs     = max(0, (int) ($account->last_dispatch_at_us ?? 0));

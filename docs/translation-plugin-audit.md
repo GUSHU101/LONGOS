@@ -21,7 +21,7 @@ Last reviewed: 2026-11-10. Current plugin release: **v1.17.0**.
 | Credential safety | Encrypted credentials are redacted from controllers, logs and storefront JSON. Verification is an explicit administrator action. |
 | Billing safety | `UsageLedger` journals `reserved`, `sending`, `committed`, `definite_failed` and `uncertain`. Metered providers enforce character budgets; rate-only free models retain the audit ledger without an invented character cap. Unknown post-send outcomes are never blindly retried. |
 | Multi-worker safety | Opaque run tokens own claims. Job/item locks serialize pause, cancel, recovery and completion. A concurrent pause releases an unsent claim; a true cancellation consumes it. |
-| Provider pacing | Per-account QPS controls apply to standard providers. SiliconFlow additionally uses durable account/model RPM, TPM and remote-cooldown windows with delayed resume. |
+| Provider pacing | Per-account QPS controls apply to metered providers. SiliconFlow bypasses that artificial gate and uses only durable provider-user-account/model RPM, TPM and remote-cooldown windows with delayed resume. |
 | Human precedence | Manual edits use version compare-and-swap; reviewed locked rows cannot be overwritten by machine output. |
 | Publication | Publication items are immutable snapshots. Rollback creates a new revision, and locale maintenance uses a shared mutex with planning/publication. |
 | Storefront safety | The widget uses a secure host-only HttpOnly locale cookie, bounded selectors and versioned dictionary responses; it is omitted from sensitive flows. |

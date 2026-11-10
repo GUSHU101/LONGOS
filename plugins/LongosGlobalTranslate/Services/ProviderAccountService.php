@@ -98,8 +98,8 @@ final class ProviderAccountService
                     ['value' => 'tencent/Hunyuan-MT-7B', 'label' => 'Hunyuan-MT-7B · 专用翻译（默认）'],
                     ['value' => 'XingChenAGI/Xing4.0-29B', 'label' => 'Xing4.0-29B · 通用 AI 翻译'],
                 ],
-                'account_help' => '填写一个便于自己识别的 API Key 用途，例如：站点翻译。',
-                'quota_help'   => '当前免费模型不使用字符额度，系统只按每个 API 账户的 RPM/TPM 限速并记录用量审计；官方定价变更后需重新核对。',
+                'account_help' => '填写硅基流动用户账户的唯一标识。官方限流按用户账户而非 API Key 计算；同一用户的不同 Key 必须复用这条账户记录。',
+                'quota_help'   => '当前免费模型不使用字符或周期总额度，也不叠加本地 QPS；只以用户账户 + 模型的 RPM/TPM 作为总上限。',
             ],
         ];
     }
