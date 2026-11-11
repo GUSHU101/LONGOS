@@ -36,6 +36,8 @@ class ProductDetailPresentationTest extends TestCase
         $footer       = (string) file_get_contents($root . '/themes/default/layout/footer.blade.php');
         $paymentTrust = (string) file_get_contents($root . '/themes/default/design/payment_trust.blade.php');
         $footerStyle  = (string) file_get_contents($root . '/resources/beike/shop/default/css/footer-rebuild.scss');
+        $platformPay  = (string) file_get_contents($root . '/plugins/LongosPlatformPay/Views/product/paypal-express.blade.php');
+        $payBootstrap = (string) file_get_contents($root . '/plugins/LongosPlatformPay/Bootstrap.php');
 
         $buttonPosition      = strpos($product, 'class="product-btns"');
         $descriptionPosition = strpos($product, 'class="product-description');
@@ -117,6 +119,12 @@ class ProductDetailPresentationTest extends TestCase
         self::assertStringNotContainsString("$('#zoom').zoom", $product);
         self::assertStringContainsString('product-cta product-cta--secondary', $product);
         self::assertStringContainsString('product-cta product-cta--primary', $product);
+        self::assertStringContainsString('.btn-paypal-express', $product);
+        self::assertStringContainsString('addCart(true, $event.currentTarget, \'paypal\')', $platformPay);
+        self::assertStringContainsString('product-paypal-express__mark', $platformPay);
+        self::assertStringContainsString("add_hook_blade('product.detail.buy.after'", $payBootstrap);
+        self::assertStringContainsString('.btn-paypal-express', $styles);
+        self::assertStringContainsString('background: #ffc439 !important;', $styles);
         self::assertStringNotContainsString('class="product-cta__arrow"', $product);
         self::assertStringNotContainsString('class="product-cta__icon"', $product);
         self::assertStringNotContainsString('<span>Sale</span>', $product);

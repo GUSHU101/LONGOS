@@ -3,11 +3,9 @@
   $defaultProvider = $inlineProviders[0] ?? '';
 @endphp
 <style>
-  .longos-platform-inline { background:#f8fafc; border:1px solid #dbe3ee; border-radius:12px; margin-top:14px; padding:16px; }
+  .longos-platform-inline { margin-top:0; }
   .longos-platform-inline[hidden] { display:none!important; }
-  .longos-platform-inline h3 { color:#172033; font-size:15px; font-weight:700; margin:0 0 4px; }
-  .longos-platform-inline__intro { color:#667085; font-size:13px; margin:0 0 14px; }
-  .longos-platform-inline__providers { display:grid; gap:8px; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); }
+  .longos-platform-inline__providers { display:grid; gap:8px; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); margin-top:12px; }
   .longos-platform-inline__provider { align-items:center; background:#fff; border:1px solid #cfd8e5; border-radius:9px; cursor:pointer; display:flex; font-weight:650; gap:9px; min-height:48px; padding:10px 12px; }
   .longos-platform-inline__provider:has(input:checked) { border-color:#2563eb; box-shadow:0 0 0 3px rgba(37,99,235,.12); }
   .longos-platform-inline__provider input { accent-color:#2563eb; height:18px; width:18px; }
@@ -15,15 +13,14 @@
   .longos-platform-inline__card.StripeElement--focus { border-color:#2563eb; box-shadow:0 0 0 3px rgba(37,99,235,.14); }
   .longos-platform-inline__card.StripeElement--invalid { border-color:#b42318; }
   .longos-platform-inline__status { color:#667085; font-size:13px; margin:10px 0 0; min-height:20px; }
+  .longos-platform-inline__status:empty { display:none; }
   .longos-platform-inline__status.is-error { color:#b42318; }
   .longos-platform-inline__fallback { display:inline-block; font-size:13px; margin-top:8px; }
   .longos-platform-inline__fallback[hidden] { display:none!important; }
 </style>
 
-<section id="longos-platform-inline" class="longos-platform-inline" hidden aria-hidden="true" aria-labelledby="longos-platform-inline-title">
-  <h3 id="longos-platform-inline-title">{{ trans('LongosPlatformPay::common.inline_title') }}</h3>
-  <p class="longos-platform-inline__intro">{{ trans('LongosPlatformPay::common.inline_intro') }}</p>
-  <div class="longos-platform-inline__providers" role="radiogroup" aria-label="{{ trans('LongosPlatformPay::common.methods_label') }}">
+<section id="longos-platform-inline" class="longos-platform-inline" hidden aria-hidden="true" aria-label="{{ trans('LongosPlatformPay::common.methods_label') }}">
+  <div class="longos-platform-inline__providers" role="radiogroup" aria-label="{{ trans('LongosPlatformPay::common.methods_label') }}" @if(count($inlineProviders) === 1) hidden @endif>
     @foreach ($inlineProviders as $provider)
       <label class="longos-platform-inline__provider">
         <input type="radio" name="longos_platform_inline_provider" value="{{ $provider }}" {{ $provider === $defaultProvider ? 'checked' : '' }}>

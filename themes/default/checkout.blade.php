@@ -112,7 +112,10 @@
     .checkbox input { height: 16px; margin-top: 1px; width: 16px; }
     .address-helper { align-items: center; color: #666; display: flex; font-size: 12px; gap: 6px; margin-top: 9px; }
     .address-helper-icon { align-items: center; background: #f0f0f0; border-radius: 50%; display: flex; font-size: 9px; height: 15px; justify-content: center; width: 15px; }
-    .address-autocomplete__control { position: relative; }
+    .address-autocomplete__control { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr) auto; position: relative; }
+    .address-autocomplete__search { align-items: center; background: #fff; border: 1px solid #bbb; border-radius: 6px; color: #171717; display: inline-flex; font-size: 12px; font-weight: 650; justify-content: center; min-height: 44px; padding: 0 14px; }
+    .address-autocomplete__search:hover:not(:disabled) { background: #f5f5f3; }
+    .address-autocomplete__search:disabled { color: #888; cursor: not-allowed; opacity: .65; }
     .address-suggestions { background: #fff; border: 1px solid #d7d7d7; border-radius: 8px; box-shadow: 0 14px 34px rgba(17,17,17,.13); left: 0; margin-top: 6px; max-height: 290px; overflow-y: auto; position: absolute; right: 0; top: 100%; z-index: 40; }
     .address-suggestion { background: #fff; border: 0; border-bottom: 1px solid #ededed; color: #171717; display: block; min-height: 52px; padding: 10px 13px; text-align: left; width: 100%; }
     .address-suggestion:last-child { border-bottom: 0; }
@@ -419,14 +422,6 @@
                   <img src="{{ $payment['icon'] }}" class="payment-provider-icon" alt="">
                 @endif
               </button>
-              @if ($payment['code'] == $current['payment_method_code'])
-                <div class="payment-fields">
-                  @if (!empty($payment['description']))
-                    <p class="payment-description">{{ strip_tags((string) $payment['description']) }}</p>
-                  @endif
-                  <div class="payment-note"><span class="payment-lock" aria-hidden="true">🔒</span><span>{{ __('shop/checkout.payment_provider_note') }}</span></div>
-                </div>
-              @endif
             </div>
           @empty
             <div class="checkout-empty-state" role="status">{{ __('shop/checkout.no_payment_methods') }}</div>
@@ -532,7 +527,6 @@
       'invalidOrderResponse' => __('shop/checkout.invalid_order_response'),
       'shippingAddressNeeded' => __('shop/checkout.shipping_address_needed'),
       'completeShippingDetails' => __('shop/checkout.complete_shipping_details'),
-      'providerSecurity' => __('shop/checkout.payment_provider_note'),
       'invalidPayment' => __('shop/checkout.no_payment_methods'),
       'orderProcessing' => __('shop/checkout.order_processing'),
       'checkoutUpdated' => __('shop/checkout.checkout_updated'),
@@ -810,6 +804,15 @@
         }).finally(() => $button.prop('disabled', false).removeAttr('aria-busy'));
       });
 
+      const requestedExpressProvider = new URL(window.location.href).searchParams.get('express');
+      if (requestedExpressProvider === 'paypal') {
+        const expressUrl = new URL(window.location.href);
+        expressUrl.searchParams.delete('express');
+        window.history.replaceState(window.history.state, '', expressUrl.toString());
+        const $paypalExpress = $('[data-express-payment="longos_platform_pay"][data-express-direct="1"]').first();
+        if ($paypalExpress.length) window.setTimeout(() => $paypalExpress.trigger('click'), 0);
+      }
+
       $('#apply-discount-code').click(function () {
         const $button = $(this);
         $button.prop('disabled', true);
@@ -983,7 +986,6 @@
             <span class="payment-method"><span class="payment-radio" aria-hidden="true"></span>${escapeCheckoutText(item.name || item.code)}</span>
             ${brands || (icon ? `<img src="${icon}" class="payment-provider-icon" alt="">` : '')}
           </button>
-          ${selected ? `<div class="payment-fields">${item.description ? `<p class="payment-description">${escapeCheckoutText(stripCheckoutMarkup(item.description))}</p>` : ''}<div class="payment-note"><span class="payment-lock" aria-hidden="true">🔒</span><span>${escapeCheckoutText(checkoutMessages.providerSecurity)}</span></div></div>` : ''}
         </div>`;
       })
 

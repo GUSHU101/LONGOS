@@ -1,22 +1,23 @@
 @if ($paginator->hasPages())
   @if(is_mobile())
-    <div class="mobile-paginator">
+    <nav class="mobile-paginator" aria-label="{{ __('common.pagination') }}">
       @if ($paginator->previousPageUrl())
-        <a class="btn bg-white" href="{{ replace_url($paginator->previousPageUrl()) }}" rel="prev"><i class="bi bi-chevron-left" aria-hidden="true"></i> @lang('pagination.previous')</a>
+        <a class="btn bg-white mobile-paginator__direction" href="{{ replace_url($paginator->previousPageUrl()) }}" rel="prev"><i class="bi bi-chevron-left" aria-hidden="true"></i> @lang('pagination.previous')</a>
       @else
-        <span class="btn bg-white disabled" aria-disabled="true"><i class="bi bi-chevron-left" aria-hidden="true"></i> @lang('pagination.previous')</span>
+        <span class="btn bg-white disabled mobile-paginator__direction" aria-disabled="true"><i class="bi bi-chevron-left" aria-hidden="true"></i> @lang('pagination.previous')</span>
       @endif
       <div class="input-group">
         <input type="text" inputmode="numeric" pattern="[0-9]*" aria-label="{{ __('common.pagination') }}" class="form-control" id="mb-page-input" onkeyup="this.value=this.value.replace(/\D/g,'')"
                value="{{ $paginator->currentPage() }}">
+        <span class="mobile-paginator__separator" aria-hidden="true">/</span>
         <span class="input-group-text">{{ $paginator->lastPage() }}</span>
       </div>
       @if ($paginator->nextPageUrl())
-        <a class="btn bg-white" href="{{ replace_url($paginator->nextPageUrl()) }}" rel="next">@lang('pagination.next') <i class="bi bi-chevron-right" aria-hidden="true"></i></a>
+        <a class="btn bg-white mobile-paginator__direction" href="{{ replace_url($paginator->nextPageUrl()) }}" rel="next">@lang('pagination.next') <i class="bi bi-chevron-right" aria-hidden="true"></i></a>
       @else
-        <span class="btn bg-white disabled" aria-disabled="true">@lang('pagination.next') <i class="bi bi-chevron-right" aria-hidden="true"></i></span>
+        <span class="btn bg-white disabled mobile-paginator__direction" aria-disabled="true">@lang('pagination.next') <i class="bi bi-chevron-right" aria-hidden="true"></i></span>
       @endif
-    </div>
+    </nav>
 
     <script>
       $('#mb-page-input').on('change', function () {

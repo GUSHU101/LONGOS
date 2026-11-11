@@ -120,10 +120,18 @@ class PaymentInitiationFlowTest extends TestCase
         self::assertStringContainsString('data-express-direct', $checkout);
         self::assertStringContainsString("window.setTimeout(() => $('#submit-checkout').trigger('click'), 0)", $checkout);
         self::assertStringContainsString('normal submit handler first commits/validates the address', $checkout);
+        self::assertStringContainsString("add_hook_blade('product.detail.buy.after'", $bootstrap);
+        self::assertStringContainsString('app(PlatformPaymentSettings::class)->availableProviders()', $bootstrap);
+        self::assertStringContainsString("searchParams.get('express')", $checkout);
+
+        $settings = (string) file_get_contents($root . '/app/Services/PlatformPayment/PlatformPaymentSettings.php');
+        self::assertStringContainsString('longos.platform-payment.providers.', $settings);
+        self::assertStringContainsString('request()->attributes', $settings);
 
         $englishCheckout = require $root . '/lang/en/shop/checkout.php';
-        self::assertStringContainsString('directly from this checkout', $englishCheckout['platform_pay_help']);
-        self::assertStringNotContainsString('main-site payment page', $englishCheckout['platform_pay_help']);
+        self::assertArrayNotHasKey('platform_pay_help', $englishCheckout);
+        self::assertArrayNotHasKey('payment_provider_note', $englishCheckout);
+        self::assertStringNotContainsString('Payment instructions are handled', $checkout);
     }
 
     public function test_platform_session_public_errors_do_not_expose_control_plane_diagnostics(): void

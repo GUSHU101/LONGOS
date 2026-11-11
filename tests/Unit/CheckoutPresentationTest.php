@@ -139,6 +139,10 @@ class CheckoutPresentationTest extends TestCase
         self::assertStringContainsString('normalizedCode.split(\'-\').pop()', $address);
         self::assertStringContainsString('@input="onAddressLineInput"', $address);
         self::assertStringContainsString('@change="syncBrowserAutofill()"', $address);
+        self::assertStringContainsString('@click="searchAddressNow"', $address);
+        self::assertStringContainsString('@keydown.enter="handleAddressEnter"', $address);
+        self::assertStringContainsString('searchAddressNow()', $address);
+        self::assertStringContainsString('handleAddressEnter(event)', $address);
         self::assertStringContainsString('structuredAddressParts(value)', $address);
         self::assertStringContainsString("['US', 'CA'].includes(countryCode)", $address);
         self::assertStringContainsString('applyStructuredAddressInput()', $address);
@@ -158,7 +162,8 @@ class CheckoutPresentationTest extends TestCase
         self::assertStringNotContainsString('<div class="payment-option radio-line-item', $checkout);
         self::assertStringNotContainsString('id="checkout-comment"', $checkout);
         self::assertStringNotContainsString("comment: $('textarea[name=comment]').val()", $checkout);
-        self::assertStringContainsString('escapeCheckoutText(stripCheckoutMarkup(item.description))', $checkout);
+        self::assertStringNotContainsString('escapeCheckoutText(stripCheckoutMarkup(item.description))', $checkout);
+        self::assertStringNotContainsString('checkoutMessages.providerSecurity', $checkout);
         self::assertStringContainsString("\$shipping['description']", $checkout);
         self::assertStringContainsString('quote.description', $checkout);
         self::assertStringNotContainsString('quote.html', $checkout);

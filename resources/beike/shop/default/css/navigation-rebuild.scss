@@ -262,6 +262,51 @@ header .header-content .account-menu .account-menu__login { justify-content: cen
 }
 
 @media (max-width: 991.98px) {
+  header .header-mobile {
+    background: rgba(255, 255, 255, .98) !important;
+    border-bottom: 1px solid #e6e5e0 !important;
+    min-height: 60px !important;
+  }
+
+  header .header-mobile.fixed { box-shadow: 0 8px 24px rgba(23, 23, 20, .08); }
+
+  header .header-mobile .mobile-content {
+    align-items: center;
+    min-height: 60px;
+    padding: 0 10px;
+  }
+
+  header .header-mobile .mobile-content > .left,
+  header .header-mobile .mobile-content > .right {
+    align-items: center;
+    display: flex;
+    flex: 1 1 0;
+    gap: 2px;
+  }
+
+  header .header-mobile .mobile-content > .right { justify-content: flex-end; }
+  header .header-mobile .mobile-content > .center { flex: 0 1 132px; }
+  header .header-mobile .mobile-content > .center a {
+    align-items: center;
+    display: flex;
+    height: 36px;
+    justify-content: center;
+  }
+  header .header-mobile .mobile-content > .center img { max-height: 30px; max-width: 124px; object-fit: contain; }
+
+  header .header-mobile :is(.mobile-open-menu, .mobile-open-search, .mb-account-icon, .m-cart) {
+    align-items: center;
+    border-radius: 50%;
+    display: inline-flex;
+    height: 44px;
+    justify-content: center;
+    margin: 0 !important;
+    min-width: 44px;
+    padding: 0 !important;
+  }
+
+  header .header-mobile :is(.mobile-open-menu, .mobile-open-search, .mb-account-icon, .m-cart):hover { background: #f5f5f2 !important; }
+
   header .header-mobile .mobile-open-menu {
     align-items: center;
     display: inline-flex;

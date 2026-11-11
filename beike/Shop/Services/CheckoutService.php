@@ -663,7 +663,6 @@ class CheckoutService
                         : ($hasPaypal ? 'shop/checkout.platform_paypal' : 'shop/checkout.platform_card');
 
                     $method['name']           = trans($nameKey);
-                    $method['description']    = trans('shop/checkout.platform_pay_help');
                     $method['icon']           = '';
                     $method['provider_codes'] = $providers;
                     $method['brand_marks']    = PlatformPaymentSettings::paymentMarksForProviders($providers);

@@ -60,5 +60,24 @@ class Bootstrap
                 return $output;
             }
         });
+
+        add_hook_blade('product.detail.buy.after', static function ($callback, $output, $data) {
+            if ((bool) data_get(current_site()?->meta, 'control_site', false)) {
+                return $output;
+            }
+
+            try {
+                if (! in_array('paypal', app(PlatformPaymentSettings::class)->availableProviders(), true)) {
+                    return $output;
+                }
+
+                return $output . view('LongosPlatformPay::product.paypal-express')->render();
+            } catch (Throwable) {
+                // Product purchase must remain usable when provider discovery
+                // is temporarily unavailable. Hiding express checkout is safer
+                // than advertising a PayPal route that cannot create an order.
+                return $output;
+            }
+        });
     }
 }

@@ -77,7 +77,7 @@
                  @change="syncBrowserAutofill()"
                  @keydown.down.prevent="moveSuggestion(1)"
                  @keydown.up.prevent="moveSuggestion(-1)"
-                 @keydown.enter="selectActiveSuggestion"
+                 @keydown.enter="handleAddressEnter"
                  @keydown.esc="clearAddressSuggestions()"
                  @blur="deferSuggestionClose"
                  placeholder="{{ __('shop/checkout.street_address') }}"
@@ -86,6 +86,7 @@
                  aria-controls="checkout-address-suggestions" :aria-expanded="addressSuggestions.length ? 'true' : 'false'"
                  :aria-activedescendant="activeSuggestion >= 0 ? 'checkout-address-suggestion-' + activeSuggestion : null"
                  aria-describedby="checkout-address-lookup-status">
+          <button class="address-autocomplete__search" type="button" @click="searchAddressNow" :disabled="addressLookupLoading || String(addressForm.address_1 || '').trim().length < 3">@{{ messages.addressLookupSearch }}</button>
           <div id="checkout-address-suggestions" class="address-suggestions" v-if="addressSuggestions.length" role="listbox" :aria-label="messages.addressSuggestions">
             <button v-for="(suggestion, index) in addressSuggestions" :id="'checkout-address-suggestion-' + index" :key="suggestion.label + index"
                     class="address-suggestion" type="button" role="option" :aria-selected="index === activeSuggestion ? 'true' : 'false'"
@@ -190,6 +191,7 @@
     'unableUpdate' => __('shop/checkout.unable_update_checkout'),
     'checkoutUpdated' => __('shop/checkout.checkout_updated'),
     'addressLookupHelp' => __('shop/checkout.address_lookup_help'),
+    'addressLookupSearch' => __('shop/checkout.address_lookup_search'),
     'addressLookupSearching' => __('shop/checkout.address_lookup_searching'),
     'addressLookupEmpty' => __('shop/checkout.address_lookup_empty'),
     'addressLookupUnavailable' => __('shop/checkout.address_lookup_unavailable'),
@@ -430,7 +432,7 @@
         // is deliberately conservative: it only accepts an unambiguous,
         // country-matching city/region/postal suffix and never replaces fields
         // the customer has already entered independently.
-        if (this.applyStructuredAddressInput()) return;
+        this.applyStructuredAddressInput();
 
         // Address lookup is an optional assist, never a reason to interrupt
         // typing. Wait for a deliberate pause and retain only the newest
@@ -554,6 +556,15 @@
           if (this.addressLookupAbortController === controller) this.addressLookupAbortController = null;
         });
       },
+      searchAddressNow() {
+        window.clearTimeout(this.addressLookupTimer);
+        this.abortAddressLookupRequest();
+        const requestId = ++this.addressLookupRequestId;
+        this.addressSuggestions = [];
+        this.activeSuggestion = -1;
+
+        return this.lookupAddressSuggestions(requestId);
+      },
       addressLookupCacheKey(query, language, countryCode) {
         return [String(language || 'en').toLowerCase(), String(countryCode || '').toUpperCase(), String(query || '').trim().toLowerCase()].join('\u0000');
       },
@@ -608,6 +619,15 @@
         if (!this.addressSuggestions.length || this.activeSuggestion < 0) return;
         event?.preventDefault();
         this.selectAddressSuggestion(this.addressSuggestions[this.activeSuggestion]);
+      },
+      handleAddressEnter(event) {
+        event?.preventDefault();
+        if (this.addressSuggestions.length && this.activeSuggestion >= 0) {
+          this.selectAddressSuggestion(this.addressSuggestions[this.activeSuggestion]);
+          return;
+        }
+
+        this.searchAddressNow();
       },
       async selectAddressSuggestion(suggestion) {
         window.clearTimeout(this.addressLookupTimer);

@@ -26,8 +26,11 @@ class CartCategoryPresentationTest extends TestCase
         self::assertStringNotContainsString('<table class="table">', $cart);
         self::assertStringNotContainsString('btn btn-primary', $cart);
 
-        self::assertStringContainsString('grid-template-columns: minmax(0, 1fr) minmax(320px, 390px);', $styles);
+        self::assertStringContainsString('grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);', $styles);
         self::assertStringContainsString('min-height: 44px;', $styles);
+        self::assertStringContainsString('--cart-page: #f6f7f5;', $styles);
+        self::assertStringContainsString('border-radius: var(--cart-radius-lg);', $styles);
+        self::assertStringContainsString('appearance: none;', $styles);
         self::assertStringContainsString('@media (max-width: 575.98px)', $styles);
         self::assertStringContainsString('@media (prefers-reduced-motion: reduce)', $styles);
         self::assertStringContainsString("@import './cart-rebuild';", $app);
@@ -59,6 +62,10 @@ class CartCategoryPresentationTest extends TestCase
         self::assertStringContainsString('grid-template-columns: repeat(2, minmax(0, 1fr));', $styles);
         self::assertStringContainsString('width: min(90vw, 410px) !important;', $styles);
         self::assertStringContainsString('overflow-x: clip;', $styles);
+        self::assertStringContainsString('class="mobile-paginator"', (string) file_get_contents($root . '/themes/default/shared/pagination/bootstrap-4.blade.php'));
+        self::assertStringContainsString('mobile-paginator__direction', $styles);
+        self::assertStringContainsString('grid-template-columns: minmax(0, 1fr) 104px;', $styles);
+        self::assertStringContainsString('padding: 17px 18px 16px;', $styles);
         self::assertStringContainsString("@import './category-rebuild';", $app);
     }
 

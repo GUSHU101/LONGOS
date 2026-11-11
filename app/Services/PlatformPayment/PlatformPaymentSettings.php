@@ -318,7 +318,24 @@ class PlatformPaymentSettings
     /** @return list<string> */
     public function availableProviders(bool $requirePlatformEnabled = true): array
     {
-        return $this->availableProvidersForSnapshot($this->snapshot(), $requirePlatformEnabled);
+        $requestAttributes = null;
+        $cacheKey          = 'longos.platform-payment.providers.' . ($requirePlatformEnabled ? 'enabled' : 'configured');
+
+        try {
+            $requestAttributes = app()->bound('request') ? request()->attributes : null;
+            if ($requestAttributes?->has($cacheKey)) {
+                $cached = $requestAttributes->get($cacheKey);
+
+                return is_array($cached) ? array_values($cached) : [];
+            }
+        } catch (\Throwable) {
+            // CLI and isolated tests may not have a request in the container.
+        }
+
+        $providers = $this->availableProvidersForSnapshot($this->snapshot(), $requirePlatformEnabled);
+        $requestAttributes?->set($cacheKey, $providers);
+
+        return $providers;
     }
 
     /** @param array<string, mixed> $settings @return list<string> */

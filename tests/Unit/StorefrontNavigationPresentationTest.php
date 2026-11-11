@@ -76,6 +76,9 @@ class StorefrontNavigationPresentationTest extends TestCase
         self::assertStringContainsString('width: min(90vw, 23.75rem);', $styles);
         self::assertStringContainsString('@media (max-width: 359.98px)', $styles);
         self::assertStringContainsString('min-height: 3.5rem;', $styles);
+        self::assertStringContainsString('background: rgba(255, 255, 255, .98) !important;', $styles);
+        self::assertStringContainsString('min-height: 60px !important;', $styles);
+        self::assertStringContainsString('min-width: 44px;', $styles);
         self::assertStringContainsString('#offcanvas-mobile-menu :is(a, button):focus-visible', $styles);
         self::assertStringContainsString('overscroll-behavior: contain;', $styles);
         self::assertStringNotContainsString('radial-gradient', $styles);

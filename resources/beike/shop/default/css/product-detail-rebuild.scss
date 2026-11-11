@@ -571,6 +571,37 @@ body.page-product .product-btns .product-cta--primary:hover {
   border-color: color-mix(in srgb, var(--pdp-ink) 86%, #fff) !important;
 }
 
+body.page-product .product-paypal-express { margin-top: .625rem; }
+
+body.page-product .product-btns .btn-paypal-express {
+  align-items: center;
+  background: #ffc439 !important;
+  border: 1px solid #ffc439 !important;
+  border-radius: var(--pdp-radius) !important;
+  color: #003087 !important;
+  display: inline-flex;
+  justify-content: center;
+  min-height: 3.5rem;
+  padding: .85rem 1.1rem;
+  width: 100%;
+}
+
+body.page-product .product-btns .btn-paypal-express:hover {
+  background: #f2ba36 !important;
+  border-color: #f2ba36 !important;
+}
+
+body.page-product .product-paypal-express__mark {
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 1.25rem;
+  font-style: italic;
+  font-weight: 800;
+  letter-spacing: -.06em;
+}
+
+body.page-product .product-paypal-express__mark span:first-child { color: #003087; }
+body.page-product .product-paypal-express__mark span:last-child { color: #0070ba; }
+
 body.page-product .product-btns .product-cta:focus-visible,
 body.page-product .pdp-media-dialog__close:focus-visible {
   box-shadow: 0 0 0 .25rem color-mix(in srgb, var(--pdp-accent) 18%, transparent) !important;

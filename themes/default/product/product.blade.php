@@ -671,7 +671,7 @@
         return;
       }
 
-      const button = event.target.closest('#product-app .add-cart, #product-app .btn-buy-now');
+      const button = event.target.closest('#product-app .add-cart, #product-app .btn-buy-now, #product-app .btn-paypal-express');
       if (!button || window.longosProductVueMounted) return;
       event.preventDefault();
 
@@ -686,9 +686,14 @@
       const quantity = window.LongosProductQuantity
         ? window.LongosProductQuantity.clamp(quantityInput?.value, quantityMaximum)
         : Math.max(1, Math.min(quantityMaximum, Number.parseInt(quantityInput?.value, 10) || 1));
-      const buyNow = button.classList.contains('btn-buy-now');
+      const expressProvider = button.classList.contains('btn-paypal-express') ? 'paypal' : '';
+      const buyNow = button.classList.contains('btn-buy-now') || expressProvider !== '';
       window.bk.addCart({sku_id: skuId, quantity: quantity, isBuyNow: buyNow}, button, function () {
-        if (buyNow) location.href = @json(shop_route('checkout.index'));
+        if (buyNow) {
+          const checkoutUrl = new URL(@json(shop_route('checkout.index')), window.location.origin);
+          if (expressProvider) checkoutUrl.searchParams.set('express', expressProvider);
+          location.href = checkoutUrl.toString();
+        }
       });
     });
 
@@ -952,7 +957,7 @@
           closeVideo()
         },
 
-        addCart(isBuyNow = false, button = null) {
+        addCart(isBuyNow = false, button = null, expressProvider = '') {
           //判断如果是多规格 并且没有选择组合
           const realLength = this.selectedVariantsIndex.filter(v => v !== undefined).length;
 
@@ -987,7 +992,8 @@
           }
 
           bk.addCart(params, button, () => {
-            const path = @json(shop_route('checkout.index'));
+            const path = new URL(@json(shop_route('checkout.index')), window.location.origin);
+            if (expressProvider) path.searchParams.set('express', expressProvider);
 
             if (isIframe) {
               let index = parent.layer.getFrameIndex(window.name); //当前iframe层的索引
@@ -995,14 +1001,14 @@
               setTimeout(() => {
                 parent.layer.close(index);
                 if (isBuyNow) {
-                  parent.location.href = path;
+                  parent.location.href = path.toString();
                 } else {
                   parent.$('.btn-right-cart')[0].click()
                 }
               }, 400);
             } else {
               if (isBuyNow) {
-                location.href = path;
+                location.href = path.toString();
               }
             }
           });
