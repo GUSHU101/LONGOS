@@ -19,7 +19,7 @@ class InstantTranslatePluginContractTest extends TestCase
         $manifest = json_decode((string) file_get_contents($this->root . '/config.json'), true, 512, JSON_THROW_ON_ERROR);
 
         self::assertSame('longos_instant_translate', $manifest['code']);
-        self::assertSame('v2.0.1', $manifest['version']);
+        self::assertSame('v2.0.2', $manifest['version']);
         self::assertSame(InstantTranslateSettings::XNX3_SHA256, hash_file('sha256', $this->root . '/Static/public/vendor/translate.min.js'));
         self::assertFileExists($this->root . '/Static/public/vendor/LICENSE.translate.txt');
     }
@@ -59,5 +59,16 @@ class InstantTranslatePluginContractTest extends TestCase
         self::assertStringContainsString('X-CSRF-TOKEN', $script);
         self::assertStringNotContainsString('listener.start(', $script);
         self::assertStringNotContainsString('document.body.innerHTML', $script);
+    }
+
+    public function test_admin_scan_returns_immediately_and_runs_on_the_translation_queue(): void
+    {
+        $controller = (string) file_get_contents($this->root . '/Controllers/AdminSettingsController.php');
+        $job        = (string) file_get_contents($this->root . '/Jobs/ScanTranslationLibrary.php');
+
+        self::assertStringContainsString('ScanTranslationLibrary::dispatch', $controller);
+        self::assertStringNotContainsString('$scanner->scan(', $controller);
+        self::assertStringContainsString('implements ShouldBeUnique, ShouldQueue', $job);
+        self::assertStringContainsString("onQueue('translations')", $job);
     }
 }

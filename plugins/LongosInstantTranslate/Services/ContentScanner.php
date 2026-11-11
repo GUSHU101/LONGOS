@@ -13,6 +13,9 @@ use Illuminate\Support\Facades\Schema;
  */
 final class ContentScanner
 {
+    /** @var array<string, array{text:string,kind:string}> */
+    private array $buffer = [];
+
     private const DATABASE_SOURCES = [
         'product'       => ['product_descriptions', 'products', 'product_id', ['name'], ['content']],
         'category'      => ['category_descriptions', 'categories', 'category_id', ['name'], ['content']],
@@ -36,7 +39,8 @@ final class ContentScanner
     /** @param list<string> $targetLocales @return array{found:int,queued:int,sources:array<string,int>,errors:list<string>} */
     public function scan(array $targetLocales): array
     {
-        $report = ['found' => 0, 'queued' => 0, 'sources' => [], 'errors' => []];
+        $this->buffer = [];
+        $report       = ['found' => 0, 'queued' => 0, 'sources' => [], 'errors' => []];
         if (! LibrarySchema::ready()) {
             $report['errors'][] = 'schema_not_ready';
 
@@ -65,14 +69,14 @@ final class ContentScanner
             if (Schema::hasColumn($table, 'locale')) {
                 $query->where('locale', 'en');
             }
-            $query->orderBy($foreignKey)->chunk(200, function ($rows) use ($kind, $fields, $rich, $targetLocales, &$report): void {
+            $query->orderBy($foreignKey)->chunk(200, function ($rows) use ($kind, $fields, $rich, &$report): void {
                 foreach ($rows as $row) {
                     foreach ($fields as $field) {
-                        $this->record((string) ($row->{$field} ?? ''), $kind, $targetLocales, $report);
+                        $this->record((string) ($row->{$field} ?? ''), $kind, $report);
                     }
                     foreach ($rich as $field) {
                         foreach ($this->visibleTextNodes((string) ($row->{$field} ?? '')) as $text) {
-                            $this->record($text, $kind, $targetLocales, $report);
+                            $this->record($text, $kind, $report);
                         }
                     }
                 }
@@ -81,6 +85,7 @@ final class ContentScanner
 
         $this->scanStaticLanguageFiles($targetLocales, $report);
         $this->scanPublishedBuilder($targetLocales, $report);
+        $report['queued'] = $this->library->queueBatch(array_values($this->buffer), $targetLocales);
 
         return $report;
     }
@@ -117,7 +122,7 @@ final class ContentScanner
             if (is_array($value)) {
                 $this->walkStaticValues($value, $targetLocales, $report);
             } elseif (is_string($value)) {
-                $this->record($value, 'interface', $targetLocales, $report);
+                $this->record($value, 'interface', $report);
             }
         }
     }
@@ -148,10 +153,10 @@ final class ContentScanner
     /** @param array<string,mixed> $state @param list<string> $targetLocales @param array<string,mixed> $report */
     private function scanPublishedChrome(array $state, array $targetLocales, array &$report): void
     {
-        $record = function (mixed $value) use ($targetLocales, &$report): void {
+        $record = function (mixed $value) use (&$report): void {
             $text = $this->englishValue($value);
             if ($text !== '') {
-                $this->record($text, 'chrome', $targetLocales, $report);
+                $this->record($text, 'chrome', $report);
             }
         };
 
@@ -228,10 +233,10 @@ final class ContentScanner
             } elseif (is_string($value) && in_array($key, self::BUILDER_TEXT_KEYS, true)) {
                 if (str_contains($value, '<') && str_contains($value, '>')) {
                     foreach ($this->visibleTextNodes($value) as $text) {
-                        $this->record($text, 'builder', $targetLocales, $report);
+                        $this->record($text, 'builder', $report);
                     }
                 } else {
-                    $this->record($value, 'builder', $targetLocales, $report);
+                    $this->record($value, 'builder', $report);
                 }
             }
         }
@@ -288,16 +293,16 @@ final class ContentScanner
         }
     }
 
-    /** @param list<string> $targetLocales @param array<string,mixed> $report */
-    private function record(string $text, string $kind, array $targetLocales, array &$report): void
+    /** @param array<string,mixed> $report */
+    private function record(string $text, string $kind, array &$report): void
     {
         $normalized = TranslationLibrary::normalize($text);
         if ($normalized === '' || $this->sensitive($normalized)) {
             return;
         }
         $report['found']++;
-        $report['sources'][$kind] = (int) ($report['sources'][$kind] ?? 0) + 1;
-        $report['queued'] += $this->library->queue($normalized, $kind, $targetLocales);
+        $report['sources'][$kind]                                  = (int) ($report['sources'][$kind] ?? 0) + 1;
+        $this->buffer[TranslationLibrary::sourceHash($normalized)] = ['text' => $normalized, 'kind' => $kind];
     }
 
     private function sensitive(string $text): bool

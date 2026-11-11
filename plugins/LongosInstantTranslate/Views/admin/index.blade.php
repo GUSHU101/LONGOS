@@ -139,6 +139,16 @@
       <div class="lit-card__body">
         <form class="lit-inline" method="post" action="{{ admin_route('longos_instant_translate.library.scan') }}">@csrf<button class="btn btn-outline-primary" type="submit" @disabled(!$schemaReady)>扫描公开内容</button></form>
         <form class="lit-inline" method="post" action="{{ admin_route('longos_instant_translate.library.process-one') }}">@csrf<button class="btn btn-outline-secondary" type="submit" @disabled(!$schemaReady)>立即处理一条</button></form>
+        @if(is_array($scanStatus))
+          <div class="lit-note mt-3" role="status">
+            @switch($scanStatus['state'] ?? '')
+              @case('queued') 扫描任务已排队，页面可以安全关闭。 @break
+              @case('running') 正在后台扫描公开内容，完成后会自动开始慢速建库。 @break
+              @case('complete') 扫描完成：发现 {{ number_format((int)($scanStatus['found'] ?? 0)) }} 条公开文本，新增 {{ number_format((int)($scanStatus['queued'] ?? 0)) }} 个待翻译条目。 @break
+              @case('failed') 扫描任务执行失败，系统已停止本次任务；请查看应用日志后重试。 @break
+            @endswitch
+          </div>
+        @endif
       </div>
     </section>
   </div>

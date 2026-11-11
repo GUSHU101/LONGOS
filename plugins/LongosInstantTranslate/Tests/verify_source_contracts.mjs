@@ -13,7 +13,7 @@ const manifest = JSON.parse(read('config.json'));
 const vendor = readFileSync(join(root, 'Static/public/vendor/translate.min.js'));
 
 assert.equal(manifest.code, 'longos_instant_translate');
-assert.equal(manifest.version, 'v2.0.1');
+assert.equal(manifest.version, 'v2.0.2');
 assert.equal(createHash('sha256').update(vendor).digest('hex'), 'f027e461c331e21c60634725db8f13c01d72788faf87dc815882a7c0572e96e4');
 assert.ok(policy.includes("'main#main-content'"));
 assert.ok(widget.includes('manualKey'));

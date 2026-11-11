@@ -87,38 +87,54 @@ final class TranslationLibrary
     /** @param list<string> $targetLocales */
     public function queue(string $text, string $kind, array $targetLocales): int
     {
-        $source = self::normalize($text);
-        if ($source === '' || mb_strlen($source, 'UTF-8') < 2 || preg_match('/\p{L}/u', $source) !== 1) {
+        return $this->queueBatch([['text' => $text, 'kind' => $kind]], $targetLocales);
+    }
+
+    /** @param list<array{text:string,kind:string}> $sources @param list<string> $targetLocales */
+    public function queueBatch(array $sources, array $targetLocales): int
+    {
+        $targets = array_values(array_filter(array_unique($targetLocales), static fn (string $locale): bool => $locale !== self::SOURCE_LOCALE
+            && preg_match('/^[a-z]{2,3}(?:-[a-z0-9]{2,8})?$/', $locale) === 1));
+        if ($targets === [] || $sources === []) {
             return 0;
         }
 
-        try {
-            TextContract::assertSafePlainText($source);
-        } catch (\Throwable) {
-            return 0;
+        $rows = [];
+        $now  = now();
+        foreach ($sources as $item) {
+            $source = self::normalize((string) ($item['text'] ?? ''));
+            if ($source === '' || mb_strlen($source, 'UTF-8') < 2 || preg_match('/\p{L}/u', $source) !== 1) {
+                continue;
+            }
+
+            try {
+                TextContract::assertSafePlainText($source);
+            } catch (\Throwable) {
+                continue;
+            }
+            foreach ($targets as $targetLocale) {
+                $rows[] = [
+                    'source_locale' => self::SOURCE_LOCALE,
+                    'target_locale' => $targetLocale,
+                    'source_hash'   => self::sourceHash($source),
+                    'source_text'   => $source,
+                    'source_kind'   => mb_substr((string) ($item['kind'] ?? 'catalog'), 0, 32),
+                    'status'        => 'pending',
+                    'last_seen_at'  => $now,
+                    'created_at'    => $now,
+                    'updated_at'    => $now,
+                ];
+            }
         }
 
         $created = 0;
-        foreach (array_unique($targetLocales) as $targetLocale) {
-            if ($targetLocale === self::SOURCE_LOCALE || preg_match('/^[a-z]{2,3}(?:-[a-z0-9]{2,8})?$/', $targetLocale) !== 1) {
-                continue;
-            }
-            $created += DB::table('lit_translation_entries')->insertOrIgnore([
-                'source_locale' => self::SOURCE_LOCALE,
-                'target_locale' => $targetLocale,
-                'source_hash'   => self::sourceHash($source),
-                'source_text'   => $source,
-                'source_kind'   => mb_substr($kind, 0, 32),
-                'status'        => 'pending',
-                'last_seen_at'  => now(),
-                'created_at'    => now(),
-                'updated_at'    => now(),
-            ]);
-            DB::table('lit_translation_entries')
-                ->where('source_locale', self::SOURCE_LOCALE)
-                ->where('target_locale', $targetLocale)
-                ->where('source_hash', self::sourceHash($source))
-                ->update(['last_seen_at' => now(), 'source_kind' => mb_substr($kind, 0, 32)]);
+        foreach (array_chunk($rows, 500) as $chunk) {
+            $created += DB::table('lit_translation_entries')->insertOrIgnore($chunk);
+            DB::table('lit_translation_entries')->upsert(
+                $chunk,
+                ['source_locale', 'target_locale', 'source_hash'],
+                ['source_text', 'source_kind', 'last_seen_at', 'updated_at'],
+            );
         }
 
         return $created;

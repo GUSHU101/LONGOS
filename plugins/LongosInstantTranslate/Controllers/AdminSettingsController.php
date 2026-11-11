@@ -6,11 +6,12 @@ use Beike\Repositories\SettingRepo;
 use Beike\Services\CloudflareIpRangeService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use Plugin\LongosInstantTranslate\Jobs\ProcessTranslationLibrary;
-use Plugin\LongosInstantTranslate\Services\ContentScanner;
+use Plugin\LongosInstantTranslate\Jobs\ScanTranslationLibrary;
 use Plugin\LongosInstantTranslate\Services\InstantTranslateSettings;
 use Plugin\LongosInstantTranslate\Services\LanguageCatalog;
 use Plugin\LongosInstantTranslate\Services\LibraryBuilder;
@@ -46,6 +47,7 @@ final class AdminSettingsController
             'providerProfiles' => ProviderAccountService::profiles(),
             'providerAccounts' => $accounts->accounts(),
             'libraryStats'     => $library->stats(),
+            'scanStatus'       => Cache::get(ScanTranslationLibrary::statusKey($settings->storageScope())),
         ]);
     }
 
@@ -136,7 +138,7 @@ final class AdminSettingsController
         return back()->with('success', $request->boolean('enabled') ? '已开启此账户派发。' : '已暂停此账户派发。');
     }
 
-    public function scan(ContentScanner $scanner, InstantTranslateSettings $settings): RedirectResponse
+    public function scan(InstantTranslateSettings $settings): RedirectResponse
     {
         abort_if(current_site() === null || ! LibrarySchema::ready(), 404);
         $locales = [];
@@ -146,12 +148,14 @@ final class AdminSettingsController
                 $locales[] = $locale;
             }
         }
-        $report = $scanner->scan(array_values(array_unique($locales)));
-        if ($settings->libraryBuildEnabled()) {
-            ProcessTranslationLibrary::dispatch($settings->storageScope());
-        }
+        $scope   = $settings->storageScope();
+        $locales = array_values(array_unique($locales));
+        Cache::put(ScanTranslationLibrary::statusKey($scope), [
+            'state' => 'queued', 'queued_at' => now()->toIso8601String(),
+        ], now()->addHour());
+        ScanTranslationLibrary::dispatch($scope, $locales);
 
-        return back()->with('success', sprintf('扫描完成：发现 %d 条公开文本，新增 %d 个待翻译条目。', $report['found'], $report['queued']));
+        return back()->with('success', '扫描任务已进入后台队列；本页无需等待，完成后会自动衔接慢速建库。');
     }
 
     public function processOne(LibraryBuilder $builder): RedirectResponse

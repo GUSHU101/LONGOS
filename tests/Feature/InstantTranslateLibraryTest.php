@@ -12,6 +12,7 @@ use Plugin\LongosInstantTranslate\Providers\ProviderRegistry;
 use Plugin\LongosInstantTranslate\Providers\TranslationProviderInterface;
 use Plugin\LongosInstantTranslate\Providers\TranslationProviderRequest;
 use Plugin\LongosInstantTranslate\Providers\TranslationProviderResponse;
+use Plugin\LongosInstantTranslate\Services\ContentScanner;
 use Plugin\LongosInstantTranslate\Services\LibraryBuilder;
 use Plugin\LongosInstantTranslate\Services\ProviderAccountService;
 use Plugin\LongosInstantTranslate\Services\TranslationLibrary;
@@ -107,6 +108,39 @@ class InstantTranslateLibraryTest extends TestCase
         self::assertSame('pending', $entry->status);
         self::assertSame(0, (int) $entry->attempts);
         self::assertNull($entry->error_code);
+    }
+
+    public function test_library_queues_large_scans_in_bulk_without_overwriting_ready_translations(): void
+    {
+        $this->migrateLibrary();
+        $library = new TranslationLibrary;
+        $sources = [
+            ['text' => 'Lightweight travel bag', 'kind' => 'product'],
+            ['text' => 'Waterproof recycled fabric', 'kind' => 'product'],
+        ];
+
+        self::assertSame(4, $library->queueBatch($sources, ['fr', 'de']));
+        DB::table('lit_translation_entries')->where('target_locale', 'fr')->where('source_text', 'Lightweight travel bag')->update([
+            'status' => 'ready', 'translated_text' => 'Sac de voyage léger',
+        ]);
+        self::assertSame(0, $library->queueBatch($sources, ['fr', 'de']));
+        self::assertSame(4, DB::table('lit_translation_entries')->count());
+        self::assertSame('ready', DB::table('lit_translation_entries')->where('translated_text', 'Sac de voyage léger')->value('status'));
+    }
+
+    public function test_content_scan_uses_bounded_bulk_database_writes(): void
+    {
+        $this->migrateLibrary();
+        $queries = 0;
+        DB::listen(static function () use (&$queries): void {
+            $queries++;
+        });
+
+        $report = (new ContentScanner(new TranslationLibrary))->scan(['fr']);
+
+        self::assertGreaterThan(0, $report['found']);
+        self::assertSame($report['queued'], DB::table('lit_translation_entries')->count());
+        self::assertLessThan(100, $queries, 'The scan must not return to per-text database writes.');
     }
 
     public function test_builder_translates_one_entry_and_commits_usage_with_a_verified_provider(): void
