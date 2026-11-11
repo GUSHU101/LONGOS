@@ -77,10 +77,17 @@ new runtime has no dependency on its classes or tables.
 ## Storefront safety
 
 The xnx3 wrapper is mounted only on public home, product, search, category,
-brand and page routes. It excludes forms, editable or hidden content, account,
-cart, checkout, payment, order, address and customer regions, plus prices,
-currencies, SKU and inventory. Email-, phone-, card-, token- and secret-like
+brand, page, cart and checkout routes. Checkout translates static headings,
+labels, shipping/payment method names and action copy, while input controls,
+saved addresses, address suggestions, error details, totals, prices, currencies,
+SKU and inventory remain excluded. Email-, phone-, card-, token- and secret-like
 text is rejected again immediately before a browser fallback request.
+
+The wrapper follows xnx3's documented `client.edge` integration and disables
+the unused `init`, `language`, `ip` and `connectTest` control requests before
+execution. Only the locked Microsoft Edge translation endpoint can carry an
+approved translation batch; xnx3 control traffic and unexpected endpoints are
+discarded locally.
 
 Automatic language selection uses only the server-verified visitor country
 from the trusted edge request context. A visitor's manual selection overrides

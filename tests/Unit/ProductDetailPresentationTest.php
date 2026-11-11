@@ -85,8 +85,10 @@ class ProductDetailPresentationTest extends TestCase
         self::assertStringContainsString('data-product-gallery-next', $product);
         self::assertStringContainsString("@section('preloads')", $product);
         self::assertStringContainsString('fetchpriority="high"', $product);
-        self::assertStringContainsString("\$deferProductScripts = trim(\$__env->yieldContent('body-class')) === 'page-product';", $master);
-        self::assertStringContainsString("js/app.js') }}\" @if(\$deferProductScripts) defer @endif", $master);
+        self::assertStringNotContainsString('$deferProductScripts', $master);
+        self::assertStringContainsString("js/app.js') }}\" defer", $master);
+        self::assertStringContainsString('data-product-gallery-dialog-image hidden', $product);
+        self::assertStringNotContainsString('data-product-gallery-dialog-image src=""', $product);
         self::assertStringNotContainsString("@section('bk-page-loading', true)", $product);
         self::assertStringNotContainsString('900w', $product);
         self::assertStringNotContainsString('1600w', $product);

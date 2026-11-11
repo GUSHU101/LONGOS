@@ -8,15 +8,16 @@
   var EDGE_PATH = '/translate/translatetext';
   var DENY_SELECTOR = [
     '.lit-notranslate', '.notranslate', '[translate="no"]', '[data-no-translate]',
-    'form', 'input', 'textarea', 'select', 'option', 'button', 'label', '[contenteditable]',
+    'input', 'textarea', 'select', 'option', '[contenteditable]',
     'script', 'style', 'template', 'noscript', 'pre', 'code', 'kbd', 'samp', 'iframe',
     'svg', 'canvas', 'video', 'audio', 'object', 'embed', '[hidden]', '[aria-hidden="true"]',
     '.price', '[class*="price"]', '[data-price]', '[data-currency]', '.currency',
     '.sku', '[class*="sku"]', '[data-sku]', '.stock', '[class*="stock"]', '.inventory',
-    '.quantity', '[class*="quantity"]', '.cart', '[class*="cart"]', '.checkout', '[class*="checkout"]',
-    '.account', '[class*="account"]', '.order', '[class*="order"]', '.payment', '[class*="payment"]',
-    '.address', '[class*="address"]', '.customer', '[class*="customer"]', '.auth', '[class*="auth"]',
-    '.login', '.register', '.rma', '.wishlist', '.contact', '[data-token]', '[data-order]', '[data-customer]'
+    '.quantity', '[class*="quantity"]', '.account', '[class*="account"]', '.auth', '[class*="auth"]',
+    '.login', '.register', '.rma', '.wishlist', '.contact', '[data-token]', '[data-order]', '[data-customer]',
+    '.checkout-saved-addresses', '.checkout-address-choice', '.address-suggestions', '.address-suggestion',
+    '.checkout-error-summary__message', '.phone-country', '.checkout-submit-total', '.mobile-checkout-total',
+    '.checkout-totals .summary-row > span:last-child'
   ].join(',');
   var SENSITIVE_PATTERNS = [
     /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i,
@@ -267,7 +268,13 @@
     engine.language.translateLanguagesRange = [SOURCE_LANGUAGE];
     engine.element.tagAttribute = {};
     engine.service.use('client.edge');
-    ['input', 'textarea', 'select', 'option', 'button', 'form', 'label', 'iframe', 'svg', 'canvas', 'video', 'audio', 'object', 'embed', 'meta'].forEach(function (tag) {
+    if (engine.request && engine.request.api) {
+      engine.request.api.language = '';
+      engine.request.api.ip = '';
+      engine.request.api.connectTest = '';
+      engine.request.api.init = '';
+    }
+    ['input', 'textarea', 'select', 'option', 'iframe', 'svg', 'canvas', 'video', 'audio', 'object', 'embed', 'meta'].forEach(function (tag) {
       if (engine.ignore.tag.indexOf(tag) === -1) engine.ignore.tag.push(tag);
     });
     ['lit-notranslate', 'notranslate', 'lit-widget'].forEach(function (className) {
@@ -320,14 +327,26 @@
       try {
         payload = JSON.parse(String(args[1] || ''));
       } catch (error) {}
+      if (!endpointAllowed(url)) {
+        if (Array.isArray(payload) && typeof success === 'function') {
+          runHadFailure = true;
+          failureReason = 'endpoint_blocked';
+          var unexpectedRequest = inertRequest(url);
+          window.setTimeout(function () {
+            success(payload.map(untranslatedEdgeResponse), args[2], unexpectedRequest);
+          }, 0);
+          return unexpectedRequest;
+        }
+        return inertRequest(url);
+      }
       if (!Array.isArray(payload) || typeof success !== 'function') {
         runHadFailure = true;
         failureReason = 'engine_contract_error';
         return inertRequest(url);
       }
-      if (!networkPolicy.allowed || networkPolicy.to !== runTarget || !endpointAllowed(url)) {
+      if (!networkPolicy.allowed || networkPolicy.to !== runTarget) {
         runHadFailure = true;
-        failureReason = endpointAllowed(url) ? (failureReason || 'privacy_guard') : 'endpoint_blocked';
+        failureReason = failureReason || 'privacy_guard';
         var blocked = inertRequest(url);
         window.setTimeout(function () {
           success(payload.map(untranslatedEdgeResponse), args[2], blocked);

@@ -19,7 +19,7 @@ class InstantTranslatePluginContractTest extends TestCase
         $manifest = json_decode((string) file_get_contents($this->root . '/config.json'), true, 512, JSON_THROW_ON_ERROR);
 
         self::assertSame('longos_instant_translate', $manifest['code']);
-        self::assertSame('v2.0.3', $manifest['version']);
+        self::assertSame('v2.0.4', $manifest['version']);
         self::assertSame(InstantTranslateSettings::XNX3_SHA256, hash_file('sha256', $this->root . '/Static/public/vendor/translate.min.js'));
         self::assertFileExists($this->root . '/Static/public/vendor/LICENSE.translate.txt');
     }
@@ -57,6 +57,11 @@ class InstantTranslatePluginContractTest extends TestCase
         self::assertStringContainsString('config.library_timeout', $script);
         self::assertStringContainsString('window.sessionStorage.getItem', $script);
         self::assertStringContainsString('selection_source', $script);
+        self::assertStringContainsString("engine.request.api.init = '';", $script);
+        self::assertStringContainsString("engine.request.api.connectTest = '';", $script);
+        self::assertStringContainsString("'shop.checkout.index'", $policy);
+        self::assertStringContainsString("'shop.carts.index'", $policy);
+        self::assertStringContainsString("'.checkout-saved-addresses'", $script);
         self::assertStringNotContainsString("prefix + 'manual_language';", $script);
         self::assertStringNotContainsString('offset += 120', $script);
         self::assertStringContainsString('X-CSRF-TOKEN', $script);

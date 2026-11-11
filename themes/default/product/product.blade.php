@@ -461,7 +461,7 @@
     <button type="button" class="pdp-media-dialog__close" data-product-gallery-close aria-label="{{ __('common.cancel') }}"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
     <button type="button" class="pdp-media-dialog__nav pdp-media-dialog__nav--previous" data-product-gallery-previous aria-label="{{ __('shop/products.previous_image') }}"><i class="bi bi-chevron-left" aria-hidden="true"></i></button>
     <div class="pdp-media-dialog__stage">
-      <img data-product-gallery-dialog-image src="" alt="{{ $product['name'] }}">
+      <img data-product-gallery-dialog-image hidden alt="{{ $product['name'] }}">
       <span class="pdp-media-dialog__counter" data-product-gallery-counter aria-live="polite"></span>
     </div>
     <button type="button" class="pdp-media-dialog__nav pdp-media-dialog__nav--next" data-product-gallery-next aria-label="{{ __('shop/products.next_image') }}"><i class="bi bi-chevron-right" aria-hidden="true"></i></button>
@@ -601,6 +601,7 @@
       const image = activeProductGalleryImages[productGalleryDialogIndex];
       const productName = document.querySelector('.product-name')?.textContent?.trim() || '';
       dialogImage.src = image.popup || image.large || image.preview || '';
+      dialogImage.hidden = false;
       dialogImage.alt = `${productName} – ${productGalleryDialogIndex + 1}`;
       const counter = dialog.querySelector('[data-product-gallery-counter]');
       if (counter) counter.textContent = `${productGalleryDialogIndex + 1} / ${activeProductGalleryImages.length}`;

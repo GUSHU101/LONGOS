@@ -1,5 +1,5 @@
 @addStyle(asset('vendor/swiper/swiper-bundle.min.css'))
-@addScript(asset('vendor/swiper/swiper-bundle.min.js'))
+@addScript(asset('vendor/swiper/swiper-bundle.min.js'), ['defer' => true])
 
 @if($design || !empty($content['products']))
 <section class="module-item {{ $design ? 'module-item-design' : ''}}" id="module-{{ $module_id }}" @if(!empty($content['title'])) aria-labelledby="module-heading-{{ $module_id }}" @endif @include('design.partials.section_style')>

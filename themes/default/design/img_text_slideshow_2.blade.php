@@ -1,5 +1,5 @@
 @addStyle(asset('vendor/swiper/swiper-bundle.min.css'))
-@addScript(asset('vendor/swiper/swiper-bundle.min.js'))
+@addScript(asset('vendor/swiper/swiper-bundle.min.js'), ['defer' => true])
 
 @php
   $hasSlides = collect($content['images'] ?? [])->contains(fn ($image) => !empty($image['image']));

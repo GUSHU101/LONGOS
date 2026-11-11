@@ -6,7 +6,7 @@ final class InstantTranslateSettings
 {
     public const CODE = 'longos_instant_translate';
 
-    public const VERSION = '2.0.3';
+    public const VERSION = '2.0.4';
 
     public const XNX3_VERSION = '4.1.0.20260526';
 

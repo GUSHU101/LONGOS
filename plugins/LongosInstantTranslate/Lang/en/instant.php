@@ -46,6 +46,6 @@ return [
     'browser_health_empty'  => 'No storefront runtime report is stored in this browser yet.',
     'save'                  => 'Save settings',
     'privacy'               => 'Privacy boundary',
-    'privacy_body'          => 'Only approved public page roots are scanned. Forms, customer/account/cart/checkout/order areas, prices, currencies, SKU, inventory, hidden content and sensitive-looking text are excluded before any external request.',
+    'privacy_body'          => 'Only approved storefront roots are translated. Checkout static labels are allowed, while form controls, saved addresses, customer/account/order data, totals, prices, currencies, SKU, inventory, hidden content and sensitive-looking text are excluded before any external request.',
     'seo'                   => 'Browser-side translation does not create crawlable multilingual SEO pages.',
 ];

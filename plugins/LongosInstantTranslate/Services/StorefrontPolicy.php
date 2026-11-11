@@ -21,6 +21,8 @@ final class StorefrontPolicy
         'shop.pages.show',
         'shop.page_categories.home',
         'shop.page_categories.show',
+        'shop.carts.index',
+        'shop.checkout.index',
     ];
 
     public function allows(Request $request): bool

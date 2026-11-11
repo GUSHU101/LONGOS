@@ -8,8 +8,7 @@ const prefix = 'longos_language_selection_test:';
 
 function engineStub() {
   const executeLifecycle = {start: [], translateNetworkBefore: [], renderFinish: [], finally: []};
-
-  return {
+  const engine = {
     storage: {get() { return null; }, set() {}},
     selectLanguageTag: {},
     language: {setLocal() {}, translateLanguagesRange: []},
@@ -23,22 +22,75 @@ function engineStub() {
       },
     },
     lifecycle: {execute: executeLifecycle},
-    request: {send() {}},
+    request: {
+      api: {
+        language: 'https://api.translate.zvo.cn/language.json',
+        ip: 'https://api.translate.zvo.cn/ip.json',
+        connectTest: 'https://api.translate.zvo.cn/connectTest.json',
+        init: 'https://api.translate.zvo.cn/init.json',
+      },
+      send(url, body, data, success) {
+        const request = {
+          status: 200,
+          readyState: 4,
+          responseText: '',
+          response: '',
+          requestURL: url,
+          addEventListener() {},
+          removeEventListener() {},
+          abort() {},
+        };
+        const texts = JSON.parse(body);
+        success(texts.map((text) => ({translations: [{text: `translated:${text}`}]})), data, request);
+        return request;
+      },
+    },
     setDocuments() {},
     reset() {},
     to: 'english',
-    execute() {
+    execute(targets) {
+      const textNode = targets[0].querySelector('p').firstChild;
       executeLifecycle.start.forEach((callback) => callback());
-      executeLifecycle.renderFinish.forEach((callback) => callback('test-run', this.to));
-      executeLifecycle.finally.forEach((callback) => callback());
+      executeLifecycle.translateNetworkBefore.forEach((callback) => callback({
+        nodes: [textNode],
+        texts: [textNode.nodeValue],
+        to: this.to,
+      }));
+      this.request.send(
+        'https://api.translate.zvo.cn/init.json',
+        {},
+        {},
+        () => {},
+        'post',
+        true,
+        null,
+        () => {},
+        false,
+      );
+      this.request.send(
+        `https://edge.microsoft.com/translate/translatetext?from=en&to=${this.to}`,
+        JSON.stringify([textNode.nodeValue]),
+        {},
+        () => {
+          executeLifecycle.renderFinish.forEach((callback) => callback('test-run', this.to));
+          executeLifecycle.finally.forEach((callback) => callback());
+        },
+        'post',
+        true,
+        {'Content-Type': 'application/json'},
+        () => {},
+        true,
+      );
     },
   };
+
+  return engine;
 }
 
 async function boot({countryLanguage = 'japanese', country = 'JP', legacyLanguage = null, sessionLanguage = null} = {}) {
   const window = new Window({url: 'https://store.example/'});
   const config = {
-    version: '2.0.3',
+    version: '2.0.4',
     engine_version: 'test',
     source_language: 'english',
     languages: [
@@ -100,6 +152,14 @@ test('legacy permanent manual choice cannot suppress verified country detection'
   assert.equal(result.health.language, 'japanese');
   assert.equal(result.health.selection_source, 'country');
   assert.equal(result.health.country, 'JP');
+  assert.equal(result.health.status, 'ok');
+  assert.equal(result.health.error, '');
+  assert.deepEqual(result.window.translate.request.api, {
+    language: '',
+    ip: '',
+    connectTest: '',
+    init: '',
+  });
   assert.equal(result.window.sessionStorage.getItem(`${prefix}manual_language_session`), null);
   assert.equal(result.window.localStorage.getItem(`${prefix}manual_language`), 'french');
   result.window.close();

@@ -84,7 +84,6 @@
       $themeStyle  = $activeTheme !== 'default' && is_file(public_path("build/beike/shop/{$activeTheme}/css/theme.css"))
         ? asset("build/beike/shop/{$activeTheme}/css/theme.css")
         : null;
-      $deferProductScripts = trim($__env->yieldContent('body-class')) === 'page-product';
       $globalStyle = \Beike\Services\BuilderStateService::storefrontState()['design']['global_style'];
       // A 16px minimum preserves readability when a merchant uses an older
       // design preset that stored a smaller default font size.
@@ -100,15 +99,15 @@
       $storeFontFamily = $fontFamilies[$globalStyle['font_family'] ?? 'system'] ?? $fontFamilies['system'];
     @endphp
     <link rel="stylesheet" type="text/css" href="{{ mix('/build/beike/shop/'.$themeBuild.'/css/bootstrap.css') }}">
-    <script src="{{ asset('vendor/jquery/jquery-3.6.0.min.js') }}"></script>
-    <script src="{{ asset('vendor/layer/3.5.1/layer.js') }}" @if($deferProductScripts) defer @endif></script>
-    <script src="{{ asset('vendor/lazysizes/lazysizes.min.js') }}" defer></script>
-    <script src="{{ asset('vendor/bootstrap/js/bootstrap.bundle.min.js') }}" defer></script>
-    <script src="{{ mix('/build/beike/shop/'.$themeBuild.'/js/app.js') }}" @if($deferProductScripts) defer @endif></script>
     <link rel="stylesheet" type="text/css" href="{{ mix('/build/beike/shop/'.$themeBuild.'/css/app.css') }}">
     @if ($themeStyle)
       <link rel="stylesheet" type="text/css" href="{{ $themeStyle }}">
     @endif
+    <script src="{{ asset('vendor/jquery/jquery-3.6.0.min.js') }}"></script>
+    <script src="{{ asset('vendor/layer/3.5.1/layer.js') }}" defer></script>
+    <script src="{{ asset('vendor/lazysizes/lazysizes.min.js') }}" defer></script>
+    <script src="{{ asset('vendor/bootstrap/js/bootstrap.bundle.min.js') }}" defer></script>
+    <script src="{{ mix('/build/beike/shop/'.$themeBuild.'/js/app.js') }}" defer></script>
     <style id="storefront-global-typography">
       :root {
         --store-font-size: {{ $storeFontSize }}px;

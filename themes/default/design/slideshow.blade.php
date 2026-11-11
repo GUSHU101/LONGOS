@@ -1,5 +1,5 @@
 @addStyle(asset('vendor/swiper/swiper-bundle.min.css'))
-@addScript(asset('vendor/swiper/swiper-bundle.min.js'))
+@addScript(asset('vendor/swiper/swiper-bundle.min.js'), ['defer' => true])
 
 <section class="module-item section-hero {{ $design ? 'module-item-design' : ''}}" id="module-{{ $module_id }}" aria-roledescription="carousel" aria-label="{{ $content['title'] ?? site_brand_name() }}" @include('design.partials.section_style')>
   <div class="module-info   {{ $content['module_size'] ?? 'w-100' }}">
@@ -54,13 +54,15 @@
       })
     }
 
-  @if ($design)
-    bk.loadStyle('{{ asset('vendor/swiper/swiper-bundle.min.css') }}');
-    bk.loadScript('{{ asset('vendor/swiper/swiper-bundle.min.js') }}', () => {
+    $(function () {
+    @if ($design)
+      bk.loadStyle('{{ asset('vendor/swiper/swiper-bundle.min.css') }}');
+      bk.loadScript('{{ asset('vendor/swiper/swiper-bundle.min.js') }}', () => {
+        slideshowSwiper();
+      })
+    @else
       slideshowSwiper();
-    })
-  @else
-    slideshowSwiper();
-  @endif
+    @endif
+    });
   </script>
 </section>
