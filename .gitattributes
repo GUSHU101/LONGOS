@@ -28,4 +28,4 @@ Dockerfile text eol=lf
 *.pdf binary
 
 # Byte-for-byte locked upstream distribution; retain its original header.
-plugins/LongosInstantTranslate/Static/public/vendor/translate.min.js -whitespace
+plugins/LongosInstantTranslate/Static/public/vendor/translate.min.js -text -whitespace
