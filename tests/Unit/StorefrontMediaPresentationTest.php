@@ -177,7 +177,8 @@ class StorefrontMediaPresentationTest extends TestCase
         $master  = (string) file_get_contents($root . '/themes/default/layout/master.blade.php');
         $product = (string) file_get_contents($root . '/themes/default/product/product.blade.php');
 
-        self::assertStringContainsString("jquery/jquery-3.6.0.min.js') }}\" @if(\$deferProductScripts) defer", $master);
+        self::assertStringContainsString("jquery/jquery-3.6.0.min.js') }}\"></script>", $master);
+        self::assertStringNotContainsString("jquery/jquery-3.6.0.min.js') }}\" @if(\$deferProductScripts)", $master);
         self::assertStringNotContainsString("@addStyle(asset('vendor/swiper/swiper-bundle.min.css'))", $product);
         self::assertStringContainsString('media="(min-width: 992px)"', $product);
         self::assertStringContainsString("const desktopGalleryMedia = window.matchMedia('(min-width: 992px)');", $product);

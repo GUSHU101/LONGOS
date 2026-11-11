@@ -82,6 +82,7 @@ final class AdminSettingsController
         ]);
 
         if ($request->boolean('library_build_enabled') && LibrarySchema::ready()) {
+            app(TranslationLibrary::class)->resumeDeferred();
             ProcessTranslationLibrary::dispatch(app(InstantTranslateSettings::class)->storageScope());
         }
 
@@ -127,6 +128,10 @@ final class AdminSettingsController
     {
         abort_if(current_site() === null || ! LibrarySchema::ready(), 404);
         $accounts->setDispatch($account, $request->boolean('enabled'));
+        if ($request->boolean('enabled') && app(InstantTranslateSettings::class)->libraryBuildEnabled()) {
+            app(TranslationLibrary::class)->resumeDeferred();
+            ProcessTranslationLibrary::dispatch(app(InstantTranslateSettings::class)->storageScope());
+        }
 
         return back()->with('success', $request->boolean('enabled') ? '已开启此账户派发。' : '已暂停此账户派发。');
     }
@@ -152,7 +157,7 @@ final class AdminSettingsController
     public function processOne(LibraryBuilder $builder): RedirectResponse
     {
         abort_if(current_site() === null || ! LibrarySchema::ready(), 404);
-        $result = $builder->processOne();
+        $result = $builder->processOne(true);
 
         return back()->with('success', '单步处理结果：' . ($result['state'] ?? 'unknown'));
     }

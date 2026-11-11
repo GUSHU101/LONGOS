@@ -19,11 +19,11 @@
       <div><span class="lit-widget__eyebrow">LONGOS</span><strong id="longos-instant-translate-title">Choose language</strong></div>
       <button type="button" class="lit-widget__close" aria-label="Close language menu">×</button>
     </header>
-    <label class="lit-widget__search-wrap" hidden>
+    <label class="lit-widget__search-wrap" for="longos-instant-translate-search" hidden>
       <span class="visually-hidden">Search languages</span>
-      <input class="lit-widget__search" type="search" autocomplete="off" placeholder="Search languages">
+      <input id="longos-instant-translate-search" class="lit-widget__search" type="search" autocomplete="off" placeholder="Search languages">
     </label>
-    <div class="lit-widget__languages" role="list" aria-label="Available languages"></div>
+    <div class="lit-widget__languages" role="group" aria-label="Available languages"></div>
     <p class="lit-widget__status" role="status" aria-live="polite"></p>
   </section>
 </div>

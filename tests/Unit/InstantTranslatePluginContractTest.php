@@ -19,7 +19,7 @@ class InstantTranslatePluginContractTest extends TestCase
         $manifest = json_decode((string) file_get_contents($this->root . '/config.json'), true, 512, JSON_THROW_ON_ERROR);
 
         self::assertSame('longos_instant_translate', $manifest['code']);
-        self::assertSame('v2.0.0', $manifest['version']);
+        self::assertSame('v2.0.1', $manifest['version']);
         self::assertSame(InstantTranslateSettings::XNX3_SHA256, hash_file('sha256', $this->root . '/Static/public/vendor/translate.min.js'));
         self::assertFileExists($this->root . '/Static/public/vendor/LICENSE.translate.txt');
     }
@@ -54,6 +54,8 @@ class InstantTranslatePluginContractTest extends TestCase
         self::assertStringContainsString('engine.element.tagAttribute = {}', $script);
         self::assertStringContainsString('MutationObserver', $script);
         self::assertStringContainsString('preloadLibrary', $script);
+        self::assertStringContainsString('config.library_timeout', $script);
+        self::assertStringNotContainsString('offset += 120', $script);
         self::assertStringContainsString('X-CSRF-TOKEN', $script);
         self::assertStringNotContainsString('listener.start(', $script);
         self::assertStringNotContainsString('document.body.innerHTML', $script);

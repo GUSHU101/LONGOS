@@ -162,4 +162,21 @@ final class TranslationLibrary
 
         return max(max(5, $defaultSeconds), min(3600, (int) ceil($seconds)));
     }
+
+    public function resumeDeferred(): int
+    {
+        if (! LibrarySchema::ready()) {
+            return 0;
+        }
+
+        return DB::table('lit_translation_entries')
+            ->where('status', 'pending')
+            ->whereIn('error_code', ['NO_VERIFIED_PROVIDER', 'NO_SUPPORTED_PROVIDER', 'PROVIDER_BUSY'])
+            ->update([
+                'error_code'      => null,
+                'locked_at'       => null,
+                'next_attempt_at' => null,
+                'updated_at'      => now(),
+            ]);
+    }
 }

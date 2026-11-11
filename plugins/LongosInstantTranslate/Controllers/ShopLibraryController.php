@@ -13,7 +13,7 @@ final class ShopLibraryController
     {
         $validated = $request->validate([
             'language'     => ['required', 'string', 'max:32'],
-            'items'        => ['required', 'array', 'max:120'],
+            'items'        => ['required', 'array', 'max:360'],
             'items.*.key'  => ['required', 'string', 'max:48'],
             'items.*.text' => ['required', 'string', 'max:5000'],
         ]);

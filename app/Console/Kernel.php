@@ -93,6 +93,10 @@ class Kernel extends ConsoleKernel
                 ->weeklyOn(1, '04:20')
                 ->onOneServer()
                 ->withoutOverlapping();
+            $schedule->command('saas:run longos:translation-library:ensure --continue-on-error')
+                ->everyFiveMinutes()
+                ->onOneServer()
+                ->withoutOverlapping(4);
         } else {
             $schedule->command('process:order')->everyFiveMinutes();
             $schedule->command('fetch:currency-rate')
@@ -108,6 +112,9 @@ class Kernel extends ConsoleKernel
             $schedule->command('longos:locations:sync')
                 ->weeklyOn(1, '04:20')
                 ->withoutOverlapping();
+            $schedule->command('longos:translation-library:ensure')
+                ->everyFiveMinutes()
+                ->withoutOverlapping(4);
         }
 
         $schedule->command('cloudflare:refresh-ip-ranges')

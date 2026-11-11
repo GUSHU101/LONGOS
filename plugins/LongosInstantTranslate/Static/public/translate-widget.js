@@ -62,10 +62,14 @@
   var runHadFailure = false;
   var failureReason = '';
   var runLibraryHits = 0;
-  var networkPolicy = {allowed: false, to: ''};
+  var runNetworkRequests = 0;
+  var runProtectedTexts = 0;
+  var networkPolicy = {allowed: false, to: '', texts: new Set()};
   var lastLibraryRenderAt = 0;
   var dynamicNodes = new Set();
   var dynamicTimer = 0;
+  var originalDocumentLanguage = document.documentElement.getAttribute('lang') || 'en';
+  var originalDocumentDirection = document.documentElement.getAttribute('dir');
 
   var toggle = mount.querySelector('.lit-widget__toggle');
   var panel = mount.querySelector('.lit-widget__panel');
@@ -103,8 +107,21 @@
     return config.label_mode === 'name' ? language.native : language.short;
   }
 
+  function updateDocumentLanguage(languageId) {
+    var language = languageMap.get(languageId) || languageMap.get(SOURCE_LANGUAGE);
+    if (languageId === SOURCE_LANGUAGE) {
+      document.documentElement.setAttribute('lang', originalDocumentLanguage);
+      if (originalDocumentDirection === null) document.documentElement.removeAttribute('dir');
+      else document.documentElement.setAttribute('dir', originalDocumentDirection);
+      return;
+    }
+    document.documentElement.setAttribute('lang', language.bcp47 || originalDocumentLanguage);
+    document.documentElement.setAttribute('dir', language.dir === 'rtl' ? 'rtl' : 'ltr');
+  }
+
   function updateSelection(languageId) {
     var language = languageMap.get(languageId) || languageMap.get(SOURCE_LANGUAGE);
+    updateDocumentLanguage(languageId);
     current.textContent = languageLabel(language);
     toggle.setAttribute('aria-label', 'Choose language. Current language: ' + language.native);
     list.querySelectorAll('[data-language]').forEach(function (button) {
@@ -119,7 +136,6 @@
       button.type = 'button';
       button.className = 'lit-widget__language';
       button.dataset.language = language.id;
-      button.setAttribute('role', 'listitem');
       button.setAttribute('aria-pressed', language.id === SOURCE_LANGUAGE ? 'true' : 'false');
       var name = document.createElement('span');
       name.textContent = language.native;
@@ -183,14 +199,28 @@
   }
 
   function insideSafeRoot(node) {
-    var element = node && node.nodeType === Node.ELEMENT_NODE ? node : node && node.parentElement;
+    var element = node && node.nodeType === Node.ATTRIBUTE_NODE
+      ? node.ownerElement
+      : (node && node.nodeType === Node.ELEMENT_NODE ? node : node && node.parentElement);
     return !!element && roots.some(function (root) { return root === element || root.contains(element); });
   }
 
   function isSafeNode(node) {
-    var element = node && node.nodeType === Node.ELEMENT_NODE ? node : node && node.parentElement;
+    var element = node && node.nodeType === Node.ATTRIBUTE_NODE
+      ? node.ownerElement
+      : (node && node.nodeType === Node.ELEMENT_NODE ? node : node && node.parentElement);
     if (!element || !insideSafeRoot(element) || element.closest(DENY_SELECTOR)) return false;
-    return !looksSensitive(node.nodeValue || element.textContent || '');
+    if (node.nodeType === Node.ATTRIBUTE_NODE && ['alt', 'title'].indexOf(String(node.name || '').toLowerCase()) === -1) return false;
+    var text = node.nodeType === Node.TEXT_NODE || node.nodeType === Node.ATTRIBUTE_NODE
+      ? node.nodeValue
+      : element.textContent;
+    return !looksSensitive(text || '');
+  }
+
+  function nodeSourceText(node) {
+    if (!node) return '';
+    if (node.nodeType === Node.TEXT_NODE || node.nodeType === Node.ATTRIBUTE_NODE) return String(node.nodeValue || '');
+    return String(node.textContent || '');
   }
 
   function collectRoots() {
@@ -237,9 +267,15 @@
     engine.lifecycle.execute.translateNetworkBefore.push(function (data) {
       var nodes = data && Array.isArray(data.nodes) ? data.nodes : [];
       var texts = data && Array.isArray(data.texts) ? data.texts : [];
-      var allowed = data && data.to === runTarget && data.to !== SOURCE_LANGUAGE
-        && nodes.length > 0 && nodes.every(isSafeNode) && texts.every(function (text) { return !looksSensitive(text); });
-      networkPolicy = {allowed: !!allowed, to: data ? data.to : ''};
+      var safeTexts = new Set();
+      nodes.forEach(function (node) {
+        if (isSafeNode(node)) safeTexts.add(nodeSourceText(node));
+      });
+      var permittedTexts = new Set(texts.filter(function (text) {
+        return safeTexts.has(String(text)) && !looksSensitive(text);
+      }).map(String));
+      var allowed = data && data.to === runTarget && data.to !== SOURCE_LANGUAGE && texts.length > 0;
+      networkPolicy = {allowed: !!allowed, to: data ? data.to : '', texts: permittedTexts};
       if (!allowed) {
         runHadFailure = true;
         failureReason = 'privacy_guard';
@@ -255,31 +291,85 @@
     engine.lifecycle.execute.finally.push(function () { window.setTimeout(finishRun, 0); });
 
     var originalSend = engine.request.send;
+    function inertRequest(url) {
+      return {
+        status: 0, readyState: 4, responseText: '', response: '', requestURL: String(url || ''),
+        abort: function () {}, addEventListener: function () {}, removeEventListener: function () {}
+      };
+    }
+    function untranslatedEdgeResponse(text) {
+      return {translations: [{text: String(text)}]};
+    }
     engine.request.send = function () {
       var args = Array.prototype.slice.call(arguments);
       var url = args[0];
-      var abnormal = args[7];
+      var success = args[3];
+      var payload = null;
+      try {
+        payload = JSON.parse(String(args[1] || ''));
+      } catch (error) {}
+      if (!Array.isArray(payload) || typeof success !== 'function') {
+        runHadFailure = true;
+        failureReason = 'engine_contract_error';
+        return inertRequest(url);
+      }
       if (!networkPolicy.allowed || networkPolicy.to !== runTarget || !endpointAllowed(url)) {
         runHadFailure = true;
-        failureReason = networkPolicy.allowed ? 'endpoint_blocked' : (failureReason || 'privacy_guard');
-        var blocked = {status: 0, responseText: '', response: '', requestURL: String(url || ''), abort: function () {}};
-        window.setTimeout(function () { if (typeof abnormal === 'function') abnormal(blocked); }, 0);
+        failureReason = endpointAllowed(url) ? (failureReason || 'privacy_guard') : 'endpoint_blocked';
+        var blocked = inertRequest(url);
+        window.setTimeout(function () {
+          success(payload.map(untranslatedEdgeResponse), args[2], blocked);
+        }, 0);
         return blocked;
       }
-      args[7] = function (xhr) {
+
+      var safeMask = payload.map(function (text) {
+        return networkPolicy.texts.has(String(text)) && !looksSensitive(text);
+      });
+      var safePayload = payload.filter(function (text, index) { return safeMask[index]; });
+      runProtectedTexts += payload.length - safePayload.length;
+      if (!safePayload.length) {
+        var protectedRequest = inertRequest(url);
+        window.setTimeout(function () {
+          success(payload.map(untranslatedEdgeResponse), args[2], protectedRequest);
+        }, 0);
+        return protectedRequest;
+      }
+
+      var completed = false;
+      function finishWithOriginal(xhr, reason) {
+        if (completed) return;
+        completed = true;
         runHadFailure = true;
-        failureReason = xhr && xhr.status === 429 ? 'rate_limited' : 'network_error';
-        if (typeof abnormal === 'function') abnormal(xhr);
+        failureReason = reason;
+        success(payload.map(untranslatedEdgeResponse), args[2], xhr || inertRequest(url));
+      }
+      args[1] = JSON.stringify(safePayload);
+      args[3] = function (response, data, xhr) {
+        if (!Array.isArray(response) || response.length < safePayload.length) {
+          finishWithOriginal(xhr, 'invalid_response');
+          return;
+        }
+        completed = true;
+        var responseIndex = 0;
+        var expanded = payload.map(function (text, index) {
+          return safeMask[index] ? response[responseIndex++] : untranslatedEdgeResponse(text);
+        });
+        success(expanded, data, xhr);
       };
       var xhr = originalSend.apply(engine.request, args);
       if (xhr && typeof xhr === 'object') {
         xhr.timeout = Math.max(3000, Math.min(15000, Number(config.request_timeout) || 8000));
-        var previousTimeout = xhr.ontimeout;
-        xhr.ontimeout = function (event) {
-          runHadFailure = true;
-          failureReason = 'timeout';
-          if (typeof previousTimeout === 'function') previousTimeout.call(xhr, event);
-        };
+        runNetworkRequests += 1;
+        if (typeof xhr.addEventListener === 'function') {
+          xhr.addEventListener('error', function () { finishWithOriginal(xhr, 'network_error'); }, {once: true});
+          xhr.addEventListener('timeout', function () { finishWithOriginal(xhr, 'timeout'); }, {once: true});
+          xhr.addEventListener('loadend', function () {
+            if (!completed && (xhr.status < 200 || xhr.status >= 300)) {
+              finishWithOriginal(xhr, xhr.status === 429 ? 'rate_limited' : 'network_error');
+            }
+          }, {once: true});
+        }
       }
       return xhr;
     };
@@ -316,7 +406,10 @@
     } else if (runTarget !== SOURCE_LANGUAGE) {
       actualLanguage = runTarget;
       updateSelection(actualLanguage);
-      setStatus('Translated in your browser.');
+      var source = runLibraryHits > 0
+        ? (runNetworkRequests > 0 ? 'Translated with the local library and browser fallback.' : 'Translated using the local translation library.')
+        : 'Translated in your browser.';
+      setStatus(source + (runProtectedTexts > 0 ? ' Protected content remains in English.' : ''));
       writeHealth('ok', '');
     }
     if (pendingLanguage) {
@@ -345,31 +438,37 @@
 
   async function preloadLibrary(languageId, targets) {
     if (!config.library_enabled || typeof config.library_url !== 'string' || !engine || !engine.util || typeof engine.util.hash !== 'function') return 0;
-    var items = pageTexts(targets), hits = 0;
+    var items = pageTexts(targets), pending = [], hits = 0;
     var csrf = document.querySelector('meta[name="csrf-token"]');
     if (!items.length || !csrf || !csrf.content) return 0;
-    for (var offset = 0; offset < items.length; offset += 120) {
-      var batch = items.slice(offset, offset + 120), controller = typeof AbortController === 'function' ? new AbortController() : null;
-      var timer = window.setTimeout(function () { if (controller) controller.abort(); }, 3500);
-      try {
-        var response = await fetch(config.library_url, {
-          method: 'POST', credentials: 'same-origin', cache: 'no-store',
-          headers: {'Accept': 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf.content},
-          body: JSON.stringify({language: languageId, items: batch}), signal: controller ? controller.signal : undefined
-        });
-        if (!response.ok) continue;
-        var data = await response.json(), byKey = new Map(batch.map(function (item) { return [item.key, item]; }));
-        (Array.isArray(data.items) ? data.items : []).forEach(function (result) {
-          var source = byKey.get(String(result.key));
-          if (!source || typeof result.translation !== 'string' || !result.translation.trim()) return;
-          engine.storage.set('hash_' + languageId + '_' + engine.util.hash(source.text), result.translation);
-          hits += 1;
-        });
-      } catch (error) {
-        writeHealth('degraded', 'library_lookup_unavailable');
-      } finally {
-        window.clearTimeout(timer);
-      }
+    items.forEach(function (item) {
+      var cacheKey = 'hash_' + languageId + '_' + engine.util.hash(item.text);
+      if (engine.storage.get(cacheKey)) hits += 1;
+      else pending.push(item);
+    });
+    if (!pending.length) return hits;
+
+    var controller = typeof AbortController === 'function' ? new AbortController() : null;
+    var timeout = Math.max(600, Math.min(2500, Number(config.library_timeout) || 1200));
+    var timer = window.setTimeout(function () { if (controller) controller.abort(); }, timeout);
+    try {
+      var response = await fetch(config.library_url, {
+        method: 'POST', credentials: 'same-origin', cache: 'no-store',
+        headers: {'Accept': 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf.content},
+        body: JSON.stringify({language: languageId, items: pending}), signal: controller ? controller.signal : undefined
+      });
+      if (!response.ok) return hits;
+      var data = await response.json(), byKey = new Map(pending.map(function (item) { return [item.key, item]; }));
+      (Array.isArray(data.items) ? data.items : []).forEach(function (result) {
+        var source = byKey.get(String(result.key));
+        if (!source || typeof result.translation !== 'string' || !result.translation.trim()) return;
+        engine.storage.set('hash_' + languageId + '_' + engine.util.hash(source.text), result.translation);
+        hits += 1;
+      });
+    } catch (error) {
+      writeHealth('degraded', 'library_lookup_unavailable');
+    } finally {
+      window.clearTimeout(timer);
     }
     return hits;
   }
@@ -390,7 +489,9 @@
     runHadFailure = false;
     failureReason = '';
     runLibraryHits = 0;
-    networkPolicy = {allowed: false, to: languageId};
+    runNetworkRequests = 0;
+    runProtectedTexts = 0;
+    networkPolicy = {allowed: false, to: languageId, texts: new Set()};
     if (languageId === SOURCE_LANGUAGE) {
       resetToEnglish('', '');
       writeHealth('ok', '');

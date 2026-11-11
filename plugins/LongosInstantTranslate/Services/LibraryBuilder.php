@@ -17,10 +17,22 @@ final class LibraryBuilder
     ) {}
 
     /** @return array{state:string,entry_id?:int,provider?:string,error?:string} */
-    public function processOne(): array
+    public function processOne(bool $force = false): array
     {
-        if (! LibrarySchema::ready() || ! app(InstantTranslateSettings::class)->libraryBuildEnabled()) {
+        if (! LibrarySchema::ready() || (! $force && ! app(InstantTranslateSettings::class)->libraryBuildEnabled())) {
             return ['state' => 'paused'];
+        }
+
+        $candidates = DB::table('lit_provider_accounts')
+            ->where('enabled', true)
+            ->where('dispatch_enabled', true)
+            ->whereNotNull('verified_at')
+            ->where(function ($query): void {
+                $query->whereNull('cooldown_until')->orWhere('cooldown_until', '<=', now());
+            })
+            ->orderBy('priority')->orderBy('id')->get();
+        if ($candidates->isEmpty()) {
+            return ['state' => 'no_provider'];
         }
 
         $entry = $this->claim();
@@ -31,22 +43,29 @@ final class LibraryBuilder
         $sawTransient = false;
 
         try {
-            $candidates = DB::table('lit_provider_accounts')
-                ->where('enabled', true)
-                ->where('dispatch_enabled', true)
-                ->whereNotNull('verified_at')
-                ->where(function ($query): void {
-                    $query->whereNull('cooldown_until')->orWhere('cooldown_until', '<=', now());
-                })
-                ->orderBy('priority')->orderBy('id')->get();
-
             foreach ($candidates as $account) {
                 $provider = $this->providers->get((string) $account->provider);
                 if (! $provider->supports((string) $entry->source_locale, (string) $entry->target_locale)) {
                     continue;
                 }
+
+                $responseReceived = false;
+
+                try {
+                    $credentials = $this->accounts->credentials($account);
+                    $provider->validateCredentialShape($credentials);
+                } catch (Throwable $exception) {
+                    $code = $this->localConfigurationCode($exception);
+                    $this->accounts->disableAfterAuthFailure((int) $account->id, $code, null);
+
+                    continue;
+                }
+
                 $units = mb_strlen((string) $entry->source_text, 'UTF-8');
                 if (! $this->reserveUsage($account, $units)) {
+                    $this->cooldown($account, 'BALANCE_EXHAUSTED', null, 3600);
+                    $sawTransient = true;
+
                     continue;
                 }
                 $wait = $this->reservePace($account, strlen((string) $entry->source_text) * 2 + 512);
@@ -58,8 +77,6 @@ final class LibraryBuilder
                 }
 
                 try {
-                    $credentials = $this->accounts->credentials($account);
-                    $provider->validateCredentialShape($credentials);
                     $masked  = TextContract::protect((string) $entry->source_text, $this->glossary((string) $entry->target_locale));
                     $request = new TranslationProviderRequest(
                         requestUuid: (string) Str::uuid(),
@@ -77,7 +94,9 @@ final class LibraryBuilder
                             'profile_version' => 'lit-v1',
                         ],
                     );
-                    $response = $provider->send($request, $credentials);
+                    $this->markAttempt($entry);
+                    $response         = $provider->send($request, $credentials);
+                    $responseReceived = true;
                     if ($response->ok && isset($response->translations[0])) {
                         $translated = TextContract::restore((string) $response->translations[0], $masked['tokens']);
                         $quality    = TranslationQualityGate::evaluate($translated, (string) $entry->source_text, (string) $entry->target_locale);
@@ -105,6 +124,13 @@ final class LibraryBuilder
 
                         continue;
                     }
+                    if ($code === 'BALANCE_EXHAUSTED') {
+                        $this->settleUsage($account, $units, 'release');
+                        $this->cooldown($account, $code, $response->requestId, 3600);
+                        $sawTransient = true;
+
+                        continue;
+                    }
                     if ($failure['kind'] === 'definite_failure') {
                         $this->settleUsage($account, $units, 'release');
                         $this->fail($entry, $code, false);
@@ -118,6 +144,12 @@ final class LibraryBuilder
                     return ['state' => 'review', 'entry_id' => (int) $entry->id, 'error' => $code];
                 } catch (Throwable $exception) {
                     $failure = $provider->classifyFailure($exception);
+                    if ($responseReceived) {
+                        $this->settleUsage($account, $units, 'committed');
+                        $this->fail($entry, (string) $failure['code'], false);
+
+                        return ['state' => 'failed', 'entry_id' => (int) $entry->id, 'error' => (string) $failure['code']];
+                    }
                     if ($failure['definitely_unbilled']) {
                         $this->settleUsage($account, $units, 'release');
                         if ($failure['code'] === 'NETWORK_CONNECT_FAILED') {
@@ -137,14 +169,14 @@ final class LibraryBuilder
                 }
             }
 
-            $this->release($entry, $sawTransient ? 'PROVIDER_BUSY' : 'NO_VERIFIED_PROVIDER', $sawTransient ? 120 : 600);
+            $this->release($entry, $sawTransient ? 'PROVIDER_BUSY' : 'NO_SUPPORTED_PROVIDER', $sawTransient ? 120 : 600);
 
             return ['state' => $sawTransient ? 'delayed' : 'no_provider', 'entry_id' => (int) $entry->id];
         } catch (Throwable $exception) {
             $this->release($entry, 'WORKER_EXCEPTION', 600);
             report($exception);
 
-            return ['state' => 'failed', 'entry_id' => (int) $entry->id, 'error' => 'WORKER_EXCEPTION'];
+            return ['state' => 'delayed', 'entry_id' => (int) $entry->id, 'error' => 'WORKER_EXCEPTION'];
         }
     }
 
@@ -212,12 +244,38 @@ final class LibraryBuilder
                 return null;
             }
             DB::table('lit_translation_entries')->where('id', $entry->id)->update([
-                'locked_at' => now(), 'attempts' => (int) $entry->attempts + 1, 'updated_at' => now(),
+                'locked_at' => now(), 'updated_at' => now(),
             ]);
-            $entry->attempts = (int) $entry->attempts + 1;
 
             return $entry;
         });
+    }
+
+    private function markAttempt(object $entry): void
+    {
+        $entry->attempts = min(65535, (int) $entry->attempts + 1);
+        DB::table('lit_translation_entries')->where('id', $entry->id)->update([
+            'attempts'   => $entry->attempts,
+            'updated_at' => now(),
+        ]);
+    }
+
+    private function localConfigurationCode(Throwable $exception): string
+    {
+        $messages = [$exception->getMessage()];
+        if ($exception instanceof \Illuminate\Validation\ValidationException) {
+            foreach ($exception->errors() as $errors) {
+                $messages = [...$messages, ...$errors];
+            }
+        }
+        foreach ($messages as $message) {
+            $code = strtoupper(trim((string) $message));
+            if (preg_match('/(?:PROVIDER_CREDENTIALS_UNREADABLE|INVALID_PROVIDER_CREDENTIALS|SILICONFLOW_FREE_MODEL_ONLY)/', $code, $match) === 1) {
+                return $match[0];
+            }
+        }
+
+        return 'INVALID_PROVIDER_CONFIGURATION';
     }
 
     private function reservePace(object $account, int $tokenEstimate): int
@@ -341,6 +399,9 @@ final class LibraryBuilder
             if ($outcome === 'uncertain') {
                 $values['uncertain_units'] = (int) $usage->uncertain_units + $units;
                 $values['request_count']   = (int) $usage->request_count   + 1;
+            } elseif ($outcome === 'committed') {
+                $values['committed_units'] = (int) $usage->committed_units + $units;
+                $values['request_count']   = (int) $usage->request_count   + 1;
             }
             DB::table('lit_provider_usage')->where('id', $usage->id)->update($values);
         });
@@ -356,12 +417,11 @@ final class LibraryBuilder
 
     private function release(object $entry, string $code, int $delaySeconds): void
     {
-        $attempts = (int) $entry->attempts;
         DB::table('lit_translation_entries')->where('id', $entry->id)->update([
-            'status'          => $attempts >= 5 ? 'failed' : 'pending',
+            'status'          => 'pending',
             'error_code'      => $code,
             'locked_at'       => null,
-            'next_attempt_at' => $attempts >= 5 ? null : now()->addSeconds($delaySeconds),
+            'next_attempt_at' => now()->addSeconds($delaySeconds),
             'updated_at'      => now(),
         ]);
     }

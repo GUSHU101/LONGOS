@@ -4,28 +4,28 @@ namespace Plugin\LongosInstantTranslate\Services;
 
 final class LanguageCatalog
 {
-    /** @return array<string, array{native: string, short: string}> */
+    /** @return array<string, array{native: string, short: string, bcp47: string, dir: string}> */
     public static function all(): array
     {
         return [
-            'english'             => ['native' => 'English', 'short' => 'EN'],
-            'japanese'            => ['native' => '日本語', 'short' => 'JA'],
-            'deutsch'             => ['native' => 'Deutsch', 'short' => 'DE'],
-            'french'              => ['native' => 'Français', 'short' => 'FR'],
-            'spanish'             => ['native' => 'Español', 'short' => 'ES'],
-            'italian'             => ['native' => 'Italiano', 'short' => 'IT'],
-            'korean'              => ['native' => '한국어', 'short' => 'KO'],
-            'portuguese'          => ['native' => 'Português', 'short' => 'PT'],
-            'polish'              => ['native' => 'Polski', 'short' => 'PL'],
-            'dutch'               => ['native' => 'Nederlands', 'short' => 'NL'],
-            'chinese_traditional' => ['native' => '繁體中文', 'short' => '繁中'],
-            'chinese_simplified'  => ['native' => '简体中文', 'short' => '简中'],
-            'arabic'              => ['native' => 'العربية', 'short' => 'AR'],
-            'russian'             => ['native' => 'Русский', 'short' => 'RU'],
-            'vietnamese'          => ['native' => 'Tiếng Việt', 'short' => 'VI'],
-            'indonesian'          => ['native' => 'Bahasa Indonesia', 'short' => 'ID'],
-            'malay'               => ['native' => 'Bahasa Melayu', 'short' => 'MS'],
-            'hindi'               => ['native' => 'हिन्दी', 'short' => 'HI'],
+            'english'             => ['native' => 'English', 'short' => 'EN', 'bcp47' => 'en', 'dir' => 'ltr'],
+            'japanese'            => ['native' => '日本語', 'short' => 'JA', 'bcp47' => 'ja', 'dir' => 'ltr'],
+            'deutsch'             => ['native' => 'Deutsch', 'short' => 'DE', 'bcp47' => 'de', 'dir' => 'ltr'],
+            'french'              => ['native' => 'Français', 'short' => 'FR', 'bcp47' => 'fr', 'dir' => 'ltr'],
+            'spanish'             => ['native' => 'Español', 'short' => 'ES', 'bcp47' => 'es', 'dir' => 'ltr'],
+            'italian'             => ['native' => 'Italiano', 'short' => 'IT', 'bcp47' => 'it', 'dir' => 'ltr'],
+            'korean'              => ['native' => '한국어', 'short' => 'KO', 'bcp47' => 'ko', 'dir' => 'ltr'],
+            'portuguese'          => ['native' => 'Português', 'short' => 'PT', 'bcp47' => 'pt', 'dir' => 'ltr'],
+            'polish'              => ['native' => 'Polski', 'short' => 'PL', 'bcp47' => 'pl', 'dir' => 'ltr'],
+            'dutch'               => ['native' => 'Nederlands', 'short' => 'NL', 'bcp47' => 'nl', 'dir' => 'ltr'],
+            'chinese_traditional' => ['native' => '繁體中文', 'short' => '繁中', 'bcp47' => 'zh-Hant', 'dir' => 'ltr'],
+            'chinese_simplified'  => ['native' => '简体中文', 'short' => '简中', 'bcp47' => 'zh-Hans', 'dir' => 'ltr'],
+            'arabic'              => ['native' => 'العربية', 'short' => 'AR', 'bcp47' => 'ar', 'dir' => 'rtl'],
+            'russian'             => ['native' => 'Русский', 'short' => 'RU', 'bcp47' => 'ru', 'dir' => 'ltr'],
+            'vietnamese'          => ['native' => 'Tiếng Việt', 'short' => 'VI', 'bcp47' => 'vi', 'dir' => 'ltr'],
+            'indonesian'          => ['native' => 'Bahasa Indonesia', 'short' => 'ID', 'bcp47' => 'id', 'dir' => 'ltr'],
+            'malay'               => ['native' => 'Bahasa Melayu', 'short' => 'MS', 'bcp47' => 'ms', 'dir' => 'ltr'],
+            'hindi'               => ['native' => 'हिन्दी', 'short' => 'HI', 'bcp47' => 'hi', 'dir' => 'ltr'],
         ];
     }
 

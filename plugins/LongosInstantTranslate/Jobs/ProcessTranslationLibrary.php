@@ -21,7 +21,7 @@ final class ProcessTranslationLibrary implements ShouldBeUniqueUntilProcessing, 
 
     public int $tries = 1;
 
-    public int $timeout = 45;
+    public int $timeout = 300;
 
     public int $uniqueFor = 90;
 
@@ -37,7 +37,10 @@ final class ProcessTranslationLibrary implements ShouldBeUniqueUntilProcessing, 
 
     public function handle(LibraryBuilder $builder, TranslationLibrary $library, InstantTranslateSettings $settings): void
     {
-        $builder->processOne();
+        $result = $builder->processOne();
+        if (in_array($result['state'] ?? '', ['paused', 'idle', 'no_provider'], true)) {
+            return;
+        }
         $delay = $library->nextPendingDelay($settings->buildIntervalSeconds());
         if ($settings->libraryBuildEnabled() && $delay !== null && config('queue.default') !== 'sync') {
             self::dispatch($this->tenantScope)->delay(now()->addSeconds($delay));

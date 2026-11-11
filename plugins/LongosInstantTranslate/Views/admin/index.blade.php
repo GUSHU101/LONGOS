@@ -13,7 +13,7 @@
 <div class="lit-admin">
   <div class="lit-head">
     <div><h1>{{ __('LongosInstantTranslate::instant.title') }}</h1><p>{{ __('LongosInstantTranslate::instant.subtitle') }}</p></div>
-    <span class="lit-version">v2.0.0</span>
+    <span class="lit-version">v{{ \Plugin\LongosInstantTranslate\Services\InstantTranslateSettings::VERSION }}</span>
   </div>
 
   @if(session('success'))<div class="alert alert-success" role="status">{{ session('success') }}</div>@endif

@@ -6,7 +6,7 @@ final class InstantTranslateSettings
 {
     public const CODE = 'longos_instant_translate';
 
-    public const VERSION = '2.0.0';
+    public const VERSION = '2.0.1';
 
     public const XNX3_VERSION = '4.1.0.20260526';
 
@@ -76,6 +76,7 @@ final class InstantTranslateSettings
             'root_selectors'   => StorefrontPolicy::SAFE_ROOT_SELECTORS,
             'storage_prefix'   => 'longos_instant_translate_v1:' . $this->storageScope() . ':',
             'request_timeout'  => 8000,
+            'library_timeout'  => 1200,
             'library_enabled'  => $settings['library_enabled'] && LibrarySchema::ready(),
         ];
     }

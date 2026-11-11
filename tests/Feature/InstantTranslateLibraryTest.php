@@ -8,6 +8,12 @@ use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\TestCase;
+use Plugin\LongosInstantTranslate\Providers\ProviderRegistry;
+use Plugin\LongosInstantTranslate\Providers\TranslationProviderInterface;
+use Plugin\LongosInstantTranslate\Providers\TranslationProviderRequest;
+use Plugin\LongosInstantTranslate\Providers\TranslationProviderResponse;
+use Plugin\LongosInstantTranslate\Services\LibraryBuilder;
+use Plugin\LongosInstantTranslate\Services\ProviderAccountService;
 use Plugin\LongosInstantTranslate\Services\TranslationLibrary;
 
 class InstantTranslateLibraryTest extends TestCase
@@ -84,6 +90,125 @@ class InstantTranslateLibraryTest extends TestCase
 
         $lookup = (new TranslationLibrary)->lookup('fr', [' Protect   your phone ']);
         self::assertSame('Protégez votre téléphone', $lookup['Protect your phone']);
+    }
+
+    public function test_builder_does_not_consume_attempts_or_fail_entries_without_a_verified_provider(): void
+    {
+        $this->migrateLibrary();
+        (new TranslationLibrary)->queue('Lightweight travel bag', 'product', ['fr']);
+        $registry = new ProviderRegistry;
+        $builder  = new LibraryBuilder($registry, new ProviderAccountService($registry));
+
+        for ($attempt = 0; $attempt < 8; $attempt++) {
+            self::assertSame('no_provider', $builder->processOne(true)['state']);
+        }
+
+        $entry = DB::table('lit_translation_entries')->first();
+        self::assertSame('pending', $entry->status);
+        self::assertSame(0, (int) $entry->attempts);
+        self::assertNull($entry->error_code);
+    }
+
+    public function test_builder_translates_one_entry_and_commits_usage_with_a_verified_provider(): void
+    {
+        $this->migrateLibrary();
+        (new TranslationLibrary)->queue('Lightweight travel bag', 'product', ['fr']);
+        $provider = new class implements TranslationProviderInterface
+        {
+            public function id(): string
+            {
+                return 'siliconflow';
+            }
+
+            public function validateCredentialShape(array $credentials): void {}
+
+            public function supports(string $sourceLocale, string $targetLocale): bool
+            {
+                return $sourceLocale === 'en' && $targetLocale === 'fr';
+            }
+
+            public function buildBatches(array $segments, string $sourceLocale, string $targetLocale): array
+            {
+                return [$segments];
+            }
+
+            public function send(TranslationProviderRequest $request, array $credentials): TranslationProviderResponse
+            {
+                return new TranslationProviderResponse(true, ['Sac de voyage léger'], 'test-trace', null, hash('sha256', 'ok'), 2);
+            }
+
+            public function classifyFailure(\Throwable|TranslationProviderResponse $failure): array
+            {
+                return ['kind' => 'definite_failure', 'code' => 'TEST_FAILURE', 'definitely_unbilled' => true];
+            }
+        };
+        $registry  = new ProviderRegistry(['siliconflow' => $provider]);
+        $accounts  = new ProviderAccountService($registry);
+        $accountId = $accounts->save([
+            'provider' => 'siliconflow', 'label' => 'test', 'enabled' => true,
+            'priority' => 1, 'qps_limit' => 1, 'rpm_limit' => 60, 'tpm_limit' => 80000,
+        ], ['api_key' => 'test-key', 'model' => 'test-model']);
+        DB::table('lit_provider_accounts')->where('id', $accountId)->update([
+            'verified_at' => now(), 'dispatch_enabled' => true,
+        ]);
+
+        $result = (new LibraryBuilder($registry, $accounts))->processOne(true);
+
+        self::assertSame('ready', $result['state']);
+        $entry = DB::table('lit_translation_entries')->first();
+        self::assertSame('ready', $entry->status);
+        self::assertSame('Sac de voyage léger', $entry->translated_text);
+        self::assertSame(1, (int) $entry->attempts);
+        self::assertSame(0, (int) DB::table('lit_provider_usage')->value('reserved_units'));
+        self::assertSame(1, (int) DB::table('lit_provider_usage')->value('request_count'));
+    }
+
+    public function test_builder_disables_unreadable_credentials_without_poisoning_the_entry(): void
+    {
+        $this->migrateLibrary();
+        (new TranslationLibrary)->queue('Lightweight travel bag', 'product', ['fr']);
+        DB::table('lit_provider_accounts')->insert([
+            'provider'                => 'siliconflow', 'billing_identity_hash' => hash('sha256', 'broken'),
+            'label'                   => 'broken', 'credentials_ciphertext' => 'not-encrypted', 'credential_revision' => 1,
+            'priority'                => 1, 'qps_limit' => 1, 'rpm_limit' => 60, 'tpm_limit' => 80000,
+            'monthly_character_limit' => 0, 'last_dispatch_at_us' => 0, 'rate_request_count' => 0,
+            'rate_token_estimate'     => 0, 'enabled' => true, 'dispatch_enabled' => true,
+            'verified_at'             => now(), 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $registry = new ProviderRegistry;
+        $result   = (new LibraryBuilder($registry, new ProviderAccountService($registry)))->processOne(true);
+
+        self::assertSame('no_provider', $result['state']);
+        $entry = DB::table('lit_translation_entries')->first();
+        self::assertSame('pending', $entry->status);
+        self::assertSame(0, (int) $entry->attempts);
+        self::assertSame('NO_SUPPORTED_PROVIDER', $entry->error_code);
+        $account = DB::table('lit_provider_accounts')->first();
+        self::assertFalse((bool) $account->dispatch_enabled);
+        self::assertNull($account->verified_at);
+        self::assertSame('PROVIDER_CREDENTIALS_UNREADABLE', $account->last_error_code);
+    }
+
+    public function test_repair_migration_requeues_only_retryable_builder_failures(): void
+    {
+        $this->migrateLibrary();
+        foreach (['NO_VERIFIED_PROVIDER', 'INVALID_INPUT'] as $error) {
+            DB::table('lit_translation_entries')->insert([
+                'source_locale' => 'en', 'target_locale' => 'fr', 'source_hash' => hash('sha256', $error),
+                'source_text'   => $error, 'source_kind' => 'test', 'status' => 'failed', 'attempts' => 5,
+                'error_code'    => $error, 'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+
+        (require base_path('plugins/LongosInstantTranslate/Migrations/2026_11_11_120000_repair_translation_builder_state.php'))->up();
+
+        self::assertSame('pending', DB::table('lit_translation_entries')->where('error_code', null)->value('status'));
+        self::assertSame('failed', DB::table('lit_translation_entries')->where('error_code', 'INVALID_INPUT')->value('status'));
+    }
+
+    private function migrateLibrary(): void
+    {
+        (require base_path('plugins/LongosInstantTranslate/Migrations/2026_11_10_120000_create_instant_translation_library.php'))->up();
     }
 
     private function createLegacyFixture(): void

@@ -9,7 +9,7 @@
     "en": "Local-library-first storefront translation with xnx3 instant fallback and seven server-side providers."
   },
   "type": "feature",
-  "version": "v2.0.0",
+  "version": "v2.0.1",
   "icon": "/image/longos-favicon.svg",
   "author": {
     "name": "LONGOS",

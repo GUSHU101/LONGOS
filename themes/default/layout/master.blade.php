@@ -100,7 +100,7 @@
       $storeFontFamily = $fontFamilies[$globalStyle['font_family'] ?? 'system'] ?? $fontFamilies['system'];
     @endphp
     <link rel="stylesheet" type="text/css" href="{{ mix('/build/beike/shop/'.$themeBuild.'/css/bootstrap.css') }}">
-    <script src="{{ asset('vendor/jquery/jquery-3.6.0.min.js') }}" @if($deferProductScripts) defer @endif></script>
+    <script src="{{ asset('vendor/jquery/jquery-3.6.0.min.js') }}"></script>
     <script src="{{ asset('vendor/layer/3.5.1/layer.js') }}" @if($deferProductScripts) defer @endif></script>
     <script src="{{ asset('vendor/lazysizes/lazysizes.min.js') }}" defer></script>
     <script src="{{ asset('vendor/bootstrap/js/bootstrap.bundle.min.js') }}" defer></script>
