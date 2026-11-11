@@ -360,7 +360,7 @@ class PlatformPaymentController extends Controller
     {
         $fallback = trim((string) ($session->locale ?: config('longos.checkout_locale', 'en')));
         $fallback = preg_match('/^[A-Za-z_]{2,16}$/', $fallback) === 1 ? $fallback : 'en';
-        $bridge   = 'Plugin\\LongosGlobalTranslate\\Services\\PlatformPaymentLocaleBridge';
+        $bridge   = 'Plugin\\LongosInstantTranslate\\Services\\PlatformPaymentLocaleBridge';
         if (! class_exists($bridge) || ! $session->site) {
             App::setLocale($fallback);
 

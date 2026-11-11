@@ -95,7 +95,7 @@ class SaasDockerDeploymentTest extends TestCase
     public function test_image_is_immutable_and_dependencies_are_lockfile_driven(): void
     {
         $dockerfile   = $this->read('docker/nginx/Dockerfile');
-        $dockerignore = $this->read('.dockerignore');
+        $dockerignore = str_replace("\r\n", "\n", $this->read('.dockerignore'));
         $package      = json_decode($this->read('package.json'), true, 512, JSON_THROW_ON_ERROR);
 
         self::assertStringContainsString('FROM composer:2.8.12 AS composer-binary', $dockerfile);
@@ -244,7 +244,7 @@ class SaasDockerDeploymentTest extends TestCase
         self::assertStringContainsString('CURRENCY_TRUST_CDN_COUNTRY_HEADERS: ${CURRENCY_TRUST_CDN_COUNTRY_HEADERS:-true}', $compose);
         self::assertStringContainsString('CURRENCY_GEOLITE2_PATH: ${CURRENCY_GEOLITE2_PATH:-/var/www/html/storage/app/GeoLite2-Country.mmdb}', $compose);
         self::assertStringContainsString('/var/www/.cache/fontconfig', $this->read('docker/nginx/Dockerfile'));
-        self::assertMatchesRegularExpression('/plugins=\([\s\S]*?LongosGlobalTranslate[\s\S]*?\)/', $ci);
+        self::assertMatchesRegularExpression('/plugins=\([\s\S]*?LongosInstantTranslate[\s\S]*?\)/', $ci);
         self::assertStringContainsString('test -f "plugins/${plugin}/Bootstrap.php"', $ci);
         self::assertStringContainsString('wait_for_healthy worker', $ci);
         self::assertStringContainsString('wait_for_healthy scheduler', $ci);

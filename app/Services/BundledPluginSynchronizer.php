@@ -7,7 +7,7 @@ use Beike\Models\Setting;
 use Beike\Repositories\PluginRepo;
 use Beike\Repositories\SettingRepo;
 use Illuminate\Support\Facades\Schema;
-use Plugin\LongosGlobalTranslate\Services\TranslationSchema;
+use Plugin\LongosInstantTranslate\Services\LibrarySchema;
 use RuntimeException;
 
 class BundledPluginSynchronizer
@@ -28,14 +28,10 @@ class BundledPluginSynchronizer
      * @var array<string, array{type: string, settings: array<string, scalar>, tables: list<string>}>
      */
     private const PACKAGES = [
-        'longos_global_translate' => [
+        'longos_instant_translate' => [
             'type'     => 'feature',
             'settings' => ['status' => '0'],
-            // A single sentinel table is insufficient: the administration
-            // dashboard, public dictionary, and worker each use distinct
-            // lgt_* tables.  This is a class constant rather than a method
-            // call because PHP does not allow function calls in constants.
-            'tables'   => TranslationSchema::TABLE_NAMES,
+            'tables'   => LibrarySchema::TABLE_NAMES,
         ],
         'flat_shipping' => [
             'type'     => 'shipping',
@@ -284,15 +280,6 @@ class BundledPluginSynchronizer
             foreach ($definition['tables'] as $table) {
                 if (! Schema::hasTable($table)) {
                     $missing[] = "{$code} ({$table})";
-                }
-            }
-            if ($code === 'longos_global_translate') {
-                $schema = TranslationSchema::inspect();
-                if ($schema['inspection_failed']) {
-                    $missing[] = "{$code} (schema inspection)";
-                }
-                foreach ($schema['missing_columns'] as $column) {
-                    $missing[] = "{$code} ({$column})";
                 }
             }
         }

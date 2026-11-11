@@ -331,7 +331,7 @@ class FooterRepo
                 // the storefront marker. It is presentation metadata only;
                 // URL/value fields remain outside Global Translate's source
                 // allowlist.
-                $link['_lgt_index'] = is_int($index) || ctype_digit((string) $index) ? (int) $index : 0;
+                $link['_lit_index'] = is_int($index) || ctype_digit((string) $index) ? (int) $index : 0;
 
                 return $link;
             })->toArray();
@@ -341,7 +341,7 @@ class FooterRepo
         foreach ($footerSetting['services']['items'] as $index => $item) {
             $footerSetting['services']['items'][$index]['title']      = self::localizedText($item['title'] ?? '');
             $footerSetting['services']['items'][$index]['sub_title']  = self::localizedText($item['sub_title'] ?? '');
-            $footerSetting['services']['items'][$index]['_lgt_index'] = $index;
+            $footerSetting['services']['items'][$index]['_lit_index'] = $index;
         }
 
         $copyright = self::sanitizeRichText(self::localizedText($footerSetting['bottom']['copyright'] ?? ''));

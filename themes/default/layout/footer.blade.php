@@ -19,7 +19,7 @@
     if (!is_array($item) || ($item['show'] ?? true) === false || trim((string) ($item['title'] ?? '')) === '') {
       continue;
     }
-    $item['_lgt_index'] = $item['_lgt_index'] ?? $serviceIndex;
+    $item['_lit_index'] = $item['_lit_index'] ?? $serviceIndex;
     $serviceItems[] = $item;
   }
   $showProtection = !empty($footer_content['services']['enable']) && !empty($serviceItems);
@@ -89,7 +89,7 @@
           @foreach (array_slice($serviceItems, 0, 4) as $item)
             <span class="longos-footer__protection-item" role="listitem">
               <i class="bi bi-check2" aria-hidden="true"></i>
-              <span><strong data-lgt-field="footer.services.items.{{ $item['_lgt_index'] }}.title">{{ $item['title'] }}</strong>@if(!empty($item['sub_title']))<small data-lgt-field="footer.services.items.{{ $item['_lgt_index'] }}.sub_title">{{ $item['sub_title'] }}</small>@endif</span>
+              <span><strong data-lit-field="footer.services.items.{{ $item['_lit_index'] }}.title">{{ $item['title'] }}</strong>@if(!empty($item['sub_title']))<small data-lit-field="footer.services.items.{{ $item['_lit_index'] }}.sub_title">{{ $item['sub_title'] }}</small>@endif</span>
             </span>
           @endforeach
         </div>
@@ -128,7 +128,7 @@
             <button class="footer-toggle" type="button" aria-expanded="false" aria-controls="longos-footer-custom-{{ $groupIndex }}" aria-label="{{ $group['title'] }}"><i class="bi bi-plus-lg" aria-hidden="true"></i></button>
           </h2>
           <nav id="longos-footer-custom-{{ $groupIndex }}" class="longos-footer__links footer-collapsible" aria-label="{{ $group['title'] }}">
-            @foreach ($group['links'] as $link)<a href="{{ $link['link'] }}" data-lgt-field="footer.content.{{ $group['key'] }}.links.{{ $link['_lgt_index'] ?? $loop->index }}.text" @if(!empty($link['new_window'])) target="_blank" rel="noopener noreferrer" @endif>{{ $link['text'] }}</a>@endforeach
+            @foreach ($group['links'] as $link)<a href="{{ $link['link'] }}" data-lit-field="footer.content.{{ $group['key'] }}.links.{{ $link['_lit_index'] ?? $loop->index }}.text" @if(!empty($link['new_window'])) target="_blank" rel="noopener noreferrer" @endif>{{ $link['text'] }}</a>@endforeach
           </nav>
         </section>
       @endforeach

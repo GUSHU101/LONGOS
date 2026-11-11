@@ -1,0 +1,18 @@
+{
+  "code": "longos_instant_translate",
+  "name": {
+    "zh_cn": "LONGOS 即时网页翻译",
+    "en": "LONGOS Instant Translate"
+  },
+  "description": {
+    "zh_cn": "本地翻译库优先、xnx3 即时回退，并支持七种服务端翻译服务商的店面语言插件。",
+    "en": "Local-library-first storefront translation with xnx3 instant fallback and seven server-side providers."
+  },
+  "type": "feature",
+  "version": "v2.0.0",
+  "icon": "/image/longos-favicon.svg",
+  "author": {
+    "name": "LONGOS",
+    "email": "admin@example.com"
+  }
+}
