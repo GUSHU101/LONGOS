@@ -21,12 +21,16 @@ class InstantTranslateLocaleResolverTest extends TestCase
     public static function countryCases(): array
     {
         return [
-            'Japan'   => ['JP', 'japanese'],
-            'Germany' => ['DE', 'deutsch'],
-            'France'  => ['FR', 'french'],
-            'Brazil'  => ['BR', 'portuguese'],
-            'Taiwan'  => ['TW', 'chinese_traditional'],
-            'China'   => ['CN', 'chinese_simplified'],
+            'Japan'    => ['JP', 'japanese'],
+            'Germany'  => ['DE', 'deutsch'],
+            'France'   => ['FR', 'french'],
+            'Brazil'   => ['BR', 'portuguese'],
+            'Taiwan'   => ['TW', 'chinese_traditional'],
+            'China'    => ['CN', 'chinese_simplified'],
+            'Ecuador'  => ['EC', 'spanish'],
+            'Senegal'  => ['SN', 'french'],
+            'UAE'      => ['AE', 'arabic'],
+            'Malaysia' => ['MY', 'malay'],
         ];
     }
 

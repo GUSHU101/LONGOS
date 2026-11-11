@@ -82,6 +82,13 @@ cart, checkout, payment, order, address and customer regions, plus prices,
 currencies, SKU and inventory. Email-, phone-, card-, token- and secret-like
 text is rejected again immediately before a browser fallback request.
 
+Automatic language selection uses only the server-verified visitor country
+from the trusted edge request context. A visitor's manual selection overrides
+that decision for the current browser tab only. Closing the tab or starting a
+new visit evaluates the country again, so a selection made while using a VPN
+cannot permanently disable later IP-based detection. Client health diagnostics
+record the selection source and country without storing the visitor IP.
+
 This remains presentation translation. It does not create localized URLs,
 metadata or sitemaps and therefore is not multilingual SEO.
 

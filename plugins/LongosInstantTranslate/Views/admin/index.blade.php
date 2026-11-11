@@ -42,7 +42,7 @@
       </section>
 
       <section class="lit-card">
-        <header><h2>{{ __('LongosInstantTranslate::instant.automatic') }}</h2><p>Manual visitor choice always has the highest priority.</p></header>
+        <header><h2>{{ __('LongosInstantTranslate::instant.automatic') }}</h2><p>Manual choice overrides automatic detection only in the current tab; a new visit evaluates the verified visitor country again.</p></header>
         <div class="lit-card__body">
           <label class="lit-switch"><input type="checkbox" name="auto_country" value="1" @checked(old('auto_country', $settings['auto_country']))><span><strong>{{ __('LongosInstantTranslate::instant.country') }}</strong><small>Untrusted CF-IPCountry headers are rejected.</small></span></label>
           <label class="lit-switch"><input type="checkbox" name="browser_fallback" value="1" @checked(old('browser_fallback', $settings['browser_fallback']))><span><strong>{{ __('LongosInstantTranslate::instant.browser') }}</strong><small>Unsupported results fall back to the original English page.</small></span></label>

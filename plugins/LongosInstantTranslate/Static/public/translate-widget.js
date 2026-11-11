@@ -49,7 +49,7 @@
   }
 
   var prefix = typeof config.storage_prefix === 'string' ? config.storage_prefix : 'longos_instant_translate_v1:';
-  var manualKey = prefix + 'manual_language';
+  var manualSessionKey = prefix + 'manual_language_session';
   var healthKey = prefix + 'health';
   var enginePrefix = prefix + 'xnx3:';
   var engine = null;
@@ -64,6 +64,8 @@
   var runLibraryHits = 0;
   var runNetworkRequests = 0;
   var runProtectedTexts = 0;
+  var selectionSource = 'source';
+  var selectionCountry = '';
   var networkPolicy = {allowed: false, to: '', texts: new Set()};
   var lastLibraryRenderAt = 0;
   var dynamicNodes = new Set();
@@ -88,6 +90,14 @@
     try { window.localStorage.setItem(key, String(value)); return true; } catch (error) { return false; }
   }
 
+  function safeSessionGet(key) {
+    try { return window.sessionStorage.getItem(key); } catch (error) { return null; }
+  }
+
+  function safeSessionSet(key, value) {
+    try { window.sessionStorage.setItem(key, String(value)); return true; } catch (error) { return false; }
+  }
+
   function writeHealth(state, error) {
     safeStorageSet(healthKey, JSON.stringify({
       status: state,
@@ -95,6 +105,8 @@
       engine: String(config.engine_version || ''),
       service: 'client.edge',
       language: actualLanguage,
+      selection_source: selectionSource,
+      country: selectionCountry,
       error: String(error || '').slice(0, 120)
     }));
   }
@@ -515,7 +527,10 @@
 
   function chooseLanguage(languageId, manual) {
     if (!languageMap.has(languageId)) languageId = SOURCE_LANGUAGE;
-    if (manual) safeStorageSet(manualKey, languageId);
+    if (manual) {
+      safeSessionSet(manualSessionKey, languageId);
+      selectionSource = 'manual_session';
+    }
     desiredLanguage = languageId;
     updateSelection(languageId);
     if (busy) {
@@ -542,11 +557,12 @@
   }
 
   async function automaticLanguage() {
-    var stored = safeStorageGet(manualKey);
-    if (languageMap.has(stored)) return stored;
+    var stored = safeSessionGet(manualSessionKey);
+    if (languageMap.has(stored)) return {language: stored, source: 'manual_session', country: ''};
     if (config.auto_country && typeof config.context_url === 'string') {
       var controller = typeof AbortController === 'function' ? new AbortController() : null;
-      var timeout = window.setTimeout(function () { if (controller) controller.abort(); }, 5000);
+      var contextTimeout = Math.max(600, Math.min(3000, Number(config.context_timeout) || 1500));
+      var timeout = window.setTimeout(function () { if (controller) controller.abort(); }, contextTimeout);
       try {
         var response = await fetch(config.context_url, {
           method: 'GET', credentials: 'same-origin', cache: 'no-store',
@@ -554,7 +570,13 @@
         });
         if (response.ok) {
           var data = await response.json();
-          if (languageMap.has(data.language)) return data.language;
+          if (languageMap.has(data.language)) {
+            return {
+              language: data.language,
+              source: typeof data.source === 'string' ? data.source : 'country',
+              country: typeof data.country === 'string' ? data.country : ''
+            };
+          }
         }
       } catch (error) {
         writeHealth('degraded', 'country_context_unavailable');
@@ -562,7 +584,11 @@
         window.clearTimeout(timeout);
       }
     }
-    return config.browser_fallback ? browserLanguage() : SOURCE_LANGUAGE;
+    return {
+      language: config.browser_fallback ? browserLanguage() : SOURCE_LANGUAGE,
+      source: config.browser_fallback ? 'browser' : 'source',
+      country: ''
+    };
   }
 
   function scheduleDynamic(node) {
@@ -605,7 +631,10 @@
     }
     var engineReady = configureEngine();
     observeDynamicContent();
-    var language = await automaticLanguage();
+    var decision = await automaticLanguage();
+    var language = decision.language;
+    selectionSource = decision.source;
+    selectionCountry = decision.country;
     if (!engineReady && language !== SOURCE_LANGUAGE) language = SOURCE_LANGUAGE;
     chooseLanguage(language, false);
     if (language === SOURCE_LANGUAGE) writeHealth(engineReady ? 'ok' : 'degraded', engineReady ? '' : 'engine_load_failed');
