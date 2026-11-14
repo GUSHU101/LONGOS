@@ -81,8 +81,8 @@ class PlatformPaymentController extends Controller
             if ($session instanceof PlatformPaymentSession && ! $providerCreated) {
                 $this->releaseClaim($session, 'paypal');
                 if ($e instanceof PlatformPaymentAccountUnavailable) {
-                    // Only an OAuth/credential availability failure is safe to
-                    // count against the account circuit.  A later unknown
+                    // Only a deterministic pre-order account failure is safe
+                    // to count against the account circuit. A later unknown
                     // create-order failure may have reached PayPal, so taking
                     // that merchant out of rotation could hide an order that
                     // still needs reconciliation.
@@ -300,10 +300,10 @@ class PlatformPaymentController extends Controller
         try {
             $account = PlatformPaymentAccount::query()->find($session->payment_account_id);
             if ($account) {
-                // OAuth failed before PayPal could create an order. Open the
-                // circuit immediately so this same buyer cannot be sent back
-                // to an account with unavailable credentials; the scheduled
-                // health probe can close it as soon as authentication works.
+                // A deterministic account prerequisite failed before PayPal
+                // could create an order. Open the circuit immediately so this
+                // buyer cannot be sent back to unavailable credentials or a
+                // callback alias; a successful health probe can close it.
                 app(PlatformPaymentAccountService::class)->recordUnavailable($account);
             }
         } catch (Throwable $exception) {

@@ -283,14 +283,25 @@ class PlatformPaymentSettings
     public function paymentUrlForSession(PlatformPaymentSession $session, string $path = ''): string
     {
         $host = trim((string) $session->callback_host);
+        if ($session->payment_account_id && $host === '') {
+            throw new RuntimeException('托管 PayPal 支付会话缺少专用回传域名。');
+        }
         if ($host !== '') {
             try {
                 $host = DomainName::normalize($host);
-
-                return 'https://' . $host . '/' . ltrim($path, '/');
             } catch (\Throwable) {
                 throw new RuntimeException('支付会话的回传域名无效。');
             }
+
+            if ($session->payment_account_id
+                && ! app(PlatformPaymentAccountService::class)->isCallbackHostRoutableForAccount(
+                    (int) $session->payment_account_id,
+                    $host,
+                )) {
+                throw new RuntimeException('支付会话的专用回传域名与 PayPal 收款账户不匹配或当前不可用。');
+            }
+
+            return 'https://' . $host . '/' . ltrim($path, '/');
         }
 
         return $this->mainUrl($path);
@@ -306,6 +317,9 @@ class PlatformPaymentSettings
 
         $expected = trim((string) $session->callback_host);
         if ($expected === '') {
+            if ($session->payment_account_id) {
+                return false;
+            }
             $expected = (string) parse_url($this->mainUrl(), PHP_URL_HOST);
         }
 

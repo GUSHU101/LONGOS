@@ -2,6 +2,7 @@
 
 namespace Tests\Unit;
 
+use App\Saas\Models\PlatformPaymentSession;
 use App\Saas\Models\Site;
 use App\Saas\TenantManager;
 use App\Services\PlatformPayment\PlatformPaymentCurrency;
@@ -359,6 +360,91 @@ class PlatformPaymentIndependenceTest extends TestCase
         self::assertMatchesRegularExpression('/^lp-[a-f0-9]{32}$/', $create);
         self::assertSame($create, $method->invoke($gateway, 'create', $session));
         self::assertNotSame($create, $capture);
+    }
+
+    #[IgnoreDeprecations]
+    public function test_paypal_creation_uses_only_the_dedicated_callback_and_omits_catalog_details(): void
+    {
+        $token    = str_repeat('a', 64);
+        $callback = 'pay-account.example.test';
+        $session  = (new PlatformPaymentSession)->forceFill([
+            'uuid'               => '14141414-1414-4414-8414-141414141414',
+            'amount'             => '39.99000000',
+            'currency'           => 'USD',
+            'payment_account_id' => 17,
+            'callback_host'      => $callback,
+            'order_number'       => 'TENANT-SECRET-ORDER',
+        ]);
+        $settings = $this->createMock(PlatformPaymentSettings::class);
+        $settings->expects(self::exactly(2))->method('paymentUrlForSession')
+            ->willReturnCallback(static fn (PlatformPaymentSession $bound, string $path): string => 'https://' . $bound->callback_host . '/' . $path
+            );
+
+        $payload = null;
+        $client  = $this->createMock(PayPal::class);
+        $client->expects(self::once())->method('setRequestHeaders');
+        $client->expects(self::once())->method('createOrder')
+            ->willReturnCallback(static function (array $request) use (&$payload): array {
+                $payload = $request;
+
+                return [
+                    'id'     => 'PAYPALORDER12345',
+                    'status' => 'CREATED',
+                    'links'  => [[
+                        'rel'  => 'approve',
+                        'href' => 'https://www.sandbox.paypal.com/checkoutnow?token=PAYPALORDER12345',
+                    ]],
+                ];
+            });
+
+        $gateway = (new \ReflectionClass(PlatformPaypalGateway::class))->newInstanceWithoutConstructor();
+        foreach (['platformSettings' => $settings, 'client' => $client, 'settings' => ['merchant_id' => '']] as $property => $value) {
+            (new \ReflectionProperty($gateway, $property))->setValue($gateway, $value);
+        }
+
+        $created = $gateway->create($session, $token);
+        self::assertSame('PAYPALORDER12345', $created['id']);
+        self::assertSame(
+            "https://{$callback}/_longos/pay/{$token}/return/paypal",
+            data_get($payload, 'payment_source.paypal.experience_context.return_url'),
+        );
+        self::assertSame(
+            "https://{$callback}/_longos/pay/{$token}/cancel",
+            data_get($payload, 'payment_source.paypal.experience_context.cancel_url'),
+        );
+        self::assertSame('39.99', data_get($payload, 'purchase_units.0.amount.value'));
+        self::assertSame('USD', data_get($payload, 'purchase_units.0.amount.currency_code'));
+        self::assertArrayNotHasKey('items', $payload['purchase_units'][0]);
+        self::assertStringNotContainsString('TENANT-SECRET-ORDER', json_encode($payload, JSON_THROW_ON_ERROR));
+        self::assertStringNotContainsString('image', strtolower(json_encode($payload, JSON_THROW_ON_ERROR)));
+    }
+
+    #[IgnoreDeprecations]
+    public function test_paypal_creation_rejects_a_managed_callback_on_another_host(): void
+    {
+        $token   = str_repeat('b', 64);
+        $session = (new PlatformPaymentSession)->forceFill([
+            'uuid'               => '15151515-1515-4515-8515-151515151515',
+            'amount'             => '9.99000000',
+            'currency'           => 'USD',
+            'payment_account_id' => 18,
+            'callback_host'      => 'pay-bound.example.test',
+        ]);
+        $settings = $this->createMock(PlatformPaymentSettings::class);
+        $settings->method('paymentUrlForSession')
+            ->willReturnCallback(static fn (PlatformPaymentSession $bound, string $path): string => 'https://main.example.test/' . $path
+            );
+        $client = $this->createMock(PayPal::class);
+        $client->expects(self::never())->method('createOrder');
+
+        $gateway = (new \ReflectionClass(PlatformPaypalGateway::class))->newInstanceWithoutConstructor();
+        foreach (['platformSettings' => $settings, 'client' => $client, 'settings' => ['merchant_id' => '']] as $property => $value) {
+            (new \ReflectionProperty($gateway, $property))->setValue($gateway, $value);
+        }
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('回传域名');
+        $gateway->create($session, $token);
     }
 
     #[IgnoreDeprecations]

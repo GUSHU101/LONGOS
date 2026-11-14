@@ -43,7 +43,7 @@ class PlatformPaymentAccountRotationContractTest extends TestCase
         self::assertMatchesRegularExpression('/\$locked->status\s*!==\s*PlatformPaymentSession::STATUS_PENDING/', $sessions);
         self::assertStringContainsString('selectNextActivePaypalAccount((int) $locked->payment_account_id)', $sessions);
         self::assertStringContainsString('PlatformPaymentAccountUnavailable', $controller);
-        self::assertStringContainsString('Only an OAuth/credential availability failure is safe', $controller);
+        self::assertStringContainsString('Only a deterministic pre-order account failure is safe', $controller);
         self::assertStringContainsString('PlatformPaymentAccountUnavailable', $direct);
         self::assertStringContainsString('rotatePaypalAccountAfterPreOrderFailure($session)', $direct);
         self::assertStringContainsString('paypalPreOrderAttemptLimit()', $direct);
@@ -87,8 +87,10 @@ class PlatformPaymentAccountRotationContractTest extends TestCase
         self::assertStringContainsString('$attempt < $maxAttempts', $direct);
         self::assertStringContainsString("redirect()->away(\$result['approval_url'])", $direct);
         self::assertStringNotContainsString("redirect()->away(\$created['checkout_url'])", $direct);
-        self::assertStringContainsString('paymentUrlForSession($session, "_longos/pay/{$token}/return/paypal")', $paypal);
-        self::assertStringContainsString('paymentUrlForSession($session, "_longos/pay/{$token}/cancel")', $paypal);
+        self::assertStringContainsString('$returnPath = "_longos/pay/{$token}/return/paypal"', $paypal);
+        self::assertStringContainsString('$cancelPath = "_longos/pay/{$token}/cancel"', $paypal);
+        self::assertStringContainsString('paymentUrlForSession($session, $returnPath)', $paypal);
+        self::assertStringContainsString('paymentUrlForSession($session, $cancelPath)', $paypal);
         self::assertStringContainsString('const createPaypalOrder = async data =>', $payment);
         self::assertStringContainsString('data.paypal?.max_preorder_attempts', $inline);
         self::assertStringContainsString('data.paypal?.max_preorder_attempts', $payment);
@@ -134,12 +136,15 @@ class PlatformPaymentAccountRotationContractTest extends TestCase
         $root      = dirname(__DIR__, 2);
         $lifecycle = (string) file_get_contents($root . '/app/Saas/SiteLifecycleService.php');
         $accounts  = (string) file_get_contents($root . '/app/Services/PlatformPayment/PlatformPaymentAccountService.php');
+        $settings  = (string) file_get_contents($root . '/app/Services/PlatformPayment/PlatformPaymentSettings.php');
 
         self::assertStringContainsString('protectedPlatformPaymentCallbackHosts', $lifecycle);
         self::assertStringContainsString("whereNotIn('host', \$protectedCallbackHosts)", $lifecycle);
         self::assertStringContainsString('isProtectedPlatformPaymentCallbackHost', $lifecycle);
         self::assertStringContainsString('支付回传域名', $lifecycle);
         self::assertStringContainsString('isCallbackHostRoutable', $accounts);
+        self::assertStringContainsString('isCallbackHostRoutableForAccount', $accounts);
+        self::assertStringContainsString('isCallbackHostRoutableForAccount', $settings);
         self::assertMatchesRegularExpression("/'enabled'\\s*=>\\s*false/", $accounts);
 
         $controller = (string) file_get_contents($root . '/app/Http/Controllers/PlatformPaymentController.php');
@@ -147,17 +152,20 @@ class PlatformPaymentAccountRotationContractTest extends TestCase
         self::assertStringContainsString("->header('X-Frame-Options', 'DENY')", $controller);
     }
 
-    public function test_account_retirement_requires_no_sessions_and_preserves_a_non_credential_tombstone(): void
+    public function test_account_retirement_blocks_only_live_payments_and_preserves_a_non_credential_tombstone(): void
     {
         $root      = dirname(__DIR__, 2);
         $migration = (string) file_get_contents($root . '/database/migrations/2026_11_13_000000_add_retirement_to_platform_payment_accounts.php');
         $model     = (string) file_get_contents($root . '/app/Saas/Models/PlatformPaymentAccount.php');
+        $sessions  = (string) file_get_contents($root . '/app/Saas/Models/PlatformPaymentSession.php');
         $accounts  = (string) file_get_contents($root . '/app/Services/PlatformPayment/PlatformPaymentAccountService.php');
         $routes    = (string) file_get_contents($root . '/beike/Admin/Routes/admin.php');
 
         self::assertStringContainsString("hasColumn('saas_platform_payment_accounts', 'deleted_at')", $migration);
         self::assertStringContainsString('use SoftDeletes;', $model);
-        self::assertStringContainsString("where('payment_account_id', \$locked->id)->exists()", $accounts);
+        self::assertStringContainsString('scopeAccountRetirementSensitive', $sessions);
+        self::assertStringContainsString('->accountRetirementSensitive()', $accounts);
+        self::assertStringContainsString("'blocking_session_count'", $accounts);
         self::assertStringContainsString("'client_id'", $accounts);
         self::assertStringContainsString("'secret_ciphertext'", $accounts);
         self::assertStringContainsString('$locked->delete()', $accounts);

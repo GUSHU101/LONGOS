@@ -194,6 +194,8 @@ class PlatformPaymentSecurityContractTest extends TestCase
         self::assertStringContainsString('@if (! $canManagePlatformPay)', $view);
         self::assertStringContainsString('在本店启用平台代收', $view);
         self::assertStringContainsString('data-lpp-delete-account', $view);
+        self::assertStringContainsString("\$account['blocking_session_count'] === 0", $view);
+        self::assertStringContainsString('已完成等历史会话仅用于订单审计，不阻止删除账户', $view);
     }
 
     public function test_release_pipeline_requires_the_independent_platform_plugin(): void

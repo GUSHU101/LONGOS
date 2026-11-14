@@ -53,7 +53,10 @@ final class PlatformPaymentAccountService
             ->orderBy('last_selected_at')
             ->orderBy('id');
         if (Schema::connection('saas')->hasTable('saas_platform_payment_sessions')) {
-            $query->withCount('sessions');
+            $query->withCount([
+                'sessions',
+                'sessions as blocking_sessions_count' => static fn (Builder $query): Builder => $query->accountRetirementSensitive(),
+            ]);
         }
 
         return $query->get();
@@ -190,6 +193,7 @@ final class PlatformPaymentAccountService
                 'circuit_open_until'     => $account->circuit_open_until?->toIso8601String(),
                 'last_health_checked_at' => $account->last_health_checked_at?->toIso8601String(),
                 'retained_session_count' => (int) ($account->sessions_count ?? 0),
+                'blocking_session_count' => (int) ($account->blocking_sessions_count ?? 0),
             ];
         })->all();
     }
@@ -280,10 +284,11 @@ final class PlatformPaymentAccountService
     }
 
     /**
-     * Retire an unused account without losing the fact that this installation
-     * uses the managed pool. Credentials are cryptographically overwritten,
-     * the callback alias is unpublished, and a minimal soft-deleted tombstone
-     * reserves the immutable UUID/hostname for audit and replay safety.
+     * Retire a paused account after all live/recoverable payments finish.
+     * Historical sessions and tenant orders remain untouched. Credentials
+     * are cryptographically overwritten, the callback alias is unpublished,
+     * and a minimal soft-deleted tombstone preserves the immutable account
+     * identity for audit and replay safety.
      */
     public function delete(PlatformPaymentAccount $account): void
     {
@@ -300,8 +305,11 @@ final class PlatformPaymentAccountService
             if ($locked->enabled) {
                 throw new RuntimeException('请先暂停该账户并保存，确认它不再参与新订单轮询后再删除。');
             }
-            if (PlatformPaymentSession::query()->where('payment_account_id', $locked->id)->exists()) {
-                throw new RuntimeException('该账户仍有关联的支付记录。为保留回调、退款和审计能力，需等待历史会话按保留策略清理后才能删除。');
+            if (PlatformPaymentSession::query()
+                ->where('payment_account_id', $locked->id)
+                ->accountRetirementSensitive()
+                ->exists()) {
+                throw new RuntimeException('该账户仍有进行中或待对账的支付。请等待完成或对账结束后再删除；已完成的历史订单不会阻止删除。');
             }
 
             $site   = $this->controlSite();
@@ -459,10 +467,37 @@ final class PlatformPaymentAccountService
         return Domain::query()
             ->routable()
             ->where('host', $host)
+            ->where('scheme', 'https')
             ->where('is_primary', false)
             ->where('origin', Domain::ORIGIN_PLATFORM)
             ->where('routing_behavior', Domain::ROUTING_ALIAS)
             ->exists();
+    }
+
+    /**
+     * Verify that a callback hostname is both published as an active alias
+     * and owned by the exact managed PayPal account bound to the session.
+     * A hostname belonging to another receiver must never be substituted,
+     * even when that other hostname is otherwise routable.
+     */
+    public function isCallbackHostRoutableForAccount(int $accountId, string $host): bool
+    {
+        if ($accountId < 1 || ! $this->schemaReady()) {
+            return false;
+        }
+
+        try {
+            $host = DomainName::normalize($host);
+        } catch (\Throwable) {
+            return false;
+        }
+
+        return PlatformPaymentAccount::query()
+            ->whereKey($accountId)
+            ->paypal()
+            ->where('callback_host', $host)
+            ->exists()
+            && $this->isCallbackHostRoutable($host);
     }
 
     public function hasOpenSessions(PlatformPaymentAccount $account): bool
@@ -473,16 +508,7 @@ final class PlatformPaymentAccountService
 
         return PlatformPaymentSession::query()
             ->where('payment_account_id', $account->id)
-            ->where(function ($query): void {
-                $query->whereIn('status', [
-                    PlatformPaymentSession::STATUS_PENDING,
-                    PlatformPaymentSession::STATUS_PROCESSING,
-                ])->orWhere(function ($query): void {
-                    $query->where('status', PlatformPaymentSession::STATUS_EXPIRED)
-                        ->whereNotNull('provider_order_id')
-                        ->where('created_at', '>=', now('UTC')->subDays(PlatformPaymentSession::RECOVERY_WINDOW_DAYS));
-                });
-            })
+            ->accountRetirementSensitive()
             ->exists();
     }
 
@@ -539,6 +565,7 @@ final class PlatformPaymentAccountService
             ->whereIn('health_status', ['ready', 'unknown'])
             ->whereIn('callback_host', Domain::query()
                 ->routable()
+                ->where('scheme', 'https')
                 ->where('is_primary', false)
                 ->where('origin', Domain::ORIGIN_PLATFORM)
                 ->where('routing_behavior', Domain::ROUTING_ALIAS)

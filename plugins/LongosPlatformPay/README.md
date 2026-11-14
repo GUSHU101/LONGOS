@@ -6,18 +6,34 @@ tenant status request is reduced to the single `status` field and is accepted
 only when the central runtime is ready; account, secret and callback-domain
 fields remain inaccessible to the tenant.
 
-Unused PayPal receiver accounts can now be safely removed after they are
-paused and have no retained payment sessions. Removal is serialized with
-payment creation, overwrites live credentials, keeps a non-credential audit
-tombstone to prevent legacy-account fallback, and unpublishes the dedicated
-callback hostname. Accounts with retained sessions remain paused until the
-normal payment-retention job has removed those sessions.
+Paused PayPal receiver accounts can be safely removed once they have no live
+buyer session or financially recoverable provider transaction. Completed,
+cancelled, failed and stale historical payment rows do not block removal and
+remain linked to a non-credential audit tombstone; tenant orders are never
+deleted. Removal is serialized with payment creation, overwrites live
+credentials, prevents legacy-account fallback, and unpublishes the dedicated
+callback hostname.
 
 Every managed PayPal receiver callback hostname is published as a storefront
 alias of the control site. Opening the hostname renders the control storefront
 without redirecting the browser to the primary domain, while Platform Pay
 endpoints on that host remain limited to capability-token session routes.
 Upgrades convert historical callback domains from `redirect` to `alias`.
+
+Managed PayPal order creation fails closed unless the immutable session host
+belongs to the exact receiver account and remains an active HTTPS storefront
+alias. The provider payload intentionally omits tenant product titles, SKUs,
+line items and images; it contains only the truthful amount and currency,
+immutable session references, a neutral LONGOS checkout description and the
+dedicated return/cancel URLs. Product details are never randomly substituted
+with unrelated control-site catalog entries.
+
+Callback validation happens before Create Order. If one managed account's
+dedicated alias is unavailable, the untouched session can rotate to the next
+healthy account; after PayPal returns an order id, account, callback host and
+session bindings never rotate. Deterministic provider idempotency keys,
+browser-return capture, interrupted-approval recovery and scheduled
+reconciliation protect against duplicate charges and dropped order updates.
 
 Version 1.8.1 repairs the administration connectivity check. Its endpoint is
 resolved only when the settings form is rendered, the check can safely use the

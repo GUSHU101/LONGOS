@@ -3,6 +3,7 @@
 namespace App\Services\PlatformPayment;
 
 use App\Saas\Models\PlatformPaymentSession;
+use App\Saas\Support\DomainName;
 use GuzzleHttp\Client;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
@@ -61,6 +62,29 @@ class PlatformPaypalGateway
     /** @return array<string, mixed> */
     public function create(PlatformPaymentSession $session, string $token): array
     {
+        if (preg_match('/^[a-f0-9]{64}$/', $token) !== 1) {
+            throw new RuntimeException('PayPal 回传令牌无效。');
+        }
+
+        $returnPath = "_longos/pay/{$token}/return/paypal";
+        $cancelPath = "_longos/pay/{$token}/cancel";
+
+        try {
+            $returnUrl = $this->platformSettings->paymentUrlForSession($session, $returnPath);
+            $cancelUrl = $this->platformSettings->paymentUrlForSession($session, $cancelPath);
+            $this->assertManagedCallbackUrl($session, $returnUrl, '/' . $returnPath);
+            $this->assertManagedCallbackUrl($session, $cancelUrl, '/' . $cancelPath);
+        } catch (Throwable $exception) {
+            // No PayPal request has been sent yet. A managed session may be
+            // moved to another healthy account without risking a duplicate
+            // provider order or charge.
+            if ($session->payment_account_id) {
+                throw new PlatformPaymentAccountUnavailable('PayPal 专用回传域名暂不可用。', 0, $exception);
+            }
+
+            throw $exception;
+        }
+
         $unit = [
             'reference_id' => $session->uuid,
             'custom_id'    => $session->uuid,
@@ -86,8 +110,8 @@ class PlatformPaypalGateway
                 'user_action' => 'PAY_NOW',
                 // The provider returns only to this session's verified,
                 // account-owned callback hostname.
-                'return_url'  => $this->platformSettings->paymentUrlForSession($session, "_longos/pay/{$token}/return/paypal"),
-                'cancel_url'  => $this->platformSettings->paymentUrlForSession($session, "_longos/pay/{$token}/cancel"),
+                'return_url'  => $returnUrl,
+                'cancel_url'  => $cancelUrl,
             ]]],
             'purchase_units' => [$unit],
         ]);
@@ -111,6 +135,39 @@ class PlatformPaypalGateway
             'status'       => strtoupper((string) $result['status']),
             'approval_url' => $approvalUrl,
         ];
+    }
+
+    private function assertManagedCallbackUrl(
+        PlatformPaymentSession $session,
+        string $url,
+        string $expectedPath,
+    ): void {
+        if (! $session->payment_account_id) {
+            return;
+        }
+
+        $parts = parse_url($url);
+        if (! is_array($parts)) {
+            throw new RuntimeException('PayPal 专用回传地址无效。');
+        }
+
+        try {
+            $expectedHost = DomainName::normalize((string) $session->callback_host);
+            $actualHost   = DomainName::normalize((string) ($parts['host'] ?? ''));
+        } catch (\Throwable) {
+            throw new RuntimeException('PayPal 专用回传地址无效。');
+        }
+
+        if (! hash_equals('https', strtolower((string) ($parts['scheme'] ?? '')))
+            || ! hash_equals($expectedHost, $actualHost)
+            || ! hash_equals($expectedPath, (string) ($parts['path'] ?? ''))
+            || isset($parts['user'])
+            || isset($parts['pass'])
+            || isset($parts['port'])
+            || isset($parts['query'])
+            || isset($parts['fragment'])) {
+            throw new RuntimeException('PayPal 回传地址未使用该收款账户绑定的专用域名。');
+        }
     }
 
     /** @return array{transaction_id: string, payload: array<string, mixed>} */

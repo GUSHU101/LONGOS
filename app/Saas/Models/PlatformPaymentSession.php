@@ -103,6 +103,24 @@ class PlatformPaymentSession extends Model
             });
     }
 
+    /**
+     * Only live buyer sessions and financially recoverable provider
+     * transactions need the receiver credentials to remain available.
+     * Completed, cancelled, failed and stale historical rows are audit data;
+     * they must not prevent an account from being retired.
+     */
+    public function scopeAccountRetirementSensitive(Builder $query): Builder
+    {
+        return $query->where(function (Builder $query): void {
+            $query->where(function (Builder $query): void {
+                $query->where('status', self::STATUS_PENDING)
+                    ->where('expires_at', '>', now('UTC'));
+            })->orWhere(function (Builder $query): void {
+                $query->deletionSensitive();
+            });
+        });
+    }
+
     public function isOpen(): bool
     {
         return in_array($this->status, [self::STATUS_PENDING, self::STATUS_PROCESSING], true)

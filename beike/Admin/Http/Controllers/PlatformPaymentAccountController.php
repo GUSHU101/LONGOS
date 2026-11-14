@@ -93,7 +93,7 @@ class PlatformPaymentAccountController extends Controller
                 $accounts->delete($account);
             });
 
-            return $this->redirectToSettings()->with('success', "已安全删除收款账户“{$label}”及其专用回传域名。");
+            return $this->redirectToSettings()->with('success', "已安全删除收款账户“{$label}”及其专用回传域名；历史订单和已完成支付记录已保留。");
         } catch (Throwable $exception) {
             report($exception);
 

@@ -222,6 +222,44 @@ class PlatformPaymentAccountRotationTest extends TestCase
         }
     }
 
+    public function test_session_payment_url_requires_the_exact_accounts_active_callback_alias(): void
+    {
+        $service = new PlatformPaymentAccountService($this->createMock(SiteLifecycleService::class));
+        app()->instance(PlatformPaymentAccountService::class, $service);
+
+        $site   = $this->site();
+        $first  = $this->account('Receiver A', 'pay-a.example.test', 'ready');
+        $second = $this->account('Receiver B', 'pay-b.example.test', 'ready');
+        $this->callbackDomain($site, $first);
+        $this->callbackDomain($site, $second);
+        $session  = $this->session($site, $first, []);
+        $settings = new PlatformPaymentSettings($this->createMock(TenantManager::class));
+
+        self::assertTrue($service->isCallbackHostRoutableForAccount($first->id, $first->callback_host));
+        self::assertFalse($service->isCallbackHostRoutableForAccount($first->id, $second->callback_host));
+        self::assertSame(
+            'https://pay-a.example.test/_longos/pay/token/return/paypal',
+            $settings->paymentUrlForSession($session, '_longos/pay/token/return/paypal'),
+        );
+
+        $session->forceFill(['callback_host' => $second->callback_host]);
+
+        try {
+            $settings->paymentUrlForSession($session, '_longos/pay/token/return/paypal');
+            self::fail('A managed session must not use another receiver account callback host.');
+        } catch (\RuntimeException $exception) {
+            self::assertStringContainsString('不匹配', $exception->getMessage());
+        }
+
+        Domain::query()->where('host', $first->callback_host)->update(['scheme' => 'http']);
+        self::assertFalse($service->isCallbackHostRoutableForAccount($first->id, $first->callback_host));
+        Domain::query()->where('host', $first->callback_host)->update(['scheme' => 'https']);
+        self::assertTrue($service->isCallbackHostRoutableForAccount($first->id, $first->callback_host));
+
+        Domain::query()->where('host', $first->callback_host)->update(['status' => Domain::STATUS_RETIRED]);
+        self::assertFalse($service->isCallbackHostRoutableForAccount($first->id, $first->callback_host));
+    }
+
     public function test_callback_domain_is_published_as_a_non_redirecting_storefront_alias(): void
     {
         $temporaryDirectory = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'longos-payment-alias-' . bin2hex(random_bytes(6));
@@ -430,13 +468,14 @@ class PlatformPaymentAccountRotationTest extends TestCase
         }
     }
 
-    public function test_account_deletion_requires_pause_and_zero_retained_sessions(): void
+    public function test_account_deletion_blocks_only_live_payments_and_preserves_completed_history(): void
     {
         $lifecycle = $this->createMock(SiteLifecycleService::class);
-        $lifecycle->expects(self::never())->method('removeDomain');
+        $lifecycle->expects(self::once())->method('removeDomain');
         $service = new PlatformPaymentAccountService($lifecycle);
         $site    = $this->site(true);
         $enabled = $this->account('Enabled Receiver', 'pay-enabled.example.test', 'ready');
+        $this->callbackDomain($site, $enabled);
 
         try {
             $service->delete($enabled);
@@ -446,19 +485,50 @@ class PlatformPaymentAccountRotationTest extends TestCase
         }
 
         $enabled->forceFill(['enabled' => false])->save();
-        $this->session($site, $enabled, [
-            'status'     => PlatformPaymentSession::STATUS_COMPLETED,
-            'active_key' => null,
-        ]);
+        $session = $this->session($site, $enabled, []);
+        $summary = $service->publicSummaries()[0];
+        self::assertSame(1, $summary['retained_session_count']);
+        self::assertSame(1, $summary['blocking_session_count']);
 
         try {
             $service->delete($enabled->fresh());
-            self::fail('An account with retained payment history must not be deletable.');
+            self::fail('An account with a live buyer session must not be deletable.');
         } catch (\RuntimeException $exception) {
-            self::assertStringContainsString('支付记录', $exception->getMessage());
+            self::assertStringContainsString('进行中或待对账', $exception->getMessage());
         }
 
-        self::assertNotNull(PlatformPaymentAccount::query()->find($enabled->id));
+        $session->forceFill([
+            'status'            => PlatformPaymentSession::STATUS_PROCESSING,
+            'provider'          => 'paypal',
+            'provider_order_id' => 'PAYPALORDER123456',
+            'active_key'        => null,
+        ])->save();
+
+        try {
+            $service->delete($enabled->fresh());
+            self::fail('An account with a financially recoverable payment must not be deletable.');
+        } catch (\RuntimeException $exception) {
+            self::assertStringContainsString('进行中或待对账', $exception->getMessage());
+        }
+
+        $session->forceFill([
+            'status'       => PlatformPaymentSession::STATUS_COMPLETED,
+            'active_key'   => null,
+            'completed_at' => now('UTC'),
+        ])->save();
+        $summary = $service->publicSummaries()[0];
+        self::assertSame(1, $summary['retained_session_count']);
+        self::assertSame(0, $summary['blocking_session_count']);
+
+        $service->delete($enabled->fresh());
+
+        self::assertNull(PlatformPaymentAccount::query()->find($enabled->id));
+        self::assertTrue(PlatformPaymentAccount::withTrashed()->findOrFail($enabled->id)->trashed());
+        self::assertSame(
+            PlatformPaymentSession::STATUS_COMPLETED,
+            PlatformPaymentSession::query()->findOrFail($session->id)->status,
+        );
+        self::assertSame($enabled->id, PlatformPaymentSession::query()->findOrFail($session->id)->payment_account_id);
     }
 
     public function test_account_retirement_rolls_back_when_callback_domain_cleanup_fails(): void

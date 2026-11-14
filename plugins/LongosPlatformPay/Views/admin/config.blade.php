@@ -108,7 +108,8 @@
             <div><dt>回传域名</dt><dd><code>https://{{ $account['callback_host'] }}/_longos/pay/…</code><small class="lpp-domain-note">直接打开会显示主站前台，地址栏始终保留此独立域名，不跳转主域名。</small></dd></div>
             <div><dt>PayPal 商户 ID（审计）</dt><dd>{{ $account['merchant_id'] ?: '未填写；由 PayPal 应用默认商户接收' }}</dd></div>
             <div><dt>已分配会话</dt><dd>{{ number_format($account['rotation_count']) }}</dd></div>
-            <div><dt>保留支付记录</dt><dd>{{ number_format($account['retained_session_count']) }}</dd></div>
+            <div><dt>关联支付会话</dt><dd>{{ number_format($account['retained_session_count']) }}<small class="lpp-domain-note">已完成等历史会话仅用于订单审计，不阻止删除账户。</small></dd></div>
+            <div><dt>进行中/待对账</dt><dd>{{ number_format($account['blocking_session_count']) }}</dd></div>
             <div><dt>轮询权重</dt><dd>{{ $account['rotation_weight'] }}</dd></div>
             <div><dt>最近分配</dt><dd>{{ $account['last_selected_at'] ?: '尚未分配' }}</dd></div>
             <div><dt>连接状态</dt><dd><span class="lpp-health is-{{ $account['health_status'] }}">{{ $account['health_status'] === 'ready' ? '已验证' : ($account['health_status'] === 'failed' ? '需检查' : '未验证') }}</span>{{ $account['last_health_checked_at'] ? ' · ' . $account['last_health_checked_at'] : '' }}{{ $account['circuit_open_until'] ? ' · 熔断至 ' . $account['circuit_open_until'] : '' }}</dd></div>
@@ -116,12 +117,12 @@
           <div class="lpp-account-actions">
             <form method="POST" action="{{ admin_route('plugins.platform_payment_accounts.health', ['account' => $account['id']]) }}">@csrf<button class="btn btn-outline-primary btn-sm" type="submit">验证 PayPal 连接</button></form>
             <button class="btn btn-outline-secondary btn-sm" type="button" data-lpp-copy="https://{{ $account['callback_host'] }}">复制回传域名</button>
-            @if (! $account['enabled'] && $account['retained_session_count'] === 0)
-              <form method="POST" action="{{ admin_route('plugins.platform_payment_accounts.destroy', ['account' => $account['id']]) }}" data-lpp-delete-account data-account-label="{{ $account['label'] }}">@csrf @method('DELETE')<button class="btn btn-outline-danger btn-sm" type="submit">安全删除</button></form>
+            @if (! $account['enabled'] && $account['blocking_session_count'] === 0)
+              <form method="POST" action="{{ admin_route('plugins.platform_payment_accounts.destroy', ['account' => $account['id']]) }}" data-lpp-delete-account data-account-label="{{ $account['label'] }}">@csrf @method('DELETE')<button class="btn btn-outline-danger btn-sm" type="submit">删除账户</button></form>
             @elseif ($account['enabled'])
               <span class="lpp-action-hint">暂停后可删除</span>
             @else
-              <span class="lpp-action-hint">历史支付记录保留期间不可删除</span>
+              <span class="lpp-action-hint">仍有 {{ number_format($account['blocking_session_count']) }} 笔进行中或待对账支付</span>
             @endif
           </div>
           <details class="lpp-edit"><summary>编辑账户</summary><form method="POST" action="{{ admin_route('plugins.platform_payment_accounts.update', ['account' => $account['id']]) }}" class="row g-3 mt-1">@csrf @method('PUT')
@@ -180,6 +181,6 @@
 </style>
 <script>
 document.querySelectorAll('[data-lpp-copy]').forEach((button) => button.addEventListener('click', async () => { try { await navigator.clipboard.writeText(button.dataset.lppCopy); const original=button.textContent; button.textContent='已复制'; setTimeout(()=>button.textContent=original,1600); } catch (_) { window.prompt('复制回传域名：', button.dataset.lppCopy); } }));
-document.querySelectorAll('[data-lpp-delete-account]').forEach((form) => form.addEventListener('submit', (event) => { const label=form.dataset.accountLabel || '该账户'; if (!window.confirm(`确定安全删除“${label}”？\n\n密钥将从当前数据库中擦除，专用回传域名也会解绑。此操作无法在后台恢复。`)) event.preventDefault(); }));
+document.querySelectorAll('[data-lpp-delete-account]').forEach((form) => form.addEventListener('submit', (event) => { const label=form.dataset.accountLabel || '该账户'; if (!window.confirm(`确定安全删除“${label}”？\n\n历史订单和已完成支付记录会原样保留，店铺订单不受影响。账户密钥将被擦除，专用回传域名也会解绑。此账户无法在后台恢复。`)) event.preventDefault(); }));
 </script>
 @endpush
