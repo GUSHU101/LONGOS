@@ -54,7 +54,8 @@ class PlatformPaymentAccountRotationContractTest extends TestCase
         self::assertStringContainsString('isUnavailableForNewSessions', $accounts);
         self::assertStringContainsString("health_status === 'failed'", $accounts);
         self::assertStringContainsString('routableActivePaypalQuery', $accounts);
-        self::assertStringContainsString("whereIn('callback_host', Domain::query()->routable()->select('host'))", $accounts);
+        self::assertStringContainsString("->where('routing_behavior', Domain::ROUTING_ALIAS)", $accounts);
+        self::assertStringContainsString("->where('origin', Domain::ORIGIN_PLATFORM)", $accounts);
         self::assertStringContainsString('recordUnavailable', $accounts);
         self::assertMatchesRegularExpression("/'circuit_open_until'\\s*=>\\s*now\\('UTC'\\)->addMinutes\\(10\\)/", $accounts);
         self::assertStringContainsString('lockForUpdate()', $accounts);
@@ -144,5 +145,24 @@ class PlatformPaymentAccountRotationContractTest extends TestCase
         $controller = (string) file_get_contents($root . '/app/Http/Controllers/PlatformPaymentController.php');
         self::assertStringContainsString("->header('Cache-Control', 'no-store, private, max-age=0')", $controller);
         self::assertStringContainsString("->header('X-Frame-Options', 'DENY')", $controller);
+    }
+
+    public function test_account_retirement_requires_no_sessions_and_preserves_a_non_credential_tombstone(): void
+    {
+        $root      = dirname(__DIR__, 2);
+        $migration = (string) file_get_contents($root . '/database/migrations/2026_11_13_000000_add_retirement_to_platform_payment_accounts.php');
+        $model     = (string) file_get_contents($root . '/app/Saas/Models/PlatformPaymentAccount.php');
+        $accounts  = (string) file_get_contents($root . '/app/Services/PlatformPayment/PlatformPaymentAccountService.php');
+        $routes    = (string) file_get_contents($root . '/beike/Admin/Routes/admin.php');
+
+        self::assertStringContainsString("hasColumn('saas_platform_payment_accounts', 'deleted_at')", $migration);
+        self::assertStringContainsString('use SoftDeletes;', $model);
+        self::assertStringContainsString("where('payment_account_id', \$locked->id)->exists()", $accounts);
+        self::assertStringContainsString("'client_id'", $accounts);
+        self::assertStringContainsString("'secret_ciphertext'", $accounts);
+        self::assertStringContainsString('$locked->delete()', $accounts);
+        self::assertStringContainsString('$this->lifecycle->removeDomain($site, $domain, true)', $accounts);
+        self::assertStringContainsString('PlatformPaymentAccount::withTrashed()->paypal()->exists()', $accounts);
+        self::assertStringContainsString("Route::delete('{account}'", $routes);
     }
 }

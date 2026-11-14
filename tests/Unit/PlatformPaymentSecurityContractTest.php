@@ -169,7 +169,7 @@ class PlatformPaymentSecurityContractTest extends TestCase
         self::assertNotSame([], $service->runtimeIssuesForSnapshot($snapshot));
     }
 
-    public function test_only_the_control_site_root_admin_can_mutate_platform_payment_accounts_or_settings(): void
+    public function test_tenants_can_change_only_local_status_while_central_accounts_and_credentials_stay_root_only(): void
     {
         $root       = dirname(__DIR__, 2);
         $routes     = (string) file_get_contents($root . '/beike/Admin/Routes/admin.php');
@@ -178,8 +178,13 @@ class PlatformPaymentSecurityContractTest extends TestCase
         $view       = (string) file_get_contents($root . '/plugins/LongosPlatformPay/Views/admin/config.blade.php');
 
         self::assertStringContainsString("['saas.platform-admin', 'can:plugins_update', 'throttle:10,1']", $routes);
+        self::assertStringContainsString("Route::delete('{account}'", $routes);
         self::assertStringContainsString('private function assertPlatformPaymentAdministrator(): void', $controller);
-        self::assertStringContainsString("if (\$code === 'longos_platform_pay')", $controller);
+        self::assertStringContainsString("\$code === 'longos_platform_pay'", $controller);
+        self::assertStringContainsString('isTenantPlatformPaymentRequest()', $controller);
+        self::assertStringContainsString('updateTenantPlatformPayment($fields, $code)', $controller);
+        self::assertStringContainsString("SettingRepo::update('plugin', \$code, ['status' =>", $controller);
+        self::assertStringContainsString('platformPaymentFields($fields, false)', $controller);
         self::assertStringContainsString('Auth::guard(AdminUser::AUTH_GUARD)->user()?->is_root', $controller);
         self::assertStringContainsString('isControlHost(request()->getHost())', $controller);
         self::assertStringContainsString('Auth::guard(AdminUser::AUTH_GUARD)->user()?->is_root', $accounts);
@@ -187,6 +192,8 @@ class PlatformPaymentSecurityContractTest extends TestCase
         self::assertStringContainsString('$isControlHost = app(\\App\\Saas\\TenantManager::class)->isControlHost(request()->getHost())', $view);
         self::assertStringContainsString('$canManagePlatformPay = ! $saasEnabled || ($isControlSite && $isPlatformRoot && $isControlHost)', $view);
         self::assertStringContainsString('@if (! $canManagePlatformPay)', $view);
+        self::assertStringContainsString('在本店启用平台代收', $view);
+        self::assertStringContainsString('data-lpp-delete-account', $view);
     }
 
     public function test_release_pipeline_requires_the_independent_platform_plugin(): void

@@ -434,6 +434,10 @@ class PluginController extends Controller
         $fields = $request->all();
         $plugin = app('plugin')->getPluginOrFail($code);
         if ($plugin->code === 'longos_platform_pay') {
+            if ($this->isTenantPlatformPaymentRequest()) {
+                return $this->updateTenantPlatformPayment($fields, $code);
+            }
+
             $this->assertPlatformPaymentAdministrator();
 
             return $this->updatePlatformPayment($plugin, $fields, $code);
@@ -551,6 +555,29 @@ class PluginController extends Controller
     }
 
     /**
+     * Child stores own only their local opt-in. Provider credentials, channel
+     * sharing and the receiver-account pool remain control-plane data.
+     */
+    private function updateTenantPlatformPayment(array $fields, string $code)
+    {
+        $fields = $this->platformPaymentFields($fields, false);
+        $status = $this->booleanPlatformPaymentStatus($fields['status'] ?? null);
+        if ($status === null) {
+            return back()->withErrors(['status' => '请选择是否在本子站启用平台代收。'])->withInput();
+        }
+
+        $issues = $this->persistTenantPlatformPaymentStatus($status, $code);
+        if ($issues !== []) {
+            return back()->withErrors(['status' => implode(' ', $issues)])->withInput();
+        }
+
+        return redirect($this->getRedirect())->with(
+            'success',
+            $status ? '已在本子站启用 LONGOS 平台代收。' : '已在本子站停用 LONGOS 平台代收。',
+        );
+    }
+
+    /**
      * Password fields are intentionally not rendered with their stored value.
      * A blank submission therefore means "keep the existing secret", not
      * "erase it". This is shared by every plugin using password columns.
@@ -578,17 +605,16 @@ class PluginController extends Controller
     }
 
     /**
-     * Platform Pay configuration is platform-wide. This narrow allow-list is
-     * kept even after the control-site/root-admin guard so unexpected fields
-     * (including account credentials submitted to the generic plugin route)
-     * can never be persisted.
+     * Platform Pay credentials and channel sharing are platform-wide, while a
+     * child store owns only its local status. This narrow allow-list prevents
+     * forged account credentials from being persisted through either route.
      */
     private function platformPaymentFields(array $fields, bool $controlSite): array
     {
         $allowed = ['status'];
         if ($controlSite) {
             $allowed = array_merge($allowed, [
-                'share_paypal', 'share_stripe',
+                'managed_paypal_accounts', 'share_paypal', 'share_stripe',
                 'paypal_mode', 'paypal_client_id', 'paypal_secret', 'paypal_merchant_id',
                 'stripe_test_mode', 'stripe_publishable_key', 'stripe_secret_key', 'stripe_webhook_secret',
             ]);
@@ -659,7 +685,7 @@ class PluginController extends Controller
      */
     public function updateStatus(Request $request, $code): JsonResponse
     {
-        if ($code === 'longos_platform_pay') {
+        if ($code === 'longos_platform_pay' && ! $this->isTenantPlatformPaymentRequest()) {
             $this->assertPlatformPaymentAdministrator();
         }
 
@@ -667,6 +693,20 @@ class PluginController extends Controller
             $plugin = app('plugin')->getPluginOrFail($code);
             $status = $request->get('status');
             if ($plugin->code === 'longos_platform_pay') {
+                if ($this->isTenantPlatformPaymentRequest()) {
+                    $enabled = $this->booleanPlatformPaymentStatus($status);
+                    if ($enabled === null) {
+                        return json_fail('平台代收状态无效。');
+                    }
+
+                    $issues = $this->persistTenantPlatformPaymentStatus($enabled, $code);
+                    if ($issues !== []) {
+                        return json_fail(implode(' ', $issues));
+                    }
+
+                    return json_success($enabled ? '已在本子站启用 LONGOS 平台代收。' : '已在本子站停用 LONGOS 平台代收。');
+                }
+
                 return $this->updatePlatformPaymentStatus($plugin, $status, $code);
             }
 
@@ -688,6 +728,59 @@ class PluginController extends Controller
         } catch (\Exception $e) {
             return json_fail($e->getMessage());
         }
+    }
+
+    /** @return list<string> */
+    private function persistTenantPlatformPaymentStatus(bool $enabled, string $code): array
+    {
+        $lock = Cache::lock(
+            PlatformPaymentSettings::CONFIGURATION_LOCK,
+            PlatformPaymentSettings::CONFIGURATION_LOCK_SECONDS,
+        );
+
+        try {
+            $lock->block(10);
+        } catch (LockTimeoutException) {
+            return ['支付配置正在使用或更新，请稍后重试。'];
+        }
+
+        try {
+            if ($enabled) {
+                $issues = PaymentPluginReadiness::issues($code);
+                if ($issues !== []) {
+                    return $issues;
+                }
+            }
+
+            SettingRepo::update('plugin', $code, ['status' => $enabled ? '1' : '0']);
+
+            return [];
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private function booleanPlatformPaymentStatus(mixed $status): ?bool
+    {
+        if ($status === null || (! is_scalar($status) && ! is_bool($status))) {
+            return null;
+        }
+
+        return filter_var($status, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+    }
+
+    private function isTenantPlatformPaymentRequest(): bool
+    {
+        if (! config('saas.enabled')) {
+            return false;
+        }
+
+        $tenants = app(TenantManager::class);
+        $site    = $tenants->current();
+
+        return $site !== null
+            && ! (bool) data_get($site->meta, 'control_site', false)
+            && ! $tenants->isControlHost(request()->getHost());
     }
 
     private function updatePlatformPaymentStatus(Plugin $plugin, mixed $status, string $code): JsonResponse
@@ -723,8 +816,8 @@ class PluginController extends Controller
 
     /**
      * The platform payment plugin owns shared credentials and the account
-     * pool, therefore neither a tenant administrator nor a non-root account
-     * on the control site may change it through a hand-crafted request.
+     * pool. A tenant administrator may change only the separately handled
+     * local status; central mutations still require the control-site root.
      */
     private function assertPlatformPaymentAdministrator(): void
     {

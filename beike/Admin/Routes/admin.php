@@ -92,6 +92,7 @@ Route::prefix($adminName)
                         Route::post('/', [Controllers\PlatformPaymentAccountController::class, 'store'])->name('store');
                         Route::put('{account}', [Controllers\PlatformPaymentAccountController::class, 'update'])->name('update');
                         Route::post('{account}/health', [Controllers\PlatformPaymentAccountController::class, 'health'])->name('health');
+                        Route::delete('{account}', [Controllers\PlatformPaymentAccountController::class, 'destroy'])->name('destroy');
                     });
                 Route::get('plugin-customization', [Controllers\PluginCustomizationController::class, 'index'])->name('plugin_customization.index');
 

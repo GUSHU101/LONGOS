@@ -1,5 +1,24 @@
 # LONGOS Platform Pay
 
+Version 1.9.0 keeps receiver credentials and channel sharing under the control
+site root administrator while restoring each child store's local opt-in. A
+tenant status request is reduced to the single `status` field and is accepted
+only when the central runtime is ready; account, secret and callback-domain
+fields remain inaccessible to the tenant.
+
+Unused PayPal receiver accounts can now be safely removed after they are
+paused and have no retained payment sessions. Removal is serialized with
+payment creation, overwrites live credentials, keeps a non-credential audit
+tombstone to prevent legacy-account fallback, and unpublishes the dedicated
+callback hostname. Accounts with retained sessions remain paused until the
+normal payment-retention job has removed those sessions.
+
+Every managed PayPal receiver callback hostname is published as a storefront
+alias of the control site. Opening the hostname renders the control storefront
+without redirecting the browser to the primary domain, while Platform Pay
+endpoints on that host remain limited to capability-token session routes.
+Upgrades convert historical callback domains from `redirect` to `alias`.
+
 Version 1.8.1 repairs the administration connectivity check. Its endpoint is
 resolved only when the settings form is rendered, the check can safely use the
 current unsaved form values, and PayPal and Stripe are probed from one
@@ -25,7 +44,7 @@ altered to open a different order. Payment initialization scripts also use
 explicit statement boundaries after server-rendered values to remain valid in
 optimized Blade output.
 
-主站统一托管 PayPal 与 Stripe 收款账号。仅开启 PayPal 时，顾客提交订单后会直接进入 PayPal；开启 Stripe 或同时开启多个渠道时，必要的银行卡输入或渠道选择仍直接渲染在子站支付页。子站只会收到供应商的公开 SDK 密钥和短时中央支付会话，不接触任何私钥。供应商返回地址与 Stripe Webhook 固定使用主站域名；完成付款前会再次核对租户、订单、金额、币种、环境和供应商交易绑定。
+主站统一托管 PayPal 与 Stripe 收款账号。仅开启 PayPal 时，顾客提交订单后会直接进入 PayPal；开启 Stripe 或同时开启多个渠道时，必要的银行卡输入或渠道选择仍直接渲染在子站支付页。子站只会收到供应商的公开 SDK 密钥和短时中央支付会话，不接触任何私钥。管理式 PayPal 账户使用不可变的专用回传域名；该域名同时是主站前台别名，直接打开时显示主站首页且地址栏不跳转。Stripe Webhook 与未使用管理式账户的兼容回调仍使用主站规范域名；完成付款前会再次核对租户、订单、金额、币种、环境和供应商交易绑定。
 
 `LONGOS Platform Pay` 是独立支付插件：它拥有自己的 PayPal/Stripe 账号设置、加密凭据和 Webhook，不读取、不修改也不要求启用原有的 PayPal 或 Stripe 店铺插件。
 

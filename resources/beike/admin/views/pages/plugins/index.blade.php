@@ -81,7 +81,7 @@
                       </div>
                     </div>
                     <div>
-                      <el-switch :disabled="!plugin.installed" v-model="plugin.status" @change="(e) => {pluginStatusChange(e, plugin.code)}"></el-switch>
+                      <el-switch :disabled="!plugin.installed || !plugin.status_mutable" :title="plugin.status_mutable ? '' : '当前账号无权修改此插件状态'" v-model="plugin.status" @change="(e) => {pluginStatusChange(e, plugin.code)}"></el-switch>
                     </div>
                   </div>
                 </div>

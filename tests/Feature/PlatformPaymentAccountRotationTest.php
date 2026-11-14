@@ -10,6 +10,7 @@ use App\Saas\Models\Site;
 use App\Saas\SiteAuditLogger;
 use App\Saas\SiteHealthChecker;
 use App\Saas\SiteLifecycleService;
+use App\Saas\Support\DomainRoutingPolicy;
 use App\Saas\TenantManager;
 use App\Services\PlatformPayment\PlatformPaymentAccountService;
 use App\Services\PlatformPayment\PlatformPaymentSessionService;
@@ -221,6 +222,116 @@ class PlatformPaymentAccountRotationTest extends TestCase
         }
     }
 
+    public function test_callback_domain_is_published_as_a_non_redirecting_storefront_alias(): void
+    {
+        $temporaryDirectory = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'longos-payment-alias-' . bin2hex(random_bytes(6));
+        config([
+            'saas.base_domain'     => 'example.test',
+            'saas.control_domains' => [],
+            'saas.domain_config'   => [
+                'driver'               => 'caddy',
+                'path'                 => $temporaryDirectory . DIRECTORY_SEPARATOR . 'domains.conf',
+                'manifest_path'        => $temporaryDirectory . DIRECTORY_SEPARATOR . 'domains.json',
+                'lock_timeout_seconds' => 1,
+            ],
+        ]);
+
+        try {
+            $site = $this->site(true);
+            Domain::query()->create([
+                'site_id'          => $site->id,
+                'host'             => 'control.example.test',
+                'scheme'           => 'https',
+                'is_primary'       => true,
+                'routing_behavior' => Domain::ROUTING_REDIRECT,
+                'status'           => Domain::STATUS_ACTIVE,
+                'origin'           => Domain::ORIGIN_PLATFORM,
+            ]);
+            $account = $this->account('Alias Receiver', 'pay-alias.example.test', 'ready');
+            $account->forceFill(['enabled' => false])->save();
+            $callback = Domain::query()->create([
+                'site_id'          => $site->id,
+                'host'             => $account->callback_host,
+                'scheme'           => 'https',
+                'is_primary'       => false,
+                'routing_behavior' => Domain::ROUTING_REDIRECT,
+                'status'           => Domain::STATUS_ACTIVE,
+                'origin'           => Domain::ORIGIN_PLATFORM,
+            ]);
+
+            $lifecycle = new SiteLifecycleService(
+                new DomainConfigWriter(new Filesystem),
+                $this->createMock(SiteHealthChecker::class),
+                $this->createMock(SiteAuditLogger::class),
+            );
+            $service = new PlatformPaymentAccountService($lifecycle);
+            self::assertFalse($service->isCallbackHostRoutable($account->callback_host));
+            $updated = $service->update($account, [
+                'label'           => $account->label,
+                'api_mode'        => $account->api_mode,
+                'client_id'       => $account->client_id,
+                'secret'          => '',
+                'merchant_id'     => '',
+                'enabled'         => true,
+                'rotation_weight' => 1,
+            ]);
+
+            self::assertTrue($updated->enabled);
+            self::assertTrue($service->isCallbackHostRoutable($account->callback_host));
+            self::assertFalse($callback->fresh()->is_primary);
+            self::assertSame(Domain::ROUTING_ALIAS, $callback->fresh()->routing_behavior);
+            self::assertFalse(DomainRoutingPolicy::shouldRedirect(
+                'GET',
+                '/',
+                false,
+                (string) $callback->fresh()->routing_behavior,
+                [],
+            ));
+            self::assertSame(
+                Domain::ROUTING_ALIAS,
+                collect(json_decode((string) file_get_contents($temporaryDirectory . DIRECTORY_SEPARATOR . 'domains.json'), true, flags: JSON_THROW_ON_ERROR)['domains'])
+                    ->firstWhere('host', $account->callback_host)['type'],
+            );
+        } finally {
+            (new Filesystem)->deleteDirectory($temporaryDirectory);
+        }
+    }
+
+    public function test_upgrade_converts_only_managed_callback_domains_to_storefront_aliases(): void
+    {
+        $site    = $this->site(true);
+        $account = $this->account('Legacy Receiver', 'pay-legacy.example.test', 'ready');
+        $account->forceFill(['enabled' => false])->save();
+        $callback = Domain::query()->create([
+            'site_id'          => $site->id,
+            'host'             => $account->callback_host,
+            'scheme'           => 'https',
+            'is_primary'       => false,
+            'routing_behavior' => Domain::ROUTING_REDIRECT,
+            'status'           => Domain::STATUS_ACTIVE,
+            'origin'           => Domain::ORIGIN_PLATFORM,
+        ]);
+        $ordinary = Domain::query()->create([
+            'site_id'          => $site->id,
+            'host'             => 'ordinary.example.test',
+            'scheme'           => 'https',
+            'is_primary'       => false,
+            'routing_behavior' => Domain::ROUTING_REDIRECT,
+            'status'           => Domain::STATUS_ACTIVE,
+            'origin'           => Domain::ORIGIN_PLATFORM,
+        ]);
+        $migration = require dirname(__DIR__, 2) . '/database/migrations/2026_11_13_010000_make_platform_payment_callback_domains_aliases.php';
+
+        $migration->up();
+
+        self::assertSame(Domain::ROUTING_ALIAS, $callback->fresh()->routing_behavior);
+        self::assertSame(Domain::ROUTING_REDIRECT, $ordinary->fresh()->routing_behavior);
+
+        $migration->down();
+
+        self::assertSame(Domain::ROUTING_REDIRECT, $callback->fresh()->routing_behavior);
+    }
+
     public function test_health_probe_fails_closed_when_a_callback_alias_is_not_routeable(): void
     {
         $service = new PlatformPaymentAccountService($this->createMock(SiteLifecycleService::class));
@@ -262,6 +373,152 @@ class PlatformPaymentAccountRotationTest extends TestCase
         self::assertSame('PAYPALORDER123456', PlatformPaymentSession::query()->sole()->provider_order_id);
     }
 
+    public function test_paused_unused_account_is_retired_and_its_callback_domain_is_unpublished(): void
+    {
+        $temporaryDirectory = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'longos-payment-delete-' . bin2hex(random_bytes(6));
+        config([
+            'saas.base_domain'     => 'example.test',
+            'saas.control_domains' => [],
+            'saas.domain_config'   => [
+                'driver'               => 'caddy',
+                'path'                 => $temporaryDirectory . DIRECTORY_SEPARATOR . 'domains.conf',
+                'manifest_path'        => $temporaryDirectory . DIRECTORY_SEPARATOR . 'domains.json',
+                'lock_timeout_seconds' => 1,
+            ],
+        ]);
+
+        try {
+            $site = $this->site(true);
+            Domain::query()->create([
+                'site_id'          => $site->id,
+                'host'             => 'control.example.test',
+                'scheme'           => 'https',
+                'is_primary'       => true,
+                'routing_behavior' => Domain::ROUTING_REDIRECT,
+                'status'           => Domain::STATUS_ACTIVE,
+                'origin'           => Domain::ORIGIN_PLATFORM,
+            ]);
+            $account = $this->account('Unused Receiver', 'pay-unused.example.test', 'ready');
+            $account->forceFill(['enabled' => false])->save();
+            $this->callbackDomain($site, $account);
+            $originalSecret = (string) $account->secret_ciphertext;
+
+            $lifecycle = new SiteLifecycleService(
+                new DomainConfigWriter(new Filesystem),
+                $this->createMock(SiteHealthChecker::class),
+                $this->createMock(SiteAuditLogger::class),
+            );
+            $service = new PlatformPaymentAccountService($lifecycle);
+
+            $service->delete($account);
+
+            self::assertNull(PlatformPaymentAccount::query()->find($account->id));
+            $tombstone = PlatformPaymentAccount::withTrashed()->findOrFail($account->id);
+            self::assertTrue($tombstone->trashed());
+            self::assertFalse($tombstone->enabled);
+            self::assertStringStartsWith('retired-', (string) $tombstone->client_id);
+            self::assertNotSame($originalSecret, (string) $tombstone->secret_ciphertext);
+            self::assertNull($tombstone->merchant_id);
+            self::assertNull(Domain::query()->where('host', 'pay-unused.example.test')->first());
+            self::assertTrue($service->hasManagedPaypalAccounts(), 'A tombstone must prevent legacy credential fallback.');
+            self::assertStringNotContainsString(
+                'pay-unused.example.test',
+                (string) file_get_contents($temporaryDirectory . DIRECTORY_SEPARATOR . 'domains.json'),
+            );
+        } finally {
+            (new Filesystem)->deleteDirectory($temporaryDirectory);
+        }
+    }
+
+    public function test_account_deletion_requires_pause_and_zero_retained_sessions(): void
+    {
+        $lifecycle = $this->createMock(SiteLifecycleService::class);
+        $lifecycle->expects(self::never())->method('removeDomain');
+        $service = new PlatformPaymentAccountService($lifecycle);
+        $site    = $this->site(true);
+        $enabled = $this->account('Enabled Receiver', 'pay-enabled.example.test', 'ready');
+
+        try {
+            $service->delete($enabled);
+            self::fail('An enabled account must not be deletable.');
+        } catch (\RuntimeException $exception) {
+            self::assertStringContainsString('先暂停', $exception->getMessage());
+        }
+
+        $enabled->forceFill(['enabled' => false])->save();
+        $this->session($site, $enabled, [
+            'status'     => PlatformPaymentSession::STATUS_COMPLETED,
+            'active_key' => null,
+        ]);
+
+        try {
+            $service->delete($enabled->fresh());
+            self::fail('An account with retained payment history must not be deletable.');
+        } catch (\RuntimeException $exception) {
+            self::assertStringContainsString('支付记录', $exception->getMessage());
+        }
+
+        self::assertNotNull(PlatformPaymentAccount::query()->find($enabled->id));
+    }
+
+    public function test_account_retirement_rolls_back_when_callback_domain_cleanup_fails(): void
+    {
+        $site    = $this->site(true);
+        $account = $this->account('Rollback Receiver', 'pay-rollback.example.test', 'ready');
+        $account->forceFill(['enabled' => false])->save();
+        $this->callbackDomain($site, $account);
+        $original = $account->getAttributes();
+
+        $lifecycle = $this->createMock(SiteLifecycleService::class);
+        $lifecycle->expects(self::once())->method('removeDomain')->willThrowException(new \RuntimeException('publication failed'));
+        $service = new PlatformPaymentAccountService($lifecycle);
+
+        try {
+            $service->delete($account);
+            self::fail('A callback publication failure must abort retirement.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('publication failed', $exception->getMessage());
+        }
+
+        $restored = PlatformPaymentAccount::query()->findOrFail($account->id);
+        self::assertSame($original['label'], $restored->label);
+        self::assertSame($original['client_id'], $restored->client_id);
+        self::assertSame($original['secret_ciphertext'], $restored->secret_ciphertext);
+        self::assertNull($restored->deleted_at);
+    }
+
+    public function test_account_retirement_refuses_to_remove_a_callback_domain_owned_by_another_site(): void
+    {
+        $this->site(true);
+        $otherSite = Site::query()->create([
+            'uuid'          => '44444444-4444-4444-8444-444444444444',
+            'code'          => 'domain-owner',
+            'name'          => 'Domain Owner',
+            'database_name' => 'domain_owner',
+            'status'        => Site::STATUS_ACTIVE,
+            'locale'        => 'en',
+            'timezone'      => 'UTC',
+            'meta'          => [],
+        ]);
+        $account = $this->account('Foreign Domain Receiver', 'pay-foreign.example.test', 'ready');
+        $account->forceFill(['enabled' => false])->save();
+        $this->callbackDomain($otherSite, $account);
+
+        $lifecycle = $this->createMock(SiteLifecycleService::class);
+        $lifecycle->expects(self::never())->method('removeDomain');
+        $service = new PlatformPaymentAccountService($lifecycle);
+
+        try {
+            $service->delete($account);
+            self::fail('A callback domain owned by another site must not be removed.');
+        } catch (\RuntimeException $exception) {
+            self::assertStringContainsString('其他站点占用', $exception->getMessage());
+        }
+
+        self::assertNotNull(PlatformPaymentAccount::query()->find($account->id));
+        self::assertNotNull(Domain::query()->where('host', $account->callback_host)->first());
+    }
+
     private function account(string $label, string $host, string $health): PlatformPaymentAccount
     {
         return PlatformPaymentAccount::query()->create([
@@ -278,7 +535,7 @@ class PlatformPaymentAccountRotationTest extends TestCase
         ]);
     }
 
-    private function site(): Site
+    private function site(bool $control = false): Site
     {
         return Site::query()->create([
             'uuid'          => '33333333-3333-4333-8333-333333333333',
@@ -288,7 +545,7 @@ class PlatformPaymentAccountRotationTest extends TestCase
             'status'        => Site::STATUS_ACTIVE,
             'locale'        => 'en',
             'timezone'      => 'UTC',
-            'meta'          => [],
+            'meta'          => $control ? ['control_site' => true] : [],
         ]);
     }
 

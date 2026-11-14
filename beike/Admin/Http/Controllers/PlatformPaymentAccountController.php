@@ -83,6 +83,24 @@ class PlatformPaymentAccountController extends Controller
         }
     }
 
+    public function destroy(PlatformPaymentAccount $account, PlatformPaymentAccountService $accounts): RedirectResponse
+    {
+        $this->assertControlSite();
+
+        try {
+            $label = (string) $account->label;
+            $this->withConfigurationLock(function () use ($account, $accounts): void {
+                $accounts->delete($account);
+            });
+
+            return $this->redirectToSettings()->with('success', "已安全删除收款账户“{$label}”及其专用回传域名。");
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return $this->redirectToSettings()->withErrors(['account' => $this->safeMessage($exception)]);
+        }
+    }
+
     /** @return array<string, mixed> */
     private function validateCreate(Request $request): array
     {

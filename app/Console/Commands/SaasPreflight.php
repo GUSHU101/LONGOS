@@ -563,6 +563,7 @@ class SaasPreflight extends Command
                     'origin', 'verification_token', 'routing_behavior', 'verification_error',
                     'published_at', 'last_probe_at', 'publication_error',
                 ],
+                'saas_platform_payment_accounts' => ['deleted_at'],
             ];
             $missingColumns = [];
             foreach ($requiredColumns as $table => $columns) {

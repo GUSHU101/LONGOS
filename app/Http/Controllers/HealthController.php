@@ -40,6 +40,9 @@ class HealthController extends Controller
                         throw new \RuntimeException("Missing control table: {$table}");
                     }
                 }
+                if (! $controlSchema->hasColumn('saas_platform_payment_accounts', 'deleted_at')) {
+                    throw new \RuntimeException('Missing control column: saas_platform_payment_accounts.deleted_at');
+                }
 
                 if (! current_site()) {
                     throw new \RuntimeException('The request host did not resolve to an active site.');

@@ -6,7 +6,8 @@
   $isPlatformRoot = (bool) \Illuminate\Support\Facades\Auth::guard(\Beike\Models\AdminUser::AUTH_GUARD)->user()?->is_root;
   $isControlHost = app(\App\Saas\TenantManager::class)->isControlHost(request()->getHost());
   $canManagePlatformPay = ! $saasEnabled || ($isControlSite && $isPlatformRoot && $isControlHost);
-  $settings = $canManagePlatformPay && is_array($plugin->getSetting()) ? $plugin->getSetting() : [];
+  $localSettings = is_array($plugin->getSetting()) ? $plugin->getSetting() : [];
+  $settings = $canManagePlatformPay ? $localSettings : [];
   $accounts = [];
   $registryReady = false;
   if ($canManagePlatformPay) {
@@ -19,6 +20,7 @@
     }
   }
   $enabled = (bool) old('status', $settings['status'] ?? false);
+  $tenantEnabled = (bool) old('status', $localSettings['status'] ?? false);
   $sharePaypal = (bool) old('share_paypal', $settings['share_paypal'] ?? true);
   $shareStripe = (bool) old('share_stripe', $settings['share_stripe'] ?? false);
   $statusTone = ($platformPaymentRuntimeStatus['tone'] ?? 'danger');
@@ -34,14 +36,36 @@
   @if (! $canManagePlatformPay)
     <section class="lpp-card lpp-tenant-guide" aria-labelledby="lpp-tenant-guide-title">
       <span class="lpp-eyebrow">LONGOS PLATFORM PAY</span>
-      <h1 id="lpp-tenant-guide-title">平台收款由主控站统一管理</h1>
-      <p>为保护所有子站和收款账户，PayPal 账户、回传域名、轮询策略、密钥与通道开关只能由 LONGOS 主控站的根管理员维护。</p>
+      <h1 id="lpp-tenant-guide-title">{{ $isControlSite ? '仅主控站根管理员可管理平台收款' : '平台收款由主控站统一管理' }}</h1>
+      <p>为保护所有子站和收款账户，PayPal 账户、回传域名、轮询策略、密钥与通道共享开关只能由 LONGOS 主控站的根管理员维护。</p>
       <ul>
         <li>此子站不会读取或显示任何收款账户、密钥或回传域名。</li>
-        <li>已启用的平台付款方式会自动在店铺结账页可用，无需在子站重复配置。</li>
+        <li>子站管理员只能决定是否在自己的店铺启用平台代收，不能修改平台凭据。</li>
         <li>如需变更收款账户或支付渠道，请由平台根管理员从主控站处理。</li>
       </ul>
     </section>
+    @if (! $isControlSite)
+      <section class="lpp-card lpp-tenant-status" aria-labelledby="lpp-tenant-status-title">
+        <div>
+          <span class="lpp-eyebrow">TENANT AVAILABILITY</span>
+          <h2 id="lpp-tenant-status-title">本店启用状态</h2>
+          <p>{{ $platformPaymentRuntimeStatus['description'] ?? '正在检查主站收款通道。' }}</p>
+        </div>
+        @can('plugins_update')
+          <form action="{{ admin_route('plugins.update', [$plugin->code]) }}" method="POST">
+            @csrf @method('PUT')
+            <input type="hidden" name="status" value="0">
+            <label class="lpp-switch lpp-switch-compact">
+              <input type="checkbox" name="status" value="1" @checked($tenantEnabled)>
+              <span><strong>在本店启用平台代收</strong><small>启用前会检查主站是否已有可用渠道。</small></span>
+            </label>
+            <button type="submit" class="btn btn-primary mt-3">保存本店状态</button>
+          </form>
+        @else
+          <span class="lpp-badge is-muted">只读</span>
+        @endcan
+      </section>
+    @endif
   @else
   @if (session('success'))
     <x-admin-alert type="success" msg="{{ session('success') }}" class="mb-3"/>
@@ -81,9 +105,10 @@
         <article class="lpp-account {{ $account['enabled'] ? '' : 'is-paused' }}">
           <div class="lpp-account-head"><div><h3>{{ $account['label'] }}</h3><span>{{ $account['mode'] === 'live' ? '正式环境' : '沙盒环境' }} · {{ $account['client_id_suffix'] }}</span></div><span class="lpp-badge {{ $account['enabled'] ? 'is-ready' : 'is-muted' }}">{{ $account['enabled'] ? '轮询中' : '已暂停' }}</span></div>
           <dl>
-            <div><dt>回传域名</dt><dd><code>https://{{ $account['callback_host'] }}/_longos/pay/…</code></dd></div>
+            <div><dt>回传域名</dt><dd><code>https://{{ $account['callback_host'] }}/_longos/pay/…</code><small class="lpp-domain-note">直接打开会显示主站前台，地址栏始终保留此独立域名，不跳转主域名。</small></dd></div>
             <div><dt>PayPal 商户 ID（审计）</dt><dd>{{ $account['merchant_id'] ?: '未填写；由 PayPal 应用默认商户接收' }}</dd></div>
             <div><dt>已分配会话</dt><dd>{{ number_format($account['rotation_count']) }}</dd></div>
+            <div><dt>保留支付记录</dt><dd>{{ number_format($account['retained_session_count']) }}</dd></div>
             <div><dt>轮询权重</dt><dd>{{ $account['rotation_weight'] }}</dd></div>
             <div><dt>最近分配</dt><dd>{{ $account['last_selected_at'] ?: '尚未分配' }}</dd></div>
             <div><dt>连接状态</dt><dd><span class="lpp-health is-{{ $account['health_status'] }}">{{ $account['health_status'] === 'ready' ? '已验证' : ($account['health_status'] === 'failed' ? '需检查' : '未验证') }}</span>{{ $account['last_health_checked_at'] ? ' · ' . $account['last_health_checked_at'] : '' }}{{ $account['circuit_open_until'] ? ' · 熔断至 ' . $account['circuit_open_until'] : '' }}</dd></div>
@@ -91,6 +116,13 @@
           <div class="lpp-account-actions">
             <form method="POST" action="{{ admin_route('plugins.platform_payment_accounts.health', ['account' => $account['id']]) }}">@csrf<button class="btn btn-outline-primary btn-sm" type="submit">验证 PayPal 连接</button></form>
             <button class="btn btn-outline-secondary btn-sm" type="button" data-lpp-copy="https://{{ $account['callback_host'] }}">复制回传域名</button>
+            @if (! $account['enabled'] && $account['retained_session_count'] === 0)
+              <form method="POST" action="{{ admin_route('plugins.platform_payment_accounts.destroy', ['account' => $account['id']]) }}" data-lpp-delete-account data-account-label="{{ $account['label'] }}">@csrf @method('DELETE')<button class="btn btn-outline-danger btn-sm" type="submit">安全删除</button></form>
+            @elseif ($account['enabled'])
+              <span class="lpp-action-hint">暂停后可删除</span>
+            @else
+              <span class="lpp-action-hint">历史支付记录保留期间不可删除</span>
+            @endif
           </div>
           <details class="lpp-edit"><summary>编辑账户</summary><form method="POST" action="{{ admin_route('plugins.platform_payment_accounts.update', ['account' => $account['id']]) }}" class="row g-3 mt-1">@csrf @method('PUT')
               <div class="col-md-6"><label class="form-label">账户名称</label><input class="form-control" name="label" required maxlength="96" value="{{ $account['label'] }}"></div>
@@ -144,8 +176,10 @@
 @push('footer')
 <style>
 .lpp-settings{max-width:1180px}.lpp-hero{display:flex;justify-content:space-between;gap:24px;padding:28px;border:1px solid #d9e5ff;border-radius:18px;background:linear-gradient(135deg,#f6f9ff,#fff 58%);margin-bottom:16px}.lpp-eyebrow{font-size:11px;letter-spacing:.11em;font-weight:800;color:#3867d6}.lpp-hero h1{font-size:25px;margin:6px 0}.lpp-hero p{max-width:740px;margin:0;color:#53627a;line-height:1.7}.lpp-hero-status{min-width:200px;padding:14px 16px;border-radius:12px;background:#fff;border:1px solid #dfe6f1}.lpp-hero-status span,.lpp-hero-status strong{display:block}.lpp-hero-status span{font-size:12px;color:#667085}.lpp-hero-status strong{margin-top:6px;font-size:13px;line-height:1.5}.lpp-hero-status.is-success{border-color:#9bd7b2}.lpp-hero-status.is-danger{border-color:#f5b9b9}.lpp-flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:16px}.lpp-flow>div{padding:14px;border:1px solid #e5eaf2;border-radius:12px;background:#fff}.lpp-flow b,.lpp-flow strong,.lpp-flow span{display:block}.lpp-flow b{color:#315fd3;font-size:12px}.lpp-flow strong{margin:6px 0;font-size:14px}.lpp-flow span{font-size:12px;line-height:1.5;color:#667085}.lpp-notice{display:grid;grid-template-columns:auto 1fr;gap:10px;margin-bottom:16px;padding:13px 15px;border:1px solid #f2d28b;border-radius:12px;background:#fffaf0;color:#6d5118;font-size:13px;line-height:1.65}.lpp-card{padding:22px;margin-bottom:16px;border:1px solid #e3e8f0;border-radius:16px;background:#fff;box-shadow:0 4px 14px rgba(16,24,40,.035)}.lpp-tenant-guide{max-width:760px;margin:48px auto}.lpp-tenant-guide h1{font-size:23px;margin:8px 0 12px}.lpp-tenant-guide p,.lpp-tenant-guide li{color:#53627a;line-height:1.7}.lpp-tenant-guide ul{margin:16px 0 0;padding-left:20px}.lpp-section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding-bottom:15px;margin-bottom:17px;border-bottom:1px solid #edf0f5}.lpp-section-head h2{margin:0 0 5px;font-size:17px}.lpp-section-head p{margin:0;color:#667085;font-size:13px;line-height:1.6}.lpp-count{padding:5px 9px;border-radius:999px;background:#edf4ff;color:#2358c8;font-size:12px;white-space:nowrap}.lpp-account-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.lpp-account{padding:17px;border:1px solid #dae4f1;border-radius:14px;background:#fcfdff}.lpp-account.is-paused{opacity:.72;background:#fafafa}.lpp-account-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.lpp-account h3{margin:0 0 3px;font-size:15px}.lpp-account-head span{font-size:12px;color:#667085}.lpp-badge,.lpp-health{display:inline-flex;padding:3px 8px;border-radius:999px;font-size:11px;font-weight:700}.lpp-badge.is-ready,.lpp-health.is-ready{color:#087443;background:#ddf8e6}.lpp-badge.is-muted,.lpp-health.is-unknown{color:#667085;background:#f1f3f6}.lpp-health.is-failed{color:#bb2222;background:#ffe8e8}.lpp-account dl{margin:15px 0 12px}.lpp-account dl>div{display:grid;grid-template-columns:94px 1fr;gap:8px;padding:7px 0;border-bottom:1px solid #eef2f7;font-size:12px}.lpp-account dt{color:#667085;font-weight:400}.lpp-account dd{margin:0;overflow-wrap:anywhere;color:#344054}.lpp-account code{font-size:11px;white-space:normal}.lpp-account-actions{display:flex;gap:8px;align-items:center}.lpp-account-actions form{margin:0}.lpp-edit{margin-top:14px;border-top:1px solid #e9edf3;padding-top:11px}.lpp-edit summary,.lpp-add summary{cursor:pointer;color:#245ad0;font-weight:600;font-size:13px}.lpp-add{margin-top:18px;padding:17px;border:1px dashed #9bbcf8;border-radius:13px;background:#f8fbff}.lpp-add summary{display:flex;justify-content:space-between;gap:10px}.lpp-add small{color:#667085;font-weight:400}.lpp-empty{padding:28px;border:1px dashed #c9d3df;border-radius:12px;color:#667085;text-align:center}.lpp-switch{display:flex;min-height:82px;gap:12px;padding:15px;border:1px solid #e2e8f0;border-radius:12px;background:#fbfcfe;cursor:pointer}.lpp-switch input{margin-top:4px}.lpp-switch strong,.lpp-switch small{display:block}.lpp-switch small{margin-top:5px;color:#667085;font-size:12px;line-height:1.5}@media(max-width:800px){.lpp-hero{display:block}.lpp-hero-status{margin-top:16px}.lpp-flow,.lpp-account-grid{grid-template-columns:1fr}.lpp-notice{grid-template-columns:1fr}.lpp-section-head{display:block}.lpp-count{display:inline-block;margin-top:10px}}
+.lpp-tenant-status{max-width:760px;margin:-32px auto 48px;display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,.7fr);gap:24px;align-items:center}.lpp-tenant-status h2{margin:7px 0;font-size:18px}.lpp-tenant-status p{margin:0;color:#667085;line-height:1.6}.lpp-switch-compact{min-height:auto}.lpp-action-hint{color:#667085;font-size:11px;line-height:1.4}.lpp-domain-note{display:block;margin-top:5px;color:#667085;line-height:1.5}.lpp-account-actions{flex-wrap:wrap}@media(max-width:800px){.lpp-tenant-status{grid-template-columns:1fr;margin-top:-32px}}
 </style>
 <script>
 document.querySelectorAll('[data-lpp-copy]').forEach((button) => button.addEventListener('click', async () => { try { await navigator.clipboard.writeText(button.dataset.lppCopy); const original=button.textContent; button.textContent='已复制'; setTimeout(()=>button.textContent=original,1600); } catch (_) { window.prompt('复制回传域名：', button.dataset.lppCopy); } }));
+document.querySelectorAll('[data-lpp-delete-account]').forEach((form) => form.addEventListener('submit', (event) => { const label=form.dataset.accountLabel || '该账户'; if (!window.confirm(`确定安全删除“${label}”？\n\n密钥将从当前数据库中擦除，专用回传域名也会解绑。此操作无法在后台恢复。`)) event.preventDefault(); }));
 </script>
 @endpush

@@ -96,7 +96,8 @@ class PlatformPaymentSettings
                     return null;
                 }
             })->filter()->values()->all();
-            $hasManagedAccounts = $accounts->hasManagedPaypalAccounts();
+            $hasManagedAccounts = filter_var($platform['managed_paypal_accounts'] ?? false, FILTER_VALIDATE_BOOLEAN)
+                || $accounts->hasManagedPaypalAccounts();
             $paypalAccounts     = $hasManagedAccounts ? $managedAccounts : [$legacyPaypal];
 
             return [
@@ -416,7 +417,8 @@ class PlatformPaymentSettings
                 || ! $schema->hasColumn('saas_platform_payment_sessions', 'timestamps_utc')
                 || ! $schema->hasColumn('saas_platform_payment_sessions', 'payment_account_id')
                 || ! $schema->hasColumn('saas_platform_payment_sessions', 'callback_host')
-                || ! $schema->hasTable('saas_platform_payment_accounts')) {
+                || ! $schema->hasTable('saas_platform_payment_accounts')
+                || ! $schema->hasColumn('saas_platform_payment_accounts', 'deleted_at')) {
                 return ['LONGOS 平台支付控制库尚未完成升级。'];
             }
         } catch (\Throwable $e) {

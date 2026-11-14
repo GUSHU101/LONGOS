@@ -34,11 +34,11 @@ class RedirectSecondaryDomain
             return $next($request);
         }
 
-        // A callback alias intentionally keeps the alias in the browser
-        // while PayPal returns to the *single* payment-session route.  All
-        // other paths retain normal canonical-domain redirects, so adding an
-        // account never turns a callback hostname into a second public admin
-        // or storefront origin.
+        // Managed callback domains are published as true storefront aliases,
+        // so their home page and ordinary shop paths keep the alias visible.
+        // This narrower bypass also keeps an in-flight payment callback on
+        // its immutable host during a rolling upgrade from legacy redirect
+        // records; EnsurePlatformPaymentHost still restricts payment routes.
         if (EnsurePlatformPaymentHost::isSessionPaymentRequest($request)
             && $this->paymentAccounts->isCallbackHost($host)) {
             return $next($request);

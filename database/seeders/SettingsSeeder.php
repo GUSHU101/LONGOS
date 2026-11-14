@@ -69,6 +69,7 @@ class SettingsSeeder extends Seeder
             ['type' => 'plugin', 'space' => 'stripe', 'name' => 'secret_key', 'value' => '', 'json' => 0],
             ['type' => 'plugin', 'space' => 'stripe', 'name' => 'test_mode', 'value' => '0', 'json' => 0],
             ['type' => 'plugin', 'space' => 'longos_platform_pay', 'name' => 'status', 'value' => '0', 'json' => 0],
+            ['type' => 'plugin', 'space' => 'longos_platform_pay', 'name' => 'managed_paypal_accounts', 'value' => '0', 'json' => 0],
             ['type' => 'plugin', 'space' => 'longos_platform_pay', 'name' => 'share_paypal', 'value' => '1', 'json' => 0],
             ['type' => 'plugin', 'space' => 'longos_platform_pay', 'name' => 'share_stripe', 'value' => '1', 'json' => 0],
             ['type' => 'plugin', 'space' => 'longos_platform_pay', 'name' => 'paypal_mode', 'value' => 'sandbox', 'json' => 0],

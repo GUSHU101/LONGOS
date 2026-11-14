@@ -21,8 +21,10 @@ class EnsurePlatformPaymentHost
         abort_unless((bool) data_get($this->tenants->current()?->meta, 'control_site', false), 404);
         // The canonical control host remains valid for legacy sessions. A
         // managed receiver account additionally owns one platform-generated
-        // callback host. It is still routed to the control site, but only
-        // the payment middleware is allowed to serve from that alias.
+        // storefront alias. Ordinary shop pages may render on that alias,
+        // while this middleware admits only its capability-token payment
+        // routes and keeps webhooks/future payment endpoints on the control
+        // host.
         $callbackPaymentRequest = self::isSessionPaymentRequest($request);
         abort_unless(
             $this->tenants->isControlHost($request->getHost())
@@ -35,9 +37,9 @@ class EnsurePlatformPaymentHost
 
     /**
      * Account callback aliases must not become alternate hosts for webhooks
-     * or future payment endpoints. Only a capability-token session route can
-     * retain an account alias in the browser; all other Platform Pay routes
-     * require the canonical control host.
+     * or future payment endpoints. Their storefront is a normal alias, but
+     * only a capability-token session route may execute Platform Pay there;
+     * all other Platform Pay routes require the canonical control host.
      */
     public static function isSessionPaymentRequest(Request $request): bool
     {

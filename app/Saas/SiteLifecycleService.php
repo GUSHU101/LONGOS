@@ -100,15 +100,27 @@ class SiteLifecycleService
         return $site->refresh()->load('domains');
     }
 
-    public function addDomain(Site $site, string $value, bool $primary = false): Domain
-    {
+    public function addDomain(
+        Site $site,
+        string $value,
+        bool $primary = false,
+        string $secondaryRouting = Domain::ROUTING_REDIRECT,
+    ): Domain {
+        if (! in_array($secondaryRouting, [Domain::ROUTING_REDIRECT, Domain::ROUTING_ALIAS], true)) {
+            throw new RuntimeException('非主域名仅支持 redirect 或 alias 模式。');
+        }
+
         return $this->domainConfig->synchronized(
-            fn (): Domain => $this->addDomainSynchronized($site, $value, $primary)
+            fn (): Domain => $this->addDomainSynchronized($site, $value, $primary, $secondaryRouting)
         );
     }
 
-    private function addDomainSynchronized(Site $site, string $value, bool $primary): Domain
-    {
+    private function addDomainSynchronized(
+        Site $site,
+        string $value,
+        bool $primary,
+        string $secondaryRouting,
+    ): Domain {
         $parsed            = DomainName::parse($value, (string) config('saas.default_scheme', 'https'));
         $this->assertPlatformManagedHost($parsed['host']);
         $previousPrimaryId = null;
@@ -117,7 +129,7 @@ class SiteLifecycleService
         $makePrimary       = $primary;
         $existingSnapshot  = null;
 
-        $domain = DB::connection('saas')->transaction(function () use ($site, $parsed, $primary, &$created, &$staged, &$makePrimary, &$existingSnapshot, &$previousPrimaryId): Domain {
+        $domain = DB::connection('saas')->transaction(function () use ($site, $parsed, $primary, $secondaryRouting, &$created, &$staged, &$makePrimary, &$existingSnapshot, &$previousPrimaryId): Domain {
             $lockedSite        = Site::query()->lockForUpdate()->findOrFail($site->getKey());
             $previousPrimaryId = $lockedSite->domains()->where('is_primary', true)->value('id');
             $existing          = Domain::query()->where('host', $parsed['host'])->lockForUpdate()->first();
@@ -140,7 +152,7 @@ class SiteLifecycleService
                         'status'                  => Domain::STATUS_ACTIVATING,
                         'origin'                  => Domain::ORIGIN_PLATFORM,
                         'is_primary'              => false,
-                        'routing_behavior'        => Domain::ROUTING_REDIRECT,
+                        'routing_behavior'        => $primary ? Domain::ROUTING_REDIRECT : $secondaryRouting,
                         'verification_method'     => null,
                         'verification_token'      => null,
                         'verification_expires_at' => null,
@@ -162,7 +174,7 @@ class SiteLifecycleService
                     'status'                  => Domain::STATUS_ACTIVE,
                     'origin'                  => Domain::ORIGIN_PLATFORM,
                     'is_primary'              => $primary || $existing->is_primary,
-                    'routing_behavior'        => Domain::ROUTING_REDIRECT,
+                    'routing_behavior'        => ($primary || $existing->is_primary) ? Domain::ROUTING_REDIRECT : $secondaryRouting,
                     'verification_method'     => null,
                     'verification_token'      => null,
                     'verification_expires_at' => null,
@@ -181,7 +193,7 @@ class SiteLifecycleService
                 'host'             => $parsed['host'],
                 'scheme'           => $parsed['scheme'],
                 'is_primary'       => false,
-                'routing_behavior' => Domain::ROUTING_REDIRECT,
+                'routing_behavior' => $primary ? Domain::ROUTING_REDIRECT : $secondaryRouting,
                 'status'           => Domain::STATUS_ACTIVATING,
                 'origin'           => Domain::ORIGIN_PLATFORM,
                 'verified_at'      => null,
@@ -195,7 +207,7 @@ class SiteLifecycleService
             $published = true;
 
             if ($staged) {
-                DB::connection('saas')->transaction(function () use ($site, $domain, $makePrimary): void {
+                DB::connection('saas')->transaction(function () use ($site, $domain, $makePrimary, $secondaryRouting): void {
                     $lockedSite   = Site::query()->lockForUpdate()->findOrFail($site->getKey());
                     $lockedDomain = Domain::query()->lockForUpdate()->findOrFail($domain->getKey());
                     if ($lockedDomain->site_id !== $lockedSite->id || $lockedDomain->status !== Domain::STATUS_ACTIVATING) {
@@ -212,7 +224,7 @@ class SiteLifecycleService
                         'published_at'      => now(),
                         'publication_error' => null,
                         'is_primary'        => $makePrimary,
-                        'routing_behavior'  => Domain::ROUTING_REDIRECT,
+                        'routing_behavior'  => $makePrimary ? Domain::ROUTING_REDIRECT : $secondaryRouting,
                     ])->save();
                 });
 
@@ -285,7 +297,12 @@ class SiteLifecycleService
         )->all();
         $primary     = $site->domains()->where('status', Domain::STATUS_ACTIVE)->where('is_primary', true)->first();
         $makePrimary = ! $primary || $primary->origin === Domain::ORIGIN_PLATFORM;
-        $target      = $this->addDomainSynchronized($site, 'https://' . $host, $makePrimary);
+        $target      = $this->addDomainSynchronized(
+            $site,
+            'https://' . $host,
+            $makePrimary,
+            Domain::ROUTING_REDIRECT,
+        );
 
         try {
             $protectedCallbackHosts = $this->protectedPlatformPaymentCallbackHosts();

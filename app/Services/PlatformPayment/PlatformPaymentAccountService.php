@@ -31,7 +31,10 @@ final class PlatformPaymentAccountService
     public function schemaReady(): bool
     {
         try {
-            return Schema::connection('saas')->hasTable('saas_platform_payment_accounts');
+            $schema = Schema::connection('saas');
+
+            return $schema->hasTable('saas_platform_payment_accounts')
+                && $schema->hasColumn('saas_platform_payment_accounts', 'deleted_at');
         } catch (\Throwable) {
             return false;
         }
@@ -44,17 +47,24 @@ final class PlatformPaymentAccountService
             return new Collection;
         }
 
-        return PlatformPaymentAccount::query()
+        $query = PlatformPaymentAccount::query()
             ->paypal()
             ->orderByDesc('enabled')
             ->orderBy('last_selected_at')
-            ->orderBy('id')
-            ->get();
+            ->orderBy('id');
+        if (Schema::connection('saas')->hasTable('saas_platform_payment_sessions')) {
+            $query->withCount('sessions');
+        }
+
+        return $query->get();
     }
 
     public function hasManagedPaypalAccounts(): bool
     {
-        return $this->schemaReady() && PlatformPaymentAccount::query()->paypal()->exists();
+        // A retired tombstone keeps the account pool authoritative after its
+        // final live account is removed. Never reactivate stale legacy
+        // single-account credentials merely because the visible pool is empty.
+        return $this->schemaReady() && PlatformPaymentAccount::withTrashed()->paypal()->exists();
     }
 
     /** @return Collection<int, PlatformPaymentAccount> */
@@ -179,6 +189,7 @@ final class PlatformPaymentAccountService
                 'consecutive_failures'   => (int) $account->consecutive_failures,
                 'circuit_open_until'     => $account->circuit_open_until?->toIso8601String(),
                 'last_health_checked_at' => $account->last_health_checked_at?->toIso8601String(),
+                'retained_session_count' => (int) ($account->sessions_count ?? 0),
             ];
         })->all();
     }
@@ -213,7 +224,10 @@ final class PlatformPaymentAccountService
                 'enabled' => filter_var($values['enabled'] ?? true, FILTER_VALIDATE_BOOLEAN),
             ])->save();
         } catch (\Throwable $exception) {
-            $account->delete();
+            // Provisioning never completed, so this row is not an audit
+            // tombstone. Do not let SoftDeletes make a failed credential set
+            // look like a historically managed receiver account.
+            $account->forceDelete();
 
             throw $exception;
         }
@@ -263,6 +277,65 @@ final class PlatformPaymentAccountService
         $account->forceFill($fields)->save();
 
         return $account->fresh();
+    }
+
+    /**
+     * Retire an unused account without losing the fact that this installation
+     * uses the managed pool. Credentials are cryptographically overwritten,
+     * the callback alias is unpublished, and a minimal soft-deleted tombstone
+     * reserves the immutable UUID/hostname for audit and replay safety.
+     */
+    public function delete(PlatformPaymentAccount $account): void
+    {
+        if (! $this->schemaReady()
+            || ! Schema::connection('saas')->hasTable('saas_platform_payment_sessions')) {
+            throw new RuntimeException('平台代收控制库尚未完成升级，暂不能删除收款账户。');
+        }
+
+        DB::connection('saas')->transaction(function () use ($account): void {
+            $locked = PlatformPaymentAccount::query()->lockForUpdate()->findOrFail($account->getKey());
+            if ($locked->provider !== PlatformPaymentAccount::PROVIDER_PAYPAL) {
+                throw new RuntimeException('不支持的收款账户类型。');
+            }
+            if ($locked->enabled) {
+                throw new RuntimeException('请先暂停该账户并保存，确认它不再参与新订单轮询后再删除。');
+            }
+            if (PlatformPaymentSession::query()->where('payment_account_id', $locked->id)->exists()) {
+                throw new RuntimeException('该账户仍有关联的支付记录。为保留回调、退款和审计能力，需等待历史会话按保留策略清理后才能删除。');
+            }
+
+            $site   = $this->controlSite();
+            $domain = Domain::query()
+                ->where('host', $locked->callback_host)
+                ->first();
+            if ($domain && (int) $domain->site_id !== (int) $site->id) {
+                throw new RuntimeException('该账户的回传域名已被其他站点占用，已拒绝删除并保留账户以便排查。');
+            }
+
+            // Overwrite every reusable credential identifier before the row
+            // becomes a hidden tombstone. Backups remain governed by the
+            // platform retention policy, but the live database no longer
+            // contains credentials that could authenticate to the provider.
+            $locked->forceFill([
+                'label'                => '已删除账户 #' . $locked->id,
+                'client_id'            => 'retired-' . $locked->uuid,
+                'secret_ciphertext'    => Crypt::encryptString(Str::random(64)),
+                'merchant_id'          => null,
+                'enabled'              => false,
+                'health_status'        => 'unknown',
+                'consecutive_failures' => 0,
+                'circuit_open_until'   => null,
+            ])->save();
+            $locked->delete();
+
+            // Soft-deleted accounts no longer protect or authorize their
+            // callback host. DomainConfigWriter will restore the domain and
+            // this outer transaction will restore the account if publication
+            // fails, so the registry and proxy manifest stay aligned.
+            if ($domain) {
+                $this->lifecycle->removeDomain($site, $domain, true);
+            }
+        }, 3);
     }
 
     public function markHealth(PlatformPaymentAccount $account, string $status): void
@@ -386,6 +459,9 @@ final class PlatformPaymentAccountService
         return Domain::query()
             ->routable()
             ->where('host', $host)
+            ->where('is_primary', false)
+            ->where('origin', Domain::ORIGIN_PLATFORM)
+            ->where('routing_behavior', Domain::ROUTING_ALIAS)
             ->exists();
     }
 
@@ -428,9 +504,23 @@ final class PlatformPaymentAccountService
         if ($domain && (int) $domain->site_id !== (int) $site->id) {
             throw new RuntimeException('自动生成的回传域名已被其他站点占用。');
         }
+        if ($domain && ($domain->is_primary || $domain->origin !== Domain::ORIGIN_PLATFORM)) {
+            throw new RuntimeException('回传域名必须是主站下的平台管理非主域名。');
+        }
 
-        if (! $domain || ! $domain->isRoutable()) {
-            $this->lifecycle->addDomain($site, 'https://' . $account->callback_host, false);
+        if (! $domain
+            || ! $domain->isRoutable()
+            || $domain->routing_behavior !== Domain::ROUTING_ALIAS) {
+            $domain = $this->lifecycle->addDomain(
+                $site,
+                'https://' . $account->callback_host,
+                false,
+                Domain::ROUTING_ALIAS,
+            );
+        }
+
+        if ($domain->is_primary || $domain->routing_behavior !== Domain::ROUTING_ALIAS) {
+            throw new RuntimeException('回传域名未能以独立别名模式发布。');
         }
     }
 
@@ -447,7 +537,12 @@ final class PlatformPaymentAccountService
             // return it to ready, preventing a scheduler outage from
             // silently reintroducing known-bad credentials.
             ->whereIn('health_status', ['ready', 'unknown'])
-            ->whereIn('callback_host', Domain::query()->routable()->select('host'))
+            ->whereIn('callback_host', Domain::query()
+                ->routable()
+                ->where('is_primary', false)
+                ->where('origin', Domain::ORIGIN_PLATFORM)
+                ->where('routing_behavior', Domain::ROUTING_ALIAS)
+                ->select('host'))
             ->where(static function ($query): void {
                 $query->whereNull('circuit_open_until')
                     ->orWhere('circuit_open_until', '<=', now('UTC'));
