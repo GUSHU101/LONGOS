@@ -21,6 +21,8 @@
     </a>
   </div>
 
+  @include('LongosProductReviews::admin.ai_bulk')
+
   <div class="row g-3 mb-4" aria-label="{{ trans('LongosProductReviews::reviews.menu') }}">
     <div class="col-6 col-xl-3"><div class="card review-stat-card h-100"><div class="card-body"><div class="text-muted small">{{ trans_choice('LongosProductReviews::reviews.review_count', $stats['total'], ['count' => $stats['total']]) }}</div><div class="fs-3 fw-semibold">{{ $stats['total'] }}</div></div></div></div>
     <div class="col-6 col-xl-3"><div class="card review-stat-card h-100"><div class="card-body"><div class="text-muted small">{{ trans('LongosProductReviews::reviews.status_published') }}</div><div class="fs-3 fw-semibold">{{ $stats['published'] }}</div><small class="text-muted">{{ trans('LongosProductReviews::reviews.draft_count') }}: {{ $stats['drafts'] }}</small></div></div></div>
@@ -85,7 +87,7 @@
                   <div><div class="fw-semibold">{{ $review->product?->description?->name ?: '#' . $review->product_id }}</div><small class="text-muted">#{{ $review->product_id }}</small></div>
                 </div>
               </td>
-              <td>{{ $review->author_name }}@if($review->author_country)<div class="small text-muted">{{ $review->author_country }}</div>@endif</td>
+              <td>{{ $review->author_name }}@if($review->ai_generated)<div><span class="badge bg-warning text-dark">{{ trans('LongosProductReviews::reviews.ai_demo_badge') }}</span></div>@endif @if($review->author_country)<div class="small text-muted">{{ $review->author_country }}</div>@endif</td>
               <td><span class="text-warning" aria-hidden="true">{{ str_repeat('★', $review->rating) }}</span><span class="visually-hidden">{{ trans('LongosProductReviews::reviews.out_of_five', ['rating' => $review->rating]) }}</span></td>
               <td style="max-width: 300px"><div class="fw-semibold text-truncate">{{ $review->title }}</div><small class="text-muted">{{ \Illuminate\Support\Str::limit($review->body, 80) }}</small></td>
               <td>
@@ -94,11 +96,13 @@
               </td>
               <td class="text-nowrap">{{ $review->reviewed_at?->format('Y-m-d') }}</td>
               <td class="text-end text-nowrap">
+                @if(! $review->ai_generated)
                 <form class="d-inline" method="post" action="{{ admin_route('longos_product_reviews.publication', $review) }}">
                   @csrf @method('PATCH')
                   <input type="hidden" name="published" value="{{ $review->published ? 0 : 1 }}">
                   <button class="btn btn-outline-{{ $review->published ? 'warning' : 'success' }} review-row-action" type="submit" title="{{ trans('LongosProductReviews::reviews.' . ($review->published ? 'unpublish_review' : 'publish_review')) }}" aria-label="{{ trans('LongosProductReviews::reviews.' . ($review->published ? 'unpublish_review' : 'publish_review')) }}"><i class="bi bi-{{ $review->published ? 'eye-slash' : 'eye' }}" aria-hidden="true"></i></button>
                 </form>
+                @endif
                 <a class="btn btn-outline-secondary review-row-action" href="{{ admin_route('longos_product_reviews.edit', $review) }}" aria-label="{{ trans('common.edit') }}"><i class="bi bi-pencil" aria-hidden="true"></i></a>
                 <form class="d-inline review-delete-form" method="post" action="{{ admin_route('longos_product_reviews.destroy', $review) }}" data-confirm="{{ trans('LongosProductReviews::reviews.confirm_delete') }}">
                   @csrf @method('DELETE')
