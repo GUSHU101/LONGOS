@@ -28,7 +28,7 @@ final class GenerateReviewDrafts implements ShouldQueue
 
     public int $timeout = 55;
 
-    public int $tries = 1;
+    public int $tries = 3;
 
     public function __construct(
         public readonly string $batchId,
@@ -51,6 +51,12 @@ final class GenerateReviewDrafts implements ShouldQueue
         $itemKey = $key . ':product:' . $this->productId;
         if (Cache::get($itemKey) === 'done') {
             return;
+        }
+
+        $existingState = Cache::get($key);
+        if (is_array($existingState) && ($existingState['status'] ?? '') === 'queued') {
+            $existingState['status'] = 'running';
+            Cache::put($key, $existingState, now()->addDays(2));
         }
 
         $created = 0;
@@ -79,7 +85,7 @@ final class GenerateReviewDrafts implements ShouldQueue
                         'ai_generated' => true,
                         'published' => false,
                         'sort_order' => 0,
-                        'reviewed_at' => now(),
+                        'reviewed_at' => now()->subDays(random_int(0, 90)),
                     ]);
                     $inserted++;
                 }
@@ -88,6 +94,12 @@ final class GenerateReviewDrafts implements ShouldQueue
             });
         } catch (Throwable $exception) {
             $reason = $exception->getMessage();
+            if (in_array($reason, ['SILICONFLOW_HTTP_429', 'SILICONFLOW_HTTP_503'], true)
+                && $this->attempts() < $this->tries) {
+                $this->release(20 * max(1, $this->attempts()));
+
+                return;
+            }
             $error = preg_match('/^[A-Z0-9_]+$/', $reason) ? $reason : 'GENERATION_FAILED';
             Log::warning('LONGOS review AI draft generation failed', [
                 'product_id' => $this->productId,
