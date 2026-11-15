@@ -8,3 +8,4 @@
 @if (is_string($longosReviewCss) && $longosReviewCss !== '')
   <style id="longos-product-review-styles">{!! $longosReviewCss !!}</style>
 @endif
+@include('LongosProductReviews::shop.card_assets')

@@ -144,6 +144,54 @@ class LongosProductReviewsServiceTest extends TestCase
         self::assertStringNotContainsString('Draft must never appear', $section);
     }
 
+    public function test_storefront_card_summaries_batch_products_and_match_detail_visibility_rules(): void
+    {
+        DB::table('products')->insert(['id' => 72, 'active' => true, 'created_at' => now(), 'updated_at' => now()]);
+
+        $this->review(5, true, 3, 'Excellent quality');
+        $this->review(4, true, 2, 'Very good overall');
+        $this->review(1, false, 100, 'Draft must never affect the card rating');
+        $unsafe = $this->review(1, true, 99, 'Safe text before simulating legacy content.');
+        $unsafe->update([
+            'content_source' => Review::SOURCE_GENERATED,
+            'body'           => 'This is an AI-generated sample review.',
+        ]);
+
+        Review::query()->create([
+            'product_id'        => 72,
+            'author_name'       => 'Second Customer',
+            'author_country'    => 'Canada',
+            'rating'            => 3,
+            'title'             => 'Second product review',
+            'body'              => 'A published review for the second product.',
+            'images'            => [],
+            'verified_purchase' => true,
+            'published'         => true,
+            'sort_order'        => 0,
+            'reviewed_at'       => now(),
+        ]);
+
+        $service   = new ReviewService;
+        $summaries = $service->storefrontSummaries([71, 72, 999, 71]);
+
+        self::assertSame(['average' => 4.5, 'total' => 2], $summaries[71]);
+        self::assertSame(['average' => 3.0, 'total' => 1], $summaries[72]);
+        self::assertArrayNotHasKey(999, $summaries);
+        self::assertSame($summaries[71], $service->storefrontSummaries([71])[71]);
+
+        $html = view('LongosProductReviews::shop.card_rating', [
+            'summary'    => $summaries[71],
+            'productUrl' => '/products/71?variant=black#old-fragment',
+        ])->render();
+
+        self::assertStringContainsString('href="/products/71?variant=black#customer-reviews"', $html);
+        self::assertStringContainsString('class="longos-card-rating__stars"', $html);
+        self::assertStringContainsString('--longos-card-rating: 90.00%', $html);
+        self::assertStringContainsString('<strong>4.5</strong>', $html);
+        self::assertStringContainsString('(2)', $html);
+
+    }
+
     public function test_plugin_routes_are_named_and_guarded_for_the_active_tenant(): void
     {
         $provider = new PluginServiceProvider(app());
@@ -984,6 +1032,26 @@ class LongosProductReviewsServiceTest extends TestCase
         self::assertMatchesRegularExpression('/const commitTemplate = @json\(.+\);$/m', $generator);
         self::assertMatchesRegularExpression('/const progressTemplate = @json\(.+\);$/m', $generator);
         self::assertMatchesRegularExpression('/count\.textContent = @json\(.+\);$/m', $generator);
+    }
+
+    public function test_product_card_templates_compile_with_the_review_rating_hook(): void
+    {
+        $compiler = app('blade.compiler');
+        foreach ([
+            'themes/default/shared/product.blade.php',
+            'plugins/LongosChristmasTheme/Themes/longos_christmas/shared/product.blade.php',
+            'plugins/LongosProductReviews/Views/shop/card_assets.blade.php',
+            'plugins/LongosProductReviews/Views/shop/card_rating.blade.php',
+        ] as $file) {
+            $source   = (string) file_get_contents(base_path($file));
+            $compiled = $compiler->compileString($source);
+
+            self::assertNotSame('', trim($compiled));
+            self::assertStringContainsString('<?php', $compiled);
+        }
+
+        $defaultCard = (string) file_get_contents(base_path('themes/default/shared/product.blade.php'));
+        self::assertStringContainsString("@hook('product_list.item.name.after', \$product)", $defaultCard);
     }
 
     public function test_generated_reviews_support_individual_and_bulk_verification_updates(): void

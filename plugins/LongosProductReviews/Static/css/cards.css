@@ -1,0 +1,62 @@
+.longos-card-rating {
+  --longos-card-rating-ink: #171713;
+  --longos-card-rating-muted: #6e6b62;
+  --longos-card-rating-star: #e7a600;
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  gap: .32rem;
+  margin: .12rem 0 .42rem;
+  color: var(--longos-card-rating-ink);
+  font-size: .78rem;
+  line-height: 1.25;
+  text-decoration: none;
+}
+
+.longos-card-rating:hover {
+  color: var(--longos-card-rating-ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.longos-card-rating:focus-visible {
+  border-radius: 3px;
+  outline: 3px solid rgba(24, 94, 222, .35);
+  outline-offset: 2px;
+}
+
+.longos-card-rating > strong {
+  font-weight: 650;
+}
+
+.longos-card-rating > span:last-child {
+  color: var(--longos-card-rating-muted);
+}
+
+.longos-card-rating__stars {
+  position: relative;
+  display: inline-block;
+  overflow: hidden;
+  color: #d5d2c8;
+  font-size: .88rem;
+  letter-spacing: 0;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.longos-card-rating__stars::after {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--longos-card-rating);
+  overflow: hidden;
+  color: var(--longos-card-rating-star);
+  content: '★★★★★';
+  white-space: nowrap;
+}
+
+@media (max-width: 575.98px) {
+  .longos-card-rating {
+    gap: .25rem;
+    font-size: .74rem;
+  }
+}

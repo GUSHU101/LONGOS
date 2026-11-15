@@ -19,6 +19,12 @@ class ReviewService
 
     private GeneratedReviewContentPolicy $generatedContentPolicy;
 
+    /** @var array<int, array{average: float, total: int}> */
+    private array $storefrontSummaryCache = [];
+
+    /** @var array<int, true> */
+    private array $storefrontSummaryLoaded = [];
+
     public function __construct(?GeneratedReviewContentPolicy $generatedContentPolicy = null)
     {
         $this->generatedContentPolicy = $generatedContentPolicy ?? new GeneratedReviewContentPolicy;
@@ -75,6 +81,78 @@ class ReviewService
             'has_more'     => $total > $limit,
             'limit'        => $limit,
         ];
+    }
+
+    /**
+     * Load compact storefront rating summaries for a whole product grid.
+     *
+     * The result intentionally follows the same publication and generated-copy
+     * safety rules as the product detail page. Missing product IDs are queried
+     * together and cached for the lifetime of this service instance so a grid
+     * never creates one aggregate query per product card.
+     *
+     * @param array<int, mixed> $productIds
+     * @return array<int, array{average: float, total: int}>
+     */
+    public function storefrontSummaries(array $productIds): array
+    {
+        $productIds = collect($productIds)
+            ->map(static fn (mixed $id): int => (int) $id)
+            ->filter(static fn (int $id): bool => $id > 0)
+            ->unique()
+            ->take(250)
+            ->values()
+            ->all();
+
+        if ($productIds === []) {
+            return [];
+        }
+
+        $missingIds = array_values(array_filter(
+            $productIds,
+            fn (int $id): bool => ! isset($this->storefrontSummaryLoaded[$id]),
+        ));
+
+        if ($missingIds !== []) {
+            $this->ensureReady();
+
+            $base               = Review::query()->published()->whereIn('product_id', $missingIds);
+            $unsafeGeneratedIds = $this->unsafeGeneratedReviewIdsForProducts($missingIds);
+            if ($unsafeGeneratedIds !== []) {
+                $base->whereNotIn('id', $unsafeGeneratedIds);
+            }
+
+            $summaries = $base
+                ->selectRaw('product_id, COUNT(*) AS aggregate, AVG(rating) AS average')
+                ->groupBy('product_id')
+                ->get();
+
+            foreach ($summaries as $summary) {
+                $productId = (int) $summary->product_id;
+                $total     = (int) $summary->aggregate;
+                if ($productId < 1 || $total < 1) {
+                    continue;
+                }
+
+                $this->storefrontSummaryCache[$productId] = [
+                    'average' => round((float) $summary->average, 1),
+                    'total'   => $total,
+                ];
+            }
+
+            foreach ($missingIds as $productId) {
+                $this->storefrontSummaryLoaded[$productId] = true;
+            }
+        }
+
+        $result = [];
+        foreach ($productIds as $productId) {
+            if (isset($this->storefrontSummaryCache[$productId])) {
+                $result[$productId] = $this->storefrontSummaryCache[$productId];
+            }
+        }
+
+        return $result;
     }
 
     /**
@@ -327,9 +405,18 @@ class ReviewService
     /** @return list<int> */
     private function unsafeGeneratedReviewIds(int $productId): array
     {
+        return $this->unsafeGeneratedReviewIdsForProducts([$productId]);
+    }
+
+    /**
+     * @param list<int> $productIds
+     * @return list<int>
+     */
+    private function unsafeGeneratedReviewIdsForProducts(array $productIds): array
+    {
         return Review::query()
             ->published()
-            ->where('product_id', $productId)
+            ->whereIn('product_id', $productIds)
             ->where('content_source', Review::SOURCE_GENERATED)
             ->select(['id', 'author_name', 'title', 'body'])
             ->cursor()
