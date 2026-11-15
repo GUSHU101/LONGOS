@@ -9,12 +9,16 @@ use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use PHPUnit\Framework\TestCase;
 use Plugin\LongosProductReviews\Controllers\AdminReviewController;
 use Plugin\LongosProductReviews\Models\Review;
+use Plugin\LongosProductReviews\Jobs\GenerateReviewDrafts;
+use Plugin\LongosProductReviews\Services\SiliconFlowReviewDrafts;
 use Plugin\LongosProductReviews\Services\ReviewService;
 
 class LongosProductReviewsServiceTest extends TestCase
@@ -51,6 +55,8 @@ class LongosProductReviewsServiceTest extends TestCase
         });
         $migration = require base_path('plugins/LongosProductReviews/Migrations/2026_10_09_000000_create_longos_product_reviews_table.php');
         $migration->up();
+        $aiMigration = require base_path('plugins/LongosProductReviews/Migrations/2026_11_15_000000_add_ai_generated_to_longos_product_reviews_table.php');
+        $aiMigration->up();
         DB::table('products')->insert(['id' => 71, 'active' => true, 'created_at' => now(), 'updated_at' => now()]);
     }
 
@@ -220,6 +226,138 @@ class LongosProductReviewsServiceTest extends TestCase
             ->value('value'));
         self::assertTrue(app('plugin')->getPlugin('longos_product_reviews')?->getInstalled());
         self::assertTrue(Schema::hasTable('longos_product_reviews'));
+    }
+
+    public function test_siliconflow_generates_complete_fictional_demo_record_and_never_publishes(): void
+    {
+        Schema::create('settings', function (Blueprint $table): void {
+            $table->id();
+            $table->string('type');
+            $table->string('space');
+            $table->string('name');
+            $table->text('value')->nullable();
+            $table->boolean('json')->default(false);
+            $table->timestamps();
+        });
+        Schema::create('product_descriptions', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('product_id');
+            $table->string('locale', 20);
+            $table->string('name');
+            $table->text('content')->nullable();
+            $table->timestamps();
+        });
+        DB::table('product_descriptions')->insert([
+            'product_id' => 71,
+            'locale' => 'en',
+            'name' => 'Minimal Phone Case',
+            'content' => 'Slim design with a smooth finish.',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        config(['app.key' => 'base64:' . base64_encode(str_repeat('k', 32))]);
+        $generator = new SiliconFlowReviewDrafts;
+        $generator->saveKey('sk-example-test-not-a-real-key');
+        Http::fake([
+            'https://api.siliconflow.cn/v1/chat/completions' => Http::response([
+                'choices' => [[
+                    'finish_reason' => 'stop',
+                    'message' => ['content' => json_encode(['drafts' => [[
+                        'author_name' => 'Emily Parker',
+                        'author_country' => 'United States',
+                        'rating' => 4,
+                        'title' => 'Simple design concept',
+                        'body' => 'A minimal look with a smooth finish described in the product listing.',
+                    ]]], JSON_THROW_ON_ERROR)],
+                ]],
+            ], 200),
+        ]);
+
+        $batchId = '00000000-0000-4000-8000-000000000001';
+        $key = GenerateReviewDrafts::cacheKey('central', $batchId);
+        Cache::put($key, ['status' => 'queued', 'total' => 1, 'completed' => 0, 'created' => 0, 'failed' => 0], 300);
+
+        $job = new GenerateReviewDrafts($batchId, 71, 1, 'en', 'central');
+        $job->handle($generator);
+
+        $review = Review::query()->sole();
+        self::assertSame('DEMO · Emily Parker', $review->author_name);
+        self::assertSame('United States', $review->author_country);
+        self::assertSame(4, $review->rating);
+        self::assertSame('Simple design concept', $review->title);
+        self::assertTrue($review->ai_generated);
+        self::assertFalse($review->published);
+        self::assertFalse($review->verified_purchase);
+        self::assertSame(1, Cache::get($key)['created']);
+        self::assertSame('finished', Cache::get($key)['status']);
+
+        Http::assertSent(static fn ($request): bool => $request->data()['model'] === SiliconFlowReviewDrafts::MODEL
+            && ($request->data()['messages'][0]['role'] ?? null) === 'system');
+
+        try {
+            (new ReviewService)->setPublished($review, true);
+            self::fail('Demo record publication must be prohibited.');
+        } catch (\Illuminate\Validation\ValidationException) {
+            self::assertFalse($review->fresh()->published);
+        }
+
+        (new ReviewService)->update($review, [
+            'product_id' => 71,
+            'author_name' => 'Someone Else',
+            'author_country' => 'Canada',
+            'rating' => 5,
+            'title' => 'Updated sample',
+            'body' => 'A neutral internal-only sample of the product listing.',
+            'reviewed_at' => now(),
+            'published' => true,
+            'verified_purchase' => true,
+        ]);
+        self::assertTrue($review->fresh()->ai_generated);
+        self::assertFalse($review->fresh()->published);
+        self::assertFalse($review->fresh()->verified_purchase);
+    }
+
+    public function test_siliconflow_rejects_output_without_complete_demo_fields(): void
+    {
+        Schema::create('settings', function (Blueprint $table): void {
+            $table->id();
+            $table->string('type');
+            $table->string('space');
+            $table->string('name');
+            $table->text('value')->nullable();
+            $table->boolean('json')->default(false);
+            $table->timestamps();
+        });
+        Schema::create('product_descriptions', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('product_id');
+            $table->string('locale', 20);
+            $table->string('name');
+            $table->text('content')->nullable();
+            $table->timestamps();
+        });
+        DB::table('product_descriptions')->insert([
+            'product_id' => 71,
+            'locale' => 'en',
+            'name' => 'Minimal Phone Case',
+            'content' => 'Slim design.',
+        ]);
+        config(['app.key' => 'base64:' . base64_encode(str_repeat('k', 32))]);
+        $generator = new SiliconFlowReviewDrafts;
+        $generator->saveKey('sk-example-test-not-a-real-key');
+        Http::fake([
+            'https://api.siliconflow.cn/v1/chat/completions' => Http::response([
+                'choices' => [[
+                    'finish_reason' => 'stop',
+                    'message' => ['content' => '{"drafts":[{"title":"Only a title","body":"Missing fictional person, country and rating."}]}'],
+                ]],
+            ], 200),
+        ]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('SILICONFLOW_INVALID_DRAFT');
+        $generator->generate(\Beike\Models\Product::query()->findOrFail(71), 1, 'en');
     }
 
     private function review(int $rating, bool $published, int $sortOrder, string $body): Review
