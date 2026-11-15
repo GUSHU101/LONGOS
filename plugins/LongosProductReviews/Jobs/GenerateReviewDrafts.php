@@ -78,7 +78,7 @@ final class GenerateReviewDrafts implements ShouldQueue
                         'author_name' => SiliconFlowReviewDrafts::AUTHOR_PREFIX . $draft['author_name'],
                         'author_country' => $draft['author_country'],
                         'rating' => $draft['rating'],
-                        'title' => $draft['title'],
+                        'title' => '[AI Sample: ' . $draft['sample_name'] . '] ' . $draft['title'],
                         'body' => $draft['body'],
                         'images' => [],
                         'verified_purchase' => false,
