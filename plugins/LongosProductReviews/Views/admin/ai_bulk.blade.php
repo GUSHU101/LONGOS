@@ -35,6 +35,10 @@
         <div class="form-text">{{ trans('LongosProductReviews::reviews.ai_product_ids_help') }}</div>
       </div>
       <div class="col-6 col-lg-3">
+        <label for="reviews-ai-category" class="form-label">{{ trans('LongosProductReviews::reviews.ai_category_id') }}</label>
+        <input id="reviews-ai-category" name="category_id" type="number" class="form-control" min="1" value="{{ old('category_id') }}" placeholder="100020">
+      </div>
+      <div class="col-6 col-lg-3">
         <label for="reviews-ai-limit" class="form-label">{{ trans('LongosProductReviews::reviews.ai_product_limit') }}</label>
         <input id="reviews-ai-limit" name="limit" type="number" class="form-control" value="{{ old('limit', 10) }}" min="1" max="50" required>
       </div>
@@ -54,6 +58,12 @@
         <div class="form-check">
           <input id="reviews-ai-skip" name="skip_reviewed" type="checkbox" class="form-check-input" value="1" @checked(old('skip_reviewed', false))>
           <label for="reviews-ai-skip" class="form-check-label">{{ trans('LongosProductReviews::reviews.ai_skip_reviewed') }}</label>
+        </div>
+      </div>
+      <div class="col-12">
+        <div class="form-check">
+          <input id="reviews-ai-skip-existing" name="skip_ai_existing" type="checkbox" class="form-check-input" value="1" @checked(old('skip_ai_existing', true))>
+          <label for="reviews-ai-skip-existing" class="form-check-label">{{ trans('LongosProductReviews::reviews.ai_skip_existing') }}</label>
         </div>
       </div>
       <div class="col-12">
