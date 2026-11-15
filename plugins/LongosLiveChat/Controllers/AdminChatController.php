@@ -19,15 +19,36 @@ class AdminChatController extends Controller
         return view('LongosLiveChat::admin.index');
     }
 
+    public function health(): JsonResponse
+    {
+        $health = $this->chat->health(true);
+
+        return $this->json([
+            'ready'   => $health['ready'],
+            'missing' => $health['missing'],
+            'message' => $health['ready'] ? '' : trans('LongosLiveChat::chat.setup_unavailable'),
+        ], $health['ready'] ? 200 : 503);
+    }
+
     public function conversations(Request $request): JsonResponse
     {
+        $this->ensureAvailable();
         $status = (string) $request->query('status', Conversation::STATUS_OPEN);
         $status = in_array($status, [Conversation::STATUS_OPEN, Conversation::STATUS_CLOSED, 'all'], true)
             ? $status
             : Conversation::STATUS_OPEN;
         $search = mb_substr(trim((string) $request->query('search', '')), 0, 100);
         $query  = Conversation::query()
-            ->select(['id', 'public_id', 'visitor_name', 'visitor_email', 'status', 'last_message_at'])
+            ->select([
+                'id',
+                'public_id',
+                'visitor_name',
+                'visitor_email',
+                'status',
+                'last_message_at',
+                'admin_last_read_at',
+                'visitor_last_read_at',
+            ])
             ->with('latestMessage')
             ->withCount(['messages as unread_count' => function ($query): void {
                 $query->where('sender_type', Message::SENDER_VISITOR)->whereNull('read_at');
@@ -62,13 +83,14 @@ class AdminChatController extends Controller
 
     public function messages(Request $request, string $publicId): JsonResponse
     {
+        $this->ensureAvailable();
         $conversation     = $this->conversation($publicId);
         [$after, $before] = $this->cursors($request);
         $page             = $this->chat->messagePage($conversation, $after, $before, 100);
         $this->chat->markDelivered($conversation, $page['messages'], Message::SENDER_ADMIN);
 
         return $this->json([
-            'conversation' => $this->conversationPayload($conversation->fresh()),
+            'conversation' => $this->conversationPayload($conversation->fresh(), true),
             'messages'     => $this->messagesPayload($page['messages']),
             'has_older'    => $page['has_older'],
             'has_more'     => $page['has_more'],
@@ -77,6 +99,7 @@ class AdminChatController extends Controller
 
     public function store(Request $request, string $publicId): JsonResponse
     {
+        $this->ensureAvailable();
         $data = $request->validate([
             'message'           => ['bail', 'required', 'string', 'max:5000', 'regex:/\S/'],
             'client_message_id' => ['nullable', 'uuid'],
@@ -87,22 +110,38 @@ class AdminChatController extends Controller
             current_user()?->id,
             $data['client_message_id'] ?? null,
         );
+        $this->chat->clearTyping($result['message']->conversation, Message::SENDER_ADMIN);
 
         return $this->json(
-            ['message' => $this->messagePayload($result['message'])],
+            [
+                'message'      => $this->messagePayload($result['message']),
+                'conversation' => $this->conversationPayload($result['message']->conversation->fresh(), true),
+            ],
             $result['created'] ? 201 : 200,
         );
     }
 
     public function close(string $publicId): JsonResponse
     {
+        $this->ensureAvailable();
         $conversation = $this->chat->close($this->conversation($publicId));
 
         return $this->json(['conversation' => $this->conversationPayload($conversation)]);
     }
 
+    public function typing(string $publicId): JsonResponse
+    {
+        $this->ensureAvailable();
+        $conversation = $this->conversation($publicId);
+        $this->chat->touchAdminPresence(current_user()?->id);
+        $this->chat->touchTyping($conversation, Message::SENDER_ADMIN);
+
+        return $this->json(['typing' => true]);
+    }
+
     public function reopen(string $publicId): JsonResponse
     {
+        $this->ensureAvailable();
         $conversation = $this->chat->reopen($this->conversation($publicId));
 
         return $this->json(['conversation' => $this->conversationPayload($conversation)]);
@@ -131,17 +170,26 @@ class AdminChatController extends Controller
         return $after > 0 ? [$after, 0] : [0, $before];
     }
 
-    private function conversationPayload(Conversation $conversation): array
+    private function conversationPayload(Conversation $conversation, bool $withPresence = false): array
     {
-        return [
-            'id'              => $conversation->public_id,
-            'name'            => $conversation->visitor_name ?: ($conversation->visitor_email ?: trans('LongosLiveChat::chat.visitor')),
-            'email'           => $conversation->visitor_email,
-            'status'          => $conversation->status,
-            'last_message_at' => $conversation->last_message_at?->toIso8601String(),
-            'unread_count'    => (int) ($conversation->unread_count ?? 0),
-            'preview'         => Str::limit((string) $conversation->latestMessage?->body, 90),
+        $payload = [
+            'id'                   => $conversation->public_id,
+            'name'                 => $conversation->visitor_name ?: ($conversation->visitor_email ?: trans('LongosLiveChat::chat.visitor')),
+            'email'                => $conversation->visitor_email,
+            'status'               => $conversation->status,
+            'last_message_at'      => $conversation->last_message_at?->toIso8601String(),
+            'unread_count'         => (int) ($conversation->unread_count ?? 0),
+            'preview'              => Str::limit((string) $conversation->latestMessage?->body, 90),
+            'admin_last_read_at'   => $conversation->admin_last_read_at?->toIso8601String(),
+            'visitor_last_read_at' => $conversation->visitor_last_read_at?->toIso8601String(),
         ];
+
+        if ($withPresence) {
+            $payload['visitor_online'] = $this->chat->visitorOnline($conversation);
+            $payload['visitor_typing'] = $this->chat->isTyping($conversation, Message::SENDER_VISITOR);
+        }
+
+        return $payload;
     }
 
     private function messagesPayload(iterable $messages): array
@@ -152,10 +200,12 @@ class AdminChatController extends Controller
     private function messagePayload(Message $message): array
     {
         return [
-            'id'          => $message->id,
-            'sender_type' => $message->sender_type,
-            'body'        => $message->body,
-            'created_at'  => $message->created_at?->toIso8601String(),
+            'id'                => $message->id,
+            'sender_type'       => $message->sender_type,
+            'body'              => $message->body,
+            'client_message_id' => $message->client_message_id,
+            'read_at'           => $message->read_at?->toIso8601String(),
+            'created_at'        => $message->created_at?->toIso8601String(),
         ];
     }
 
@@ -167,5 +217,10 @@ class AdminChatController extends Controller
             'X-Content-Type-Options' => 'nosniff',
             'Referrer-Policy'        => 'same-origin',
         ]);
+    }
+
+    private function ensureAvailable(): void
+    {
+        abort_unless($this->chat->isReady(), 503, trans('LongosLiveChat::chat.setup_unavailable'));
     }
 }

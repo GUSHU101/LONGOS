@@ -185,6 +185,30 @@ class LongosLiveChatServiceTest extends TestCase
         $service->touchAdminPresence(9);
         self::assertTrue($service->adminOnline());
         self::assertSame(64, strlen($service->cacheScope()));
+
+        $conversation = $service->initialize('', null, '')['conversation'];
+        self::assertFalse($service->visitorOnline($conversation));
+        $service->touchVisitorPresence($conversation);
+        self::assertTrue($service->visitorOnline($conversation));
+        self::assertFalse($service->isTyping($conversation, Message::SENDER_VISITOR));
+        $service->touchTyping($conversation, Message::SENDER_VISITOR);
+        self::assertTrue($service->isTyping($conversation, Message::SENDER_VISITOR));
+        $service->clearTyping($conversation, Message::SENDER_VISITOR);
+        self::assertFalse($service->isTyping($conversation, Message::SENDER_VISITOR));
+    }
+
+    public function test_health_reports_incomplete_plugin_migrations_without_querying_chat_data(): void
+    {
+        self::assertSame(['ready' => true, 'missing' => []], (new ChatService)->health());
+
+        Schema::table('longos_live_chat_messages', function ($table): void {
+            $table->dropUnique('llc_messages_conversation_client_unique');
+            $table->dropColumn('client_message_id');
+        });
+
+        $health = (new ChatService)->health(true);
+        self::assertFalse($health['ready']);
+        self::assertContains('longos_live_chat_messages.client_message_id', $health['missing']);
     }
 
     public function test_admin_conversation_feed_returns_a_bounded_preview_and_unread_count(): void
@@ -273,11 +297,15 @@ class LongosLiveChatServiceTest extends TestCase
         }, $provider, PluginServiceProvider::class);
         $register();
 
-        $routes    = collect(Route::getRoutes()->getRoutes());
-        $init      = $routes->first(static fn ($route): bool => $route->uri() === 'live-chat/init');
-        $admin     = $routes->first(static fn ($route): bool => $route->uri() === admin_name() . '/live-chat/conversations');
-        $read      = $routes->first(static fn ($route): bool => $route->uri() === 'live-chat/{conversation}/read');
-        $heartbeat = $routes->first(static fn ($route): bool => $route->uri() === admin_name() . '/live-chat/heartbeat');
+        $routes      = collect(Route::getRoutes()->getRoutes());
+        $init        = $routes->first(static fn ($route): bool => $route->uri() === 'live-chat/init');
+        $admin       = $routes->first(static fn ($route): bool => $route->uri() === admin_name() . '/live-chat/conversations');
+        $read        = $routes->first(static fn ($route): bool => $route->uri() === 'live-chat/{conversation}/read');
+        $heartbeat   = $routes->first(static fn ($route): bool => $route->uri() === admin_name() . '/live-chat/heartbeat');
+        $session     = $routes->first(static fn ($route): bool => $route->uri() === 'live-chat/session');
+        $health      = $routes->first(static fn ($route): bool => $route->uri() === admin_name() . '/live-chat/health');
+        $shopTyping  = $routes->first(static fn ($route): bool => $route->uri() === 'live-chat/{conversation}/typing');
+        $adminTyping = $routes->first(static fn ($route): bool => $route->uri() === admin_name() . '/live-chat/conversations/{conversation}/typing');
 
         self::assertNotNull($init);
         self::assertSame(['POST'], $init->methods());
@@ -291,6 +319,14 @@ class LongosLiveChatServiceTest extends TestCase
         self::assertSame(['POST'], $read->methods());
         self::assertNotNull($heartbeat);
         self::assertSame(['POST'], $heartbeat->methods());
+        self::assertNotNull($session);
+        self::assertSame(['GET', 'HEAD'], $session->methods());
+        self::assertNotNull($health);
+        self::assertSame(['GET', 'HEAD'], $health->methods());
+        self::assertNotNull($shopTyping);
+        self::assertSame(['POST'], $shopTyping->methods());
+        self::assertNotNull($adminTyping);
+        self::assertSame(['POST'], $adminTyping->methods());
     }
 
     public function test_hardening_migration_is_reentrant_and_reversible(): void

@@ -18,9 +18,92 @@ class ChatService
 
     private const PRESENCE_TTL_SECONDS = 90;
 
+    private const TYPING_TTL_SECONDS = 8;
+
     private const TOKEN_PATTERN = '/^[A-Za-z0-9_-]{32,128}$/';
 
     private ?bool $supportsClientMessageIds = null;
+
+    /** @var array{ready: bool, missing: list<string>}|null */
+    private ?array $health = null;
+
+    /**
+     * Report a partially-applied plugin migration without letting a database
+     * exception turn the whole storefront or admin shell into a 500 page.
+     *
+     * @return array{ready: bool, missing: list<string>}
+     */
+    public function health(bool $refresh = false): array
+    {
+        if ($this->health !== null && ! $refresh) {
+            return $this->health;
+        }
+
+        $cacheKey = 'longos-live-chat:health:' . $this->cacheScope();
+        if (! $refresh) {
+            try {
+                $cached = Cache::get($cacheKey);
+                if (is_array($cached) && is_bool($cached['ready'] ?? null) && is_array($cached['missing'] ?? null)) {
+                    return $this->health = $cached;
+                }
+            } catch (Throwable) {
+                // A cache outage must not make chat unavailable.
+            }
+        }
+
+        $requirements = [
+            'longos_live_chat_conversations' => [
+                'public_id',
+                'visitor_token',
+                'status',
+                'closed_at',
+                'last_message_at',
+                'admin_last_read_at',
+                'visitor_last_read_at',
+            ],
+            'longos_live_chat_messages' => [
+                'conversation_id',
+                'sender_type',
+                'body',
+                'client_message_id',
+                'read_at',
+            ],
+        ];
+        $missing = [];
+
+        try {
+            foreach ($requirements as $table => $columns) {
+                if (! Schema::hasTable($table)) {
+                    $missing[] = $table;
+
+                    continue;
+                }
+                $available = Schema::getColumnListing($table);
+                foreach ($columns as $column) {
+                    if (! in_array($column, $available, true)) {
+                        $missing[] = $table . '.' . $column;
+                    }
+                }
+            }
+        } catch (Throwable) {
+            $missing[] = 'database_connection';
+        }
+
+        $health = ['ready' => $missing === [], 'missing' => $missing];
+
+        try {
+            Cache::put($cacheKey, $health, now()->addSeconds($health['ready'] ? 300 : 5));
+        } catch (Throwable) {
+            // Health remains available even when the configured cache is down.
+        }
+
+        return $this->health = $health;
+    }
+
+    public function isReady(): bool
+    {
+        return $this->health()['ready'];
+    }
 
     /**
      * @return array{conversation: Conversation, token: string, is_new: bool, messages: Collection<int, Message>, has_older: bool}
@@ -294,6 +377,63 @@ class ChatService
         }
     }
 
+    public function touchVisitorPresence(Conversation $conversation): void
+    {
+        try {
+            Cache::put(
+                $this->conversationStateKey($conversation, 'visitor-presence'),
+                now()->timestamp,
+                now()->addSeconds(self::PRESENCE_TTL_SECONDS),
+            );
+        } catch (Throwable) {
+            // Presence is an enhancement and must never block a conversation.
+        }
+    }
+
+    public function visitorOnline(Conversation $conversation): bool
+    {
+        try {
+            return Cache::has($this->conversationStateKey($conversation, 'visitor-presence'));
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    public function touchTyping(Conversation $conversation, string $sender): void
+    {
+        if (! in_array($sender, [Message::SENDER_VISITOR, Message::SENDER_ADMIN], true)) {
+            return;
+        }
+
+        try {
+            Cache::put(
+                $this->conversationStateKey($conversation, 'typing:' . $sender),
+                now()->timestamp,
+                now()->addSeconds(self::TYPING_TTL_SECONDS),
+            );
+        } catch (Throwable) {
+            // Typing state is deliberately ephemeral and fail-safe.
+        }
+    }
+
+    public function clearTyping(Conversation $conversation, string $sender): void
+    {
+        try {
+            Cache::forget($this->conversationStateKey($conversation, 'typing:' . $sender));
+        } catch (Throwable) {
+            // The short TTL clears stale state even when cache deletion fails.
+        }
+    }
+
+    public function isTyping(Conversation $conversation, string $sender): bool
+    {
+        try {
+            return Cache::has($this->conversationStateKey($conversation, 'typing:' . $sender));
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
     public function cacheScope(): string
     {
         try {
@@ -358,6 +498,11 @@ class ChatService
     private function presenceKey(): string
     {
         return 'longos-live-chat:presence:' . $this->cacheScope();
+    }
+
+    private function conversationStateKey(Conversation $conversation, string $state): string
+    {
+        return 'longos-live-chat:' . $this->cacheScope() . ':conversation:' . $conversation->getKey() . ':' . $state;
     }
 
     private function normalizeText(?string $value): string

@@ -24,7 +24,7 @@
   #longos-live-chat .llc-unread.visible { display: grid; }
   #longos-live-chat .llc-toggle:hover { background: var(--llc-primary-hover); transform: translateY(-2px); box-shadow: 0 14px 34px rgba(21,94,239,.38); }
   #longos-live-chat .llc-toggle:focus-visible, #longos-live-chat button:focus-visible, #longos-live-chat input:focus-visible, #longos-live-chat textarea:focus-visible { outline: 3px solid var(--llc-focus); outline-offset: 3px; }
-  #longos-live-chat .llc-panel { display: none; width: min(var(--llc-panel-width), calc(100vw - 28px)); height: min(var(--llc-panel-height), calc(100dvh - 106px)); margin-bottom: 12px; overflow: hidden; border: 1px solid #e4e7ec; border-radius: 18px; background: #fff; box-shadow: 0 24px 64px rgba(16,24,40,.24); }
+  #longos-live-chat .llc-panel { display: none; position: relative; width: min(var(--llc-panel-width), calc(100vw - 28px)); height: min(var(--llc-panel-height), calc(100dvh - 106px)); margin-bottom: 12px; overflow: hidden; border: 1px solid #e4e7ec; border-radius: 18px; background: #fff; box-shadow: 0 24px 64px rgba(16,24,40,.24); }
   #longos-live-chat.position-top_left .llc-panel, #longos-live-chat.position-top_right .llc-panel { margin-top: 12px; margin-bottom: 0; }
   #longos-live-chat.open .llc-panel { display: flex; flex-direction: column; }
   #longos-live-chat .llc-panel > .llc-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; min-height: 0; padding: 15px 16px; border: 0 !important; color: var(--llc-on-primary) !important; background: var(--llc-primary) !important; box-shadow: none !important; position: static !important; z-index: auto !important; }
@@ -34,17 +34,27 @@
   #longos-live-chat .llc-close { flex: 0 0 auto; display: grid; place-items: center; width: 44px; height: 44px; margin: -5px -6px -5px 0; border: 0; border-radius: 11px; color: var(--llc-on-primary); background: rgba(0,0,0,.16); cursor: pointer; }
   #longos-live-chat .llc-close:hover { background: rgba(0,0,0,.26); }
   #longos-live-chat .llc-close:focus-visible { outline-color: var(--llc-on-primary); box-shadow: 0 0 0 2px var(--llc-primary); }
-  #longos-live-chat .llc-status { min-height: 25px; padding: 5px 14px; border-bottom: 1px solid #eaecf0; color: #475467; background: #f9fafb; font-size: 12px; }
+  #longos-live-chat .llc-status { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 32px; padding: 5px 14px; border-bottom: 1px solid #eaecf0; color: #475467; background: #f9fafb; font-size: 12px; }
   #longos-live-chat .llc-status.error { color: #b42318; background: #fef3f2; }
+  #longos-live-chat .llc-retry { display: none; flex: 0 0 auto; padding: 2px 8px; border: 1px solid currentColor; border-radius: 999px; color: inherit; background: transparent; font-size: 12px; cursor: pointer; }
+  #longos-live-chat .llc-retry.visible { display: inline-flex; }
   #longos-live-chat .llc-profile { display: none; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #eaecf0; background: #fff; }
   #longos-live-chat .llc-profile input { width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid #d0d5dd; border-radius: 9px; color: #101828; background: #fff; }
   #longos-live-chat .llc-history { display: none; align-self: center; margin: 10px auto 0; padding: 6px 12px; border: 1px solid #d0d5dd; border-radius: 999px; color: #344054; background: #fff; font-size: 12px; cursor: pointer; }
   #longos-live-chat .llc-body { flex: 1; min-height: 0; padding: 4px 14px 14px; overflow-y: auto; overscroll-behavior: contain; background: #f8fafc; scrollbar-gutter: stable; }
+  #longos-live-chat .llc-jump { display: none; position: absolute; left: 50%; bottom: 76px; z-index: 2; transform: translateX(-50%); padding: 6px 11px; border: 1px solid #d0d5dd; border-radius: 999px; color: #344054; background: #fff; box-shadow: 0 4px 12px rgba(16,24,40,.12); font-size: 12px; cursor: pointer; }
+  #longos-live-chat .llc-jump.visible { display: block; }
   #longos-live-chat .llc-message { max-width: 84%; margin: 10px 0 0; padding: 9px 12px; border-radius: 13px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
   #longos-live-chat .llc-message.visitor { margin-left: auto; color: var(--llc-on-primary); border-bottom-right-radius: 4px; background: var(--llc-primary); }
   #longos-live-chat .llc-message.admin, #longos-live-chat .llc-message.system { border: 1px solid #e4e7ec; border-bottom-left-radius: 4px; background: #fff; }
   #longos-live-chat .llc-meta { display: block; margin-top: 3px; font-size: 11px; opacity: .7; }
   #longos-live-chat .llc-message.visitor .llc-meta { color: var(--llc-on-primary); opacity: 1; }
+  #longos-live-chat .llc-typing { display: none; align-items: center; gap: 7px; min-height: 30px; padding: 5px 14px; color: #667085; background: #fff; font-size: 12px; }
+  #longos-live-chat .llc-typing.visible { display: flex; }
+  #longos-live-chat .llc-typing-dots { display: inline-flex; gap: 3px; }
+  #longos-live-chat .llc-typing-dots span { width: 5px; height: 5px; border-radius: 50%; background: currentColor; animation: llc-typing 1.2s infinite ease-in-out; }
+  #longos-live-chat .llc-typing-dots span:nth-child(2) { animation-delay: .16s; }
+  #longos-live-chat .llc-typing-dots span:nth-child(3) { animation-delay: .32s; }
   #longos-live-chat .llc-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 11px 12px; border-top: 1px solid #e4e7ec; background: #fff; }
   #longos-live-chat .llc-form textarea { width: 100%; min-width: 0; min-height: 44px; max-height: 112px; padding: 10px 11px; resize: none; border: 1px solid #d0d5dd; border-radius: 11px; color: #101828; background: #fff; }
   #longos-live-chat .llc-send { align-self: end; display: grid; place-items: center; min-width: 44px; height: 44px; border: 0; border-radius: 11px; color: var(--llc-on-primary); background: var(--llc-primary); cursor: pointer; }
@@ -53,13 +63,15 @@
   #longos-live-chat .llc-send.is-sending i { animation: llc-spin .8s linear infinite; }
   #longos-live-chat .llc-sr-only { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
   @keyframes llc-spin { to { transform: rotate(360deg); } }
+  @keyframes llc-typing { 0%, 60%, 100% { transform: translateY(0); opacity: .45; } 30% { transform: translateY(-3px); opacity: 1; } }
   @media (max-width: 576px) {
+    body.longos-live-chat-modal-open { overflow: hidden; }
     #longos-live-chat.open { inset: 0 !important; display: block; padding: 0; }
     #longos-live-chat.open .llc-panel { width: 100%; height: 100dvh; max-width: none; margin: 0; border: 0; border-radius: 0; }
     #longos-live-chat.open .llc-toggle { display: none; }
     #longos-live-chat .llc-profile { grid-template-columns: 1fr; }
   }
-  @media (prefers-reduced-motion: reduce) { #longos-live-chat .llc-toggle { transition: none; } }
+  @media (prefers-reduced-motion: reduce) { #longos-live-chat .llc-toggle { transition: none; } #longos-live-chat .llc-typing-dots span, #longos-live-chat .llc-send.is-sending i { animation: none; } }
 </style>
 <div id="longos-live-chat" class="position-{{ $position }}" style="--llc-offset-x: {{ $offsetX }}px; --llc-offset-y: {{ $offsetY }}px; --llc-button-size: {{ $buttonSize }}px; --llc-panel-width: {{ $panelWidth }}px; --llc-panel-height: {{ $panelHeight }}px;">
   <section id="longos-live-chat-panel" class="llc-panel" role="dialog" aria-modal="false" aria-labelledby="longos-live-chat-title" aria-hidden="true">
@@ -70,13 +82,15 @@
       </div>
       <button type="button" class="llc-close" aria-label="{{ __('LongosLiveChat::chat.close_window') }}"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
     </header>
-    <div class="llc-status" role="status" aria-live="polite">{{ __('LongosLiveChat::chat.loading') }}</div>
+    <div class="llc-status" role="status" aria-live="polite"><span class="llc-status-text">{{ __('LongosLiveChat::chat.loading') }}</span><button type="button" class="llc-retry">{{ __('LongosLiveChat::chat.retry') }}</button></div>
     <div class="llc-profile">
       <label><span class="llc-sr-only">{{ __('LongosLiveChat::chat.name') }}</span><input class="llc-name" maxlength="120" autocomplete="name" placeholder="{{ __('LongosLiveChat::chat.name') }}"></label>
       <label><span class="llc-sr-only">{{ __('LongosLiveChat::chat.email') }}</span><input class="llc-email" maxlength="255" type="email" inputmode="email" autocomplete="email" placeholder="{{ __('LongosLiveChat::chat.email') }}"></label>
     </div>
     <button type="button" class="llc-history">{{ __('LongosLiveChat::chat.load_older') }}</button>
     <div class="llc-body" role="log" aria-live="polite" aria-relevant="additions text" aria-label="{{ __('LongosLiveChat::chat.title') }}"></div>
+    <button type="button" class="llc-jump">{{ __('LongosLiveChat::chat.jump_to_latest') }}</button>
+    <div class="llc-typing" role="status" aria-live="polite"><span>{{ __('LongosLiveChat::chat.operator_typing') }}</span><span class="llc-typing-dots" aria-hidden="true"><span></span><span></span><span></span></span></div>
     <form class="llc-form">
       <label class="llc-sr-only" for="longos-live-chat-message">{{ __('LongosLiveChat::chat.placeholder') }}</label>
       <textarea id="longos-live-chat-message" maxlength="5000" rows="1" placeholder="{{ __('LongosLiveChat::chat.placeholder') }}"></textarea>
@@ -92,7 +106,8 @@
     root.data('longos-chat-ready', true);
 
     const api = @json($chatApiUrl);
-    const csrfToken = $('meta[name="csrf-token"]').attr('content') || '';
+    let csrfToken = $('meta[name="csrf-token"]').attr('content') || '';
+    let csrfRefresh = null;
     const basePollMilliseconds = {{ $pollSeconds * 1000 }};
     const backgroundPollMilliseconds = {{ $backgroundPollSeconds * 1000 }};
     const labels = {
@@ -106,6 +121,9 @@
       offline: @json(__('LongosLiveChat::chat.operator_offline')),
       unread: @json(__('LongosLiveChat::chat.unread_replies')),
       start: @json(__('LongosLiveChat::chat.start')),
+      sent: @json(__('LongosLiveChat::chat.sent')),
+      read: @json(__('LongosLiveChat::chat.read')),
+      unavailable: @json(__('LongosLiveChat::chat.setup_unavailable')),
     };
     let conversation = null;
     let lastMessageId = 0;
@@ -120,21 +138,69 @@
     let pendingMessage = null;
     let unreadReplies = 0;
     let operatorOnline = false;
+    let retryAction = null;
+    let lastTypingAt = 0;
+    const storageKey = 'longos-live-chat:' + window.location.host;
 
-    const apiRequest = (options) => $.ajax($.extend({
-      headers: {'X-CSRF-TOKEN': csrfToken, 'Accept': 'application/json'},
-      cache: false,
-      timeout: 12000,
-    }, options));
-    const status = (message, error = false) => root.find('.llc-status').text(message || '').toggleClass('error', error);
+    const refreshSession = (force = false) => {
+      if (csrfRefresh && !force) return csrfRefresh;
+      const request = $.ajax({url: api + '/session', method: 'GET', dataType: 'json', cache: false, timeout: 12000});
+      csrfRefresh = request.then((response) => {
+        csrfToken = response.csrf_token || csrfToken;
+        if (response.ready === false) return $.Deferred().reject({responseJSON: {message: labels.unavailable}, status: 503}).promise();
+        return response;
+      }).always(() => { csrfRefresh = null; });
+      return csrfRefresh;
+    };
+    const apiRequest = (options, canRefresh = true) => {
+      const deferred = $.Deferred();
+      let request = null;
+      const send = () => {
+        request = $.ajax($.extend({}, options, {
+          headers: $.extend({}, options.headers || {}, {'X-CSRF-TOKEN': csrfToken, 'Accept': 'application/json'}),
+          cache: false,
+          timeout: 12000,
+        }));
+        request.done((data, textStatus, xhr) => deferred.resolve(data, textStatus, xhr))
+          .fail((xhr, textStatus, errorThrown) => {
+            if (xhr.status === 419 && canRefresh) {
+              canRefresh = false;
+              csrfToken = '';
+              refreshSession(true).done(send).fail((refreshXhr, refreshStatus, refreshError) => deferred.reject(refreshXhr, refreshStatus, refreshError));
+              return;
+            }
+            deferred.reject(xhr, textStatus, errorThrown);
+          });
+      };
+      const method = String(options.method || options.type || 'GET').toUpperCase();
+      if (method !== 'GET' && !csrfToken) refreshSession().done(send).fail((xhr, textStatus, errorThrown) => deferred.reject(xhr, textStatus, errorThrown));
+      else send();
+      const promise = deferred.promise();
+      promise.abort = () => { if (request && typeof request.abort === 'function') request.abort(); };
+      return promise;
+    };
+    const status = (message, error = false, retry = null) => {
+      retryAction = typeof retry === 'function' ? retry : null;
+      root.find('.llc-status-text').text(message || '');
+      root.find('.llc-status').toggleClass('error', error);
+      root.find('.llc-retry').toggleClass('visible', !!retryAction);
+    };
     const errorMessage = (xhr, fallback) => xhr && xhr.responseJSON && (xhr.responseJSON.message || Object.values(xhr.responseJSON.errors || {}).flat()[0]) || fallback;
-    const notify = (message) => {
-      status(message, true);
+    const notify = (message, retry = null) => {
+      status(message, true, retry);
       if (window.layer && typeof window.layer.msg === 'function') window.layer.msg(message);
     };
     const updatePresence = (online) => {
       operatorOnline = !!online;
       status(operatorOnline ? labels.online : labels.offline);
+    };
+    const updateTyping = (typing) => root.find('.llc-typing').toggleClass('visible', !!typing);
+    const signalTyping = () => {
+      if (!conversation || !String(root.find('.llc-form textarea').val() || '').trim()) return;
+      const now = Date.now();
+      if (now - lastTypingAt < 3000) return;
+      lastTypingAt = now;
+      apiRequest({url: `${api}/${encodeURIComponent(conversation.id)}/typing`, method: 'POST', dataType: 'json'}).fail(() => {});
     };
     const updateUnreadBadge = () => {
       const badge = root.find('.llc-unread');
@@ -147,11 +213,43 @@
           const random = Math.random() * 16 | 0;
           return (char === 'x' ? random : (random & 0x3 | 0x8)).toString(16);
         });
+    const safeStorage = {
+      read() {
+        try {
+          const value = JSON.parse(window.sessionStorage.getItem(storageKey) || '{}');
+          return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+        }
+        catch (error) { return {}; }
+      },
+      write(values) {
+        try { window.sessionStorage.setItem(storageKey, JSON.stringify($.extend({}, this.read(), values))); }
+        catch (error) { /* Private browsing and storage quotas must not disable chat. */ }
+      },
+    };
+    const isReadByAdmin = (createdAt) => !!(createdAt && conversation && conversation.admin_last_read_at
+      && new Date(conversation.admin_last_read_at).getTime() >= new Date(createdAt).getTime());
+    const refreshDeliveryState = () => {
+      root.find('.llc-message.visitor').each(function () {
+        const createdAt = $(this).attr('data-created-at');
+        $(this).find('.llc-delivery').text(isReadByAdmin(createdAt) ? labels.read : labels.sent);
+      });
+    };
+    const updateConversation = (value) => {
+      if (!value) return;
+      conversation = $.extend({}, conversation || {}, value);
+      refreshDeliveryState();
+    };
     const messageElement = (message) => {
       const when = message.created_at ? new Date(message.created_at).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) : '';
       const sender = ['visitor', 'admin', 'system'].includes(message.sender_type) ? message.sender_type : 'system';
-      const item = $('<div>', {class: `llc-message ${sender}`, 'data-message-id': Number(message.id)}).text(message.body || '');
-      item.append($('<span>', {class: 'llc-meta'}).text(when));
+      const item = $('<div>', {
+        class: `llc-message ${sender}`,
+        'data-message-id': Number(message.id),
+        'data-created-at': message.created_at || '',
+      }).text(message.body || '');
+      const meta = $('<span>', {class: 'llc-meta'}).text(when);
+      if (sender === 'visitor') meta.append(document.createTextNode(' · ')).append($('<span>', {class: 'llc-delivery'}).text(isReadByAdmin(message.created_at) ? labels.read : labels.sent));
+      item.append(meta);
       return item;
     };
     const rememberMessage = (message) => {
@@ -188,6 +286,7 @@
       const body = root.find('.llc-body')[0];
       return !body || body.scrollHeight - body.scrollTop - body.clientHeight < 96;
     };
+    const updateJumpButton = () => root.find('.llc-jump').toggleClass('visible', root.hasClass('open') && !isNearBottom());
     const updateHistoryButton = () => root.find('.llc-history').toggle(!!hasOlder).prop('disabled', loadingOlder);
     const schedulePolling = () => {
       clearTimeout(timer);
@@ -205,13 +304,16 @@
       apiRequest({url: `${api}/${encodeURIComponent(conversation.id)}/messages`, method: 'GET', dataType: 'json', data: {after: lastMessageId, mark_read: visible ? 1 : 0}})
         .done((response) => {
           pollFailures = 0;
+          updateConversation(response.conversation);
           updatePresence(response.operator_online);
+          updateTyping(response.operator_typing);
           const nowVisible = root.hasClass('open');
           if (appendMessages(response.messages || [], !nowVisible) && nowVisible && stickToBottom) scrollBottom();
+          updateJumpButton();
           if (nowVisible && !visible) acknowledgeMessages();
           hasMore = !!response.has_more;
         })
-        .fail(() => { pollFailures += 1; status(labels.reconnecting, true); })
+        .fail(() => { pollFailures += 1; status(labels.reconnecting, true, loadMessages); })
         .always(() => {
           loadingMessages = false;
           if (hasMore) window.setTimeout(loadMessages, 0);
@@ -222,18 +324,19 @@
       if (conversation) return $.Deferred().resolve().promise();
       if (initializing) return initializing;
       status(labels.loading);
-      initializing = apiRequest({url: `${api}/init`, method: 'POST', dataType: 'json'})
+      initializing = refreshSession().then(() => apiRequest({url: `${api}/init`, method: 'POST', dataType: 'json'}))
         .done((response) => {
-          conversation = response.conversation;
+          updateConversation(response.conversation);
           hasOlder = !!response.has_older;
           appendMessages(response.messages || []);
           root.find('.llc-profile').css('display', 'grid');
           updateHistoryButton();
           pollFailures = 0;
           updatePresence(response.operator_online);
+          updateTyping(response.operator_typing);
           scrollBottom();
         })
-        .fail((xhr) => notify(errorMessage(xhr, labels.initFailed)))
+        .fail((xhr) => notify(errorMessage(xhr, labels.initFailed), initialize))
         .always(() => { initializing = null; });
       return initializing;
     };
@@ -246,13 +349,15 @@
     };
     const setOpen = (open) => {
       root.toggleClass('open', open);
+      $('body').toggleClass('longos-live-chat-modal-open', open && window.matchMedia('(max-width: 576px)').matches);
       root.find('.llc-toggle').attr('aria-expanded', open ? 'true' : 'false');
       root.find('.llc-panel').attr('aria-hidden', open ? 'false' : 'true');
-      if (!open) { root.find('.llc-toggle').trigger('focus'); schedulePolling(); return; }
+      if (!open) { root.find('.llc-toggle').trigger('focus'); updateJumpButton(); schedulePolling(); return; }
       initialize().done(() => {
         if (!root.hasClass('open')) return;
         acknowledgeMessages();
         loadMessages();
+        updateJumpButton();
         root.find('.llc-form textarea').trigger('focus');
       });
     };
@@ -264,8 +369,8 @@
       loadingOlder = true;
       updateHistoryButton();
       apiRequest({url: `${api}/${encodeURIComponent(conversation.id)}/messages`, method: 'GET', dataType: 'json', data: {before: oldestMessageId}})
-        .done((response) => { hasOlder = !!response.has_older; prependMessages(response.messages || []); updatePresence(response.operator_online); })
-        .fail((xhr) => notify(errorMessage(xhr, labels.reconnecting)))
+        .done((response) => { hasOlder = !!response.has_older; updateConversation(response.conversation); prependMessages(response.messages || []); updatePresence(response.operator_online); })
+        .fail((xhr) => notify(errorMessage(xhr, labels.reconnecting), () => root.find('.llc-history').trigger('click')))
         .always(() => { loadingOlder = false; updateHistoryButton(); });
     });
     root.find('.llc-form').on('submit', function (event) {
@@ -295,12 +400,14 @@
           email: root.find('.llc-email').val(),
         },
       }).done((response) => {
+        updateConversation(response.conversation);
         appendMessages([response.message]);
         textarea.val('');
+        safeStorage.write({draft: ''});
         pendingMessage = null;
         updatePresence(operatorOnline);
         scrollBottom();
-      }).fail((xhr) => notify(errorMessage(xhr, labels.sendFailed)))
+      }).fail((xhr) => notify(errorMessage(xhr, labels.sendFailed), () => root.find('.llc-form').trigger('submit')))
         .always(() => {
           sending = false;
           textarea.prop('disabled', false);
@@ -314,13 +421,39 @@
         event.preventDefault();
         root.find('.llc-form').trigger('submit');
       }
+    }).on('input', function () {
+      this.style.height = 'auto';
+      this.style.height = Math.min(this.scrollHeight, 112) + 'px';
+      safeStorage.write({draft: String($(this).val() || '')});
+      signalTyping();
     });
+    root.find('.llc-profile input').on('change', () => safeStorage.write({
+      name: String(root.find('.llc-name').val() || ''),
+      email: String(root.find('.llc-email').val() || ''),
+    }));
+    root.find('.llc-retry').on('click', () => { const action = retryAction; status(labels.loading); if (action) action(); });
+    root.find('.llc-jump').on('click', () => { scrollBottom(); updateJumpButton(); });
+    root.find('.llc-body').on('scroll', updateJumpButton);
+    const saved = safeStorage.read();
+    root.find('.llc-name').val(typeof saved.name === 'string' ? saved.name : '');
+    root.find('.llc-email').val(typeof saved.email === 'string' ? saved.email : '');
+    root.find('.llc-form textarea').val(typeof saved.draft === 'string' ? saved.draft : '').trigger('input');
     $(document).on('keydown.longosLiveChat', function (event) {
       if (event.key === 'Escape' && root.hasClass('open')) setOpen(false);
+      if (event.key === 'Tab' && root.hasClass('open') && window.matchMedia('(max-width: 576px)').matches) {
+        const focusable = root.find('button, input, textarea, [href], [tabindex]:not([tabindex="-1"])').filter(':visible:not(:disabled)');
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      }
     });
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) clearTimeout(timer);
       else if (conversation) loadMessages();
     });
+    window.addEventListener('online', () => { pollFailures = 0; if (conversation) loadMessages(); else if (root.hasClass('open')) initialize(); });
+    window.addEventListener('offline', () => status(labels.reconnecting, true));
+    window.addEventListener('resize', () => $('body').toggleClass('longos-live-chat-modal-open', root.hasClass('open') && window.matchMedia('(max-width: 576px)').matches));
   })(jQuery);
 </script>

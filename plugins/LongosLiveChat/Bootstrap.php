@@ -27,8 +27,8 @@ class Bootstrap
             // A plugin package can be present before a stale shared route
             // cache has been rebuilt. Keep the storefront available and omit
             // only the chat widget until the automatic deployment upgrade
-            // publishes all four guarded endpoints.
-            foreach (['shop.live_chat.init', 'shop.live_chat.messages', 'shop.live_chat.messages.store', 'shop.live_chat.read'] as $route) {
+            // publishes every guarded endpoint used by the widget.
+            foreach (['shop.live_chat.session', 'shop.live_chat.init', 'shop.live_chat.messages', 'shop.live_chat.messages.store', 'shop.live_chat.typing', 'shop.live_chat.read'] as $route) {
                 if (! app('router')->has($route)) {
                     return $output;
                 }

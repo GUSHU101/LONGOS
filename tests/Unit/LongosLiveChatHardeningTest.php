@@ -17,6 +17,7 @@ class LongosLiveChatHardeningTest extends TestCase
         $bootstrap  = (string) file_get_contents($root . '/plugins/LongosLiveChat/Bootstrap.php');
 
         self::assertStringContainsString("Route::post('init'", $shopRoutes);
+        self::assertStringContainsString("Route::get('session'", $shopRoutes);
         self::assertStringNotContainsString("Route::get('init'", $shopRoutes);
         self::assertStringContainsString("middleware('throttle:120,1')", $shopRoutes);
         self::assertStringContainsString("'Cache-Control'", $shop);
@@ -30,8 +31,12 @@ class LongosLiveChatHardeningTest extends TestCase
         self::assertStringContainsString('llc_messages_conversation_client_unique', $migration);
         self::assertStringContainsString('llc_conversations_status_closed_index', $lifecycle);
         self::assertStringContainsString("Route::post('{conversation}/read'", $shopRoutes);
+        self::assertStringContainsString("Route::post('{conversation}/typing'", $shopRoutes);
         self::assertStringContainsString('cacheScope()', $shop);
+        self::assertStringContainsString('clearTyping(', $shop);
         self::assertStringContainsString("'shop.live_chat.init'", $bootstrap);
+        self::assertStringContainsString("'shop.live_chat.session'", $bootstrap);
+        self::assertStringContainsString("'shop.live_chat.typing'", $bootstrap);
         self::assertStringContainsString("'shop.live_chat.messages'", $bootstrap);
         self::assertStringContainsString("'shop.live_chat.messages.store'", $bootstrap);
         self::assertStringContainsString("'shop.live_chat.read'", $bootstrap);
@@ -74,6 +79,18 @@ class LongosLiveChatHardeningTest extends TestCase
         self::assertStringContainsString('this.conversations = merged.slice(0, retainedLimit)', $admin);
         self::assertStringContainsString('this._messageRequest?.abort()', $admin);
         self::assertStringContainsString('retrySend', $admin);
+        self::assertStringContainsString('checkHealth()', $admin);
+        self::assertStringContainsString('isReadByVisitor(message)', $admin);
+        self::assertStringContainsString('refreshSession(true)', $widget);
+        self::assertStringContainsString('xhr.status === 419', $widget);
+        self::assertStringContainsString('window.sessionStorage', $widget);
+        self::assertStringContainsString('llc-jump', $widget);
+        self::assertStringContainsString('signalTyping', $widget);
+        self::assertStringContainsString('selected.visitor_typing', $admin);
+        self::assertStringContainsString('llc-context', $admin);
+        self::assertStringContainsString('backgroundPollMilliseconds', $admin);
+        self::assertStringContainsString("notificationPermission !== 'granted'", $admin);
+        self::assertStringContainsString('applyQuickReply(reply)', $admin);
     }
 
     public function test_configuration_and_translations_cover_every_runtime_setting(): void
@@ -87,6 +104,7 @@ class LongosLiveChatHardeningTest extends TestCase
         self::assertContains('poll_seconds', $names);
         self::assertContains('background_poll_seconds', $names);
         self::assertContains('retention_days', $names);
+        self::assertContains('quick_replies', $names);
         self::assertSame([], array_diff(array_keys($english), array_keys($chinese)));
         self::assertSame([], array_diff(array_keys($chinese), array_keys($english)));
     }

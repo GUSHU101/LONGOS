@@ -60,4 +60,16 @@ test('live chat requests recover from stalled networks without overlapping poll 
   assert.doesNotMatch(admin, /window\.setInterval\(\(\)\s*=>\s*\{[\s\S]*?loadConversations/);
   assert.match(admin, /this\._messageRequest\?\.abort\(\)/);
   assert.match(admin, /merged\.slice\(0, retainedLimit\)/);
+  assert.match(widget, /xhr\.status === 419/);
+  assert.match(widget, /refreshSession\(true\)/);
+  assert.match(widget, /window\.sessionStorage/);
+  assert.match(admin, /checkHealth\(\)/);
+  assert.match(widget, /signalTyping/);
+  assert.match(admin, /selected\.visitor_typing/);
+  assert.match(admin, /llc-context/);
+  assert.match(admin, /Notification\.requestPermission/);
+  assert.match(admin, /updateUnreadTitle/);
+  assert.match(admin, /backgroundPollMilliseconds/);
+  assert.match(admin, /this\.selected && !document\.hidden/);
+  assert.match(admin, /applyQuickReply\(reply\)/);
 });

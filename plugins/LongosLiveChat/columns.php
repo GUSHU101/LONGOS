@@ -3,8 +3,8 @@
 return [
     [
         'name'        => 'welcome_message', 'label' => '欢迎语', 'section' => '基础功能',
-        'description' => '访客第一次打开客服窗口时显示。', 'type' => 'textarea',
-        'value'       => 'Hello! Leave us a message and we will get back to you shortly.', 'required' => false,
+        'description' => '访客第一次打开客服窗口时显示；留空则按访客当前语言显示内置欢迎语。', 'type' => 'textarea',
+        'value'       => '', 'required' => false,
     ],
     [
         'name'        => 'poll_seconds', 'label' => '消息刷新间隔', 'section' => '基础功能',
@@ -20,6 +20,11 @@ return [
         'name'        => 'retention_days', 'label' => '聊天记录保留天数', 'section' => '基础功能',
         'description' => '默认 1 天。系统按最后消息时间判定，分批清理超期且没有新消息的整个会话。', 'type' => 'number',
         'value'       => '1', 'min' => 1, 'max' => 3650, 'required' => false,
+    ],
+    [
+        'name'        => 'quick_replies', 'label' => '客服快捷回复', 'section' => '基础功能',
+        'description' => '每行一条，最多读取 12 条；客服点击后只写入草稿，不会自动发送。', 'type' => 'textarea',
+        'value'       => '', 'rules' => ['nullable', 'string', 'max:12000'], 'required' => false,
     ],
     [
         'name'        => 'bubble_position', 'label' => '客服入口位置', 'section' => '前台展示',
