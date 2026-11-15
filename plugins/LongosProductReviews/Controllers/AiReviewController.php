@@ -54,9 +54,11 @@ final class AiReviewController extends Controller
         $data = $request->validate([
             'product_ids' => ['nullable', 'string', 'max:4000'],
             'limit' => ['required', 'integer', 'between:1,50'],
+            'category_id' => ['nullable', 'integer', 'min:1', 'exists:categories,id'],
             'per_product' => ['required', 'integer', 'between:1,5'],
             'language' => ['required', 'string', Rule::in(array_keys(SiliconFlowReviewDrafts::LANGUAGES))],
             'skip_reviewed' => ['nullable', 'boolean'],
+            'skip_ai_existing' => ['nullable', 'boolean'],
         ]);
 
         if (config('queue.default') === 'sync') {
@@ -78,8 +80,15 @@ final class AiReviewController extends Controller
         if ($ids !== []) {
             $products->whereIn('id', $ids);
         }
+        if (! empty($data['category_id'])) {
+            $categoryId = (int) $data['category_id'];
+            $products->whereHas('categories', static fn ($query) => $query->where('categories.id', $categoryId));
+        }
         if ($request->boolean('skip_reviewed')) {
             $products->whereNotIn('id', Review::query()->select('product_id')->where('published', true));
+        }
+        if ($request->boolean('skip_ai_existing')) {
+            $products->whereNotIn('id', Review::query()->select('product_id')->where('ai_generated', true));
         }
 
         $productIds = $products->limit((int) $data['limit'])->pluck('id')->map(static fn ($id): int => (int) $id)->all();
