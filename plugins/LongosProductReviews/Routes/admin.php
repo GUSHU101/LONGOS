@@ -3,9 +3,14 @@
 use Illuminate\Support\Facades\Route;
 use Plugin\LongosProductReviews\Controllers\AdminReviewController;
 use Plugin\LongosProductReviews\Controllers\AiReviewController;
+use Plugin\LongosProductReviews\Controllers\AiReviewController;
 
 Route::prefix('product-reviews')->name('longos_product_reviews.')->group(function (): void {
     Route::get('/', [AdminReviewController::class, 'index'])->name('index');
+    Route::middleware(['can:plugins_index', 'throttle:15,1'])->group(function (): void {
+        Route::post('ai/key', [AiReviewController::class, 'saveKey'])->name('ai.key');
+        Route::post('ai/generate', [AiReviewController::class, 'generate'])->name('ai.generate');
+    });
     Route::middleware(['can:plugins_index', 'throttle:15,1'])->group(function (): void {
         Route::post('ai/key', [AiReviewController::class, 'saveKey'])->name('ai.key');
         Route::post('ai/generate', [AiReviewController::class, 'generate'])->name('ai.generate');
