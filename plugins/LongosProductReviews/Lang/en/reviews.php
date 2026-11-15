@@ -1,6 +1,8 @@
 <?php
 
 return [
+    'ai_category_id' => 'Category ID (optional)',
+    'ai_skip_existing' => 'Skip products that already have AI demo records',
     'ai_heading' => 'AI bulk demo review records',
     'ai_model' => 'Free model',
     'ai_connected' => 'API key configured',
@@ -13,7 +15,7 @@ return [
     'ai_clear_key' => 'Remove key',
     'ai_generate_title' => 'Generate bulk demo records',
     'ai_product_ids_label' => 'Product IDs (optional)',
-    'ai_product_ids_help' => 'Comma or space separated IDs. Leave blank for latest active products. Maximum 50 products per batch.',
+    'ai_product_ids_help' => 'Enter product IDs separated by commas or spaces. A category ID may additionally filter them. Leave both blank for latest active products. Maximum 50 per batch.',
     'ai_product_limit' => 'Products in batch',
     'ai_per_product' => 'Demo records per product',
     'ai_language' => 'Language and demo name region',
