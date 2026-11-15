@@ -69,13 +69,14 @@ final class GenerateReviewDrafts implements ShouldQueue
 
                     Review::query()->create([
                         'product_id' => $product->id,
-                        'author_name' => SiliconFlowReviewDrafts::AUTHOR,
-                        'author_country' => null,
-                        'rating' => 5,
+                        'author_name' => SiliconFlowReviewDrafts::AUTHOR_PREFIX . $draft['author_name'],
+                        'author_country' => $draft['author_country'],
+                        'rating' => $draft['rating'],
                         'title' => $draft['title'],
                         'body' => $draft['body'],
                         'images' => [],
                         'verified_purchase' => false,
+                        'ai_generated' => true,
                         'published' => false,
                         'sort_order' => 0,
                         'reviewed_at' => now(),
