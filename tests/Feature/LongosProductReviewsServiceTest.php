@@ -985,26 +985,42 @@ class LongosProductReviewsServiceTest extends TestCase
         self::assertMatchesRegularExpression('/count\.textContent = @json\(.+\);$/m', $generator);
     }
 
-    public function test_bulk_verification_updates_manual_reviews_and_skips_generated_content(): void
+    public function test_generated_reviews_support_individual_and_bulk_verification_updates(): void
     {
         $manual = $this->review(5, true, 0, 'A manual review with order evidence');
         $manual->update(['verified_purchase' => false]);
         $generated = $this->review(4, false, 0, 'The compact shape is straightforward to carry.');
         $generated->update(['verified_purchase' => false, 'content_source' => Review::SOURCE_GENERATED]);
+        $service = new ReviewService;
 
-        $result = (new ReviewService)->bulkSetVerification([$manual->id, $generated->id], true);
+        $service->update($generated, [
+            'product_id'        => $generated->product_id,
+            'author_name'       => $generated->author_name,
+            'author_country'    => $generated->author_country,
+            'rating'            => $generated->rating,
+            'title'             => $generated->title,
+            'body'              => $generated->body,
+            'verified_purchase' => true,
+            'published'         => false,
+            'sort_order'        => $generated->sort_order,
+            'reviewed_at'       => $generated->reviewed_at,
+        ]);
+        self::assertTrue($generated->refresh()->verified_purchase);
+        $generated->update(['verified_purchase' => false]);
 
-        self::assertSame(['updated' => 1, 'skipped' => 1], $result);
+        $updated = $service->bulkSetVerification([$manual->id, $generated->id], true);
+
+        self::assertSame(2, $updated);
         self::assertTrue($manual->refresh()->verified_purchase);
-        self::assertFalse($generated->refresh()->verified_purchase);
-        self::assertSame(2, (new ReviewService)->bulkSetStaffReviewed([$manual->id, $generated->id], true));
+        self::assertTrue($generated->refresh()->verified_purchase);
+        self::assertSame(2, $service->bulkSetStaffReviewed([$manual->id, $generated->id], true));
         self::assertTrue($generated->refresh()->staff_reviewed);
         $generated->update(['published' => true]);
         $html = view('LongosProductReviews::shop.cards', ['reviews' => collect([$generated->refresh()])])->render();
         self::assertStringContainsString('Merchant-provided content', $html);
         self::assertMatchesRegularExpression('/The compact shape is straightforward to carry\.\s*<span class="longos-review-card__provided-inline">\s*·\s*Merchant-provided content<\/span>/', $html);
         self::assertStringNotContainsString('longos-review-card__provided">', $html);
-        self::assertStringNotContainsString('Verified purchase', $html);
+        self::assertStringContainsString('Verified purchase', $html);
     }
 
     private function review(int $rating, bool $published, int $sortOrder, string $body): Review

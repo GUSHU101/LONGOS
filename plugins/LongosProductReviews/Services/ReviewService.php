@@ -151,9 +151,6 @@ class ReviewService
                 $data['content_source']      = $review->content_source ?: Review::SOURCE_MANUAL;
                 $data['generation_batch_id'] = $review->generation_batch_id;
                 $data['staff_reviewed']      = $review->staff_reviewed;
-                if ($review->isGenerated()) {
-                    $data['verified_purchase'] = false;
-                }
                 $review->fill($this->attributes($data))->saveOrFail();
             });
         } catch (Throwable $exception) {
@@ -216,29 +213,18 @@ class ReviewService
         });
     }
 
-    /** @param list<int> $ids
-     *  @return array{updated:int,skipped:int}
-     */
-    public function bulkSetVerification(array $ids, bool $verified): array
+    /** @param list<int> $ids */
+    public function bulkSetVerification(array $ids, bool $verified): int
     {
         $this->ensureReady();
         $ids = array_values(array_unique(array_filter(array_map('intval', $ids), fn (int $id): bool => $id > 0)));
         if ($ids === []) {
-            return ['updated' => 0, 'skipped' => 0];
+            return 0;
         }
 
-        $query   = Review::query()->whereIn('id', $ids);
-        $skipped = $verified
-            ? (clone $query)->where('content_source', Review::SOURCE_GENERATED)->count()
-            : 0;
-        if ($verified) {
-            $query->where('content_source', '!=', Review::SOURCE_GENERATED);
-        }
-
-        return [
-            'updated' => $query->update(['verified_purchase' => $verified]),
-            'skipped' => $skipped,
-        ];
+        return Review::query()
+            ->whereIn('id', $ids)
+            ->update(['verified_purchase' => $verified]);
     }
 
     /** @param list<int> $ids */

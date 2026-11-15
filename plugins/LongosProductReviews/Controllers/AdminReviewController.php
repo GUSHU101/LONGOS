@@ -148,11 +148,10 @@ class AdminReviewController extends Controller
             return back()->with('success', trans('LongosProductReviews::reviews.bulk_reviewed_updated', ['updated' => $updated]));
         }
 
-        $result = $service->bulkSetVerification($ids, $validated['action'] === 'verify');
+        $updated = $service->bulkSetVerification($ids, $validated['action'] === 'verify');
 
         return back()->with('success', trans('LongosProductReviews::reviews.bulk_verification_updated', [
-            'updated' => $result['updated'],
-            'skipped' => $result['skipped'],
+            'updated' => $updated,
         ]));
     }
 
