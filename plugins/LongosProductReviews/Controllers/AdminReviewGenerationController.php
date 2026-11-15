@@ -76,7 +76,9 @@ class AdminReviewGenerationController extends Controller
             // Server-side configuration enforcement is required even though the
             // browser disables this button when no API key has been saved.
             $batch = $batches->create($request->validated(), $client->configuredModel());
-            GenerateReviewBatch::dispatch($batch->id)->onQueue('default');
+            if ($batch->wasRecentlyCreated) {
+                GenerateReviewBatch::dispatch($batch->id)->onQueue('default');
+            }
         } catch (SiliconFlowException|GenerationBatchException $exception) {
             return back()->withErrors(['generation' => $exception->getMessage()])->withInput();
         } catch (\Throwable $exception) {
@@ -89,7 +91,9 @@ class AdminReviewGenerationController extends Controller
         }
 
         return redirect()->to(admin_route('longos_product_reviews.generate', ['batch' => $batch->id]))
-            ->with('success', trans('LongosProductReviews::reviews.ai_batch_queued'));
+            ->with('success', trans('LongosProductReviews::reviews.' . ($batch->wasRecentlyCreated
+                ? 'ai_batch_queued'
+                : 'ai_batch_existing')));
     }
 
     public function status(string $batch, ReviewGenerationBatchService $batches): JsonResponse
@@ -106,6 +110,21 @@ class AdminReviewGenerationController extends Controller
             'error'     => $generationBatch->status === ReviewGenerationBatch::STATUS_FAILED ? $generationBatch->error : null,
             'finished'  => $generationBatch->isFinished(),
         ]);
+    }
+
+    public function cancel(string $batch, ReviewGenerationBatchService $batches): RedirectResponse
+    {
+        $this->ensureReady();
+
+        try {
+            $cancelled = $batches->cancel($batch);
+        } catch (GenerationBatchException $exception) {
+            return redirect()->to(admin_route('longos_product_reviews.generate'))
+                ->withErrors(['generation' => $exception->getMessage()]);
+        }
+
+        return redirect()->to(admin_route('longos_product_reviews.generate', ['batch' => $cancelled->id]))
+            ->with('success', trans('LongosProductReviews::reviews.ai_batch_cancelled'));
     }
 
     public function commit(Request $request, ReviewGenerationBatchService $batches, ReviewService $reviews): RedirectResponse

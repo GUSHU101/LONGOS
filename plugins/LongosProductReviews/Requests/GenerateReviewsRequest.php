@@ -16,15 +16,17 @@ class GenerateReviewsRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'product_id'      => ['bail', 'required', 'integer', 'exists:products,id'],
-            'count'           => ['bail', 'required', 'integer', 'between:1,30'],
-            'date_from'       => ['bail', 'required', 'date_format:Y-m-d', 'before_or_equal:today'],
-            'date_to'         => ['bail', 'required', 'date_format:Y-m-d', 'after_or_equal:date_from', 'before_or_equal:today'],
-            'rating_min'      => ['bail', 'required', 'integer', 'between:1,5'],
-            'rating_max'      => ['bail', 'required', 'integer', 'between:1,5'],
-            'countries'       => ['bail', 'required', 'string', 'max:3000', 'regex:/\S/u'],
-            'examples'        => ['bail', 'required', 'string', 'min:10', 'max:12000', 'regex:/\S/u'],
-            'output_language' => ['bail', 'required', 'in:auto,zh-CN,en-US,ja-JP,de-DE,fr-FR,es-ES'],
+            'product_id'          => ['bail', 'required', 'integer', 'exists:products,id'],
+            'count'               => ['bail', 'required', 'integer', 'between:1,30'],
+            'date_from'           => ['bail', 'required', 'date_format:Y-m-d', 'before_or_equal:today'],
+            'date_to'             => ['bail', 'required', 'date_format:Y-m-d', 'after_or_equal:date_from', 'before_or_equal:today'],
+            'rating_min'          => ['bail', 'required', 'integer', 'between:1,5'],
+            'rating_max'          => ['bail', 'required', 'integer', 'between:1,5'],
+            'rating_distribution' => ['bail', 'required', 'in:natural,balanced,random'],
+            'review_length'       => ['bail', 'required', 'in:mixed,short,medium,long'],
+            'countries'           => ['bail', 'required', 'string', 'max:3000', 'regex:/\S/u'],
+            'examples'            => ['bail', 'required', 'string', 'min:10', 'max:12000', 'regex:/\S/u'],
+            'output_language'     => ['bail', 'required', 'in:auto,zh-CN,en-US,ja-JP,de-DE,fr-FR,es-ES'],
         ];
     }
 
@@ -60,13 +62,15 @@ class GenerateReviewsRequest extends FormRequest
     protected function prepareForValidation(): void
     {
         $this->merge([
-            'product_id'      => (int) $this->input('product_id'),
-            'count'           => (int) $this->input('count', 10),
-            'rating_min'      => (int) $this->input('rating_min', 4),
-            'rating_max'      => (int) $this->input('rating_max', 5),
-            'countries'       => trim((string) $this->input('countries')),
-            'examples'        => trim((string) $this->input('examples')),
-            'output_language' => trim((string) $this->input('output_language', 'auto')),
+            'product_id'          => (int) $this->input('product_id'),
+            'count'               => (int) $this->input('count', 10),
+            'rating_min'          => (int) $this->input('rating_min', 4),
+            'rating_max'          => (int) $this->input('rating_max', 5),
+            'rating_distribution' => trim((string) $this->input('rating_distribution', 'natural')),
+            'review_length'       => trim((string) $this->input('review_length', 'mixed')),
+            'countries'           => trim((string) $this->input('countries')),
+            'examples'            => trim((string) $this->input('examples')),
+            'output_language'     => trim((string) $this->input('output_language', 'auto')),
         ]);
     }
 }

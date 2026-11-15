@@ -165,6 +165,7 @@ class LongosProductReviewsServiceTest extends TestCase
         self::assertNotNull($routes->first(static fn ($route): bool => $route->getName() === admin_name() . '.longos_product_reviews.publication'));
         self::assertNotNull($routes->first(static fn ($route): bool => $route->getName() === admin_name() . '.longos_product_reviews.generate.preview'));
         self::assertNotNull($routes->first(static fn ($route): bool => $route->getName() === admin_name() . '.longos_product_reviews.generate.status'));
+        self::assertNotNull($routes->first(static fn ($route): bool => $route->getName() === admin_name() . '.longos_product_reviews.generate.cancel'));
         self::assertNotNull($routes->first(static fn ($route): bool => $route->getName() === admin_name() . '.longos_product_reviews.bulk'));
     }
 
@@ -310,9 +311,9 @@ class LongosProductReviewsServiceTest extends TestCase
                 'choices' => [[
                     'message' => [
                         'content' => json_encode(['reviews' => [
-                            ['spec_id' => '1', 'author_name' => 'Jamie Chen', 'title' => 'Easy to carry', 'body' => 'The lid feels secure and the bottle fits neatly in my daily bag.'],
-                            ['spec_id' => '2', 'author_name' => 'Mia Laurent', 'title' => 'Solid everyday bottle', 'body' => 'A practical size with a clean finish, and it has been simple to rinse after use.'],
-                            ['spec_id' => '3', 'author_name' => 'Kenji Sato', 'title' => 'Useful design', 'body' => 'The shape is comfortable to hold and the cap is straightforward to open.'],
+                            ['author_name' => 'Jamie Chen', 'title' => 'Easy to carry', 'body' => 'The lid feels secure and the bottle fits neatly in my daily bag.'],
+                            ['author_name' => 'Mia Laurent', 'title' => 'Solid everyday bottle', 'body' => 'A practical size with a clean finish, and it has been simple to rinse after use.'],
+                            ['author_name' => 'Kenji Sato', 'title' => 'Useful design', 'body' => 'The shape is comfortable to hold and the cap is straightforward to open.'],
                         ]], JSON_THROW_ON_ERROR),
                     ],
                 ]],
@@ -341,12 +342,17 @@ class LongosProductReviewsServiceTest extends TestCase
             self::assertLessThanOrEqual('2026-10-10 23:59:59', $item['reviewed_at']);
         }
         Http::assertSent(function ($request): bool {
-            $payload = $request->data();
+            $payload     = $request->data();
+            $userPayload = json_decode((string) data_get($payload, 'messages.1.content'), true, 64, JSON_THROW_ON_ERROR);
+            $schemaKeys  = array_keys((array) data_get($userPayload, 'required_schema.reviews.0', []));
+            sort($schemaKeys);
 
             return $request->url() === 'https://api.siliconflow.cn/v1/chat/completions'
                 && $request->hasHeader('Authorization', 'Bearer test-api-key')
                 && data_get($payload, 'model')                === 'XingChenAGI/Xing4.0-29B'
                 && data_get($payload, 'response_format.type') === 'json_object'
+                && $schemaKeys                                === ['author_name', 'body', 'title']
+                && ! array_key_exists('spec_id', (array) data_get($userPayload, 'specifications.0', []))
                 && str_contains((string) data_get($payload, 'messages.1.content'), 'Compact, useful');
         });
 
@@ -429,13 +435,11 @@ class LongosProductReviewsServiceTest extends TestCase
         ]);
         $this->review(4, true, 0, 'Existing exact duplicate body');
         $duplicateResponse = json_encode(['reviews' => [[
-            'spec_id'     => '1',
             'author_name' => 'First Name',
             'title'       => 'Review 4',
             'body'        => 'Existing exact duplicate body',
         ]]], JSON_THROW_ON_ERROR);
         $uniqueResponse = json_encode(['reviews' => [[
-            'spec_id'     => '1',
             'author_name' => 'Second Name',
             'title'       => 'A distinct generated title',
             'body'        => 'A clearly different generated review body for this product.',
@@ -468,13 +472,11 @@ class LongosProductReviewsServiceTest extends TestCase
             'bk.plugin.longos_product_reviews.siliconflow_timeout' => 30,
         ]);
         $unsafeResponse = json_encode(['reviews' => [[
-            'spec_id'     => '1',
             'author_name' => 'Lucia Martin',
             'title'       => 'Compra verificada',
             'body'        => 'El formato es compacto y resulta sencillo de guardar cada día.',
         ]]], JSON_THROW_ON_ERROR);
         $safeResponse = json_encode(['reviews' => [[
-            'spec_id'     => '1',
             'author_name' => 'Lucia Martin',
             'title'       => 'Formato compacto',
             'body'        => 'El tamaño es práctico y el acabado exterior tiene un aspecto sencillo.',
@@ -499,6 +501,130 @@ class LongosProductReviewsServiceTest extends TestCase
         Http::assertSentCount(2);
     }
 
+    public function test_generation_retries_near_duplicate_copy_against_existing_reviews(): void
+    {
+        config([
+            'bk.plugin.longos_product_reviews.siliconflow_api_key' => 'test-api-key',
+            'bk.plugin.longos_product_reviews.siliconflow_model'   => 'XingChenAGI/Xing4.0-29B',
+            'bk.plugin.longos_product_reviews.siliconflow_timeout' => 30,
+        ]);
+        $this->review(4, true, 0, 'The compact bottle fits neatly in my work bag and is straightforward to rinse each evening.');
+        $nearDuplicate = json_encode(['reviews' => [[
+            'author_name' => 'Morgan Lee',
+            'title'       => 'Review 4',
+            'body'        => 'The compact bottle fits neatly in my daily bag and is straightforward to rinse each evening.',
+        ]]], JSON_THROW_ON_ERROR);
+        $unique = json_encode(['reviews' => [[
+            'author_name' => 'Rina Park',
+            'title'       => 'Understated finish',
+            'body'        => 'The muted exterior looks clean, while the narrow shape is comfortable to hold during a commute.',
+        ]]], JSON_THROW_ON_ERROR);
+        Http::fakeSequence()
+            ->push(['choices' => [['message' => ['content' => $nearDuplicate]]]], 200)
+            ->push(['choices' => [['message' => ['content' => $unique]]]], 200);
+
+        $preview = app(ReviewGenerationService::class)->preview([
+            'product_id'          => 71,
+            'count'               => 1,
+            'date_from'           => '2026-10-01',
+            'date_to'             => '2026-10-10',
+            'rating_min'          => 4,
+            'rating_max'          => 4,
+            'rating_distribution' => 'balanced',
+            'review_length'       => 'medium',
+            'countries'           => 'Japan',
+            'examples'            => 'A sufficiently detailed example review for style guidance.',
+            'output_language'     => 'en-US',
+        ]);
+
+        self::assertSame('Understated finish', $preview['items'][0]['title']);
+        Http::assertSentCount(2);
+    }
+
+    public function test_generation_retries_meta_copy_that_discloses_ai_or_merchant_creation(): void
+    {
+        config([
+            'bk.plugin.longos_product_reviews.siliconflow_api_key' => 'test-api-key',
+            'bk.plugin.longos_product_reviews.siliconflow_model'   => 'XingChenAGI/Xing4.0-29B',
+            'bk.plugin.longos_product_reviews.siliconflow_timeout' => 30,
+        ]);
+        $disclosed = json_encode(['reviews' => [[
+            'author_name' => 'Lin Chen',
+            'title'       => '商家自定义评论',
+            'body'        => '这是一条由AI生成的示例评论，用于介绍商品外观。',
+        ]]], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
+        $safe = json_encode(['reviews' => [[
+            'author_name' => 'Lin Chen',
+            'title'       => '外形简洁',
+            'body'        => '瓶身线条简洁，放进日常通勤包的侧袋比较方便，清洗也不费事。',
+        ]]], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
+        Http::fakeSequence()
+            ->push(['choices' => [['message' => ['content' => $disclosed]]]], 200)
+            ->push(['choices' => [['message' => ['content' => $safe]]]], 200);
+
+        $preview = app(ReviewGenerationService::class)->preview([
+            'product_id'          => 71,
+            'count'               => 1,
+            'date_from'           => '2026-10-01',
+            'date_to'             => '2026-10-10',
+            'rating_min'          => 4,
+            'rating_max'          => 5,
+            'rating_distribution' => 'natural',
+            'review_length'       => 'medium',
+            'countries'           => '中国',
+            'examples'            => '瓶身小巧，外观简洁，适合日常携带。',
+            'output_language'     => 'zh-CN',
+        ]);
+
+        self::assertSame('外形简洁', $preview['items'][0]['title']);
+        self::assertStringNotContainsString('AI', $preview['items'][0]['body']);
+        self::assertStringNotContainsString('商家', $preview['items'][0]['body']);
+        Http::assertSentCount(2);
+    }
+
+    public function test_generation_retries_unrequested_source_or_contact_fields(): void
+    {
+        config([
+            'bk.plugin.longos_product_reviews.siliconflow_api_key' => 'test-api-key',
+            'bk.plugin.longos_product_reviews.siliconflow_model'   => 'XingChenAGI/Xing4.0-29B',
+            'bk.plugin.longos_product_reviews.siliconflow_timeout' => 30,
+        ]);
+        Http::fakeSequence()
+            ->push(['choices' => [['message' => ['content' => json_encode(['reviews' => [[
+                'author_name' => 'Alex Morgan',
+                'title'       => 'Convenient shape',
+                'body'        => 'The narrow profile is straightforward to carry during the day.',
+                'source'      => 'AI-generated',
+                'email'       => 'alex@example.test',
+            ]]], JSON_THROW_ON_ERROR)]]]], 200)
+            ->push(['choices' => [['message' => ['content' => json_encode(['reviews' => [[
+                'author_name' => 'Alex Morgan',
+                'title'       => 'Convenient shape',
+                'body'        => 'The narrow profile is straightforward to carry during the day.',
+            ]]], JSON_THROW_ON_ERROR)]]]], 200);
+
+        $preview = app(ReviewGenerationService::class)->preview([
+            'product_id'          => 71,
+            'count'               => 1,
+            'date_from'           => '2026-10-01',
+            'date_to'             => '2026-10-10',
+            'rating_min'          => 4,
+            'rating_max'          => 5,
+            'rating_distribution' => 'natural',
+            'review_length'       => 'short',
+            'countries'           => 'United States',
+            'examples'            => 'Compact and convenient for a daily bag.',
+            'output_language'     => 'en-US',
+        ]);
+
+        self::assertSame(['spec_id', 'rating', 'country', 'reviewed_at', 'product_id', 'author_name', 'title', 'body'], array_keys($preview['items'][0]));
+        self::assertArrayNotHasKey('angle', $preview['items'][0]);
+        self::assertArrayNotHasKey('length_guidance', $preview['items'][0]);
+        self::assertArrayNotHasKey('source', $preview['items'][0]);
+        self::assertArrayNotHasKey('email', $preview['items'][0]);
+        Http::assertSentCount(2);
+    }
+
     public function test_async_generation_batch_encrypts_payload_tracks_progress_and_commits_selected_items_once(): void
     {
         register('admin_user', (new \Beike\Models\AdminUser)->forceFill(['id' => 19]), true);
@@ -510,9 +636,9 @@ class LongosProductReviewsServiceTest extends TestCase
         Http::fake([
             'api.siliconflow.cn/v1/chat/completions' => Http::response([
                 'choices' => [['message' => ['content' => json_encode(['reviews' => [
-                    ['spec_id' => '1', 'author_name' => 'Taylor Reed', 'title' => 'Convenient size', 'body' => 'The compact shape makes this straightforward to carry during the day.'],
-                    ['spec_id' => '2', 'author_name' => 'Aiko Mori', 'title' => 'Simple to use', 'body' => 'The cap opens smoothly and the exterior has a clean understated finish.'],
-                    ['spec_id' => '3', 'author_name' => 'Noah Martin', 'title' => 'Practical bottle', 'body' => 'It fits well in a side pocket and has been uncomplicated to rinse.'],
+                    ['author_name' => 'Taylor Reed', 'title' => 'Convenient size', 'body' => 'The compact shape makes this straightforward to carry during the day.'],
+                    ['author_name' => 'Aiko Mori', 'title' => 'Simple to use', 'body' => 'The cap opens smoothly and the exterior has a clean understated finish.'],
+                    ['author_name' => 'Noah Martin', 'title' => 'Practical bottle', 'body' => 'It fits well in a side pocket and has been uncomplicated to rinse.'],
                 ]], JSON_THROW_ON_ERROR)]]],
             ], 200),
         ]);
@@ -609,6 +735,87 @@ class LongosProductReviewsServiceTest extends TestCase
         Http::assertSentCount(2);
     }
 
+    public function test_active_product_batch_is_reused_and_can_be_cancelled_without_duplicate_work(): void
+    {
+        register('admin_user', (new \Beike\Models\AdminUser)->forceFill(['id' => 22]), true);
+        $input = [
+            'product_id'          => 71,
+            'count'               => 3,
+            'date_from'           => '2026-10-01',
+            'date_to'             => '2026-10-10',
+            'rating_min'          => 3,
+            'rating_max'          => 5,
+            'rating_distribution' => 'natural',
+            'review_length'       => 'mixed',
+            'countries'           => "Japan\nFrance",
+            'examples'            => 'Encrypted temporary example content for idempotency.',
+            'output_language'     => 'en-US',
+        ];
+        $batches = app(ReviewGenerationBatchService::class);
+        $first   = $batches->create($input, 'XingChenAGI/Xing4.0-29B');
+        $second  = $batches->create(array_replace($input, ['count' => 20]), 'XingChenAGI/Xing4.0-29B');
+
+        self::assertSame($first->id, $second->id);
+        self::assertFalse($second->wasRecentlyCreated);
+        self::assertSame(1, ReviewGenerationBatch::query()->count());
+
+        $cancelled = $batches->cancel($first->id);
+        self::assertSame(ReviewGenerationBatch::STATUS_CANCELLED, $cancelled->status);
+        self::assertTrue($cancelled->isFinished());
+        self::assertFalse($batches->progress($cancelled, 1));
+        Http::fake();
+        (new GenerateReviewBatch($cancelled->id))->handle($batches, app(ReviewGenerationService::class));
+        Http::assertNothingSent();
+        self::assertSame(ReviewGenerationBatch::STATUS_CANCELLED, $cancelled->refresh()->status);
+
+        $replacement = $batches->create($input, 'XingChenAGI/Xing4.0-29B');
+        self::assertNotSame($first->id, $replacement->id);
+        self::assertTrue($replacement->wasRecentlyCreated);
+    }
+
+    public function test_generated_meta_copy_is_rejected_again_before_storage_edit_and_publication(): void
+    {
+        $service = new ReviewService;
+        $unsafe  = [
+            'product_id'  => 71,
+            'spec_id'     => '1',
+            'author_name' => 'Alex Morgan',
+            'country'     => 'United States',
+            'rating'      => 4,
+            'title'       => 'AI-generated review',
+            'body'        => 'This merchant-provided sample review describes the compact bottle.',
+            'reviewed_at' => now()->subDay()->toDateTimeString(),
+        ];
+
+        try {
+            $service->createGeneratedDrafts([$unsafe], (string) \Illuminate\Support\Str::uuid());
+            self::fail('Meta copy must be rejected before a generated draft is stored.');
+        } catch (\Illuminate\Validation\ValidationException $exception) {
+            self::assertArrayHasKey('body', $exception->errors());
+            self::assertSame(0, Review::query()->where('content_source', Review::SOURCE_GENERATED)->count());
+        }
+
+        $generated = $this->review(4, false, 0, 'A compact shape that is straightforward to carry.');
+        $generated->forceFill([
+            'content_source' => Review::SOURCE_GENERATED,
+            'title'          => '商家自定义评论',
+            'body'           => '这是一条由AI生成的示例评论。',
+        ])->saveOrFail();
+
+        try {
+            $service->setPublished($generated->refresh(), true);
+            self::fail('Unsafe legacy generated copy must not be publishable.');
+        } catch (\Illuminate\Validation\ValidationException $exception) {
+            self::assertArrayHasKey('body', $exception->errors());
+            self::assertFalse($generated->refresh()->published);
+        }
+
+        $generated->forceFill(['published' => true])->saveOrFail();
+        $storefront = $service->storefrontPage(71, 0, 12);
+        self::assertSame(0, $storefront['total']);
+        self::assertFalse($storefront['reviews']->contains('id', $generated->id));
+    }
+
     public function test_generation_prune_command_removes_expired_encrypted_previews(): void
     {
         register('admin_user', (new \Beike\Models\AdminUser)->forceFill(['id' => 21]), true);
@@ -641,13 +848,19 @@ class LongosProductReviewsServiceTest extends TestCase
             self::assertNotSame('', trim($compiled));
             self::assertStringContainsString('<?php', $compiled);
         }
+
+        $generator = (string) file_get_contents(base_path('plugins/LongosProductReviews/Views/admin/generate.blade.php'));
+        self::assertMatchesRegularExpression('/const searchUrl = @json\(.+\);$/m', $generator);
+        self::assertMatchesRegularExpression('/const commitTemplate = @json\(.+\);$/m', $generator);
+        self::assertMatchesRegularExpression('/const progressTemplate = @json\(.+\);$/m', $generator);
+        self::assertMatchesRegularExpression('/count\.textContent = @json\(.+\);$/m', $generator);
     }
 
     public function test_bulk_verification_updates_manual_reviews_and_skips_generated_content(): void
     {
         $manual = $this->review(5, true, 0, 'A manual review with order evidence');
         $manual->update(['verified_purchase' => false]);
-        $generated = $this->review(4, false, 0, 'Merchant-provided review draft');
+        $generated = $this->review(4, false, 0, 'The compact shape is straightforward to carry.');
         $generated->update(['verified_purchase' => false, 'content_source' => Review::SOURCE_GENERATED]);
 
         $result = (new ReviewService)->bulkSetVerification([$manual->id, $generated->id], true);
@@ -660,6 +873,8 @@ class LongosProductReviewsServiceTest extends TestCase
         $generated->update(['published' => true]);
         $html = view('LongosProductReviews::shop.cards', ['reviews' => collect([$generated->refresh()])])->render();
         self::assertStringContainsString('Merchant-provided content', $html);
+        self::assertMatchesRegularExpression('/The compact shape is straightforward to carry\.\s*<span class="longos-review-card__provided-inline">\s*·\s*Merchant-provided content<\/span>/', $html);
+        self::assertStringNotContainsString('longos-review-card__provided">', $html);
         self::assertStringNotContainsString('Verified purchase', $html);
     }
 

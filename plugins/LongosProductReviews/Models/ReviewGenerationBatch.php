@@ -18,6 +18,8 @@ class ReviewGenerationBatch extends Model
 
     public const STATUS_FAILED = 'failed';
 
+    public const STATUS_CANCELLED = 'cancelled';
+
     protected $table = 'longos_product_review_generation_batches';
 
     public $incrementing = false;
@@ -57,6 +59,11 @@ class ReviewGenerationBatch extends Model
 
     public function isFinished(): bool
     {
-        return in_array($this->status, [self::STATUS_COMPLETED, self::STATUS_COMMITTED, self::STATUS_FAILED], true);
+        return in_array($this->status, [
+            self::STATUS_COMPLETED,
+            self::STATUS_COMMITTED,
+            self::STATUS_FAILED,
+            self::STATUS_CANCELLED,
+        ], true);
     }
 }

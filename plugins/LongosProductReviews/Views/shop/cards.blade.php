@@ -21,11 +21,9 @@
 
     @if($review->verified_purchase)
       <p class="longos-review-card__verified"><i class="bi bi-patch-check-fill" aria-hidden="true"></i> {{ trans('LongosProductReviews::reviews.verified_purchase') }}</p>
-    @elseif($review->isGenerated())
-      <p class="longos-review-card__provided"><i class="bi bi-shop" aria-hidden="true"></i> {{ trans('LongosProductReviews::reviews.merchant_provided_content') }}</p>
     @endif
 
-    <p class="longos-review-card__body">{{ $review->body }}</p>
+    <p class="longos-review-card__body">{{ $review->body }}@if($review->isGenerated())<span class="longos-review-card__provided-inline"> · {{ trans('LongosProductReviews::reviews.merchant_provided_content') }}</span>@endif</p>
 
     @if(count((array) $review->images))
       <div class="longos-review-card__photos" aria-label="{{ trans('LongosProductReviews::reviews.images') }}">

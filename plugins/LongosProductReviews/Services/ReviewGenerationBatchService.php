@@ -26,17 +26,37 @@ class ReviewGenerationBatchService
             throw new GenerationBatchException(trans('LongosProductReviews::reviews.ai_error_model'));
         }
 
-        return ReviewGenerationBatch::query()->create([
-            'id'                 => (string) Str::uuid(),
-            'admin_user_id'      => $ownerId,
-            'product_id'         => (int) $request['product_id'],
-            'status'             => ReviewGenerationBatch::STATUS_PENDING,
-            'model'              => $model,
-            'requested_count'    => (int) $request['count'],
-            'processed_count'    => 0,
-            'request_ciphertext' => $this->encrypt($request),
-            'expires_at'         => now()->addMinutes(self::PREVIEW_TTL_MINUTES),
-        ]);
+        return DB::transaction(function () use ($request, $model, $ownerId): ReviewGenerationBatch {
+            // Reuse an active product batch for this administrator. Besides
+            // preventing double-clicks, this avoids charging the tenant twice
+            // when a browser retries a timed-out form submission.
+            $active = ReviewGenerationBatch::query()
+                ->where('admin_user_id', $ownerId)
+                ->where('product_id', (int) $request['product_id'])
+                ->whereIn('status', [
+                    ReviewGenerationBatch::STATUS_PENDING,
+                    ReviewGenerationBatch::STATUS_RUNNING,
+                ])
+                ->where('expires_at', '>', now())
+                ->latest('created_at')
+                ->lockForUpdate()
+                ->first();
+            if ($active) {
+                return $active;
+            }
+
+            return ReviewGenerationBatch::query()->create([
+                'id'                 => (string) Str::uuid(),
+                'admin_user_id'      => $ownerId,
+                'product_id'         => (int) $request['product_id'],
+                'status'             => ReviewGenerationBatch::STATUS_PENDING,
+                'model'              => $model,
+                'requested_count'    => (int) $request['count'],
+                'processed_count'    => 0,
+                'request_ciphertext' => $this->encrypt($request),
+                'expires_at'         => now()->addMinutes(self::PREVIEW_TTL_MINUTES),
+            ]);
+        });
     }
 
     public function findOwned(string $id): ?ReviewGenerationBatch
@@ -83,15 +103,15 @@ class ReviewGenerationBatchService
         return $claimed === 1 ? ReviewGenerationBatch::query()->find($id) : null;
     }
 
-    public function progress(ReviewGenerationBatch $batch, int $processed): void
+    public function progress(ReviewGenerationBatch $batch, int $processed): bool
     {
-        ReviewGenerationBatch::query()
+        return ReviewGenerationBatch::query()
             ->whereKey($batch->id)
             ->where('status', ReviewGenerationBatch::STATUS_RUNNING)
             ->update([
                 'processed_count' => min($batch->requested_count, max(0, $processed)),
                 'updated_at'      => now(),
-            ]);
+            ]) === 1;
     }
 
     /** @param array<string, mixed> $result */
@@ -140,6 +160,37 @@ class ReviewGenerationBatchService
                 'finished_at' => now(),
                 'updated_at'  => now(),
             ]);
+    }
+
+    public function cancel(string $id): ReviewGenerationBatch
+    {
+        return DB::transaction(function () use ($id): ReviewGenerationBatch {
+            $batch = ReviewGenerationBatch::query()
+                ->whereKey($id)
+                ->where('admin_user_id', (int) (current_user()?->id ?? 0))
+                ->lockForUpdate()
+                ->first();
+            if (! $batch) {
+                throw new GenerationBatchException(trans('LongosProductReviews::reviews.ai_preview_expired'));
+            }
+            if (! in_array($batch->status, [
+                ReviewGenerationBatch::STATUS_PENDING,
+                ReviewGenerationBatch::STATUS_RUNNING,
+                ReviewGenerationBatch::STATUS_CANCELLED,
+            ], true)) {
+                throw new GenerationBatchException(trans('LongosProductReviews::reviews.ai_batch_not_cancellable'));
+            }
+            if (in_array($batch->status, [ReviewGenerationBatch::STATUS_PENDING, ReviewGenerationBatch::STATUS_RUNNING], true)) {
+                $batch->forceFill([
+                    'status'      => ReviewGenerationBatch::STATUS_CANCELLED,
+                    'error'       => null,
+                    'finished_at' => now(),
+                    'updated_at'  => now(),
+                ])->saveOrFail();
+            }
+
+            return $batch->refresh();
+        });
     }
 
     /** @param list<string> $selectedIds

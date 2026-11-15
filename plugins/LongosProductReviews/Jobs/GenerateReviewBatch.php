@@ -41,7 +41,7 @@ class GenerateReviewBatch implements ShouldQueue, TenantAware
             $request['_model'] = $batch->model;
             $result            = $generation->preview(
                 $request,
-                fn (int $processed): mixed => $batches->progress($batch, $processed),
+                fn (int $processed): bool => $batches->progress($batch, $processed),
                 $batch->id,
             );
             $batches->complete($batch, $result);

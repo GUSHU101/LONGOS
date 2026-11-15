@@ -9,12 +9,20 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Plugin\LongosProductReviews\Models\Review;
 use Throwable;
 
 class ReviewService
 {
     public const MAX_IMAGES = 6;
+
+    private GeneratedReviewContentPolicy $generatedContentPolicy;
+
+    public function __construct(?GeneratedReviewContentPolicy $generatedContentPolicy = null)
+    {
+        $this->generatedContentPolicy = $generatedContentPolicy ?? new GeneratedReviewContentPolicy;
+    }
 
     /** @return array<string, mixed>|null */
     public function storefrontPayload(int $productId, ?int $limit = null): ?array
@@ -24,8 +32,12 @@ class ReviewService
         }
         $this->ensureReady();
 
-        $limit = $this->displayLimit($limit);
-        $base  = Review::query()->published()->where('product_id', $productId);
+        $limit              = $this->displayLimit($limit);
+        $base               = Review::query()->published()->where('product_id', $productId);
+        $unsafeGeneratedIds = $this->unsafeGeneratedReviewIds($productId);
+        if ($unsafeGeneratedIds !== []) {
+            $base->whereNotIn('id', $unsafeGeneratedIds);
+        }
         $total = (clone $base)->count();
 
         if ($total === 0) {
@@ -72,9 +84,13 @@ class ReviewService
     public function storefrontPage(int $productId, int $offset, ?int $limit = null, array $filters = []): array
     {
         $this->ensureReady();
-        $limit  = $this->displayLimit($limit);
-        $offset = max(0, $offset);
-        $base   = Review::query()->published()->where('product_id', $productId);
+        $limit              = $this->displayLimit($limit);
+        $offset             = max(0, $offset);
+        $base               = Review::query()->published()->where('product_id', $productId);
+        $unsafeGeneratedIds = $this->unsafeGeneratedReviewIds($productId);
+        if ($unsafeGeneratedIds !== []) {
+            $base->whereNotIn('id', $unsafeGeneratedIds);
+        }
 
         $rating = (int) ($filters['rating'] ?? 0);
         if (in_array($rating, range(1, 5), true)) {
@@ -120,6 +136,9 @@ class ReviewService
     /** @param array<string, mixed> $data */
     public function update(Review $review, array $data, array $uploads = [], array $remove = []): Review
     {
+        if ($review->isGenerated()) {
+            $this->assertGeneratedContent($data);
+        }
         $existing = array_values(array_filter((array) $review->images, 'is_string'));
         $remove   = array_values(array_intersect($existing, array_filter($remove, 'is_string')));
         $kept     = array_values(array_diff($existing, $remove));
@@ -158,6 +177,9 @@ class ReviewService
     public function setPublished(Review $review, bool $published): Review
     {
         $this->ensureReady();
+        if ($published && $review->isGenerated()) {
+            $this->assertGeneratedContent($review->only(['author_name', 'title', 'body']));
+        }
         $review->forceFill(['published' => $published])->saveOrFail();
 
         return $review->refresh();
@@ -171,6 +193,9 @@ class ReviewService
         $this->ensureReady();
         if ($items === [] || ! Str::isUuid($batchId)) {
             throw new \InvalidArgumentException('The generated review preview is incomplete.');
+        }
+        foreach ($items as $item) {
+            $this->assertGeneratedContent($item);
         }
 
         return DB::transaction(function () use ($items, $batchId): Collection {
@@ -272,6 +297,41 @@ class ReviewService
             'generation_batch_id' => ($data['generation_batch_id'] ?? null) ?: null,
             'staff_reviewed'      => (bool) ($data['staff_reviewed'] ?? false),
         ];
+    }
+
+    /** @param array<string, mixed> $data */
+    private function assertGeneratedContent(array $data): void
+    {
+        $violation = $this->generatedContentPolicy->violation(
+            (string) ($data['author_name'] ?? ''),
+            (string) ($data['title'] ?? ''),
+            (string) ($data['body'] ?? ''),
+        );
+        if ($violation !== null) {
+            throw ValidationException::withMessages([
+                'body' => trans('LongosProductReviews::reviews.ai_generated_content_rejected'),
+            ]);
+        }
+    }
+
+    /** @return list<int> */
+    private function unsafeGeneratedReviewIds(int $productId): array
+    {
+        return Review::query()
+            ->published()
+            ->where('product_id', $productId)
+            ->where('content_source', Review::SOURCE_GENERATED)
+            ->select(['id', 'author_name', 'title', 'body'])
+            ->cursor()
+            ->filter(fn (Review $review): bool => $this->generatedContentPolicy->violation(
+                (string) $review->author_name,
+                (string) $review->title,
+                (string) $review->body,
+            ) !== null)
+            ->pluck('id')
+            ->map(static fn (mixed $id): int => (int) $id)
+            ->values()
+            ->all();
     }
 
     private function ensureReady(): void

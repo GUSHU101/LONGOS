@@ -12,6 +12,7 @@
 @section('content')
   @php
     $formValue = static fn (string $key, mixed $default = ''): mixed => old($key, request()->input($key, data_get($batchInput ?? [], $key, $default)));
+    $batchActive = $batch && in_array($batch->status, [\Plugin\LongosProductReviews\Models\ReviewGenerationBatch::STATUS_PENDING, \Plugin\LongosProductReviews\Models\ReviewGenerationBatch::STATUS_RUNNING], true);
   @endphp
   <div class="review-generator mx-auto">
     <div class="mb-4">
@@ -31,15 +32,21 @@
       <div class="small mt-1">{{ trans('LongosProductReviews::reviews.ai_safety_help') }}</div>
     </div>
 
-    @if($batch && in_array($batch->status, [\Plugin\LongosProductReviews\Models\ReviewGenerationBatch::STATUS_PENDING, \Plugin\LongosProductReviews\Models\ReviewGenerationBatch::STATUS_RUNNING], true))
+    @if($batchActive)
       <div class="card border-primary mb-4" data-generation-batch data-status-url="{{ admin_route('longos_product_reviews.generate.status', ['batch' => $batch->id]) }}">
         <div class="card-body">
           <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
             <strong><i class="bi bi-hourglass-split" aria-hidden="true"></i> {{ trans('LongosProductReviews::reviews.ai_batch_running') }}</strong>
-            <span class="text-muted small" data-batch-count>{{ trans('LongosProductReviews::reviews.ai_batch_progress', ['processed' => $batch->processed_count, 'total' => $batch->requested_count]) }}</span>
+            <span class="text-muted small" data-batch-count role="status" aria-live="polite">{{ trans('LongosProductReviews::reviews.ai_batch_progress', ['processed' => $batch->processed_count, 'total' => $batch->requested_count]) }}</span>
           </div>
           <progress class="review-batch-progress w-100" data-batch-progress max="{{ max(1, $batch->requested_count) }}" value="{{ $batch->processed_count }}">{{ $batch->processed_count }}/{{ $batch->requested_count }}</progress>
-          <p class="text-muted small mb-0 mt-2">{{ trans('LongosProductReviews::reviews.ai_batch_running_help') }}</p>
+          <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mt-2">
+            <p class="text-muted small mb-0">{{ trans('LongosProductReviews::reviews.ai_batch_running_help') }}</p>
+            <form method="post" action="{{ admin_route('longos_product_reviews.generate.cancel', ['batch' => $batch->id]) }}">
+              @csrf
+              <button class="btn btn-sm btn-outline-danger" type="submit" title="{{ trans('LongosProductReviews::reviews.ai_batch_cancel_help') }}"><i class="bi bi-x-circle" aria-hidden="true"></i> {{ trans('LongosProductReviews::reviews.ai_batch_cancel') }}</button>
+            </form>
+          </div>
         </div>
       </div>
     @elseif($batch && $batch->status === \Plugin\LongosProductReviews\Models\ReviewGenerationBatch::STATUS_FAILED)
@@ -50,6 +57,11 @@
       </div>
     @elseif($batch && $batch->status === \Plugin\LongosProductReviews\Models\ReviewGenerationBatch::STATUS_COMMITTED)
       <div class="alert alert-success" role="status"><i class="bi bi-check-circle" aria-hidden="true"></i> {{ trans('LongosProductReviews::reviews.ai_batch_already_committed') }}</div>
+    @elseif($batch && $batch->status === \Plugin\LongosProductReviews\Models\ReviewGenerationBatch::STATUS_CANCELLED)
+      <div class="alert alert-secondary" role="status">
+        <div class="fw-semibold"><i class="bi bi-x-circle" aria-hidden="true"></i> {{ trans('LongosProductReviews::reviews.ai_batch_cancelled_title') }}</div>
+        <div class="small mt-1">{{ trans('LongosProductReviews::reviews.ai_batch_cancelled') }}</div>
+      </div>
     @endif
 
     <div class="card mb-4">
@@ -111,20 +123,28 @@
             <div class="col-sm-6 col-lg-3"><label class="form-label" for="review-date-to">{{ trans('LongosProductReviews::reviews.ai_date_to') }}</label><input id="review-date-to" class="form-control @error('date_to') is-invalid @enderror" type="date" name="date_to" max="{{ now()->toDateString() }}" value="{{ $formValue('date_to', now()->toDateString()) }}" required></div>
             <div class="col-sm-6 col-lg-3"><label class="form-label" for="review-rating-min">{{ trans('LongosProductReviews::reviews.ai_rating_min') }}</label><select id="review-rating-min" class="form-select" name="rating_min">@foreach(range(1,5) as $rating)<option value="{{ $rating }}" @selected((int) $formValue('rating_min', 4) === $rating)>{{ $rating }} ★</option>@endforeach</select></div>
             <div class="col-sm-6 col-lg-3"><label class="form-label" for="review-rating-max">{{ trans('LongosProductReviews::reviews.ai_rating_max') }}</label><select id="review-rating-max" class="form-select" name="rating_max">@foreach(range(1,5) as $rating)<option value="{{ $rating }}" @selected((int) $formValue('rating_max', 5) === $rating)>{{ $rating }} ★</option>@endforeach</select></div>
+            <div class="col-sm-6 col-lg-3"><label class="form-label" for="review-rating-distribution">{{ trans('LongosProductReviews::reviews.ai_rating_distribution') }}</label><select id="review-rating-distribution" class="form-select" name="rating_distribution">@foreach(['natural','balanced','random'] as $distribution)<option value="{{ $distribution }}" @selected($formValue('rating_distribution', 'natural') === $distribution)>{{ trans('LongosProductReviews::reviews.ai_distribution_' . $distribution) }}</option>@endforeach</select><div class="form-text">{{ trans('LongosProductReviews::reviews.ai_rating_distribution_help') }}</div></div>
+            <div class="col-sm-6 col-lg-3"><label class="form-label" for="review-length">{{ trans('LongosProductReviews::reviews.ai_review_length') }}</label><select id="review-length" class="form-select" name="review_length">@foreach(['mixed','short','medium','long'] as $length)<option value="{{ $length }}" @selected($formValue('review_length', 'mixed') === $length)>{{ trans('LongosProductReviews::reviews.ai_length_' . $length) }}</option>@endforeach</select></div>
             <div class="col-lg-6"><label class="form-label" for="review-countries">{{ trans('LongosProductReviews::reviews.ai_countries') }}</label><textarea id="review-countries" class="form-control @error('countries') is-invalid @enderror" name="countries" rows="3" maxlength="3000" required>{{ $formValue('countries', trans('LongosProductReviews::reviews.ai_countries_default')) }}</textarea><div class="form-text">{{ trans('LongosProductReviews::reviews.ai_countries_help') }}</div></div>
             <div class="col-12"><label class="form-label" for="review-examples">{{ trans('LongosProductReviews::reviews.ai_examples') }}</label><textarea id="review-examples" class="form-control @error('examples') is-invalid @enderror" name="examples" rows="7" minlength="10" maxlength="12000" required placeholder="{{ trans('LongosProductReviews::reviews.ai_examples_placeholder') }}">{{ $formValue('examples') }}</textarea><div class="form-text">{{ trans('LongosProductReviews::reviews.ai_examples_help') }}</div></div>
           </div>
         </div>
         <div class="card-footer d-flex flex-wrap align-items-center justify-content-between gap-2">
           <span class="text-muted small"><i class="bi bi-info-circle" aria-hidden="true"></i> {{ trans('LongosProductReviews::reviews.ai_data_notice') }}</span>
-          <button class="btn btn-primary px-4" type="submit" data-generate-submit @disabled(!$settings['configured'])><i class="bi bi-stars" aria-hidden="true"></i> {{ trans('LongosProductReviews::reviews.ai_generate_preview') }}</button>
+          <button class="btn btn-primary px-4" type="submit" data-generate-submit @disabled(!$settings['configured'] || $batchActive)><i class="bi bi-stars" aria-hidden="true"></i> {{ trans('LongosProductReviews::reviews.ai_generate_preview') }}</button>
         </div>
       </div>
     </form>
 
     @if($preview)
+      @php
+        $previewItems = collect($preview['items']);
+        $previewAverage = number_format((float) $previewItems->avg('rating'), 1);
+        $previewCountries = $previewItems->pluck('country')->filter()->unique()->count();
+      @endphp
       <div class="card mb-4" id="review-generation-preview">
         <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2"><strong>{{ trans('LongosProductReviews::reviews.ai_preview_title') }}</strong><span class="text-muted small">{{ $preview['product_name'] }} · {{ $preview['model'] }}</span></div>
+        <div class="px-3 py-2 bg-light border-bottom text-muted small">{{ trans('LongosProductReviews::reviews.ai_preview_summary', ['count' => $previewItems->count(), 'average' => $previewAverage, 'countries' => $previewCountries]) }}</div>
         <div class="card-body p-0">
           <div class="table-responsive">
             <table class="table align-middle mb-0">
@@ -155,7 +175,7 @@
   const results = document.getElementById('review-product-results')
   const help = document.getElementById('review-product-help')
   const status = document.getElementById('review-product-status')
-  const searchUrl = @json(admin_route('products.autocomplete'))
+  const searchUrl = @json(admin_route('products.autocomplete'));
   const messages = {required:@json(trans('LongosProductReviews::reviews.product_required')),searching:@json(trans('LongosProductReviews::reviews.product_searching')),empty:@json(trans('LongosProductReviews::reviews.product_no_results')),error:@json(trans('LongosProductReviews::reviews.product_search_error')),generating:@json(trans('LongosProductReviews::reviews.ai_generating'))}
   const defaultHelp = help.textContent
   let selectedLabel = input.value, timer = null, request = null, active = -1
@@ -172,7 +192,7 @@
   const generatedSelections = [...document.querySelectorAll('.generation-row-select')]
   const generatedSelectAll = document.getElementById('generation-select-all')
   const commitSelected = document.querySelector('[data-commit-selected]')
-  const commitTemplate = @json(trans('LongosProductReviews::reviews.ai_save_drafts', ['count' => '__COUNT__']))
+  const commitTemplate = @json(trans('LongosProductReviews::reviews.ai_save_drafts', ['count' => '__COUNT__']));
   const syncGeneratedSelection = () => {
     const selected = generatedSelections.filter((checkbox) => checkbox.checked).length
     if (commitSelected) {
@@ -192,7 +212,7 @@
   if (batch) {
     const progress = batch.querySelector('[data-batch-progress]')
     const count = batch.querySelector('[data-batch-count]')
-    const progressTemplate = @json(trans('LongosProductReviews::reviews.ai_batch_progress', ['processed' => '__PROCESSED__', 'total' => '__TOTAL__']))
+    const progressTemplate = @json(trans('LongosProductReviews::reviews.ai_batch_progress', ['processed' => '__PROCESSED__', 'total' => '__TOTAL__']));
     let polling = false
     const poll = async () => {
       if (polling || document.hidden) return
@@ -206,7 +226,7 @@
         count.textContent = progressTemplate.replace('__PROCESSED__', String(payload.processed || 0)).replace('__TOTAL__', String(payload.total || 0))
         if (payload.finished) window.location.reload()
       } catch (error) {
-        count.textContent = @json(trans('LongosProductReviews::reviews.ai_batch_status_error'))
+        count.textContent = @json(trans('LongosProductReviews::reviews.ai_batch_status_error'));
       } finally {
         polling = false
       }

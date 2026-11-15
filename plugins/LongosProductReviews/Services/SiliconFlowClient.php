@@ -6,6 +6,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use Plugin\LongosProductReviews\Exceptions\GenerationOutputException;
 use Plugin\LongosProductReviews\Exceptions\SiliconFlowException;
 
 class SiliconFlowClient
@@ -62,9 +63,17 @@ class SiliconFlowClient
             ]));
         $this->assertSuccessful($response);
 
+        $finishReason = trim((string) $response->json('choices.0.finish_reason', ''));
+        if ($finishReason === 'length') {
+            throw new GenerationOutputException(trans('LongosProductReviews::reviews.ai_error_truncated'));
+        }
+        if ($finishReason === 'content_filter') {
+            throw new GenerationOutputException(trans('LongosProductReviews::reviews.ai_error_filtered'));
+        }
+
         $content = $response->json('choices.0.message.content');
         if (! is_string($content) || trim($content) === '') {
-            throw new SiliconFlowException(trans('LongosProductReviews::reviews.ai_error_empty_response'));
+            throw new GenerationOutputException(trans('LongosProductReviews::reviews.ai_error_empty_response'));
         }
 
         $content = trim($content);
@@ -75,14 +84,14 @@ class SiliconFlowClient
         try {
             $decoded = json_decode(trim($content), true, 64, JSON_THROW_ON_ERROR);
         } catch (\JsonException $exception) {
-            throw new SiliconFlowException(
+            throw new GenerationOutputException(
                 trans('LongosProductReviews::reviews.ai_error_invalid_json'),
                 previous: $exception,
             );
         }
 
         if (! is_array($decoded)) {
-            throw new SiliconFlowException(trans('LongosProductReviews::reviews.ai_error_invalid_json'));
+            throw new GenerationOutputException(trans('LongosProductReviews::reviews.ai_error_invalid_json'));
         }
 
         return $decoded;
@@ -125,16 +134,13 @@ class SiliconFlowClient
                     return $response;
                 }
 
-                $retryAfter = filter_var($response->header('Retry-After'), FILTER_VALIDATE_INT);
-                $delayMs    = $retryAfter === false
-                    ? 200 * $attempt
-                    : min(2000, max(0, $retryAfter * 1000));
+                $delayMs = $this->retryDelayMs($response, $attempt);
             } catch (ConnectionException $exception) {
                 $lastConnectionException = $exception;
                 if ($attempt === 3) {
                     break;
                 }
-                $delayMs = 200 * $attempt;
+                $delayMs = $this->retryDelayMs(null, $attempt);
             }
             usleep($delayMs * 1000);
         }
@@ -143,6 +149,28 @@ class SiliconFlowClient
             trans('LongosProductReviews::reviews.ai_error_connection'),
             previous: $lastConnectionException,
         );
+    }
+
+    private function retryDelayMs(?Response $response, int $attempt): int
+    {
+        $retryAfter = trim((string) $response?->header('Retry-After'));
+        $seconds    = null;
+        if ($retryAfter !== '') {
+            if (ctype_digit($retryAfter)) {
+                $seconds = (int) $retryAfter;
+            } else {
+                $timestamp = strtotime($retryAfter);
+                if ($timestamp !== false) {
+                    $seconds = max(0, $timestamp - time());
+                }
+            }
+        }
+
+        $base = $seconds === null
+            ? min(2500, 250 * (2 ** max(0, $attempt - 1)))
+            : min(10000, $seconds * 1000);
+
+        return $base + random_int(0, min(250, max(25, (int) ($base / 4))));
     }
 
     private function assertSuccessful(Response $response): void
