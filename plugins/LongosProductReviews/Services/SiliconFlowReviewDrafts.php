@@ -85,6 +85,7 @@ final class SiliconFlowReviewDrafts
             'name' => Str::limit(trim((string) ($description?->name ?? '')), 200, ''),
             'description' => Str::limit(trim(html_entity_decode(strip_tags((string) ($description?->content ?? '')), ENT_QUOTES | ENT_HTML5, 'UTF-8')), 1800, ''),
             'sample_count' => $count,
+            'country' => $language === 'en-GB' ? 'United Kingdom' : ($language === 'en' ? 'United States' : ['fr'=>'France','de'=>'Germany','es'=>'Spain','it'=>'Italy'][$language]),
             'language' => self::LANGUAGES[$language],
             'allowed_countries' => self::COUNTRIES[$language],
         ];
@@ -149,6 +150,9 @@ final class SiliconFlowReviewDrafts
 
             $name = trim(strip_tags($item['author_name']));
             $country = trim($item['author_country']);
+            $rating = $item['rating'];
+            $name = trim(strip_tags($item['sample_name']));
+            $country = trim(strip_tags($item['country']));
             $rating = $item['rating'];
             $title = trim(strip_tags($item['title']));
             $body = trim(strip_tags($item['body']));
