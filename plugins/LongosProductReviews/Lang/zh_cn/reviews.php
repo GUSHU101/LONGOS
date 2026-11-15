@@ -1,6 +1,8 @@
 <?php
 
 return [
+    'ai_category_id' => '分类 ID（可选）',
+    'ai_skip_existing' => '跳过已生成过 AI 演示数据的商品',
     'ai_heading' => 'AI 批量生成演示评论记录',
     'ai_model' => '免费模型',
     'ai_connected' => '密钥已配置',
@@ -13,7 +15,7 @@ return [
     'ai_clear_key' => '删除密钥',
     'ai_generate_title' => '批量生成商品演示评论数据',
     'ai_product_ids_label' => '商品 ID（可选）',
-    'ai_product_ids_help' => '用逗号或空格分隔商品 ID。留空时按 ID 从大到小选择启用的商品；单批最多 50 个商品。',
+    'ai_product_ids_help' => '填写商品 ID，用逗号或空格分隔；可同时填写分类 ID 取交集。都留空时选择最新启用商品；单批最多 50 个。',
     'ai_product_limit' => '本批商品数',
     'ai_per_product' => '每个商品生成条数',
     'ai_language' => '生成语言与姓名区域',
