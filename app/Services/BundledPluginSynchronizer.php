@@ -253,6 +253,7 @@ class BundledPluginSynchronizer
             $files = [
                 base_path('plugins/LongosProductReviews/Migrations/2026_10_09_000000_create_longos_product_reviews_table.php'),
                 base_path('plugins/LongosProductReviews/Migrations/2026_11_15_000000_add_ai_metadata_to_longos_product_reviews_table.php'),
+                base_path('plugins/LongosProductReviews/Migrations/2026_11_15_010000_repair_generation_batch_product_foreign_key.php'),
             ];
             foreach ($files as $file) {
                 if (! is_file($file)) {

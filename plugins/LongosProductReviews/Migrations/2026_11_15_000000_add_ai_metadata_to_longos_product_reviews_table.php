@@ -42,7 +42,14 @@ return new class extends Migration
                 $table->timestamps();
 
                 $table->index(['admin_user_id', 'created_at'], 'longos_review_gen_owner_index');
-                $table->foreign('product_id')->references('id')->on('products')->cascadeOnDelete();
+                // Shared-database tenants prepend a table prefix.
+                // Laravel's default constraint name then exceeds MySQL's
+                // 64-character identifier limit, so use a compact tenant-unique
+                // name derived from that prefix.
+                $table->foreign('product_id', $this->productForeignKeyName())
+                    ->references('id')
+                    ->on('products')
+                    ->cascadeOnDelete();
             });
         }
     }
@@ -66,5 +73,12 @@ return new class extends Migration
                 $table->dropColumn('content_source');
             }
         });
+    }
+
+    private function productForeignKeyName(): string
+    {
+        $prefix = Schema::getConnection()->getTablePrefix();
+
+        return 'lprgb_' . substr(hash('sha256', $prefix), 0, 12) . '_product_fk';
     }
 };

@@ -82,6 +82,8 @@ class LongosProductReviewsServiceTest extends TestCase
         $migration->up();
         $aiMigration = require base_path('plugins/LongosProductReviews/Migrations/2026_11_15_000000_add_ai_metadata_to_longos_product_reviews_table.php');
         $aiMigration->up();
+        $repairMigration = require base_path('plugins/LongosProductReviews/Migrations/2026_11_15_010000_repair_generation_batch_product_foreign_key.php');
+        $repairMigration->up();
         DB::table('products')->insert(['id' => 71, 'active' => true, 'created_at' => now(), 'updated_at' => now()]);
         DB::table('product_descriptions')->insert([
             'product_id' => 71,
@@ -256,6 +258,44 @@ class LongosProductReviewsServiceTest extends TestCase
         self::assertTrue(Schema::hasColumn('longos_product_reviews', 'generation_batch_id'));
         self::assertTrue(Schema::hasColumn('longos_product_reviews', 'staff_reviewed'));
         self::assertTrue(Schema::hasTable('longos_product_review_generation_batches'));
+    }
+
+    public function test_generation_batch_migration_uses_short_tenant_unique_foreign_key_and_repairs_partial_table(): void
+    {
+        $connection     = Schema::getConnection();
+        $originalPrefix = $connection->getTablePrefix();
+        $migration      = require base_path('plugins/LongosProductReviews/Migrations/2026_11_15_000000_add_ai_metadata_to_longos_product_reviews_table.php');
+        $method         = new \ReflectionMethod($migration, 'productForeignKeyName');
+
+        try {
+            $connection->setTablePrefix('lt_32d004ebe585_');
+            $constraint = (string) $method->invoke($migration);
+        } finally {
+            $connection->setTablePrefix($originalPrefix);
+        }
+
+        self::assertLessThanOrEqual(64, strlen($constraint));
+        self::assertMatchesRegularExpression('/^lprgb_[a-f0-9]{12}_product_fk$/', $constraint);
+
+        Schema::drop('longos_product_review_generation_batches');
+        Schema::create('longos_product_review_generation_batches', function (Blueprint $table): void {
+            $table->uuid('id')->primary();
+            $table->unsignedBigInteger('product_id');
+        });
+        self::assertSame([], Schema::getForeignKeys('longos_product_review_generation_batches'));
+
+        $repair = require base_path('plugins/LongosProductReviews/Migrations/2026_11_15_010000_repair_generation_batch_product_foreign_key.php');
+        $repair->up();
+        $foreignKeys = Schema::getForeignKeys('longos_product_review_generation_batches');
+
+        self::assertCount(1, $foreignKeys);
+        self::assertSame(['product_id'], $foreignKeys[0]['columns']);
+        self::assertSame('cascade', $foreignKeys[0]['on_delete']);
+
+        $repair->down();
+        self::assertSame([], Schema::getForeignKeys('longos_product_review_generation_batches'));
+        $repair->up();
+        self::assertCount(1, Schema::getForeignKeys('longos_product_review_generation_batches'));
     }
 
     public function test_siliconflow_generation_respects_server_assigned_ranges_and_creates_safe_drafts(): void
