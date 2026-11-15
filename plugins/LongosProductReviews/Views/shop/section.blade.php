@@ -13,7 +13,7 @@
   data-with-images="0"
   data-sort="featured">
   <div class="longos-reviews__heading">
-    <p class="longos-reviews__eyebrow">{{ trans('LongosProductReviews::reviews.verified_customer_feedback') }}</p>
+    <p class="longos-reviews__eyebrow">{{ trans('LongosProductReviews::reviews.customer_feedback') }}</p>
     <h2 id="customer-reviews-heading">{{ trans('LongosProductReviews::reviews.title') }}</h2>
   </div>
 

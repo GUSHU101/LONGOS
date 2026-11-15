@@ -6,5 +6,6 @@
   <div class="d-grid gap-2">
     <a class="btn btn-sm btn-outline-secondary" href="{{ admin_route('longos_product_reviews.index', ['product_id' => $productId]) }}">{{ trans('LongosProductReviews::reviews.manage_reviews') }}</a>
     <a class="btn btn-sm btn-outline-primary" href="{{ admin_route('longos_product_reviews.create', ['product_id' => $productId]) }}">{{ trans('LongosProductReviews::reviews.add_review') }}</a>
+    <a class="btn btn-sm btn-outline-primary" href="{{ admin_route('longos_product_reviews.generate', ['product_id' => $productId]) }}"><i class="bi bi-stars" aria-hidden="true"></i> {{ trans('LongosProductReviews::reviews.ai_generate') }}</a>
   </div>
 </div>

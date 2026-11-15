@@ -39,6 +39,9 @@ class LongosProductReviewsTest extends TestCase
         self::assertStringContainsString("middleware('throttle:120,1')", $shop);
         self::assertStringContainsString("name('longos_product_reviews.index')", $shop);
         self::assertStringContainsString("name('publication')", $admin);
+        self::assertStringContainsString("name('generate.preview')", $admin);
+        self::assertStringContainsString("name('generate.status')", $admin);
+        self::assertStringContainsString("name('bulk')", $admin);
     }
 
     public function test_review_storage_is_tenant_scoped_and_storefront_queries_are_published_only(): void
@@ -94,6 +97,7 @@ class LongosProductReviewsTest extends TestCase
         self::assertStringContainsString('min-height: 46px', $css);
         self::assertStringContainsString('@media (prefers-reduced-motion: reduce)', $css);
         self::assertStringContainsString('.product-review-summary', $css);
+        self::assertStringContainsString('.longos-review-card__provided', $css);
     }
 
     public function test_new_tenants_seed_and_migrate_the_bundled_review_plugin(): void
@@ -114,6 +118,26 @@ class LongosProductReviewsTest extends TestCase
         self::assertStringContainsString('BundledPluginSynchronizer::class', $automatic);
         self::assertStringContainsString('self::PRODUCT_REVIEWS => [', $synchronizer);
         self::assertStringContainsString("Schema::hasTable('longos_product_reviews')", $synchronizer);
+        self::assertStringContainsString("Schema::hasColumns('longos_product_reviews', ['content_source', 'generation_batch_id', 'staff_reviewed'])", $synchronizer);
+        self::assertStringContainsString("'longos_product_review_generation_batches'", $synchronizer);
+    }
+
+    public function test_ai_generator_contract_keeps_generated_reviews_unverified_and_draft_only(): void
+    {
+        $client     = (string) file_get_contents($this->root . '/plugins/LongosProductReviews/Services/SiliconFlowClient.php');
+        $generation = (string) file_get_contents($this->root . '/plugins/LongosProductReviews/Services/ReviewGenerationService.php');
+        $service    = (string) file_get_contents($this->root . '/plugins/LongosProductReviews/Services/ReviewService.php');
+        $view       = (string) file_get_contents($this->root . '/plugins/LongosProductReviews/Views/admin/generate.blade.php');
+        $cards      = (string) file_get_contents($this->root . '/plugins/LongosProductReviews/Views/shop/cards.blade.php');
+
+        self::assertStringContainsString('https://api.siliconflow.cn/v1', $client);
+        self::assertStringContainsString("['type' => 'json_object']", $client);
+        self::assertStringContainsString('style_examples', $generation);
+        self::assertMatchesRegularExpression('/\$item\[\'verified_purchase\'\]\s*=\s*false/', $service);
+        self::assertMatchesRegularExpression('/\$item\[\'published\'\]\s*=\s*false/', $service);
+        self::assertMatchesRegularExpression('/\$item\[\'staff_reviewed\'\]\s*=\s*false/', $service);
+        self::assertStringContainsString('ai_preview_commit_help', $view);
+        self::assertStringContainsString('merchant_provided_content', $cards);
     }
 
     public function test_plugin_translation_keys_stay_in_sync(): void

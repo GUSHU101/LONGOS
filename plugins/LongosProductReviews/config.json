@@ -5,11 +5,11 @@
     "en": "LONGOS Product Reviews"
   },
   "description": {
-    "zh_cn": "在后台按商品维护图文星级评论，并在商品详情页展示评分摘要、星级分布和评论图片。",
-    "en": "Manage product-specific ratings, written reviews and review photos, with a storefront rating summary and review gallery."
+    "zh_cn": "管理商品图文星级评论，并通过硅基流动模型按示例批量生成可审核草稿。",
+    "en": "Manage product ratings and photos, and use SiliconFlow models to batch-generate reviewable drafts from examples."
   },
   "type": "feature",
-  "version": "v1.2.0",
+  "version": "v2.1.0",
   "icon": "/image/longos-favicon.svg",
   "author": {
     "name": "LONGOS",

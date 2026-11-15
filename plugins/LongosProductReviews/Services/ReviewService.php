@@ -3,6 +3,7 @@
 namespace Plugin\LongosProductReviews\Services;
 
 use App\Services\BundledPluginSynchronizer;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -102,7 +103,10 @@ class ReviewService
 
         try {
             return DB::transaction(function () use ($data, $stored): Review {
-                $data['images'] = $stored;
+                $data['images']              = $stored;
+                $data['content_source']      = Review::SOURCE_MANUAL;
+                $data['generation_batch_id'] = null;
+                $data['staff_reviewed']      = true;
 
                 return Review::query()->create($this->attributes($data));
             });
@@ -124,7 +128,13 @@ class ReviewService
 
         try {
             DB::transaction(function () use ($review, $data, $kept, $stored): void {
-                $data['images'] = array_values(array_merge($kept, $stored));
+                $data['images']              = array_values(array_merge($kept, $stored));
+                $data['content_source']      = $review->content_source ?: Review::SOURCE_MANUAL;
+                $data['generation_batch_id'] = $review->generation_batch_id;
+                $data['staff_reviewed']      = $review->staff_reviewed;
+                if ($review->isGenerated()) {
+                    $data['verified_purchase'] = false;
+                }
                 $review->fill($this->attributes($data))->saveOrFail();
             });
         } catch (Throwable $exception) {
@@ -151,6 +161,70 @@ class ReviewService
         $review->forceFill(['published' => $published])->saveOrFail();
 
         return $review->refresh();
+    }
+
+    /** @param list<array<string, mixed>> $items
+     *  @return Collection<int, Review>
+     */
+    public function createGeneratedDrafts(array $items, string $batchId): Collection
+    {
+        $this->ensureReady();
+        if ($items === [] || ! Str::isUuid($batchId)) {
+            throw new \InvalidArgumentException('The generated review preview is incomplete.');
+        }
+
+        return DB::transaction(function () use ($items, $batchId): Collection {
+            $created = new Collection;
+            foreach ($items as $item) {
+                $item['author_country']       = ($item['country'] ?? null) ?: null;
+                $item['images']               = [];
+                $item['verified_purchase']    = false;
+                $item['published']            = false;
+                $item['sort_order']           = 0;
+                $item['content_source']       = Review::SOURCE_GENERATED;
+                $item['generation_batch_id']  = $batchId;
+                $item['staff_reviewed']       = false;
+                $created->push(Review::query()->create($this->attributes($item)));
+            }
+
+            return $created;
+        });
+    }
+
+    /** @param list<int> $ids
+     *  @return array{updated:int,skipped:int}
+     */
+    public function bulkSetVerification(array $ids, bool $verified): array
+    {
+        $this->ensureReady();
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids), fn (int $id): bool => $id > 0)));
+        if ($ids === []) {
+            return ['updated' => 0, 'skipped' => 0];
+        }
+
+        $query   = Review::query()->whereIn('id', $ids);
+        $skipped = $verified
+            ? (clone $query)->where('content_source', Review::SOURCE_GENERATED)->count()
+            : 0;
+        if ($verified) {
+            $query->where('content_source', '!=', Review::SOURCE_GENERATED);
+        }
+
+        return [
+            'updated' => $query->update(['verified_purchase' => $verified]),
+            'skipped' => $skipped,
+        ];
+    }
+
+    /** @param list<int> $ids */
+    public function bulkSetStaffReviewed(array $ids, bool $reviewed): int
+    {
+        $this->ensureReady();
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids), fn (int $id): bool => $id > 0)));
+
+        return $ids === []
+            ? 0
+            : Review::query()->whereIn('id', $ids)->update(['staff_reviewed' => $reviewed]);
     }
 
     /** @param array<int, int|string> $productIds */
@@ -192,6 +266,11 @@ class ReviewService
             'published'          => (bool) ($data['published'] ?? false),
             'sort_order'         => (int) ($data['sort_order'] ?? 0),
             'reviewed_at'        => $data['reviewed_at'],
+            'content_source'     => in_array(($data['content_source'] ?? ''), [Review::SOURCE_MANUAL, Review::SOURCE_GENERATED], true)
+                ? $data['content_source']
+                : Review::SOURCE_MANUAL,
+            'generation_batch_id' => ($data['generation_batch_id'] ?? null) ?: null,
+            'staff_reviewed'      => (bool) ($data['staff_reviewed'] ?? false),
         ];
     }
 

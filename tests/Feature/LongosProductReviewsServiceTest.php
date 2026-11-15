@@ -8,14 +8,23 @@ use Closure;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use PHPUnit\Framework\TestCase;
 use Plugin\LongosProductReviews\Controllers\AdminReviewController;
+use Plugin\LongosProductReviews\Exceptions\GenerationBatchException;
+use Plugin\LongosProductReviews\Jobs\GenerateReviewBatch;
 use Plugin\LongosProductReviews\Models\Review;
+use Plugin\LongosProductReviews\Models\ReviewGenerationBatch;
+use Plugin\LongosProductReviews\Services\ReviewGenerationBatchService;
+use Plugin\LongosProductReviews\Services\ReviewGenerationService;
 use Plugin\LongosProductReviews\Services\ReviewService;
+use Plugin\LongosProductReviews\Services\SiliconFlowClient;
+use Plugin\LongosProductReviews\Services\SiliconFlowSettings;
 
 class LongosProductReviewsServiceTest extends TestCase
 {
@@ -49,9 +58,39 @@ class LongosProductReviewsServiceTest extends TestCase
             $table->softDeletes();
             $table->timestamps();
         });
+        Schema::create('product_descriptions', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('product_id')->index();
+            $table->string('locale', 20);
+            $table->string('name');
+            $table->text('content')->nullable();
+            $table->text('meta_title')->nullable();
+            $table->text('meta_description')->nullable();
+            $table->text('meta_keywords')->nullable();
+            $table->timestamps();
+        });
+        Schema::create('settings', function (Blueprint $table): void {
+            $table->id();
+            $table->string('type');
+            $table->string('space');
+            $table->string('name');
+            $table->text('value');
+            $table->boolean('json')->default(false);
+            $table->timestamps();
+        });
         $migration = require base_path('plugins/LongosProductReviews/Migrations/2026_10_09_000000_create_longos_product_reviews_table.php');
         $migration->up();
+        $aiMigration = require base_path('plugins/LongosProductReviews/Migrations/2026_11_15_000000_add_ai_metadata_to_longos_product_reviews_table.php');
+        $aiMigration->up();
         DB::table('products')->insert(['id' => 71, 'active' => true, 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('product_descriptions')->insert([
+            'product_id' => 71,
+            'locale'     => locale(),
+            'name'       => 'LONGOS Travel Bottle',
+            'content'    => '<p>Insulated stainless steel bottle with a leak-resistant lid.</p>',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 
     protected function tearDown(): void
@@ -122,6 +161,9 @@ class LongosProductReviewsServiceTest extends TestCase
         self::assertSame(admin_name() . '.longos_product_reviews.index', $adminRoute->getName());
         self::assertContains('plugin.enabled:longos_product_reviews', $adminRoute->gatherMiddleware());
         self::assertNotNull($routes->first(static fn ($route): bool => $route->getName() === admin_name() . '.longos_product_reviews.publication'));
+        self::assertNotNull($routes->first(static fn ($route): bool => $route->getName() === admin_name() . '.longos_product_reviews.generate.preview'));
+        self::assertNotNull($routes->first(static fn ($route): bool => $route->getName() === admin_name() . '.longos_product_reviews.generate.status'));
+        self::assertNotNull($routes->first(static fn ($route): bool => $route->getName() === admin_name() . '.longos_product_reviews.bulk'));
     }
 
     public function test_storefront_pagination_never_returns_unpublished_reviews(): void
@@ -193,16 +235,6 @@ class LongosProductReviewsServiceTest extends TestCase
             $table->string('code');
             $table->timestamps();
         });
-        Schema::create('settings', function (Blueprint $table): void {
-            $table->id();
-            $table->string('type');
-            $table->string('space');
-            $table->string('name');
-            $table->text('value');
-            $table->boolean('json')->default(false);
-            $table->timestamps();
-        });
-
         PluginRepo::resetRuntimeCache();
         app('plugin')->forgetRuntimeCache();
         $stalePlugin = app('plugin')->getPlugin('longos_product_reviews');
@@ -220,6 +252,375 @@ class LongosProductReviewsServiceTest extends TestCase
             ->value('value'));
         self::assertTrue(app('plugin')->getPlugin('longos_product_reviews')?->getInstalled());
         self::assertTrue(Schema::hasTable('longos_product_reviews'));
+        self::assertTrue(Schema::hasColumn('longos_product_reviews', 'content_source'));
+        self::assertTrue(Schema::hasColumn('longos_product_reviews', 'generation_batch_id'));
+        self::assertTrue(Schema::hasColumn('longos_product_reviews', 'staff_reviewed'));
+        self::assertTrue(Schema::hasTable('longos_product_review_generation_batches'));
+    }
+
+    public function test_siliconflow_generation_respects_server_assigned_ranges_and_creates_safe_drafts(): void
+    {
+        config([
+            'bk.plugin.longos_product_reviews.siliconflow_api_key' => 'test-api-key',
+            'bk.plugin.longos_product_reviews.siliconflow_model'   => 'XingChenAGI/Xing4.0-29B',
+            'bk.plugin.longos_product_reviews.siliconflow_timeout' => 30,
+        ]);
+        Http::fake([
+            'api.siliconflow.cn/v1/chat/completions' => Http::response([
+                'choices' => [[
+                    'message' => [
+                        'content' => json_encode(['reviews' => [
+                            ['spec_id' => '1', 'author_name' => 'Jamie Chen', 'title' => 'Easy to carry', 'body' => 'The lid feels secure and the bottle fits neatly in my daily bag.'],
+                            ['spec_id' => '2', 'author_name' => 'Mia Laurent', 'title' => 'Solid everyday bottle', 'body' => 'A practical size with a clean finish, and it has been simple to rinse after use.'],
+                            ['spec_id' => '3', 'author_name' => 'Kenji Sato', 'title' => 'Useful design', 'body' => 'The shape is comfortable to hold and the cap is straightforward to open.'],
+                        ]], JSON_THROW_ON_ERROR),
+                    ],
+                ]],
+            ], 200),
+        ]);
+
+        $preview = app(ReviewGenerationService::class)->preview([
+            'product_id'      => 71,
+            'count'           => 3,
+            'date_from'       => '2026-10-01',
+            'date_to'         => '2026-10-10',
+            'rating_min'      => 2,
+            'rating_max'      => 4,
+            'countries'       => "Japan\nFrance",
+            'examples'        => 'Compact, useful and easy to clean. The finish looks understated.',
+            'output_language' => 'en-US',
+        ]);
+
+        self::assertCount(3, $preview['items']);
+        self::assertCount(3, array_unique(array_column($preview['items'], 'reviewed_at')));
+        foreach ($preview['items'] as $item) {
+            self::assertContains($item['country'], ['Japan', 'France']);
+            self::assertGreaterThanOrEqual(2, $item['rating']);
+            self::assertLessThanOrEqual(4, $item['rating']);
+            self::assertGreaterThanOrEqual('2026-10-01 00:00:00', $item['reviewed_at']);
+            self::assertLessThanOrEqual('2026-10-10 23:59:59', $item['reviewed_at']);
+        }
+        Http::assertSent(function ($request): bool {
+            $payload = $request->data();
+
+            return $request->url() === 'https://api.siliconflow.cn/v1/chat/completions'
+                && $request->hasHeader('Authorization', 'Bearer test-api-key')
+                && data_get($payload, 'model')                === 'XingChenAGI/Xing4.0-29B'
+                && data_get($payload, 'response_format.type') === 'json_object'
+                && str_contains((string) data_get($payload, 'messages.1.content'), 'Compact, useful');
+        });
+
+        $created = (new ReviewService)->createGeneratedDrafts($preview['items'], $preview['batch_id']);
+        self::assertCount(3, $created);
+        self::assertSame([false], $created->pluck('published')->unique()->values()->all());
+        self::assertSame([false], $created->pluck('verified_purchase')->unique()->values()->all());
+        self::assertSame([false], $created->pluck('staff_reviewed')->unique()->values()->all());
+        self::assertSame([Review::SOURCE_GENERATED], $created->pluck('content_source')->unique()->values()->all());
+        self::assertSame(
+            collect($preview['items'])->pluck('country')->all(),
+            $created->pluck('author_country')->all(),
+        );
+    }
+
+    public function test_siliconflow_api_key_is_encrypted_and_blank_updates_preserve_it(): void
+    {
+        $settings = new SiliconFlowSettings;
+        $settings->save([
+            'api_key' => 'sk-tenant-secret',
+            'model'   => 'XingChenAGI/Xing4.0-29B',
+            'timeout' => 45,
+        ]);
+
+        $stored = (string) DB::table('settings')
+            ->where('space', 'longos_product_reviews')
+            ->where('name', 'siliconflow_api_key')
+            ->value('value');
+        self::assertStringStartsWith('encrypted:v1:', $stored);
+        self::assertStringNotContainsString('sk-tenant-secret', $stored);
+        self::assertSame('sk-tenant-secret', $settings->runtime()['api_key']);
+
+        $settings->save([
+            'api_key' => '',
+            'model'   => 'XingChenAGI/Xing4.0-29B',
+            'timeout' => 60,
+        ]);
+        self::assertSame('sk-tenant-secret', $settings->runtime()['api_key']);
+        self::assertSame(60, $settings->runtime()['timeout']);
+
+        $prefixLikeKey = 'encrypted:v1:this-is-a-real-key-value';
+        $settings->save([
+            'api_key' => $prefixLikeKey,
+            'model'   => 'XingChenAGI/Xing4.0-29B',
+            'timeout' => 60,
+        ]);
+        $stored = (string) DB::table('settings')
+            ->where('space', 'longos_product_reviews')
+            ->where('name', 'siliconflow_api_key')
+            ->value('value');
+        self::assertNotSame($prefixLikeKey, $stored);
+        self::assertSame($prefixLikeKey, $settings->runtime()['api_key']);
+    }
+
+    public function test_siliconflow_client_retries_transient_provider_failures_only_until_success(): void
+    {
+        config([
+            'bk.plugin.longos_product_reviews.siliconflow_api_key' => 'test-api-key',
+            'bk.plugin.longos_product_reviews.siliconflow_model'   => 'XingChenAGI/Xing4.0-29B',
+            'bk.plugin.longos_product_reviews.siliconflow_timeout' => 30,
+        ]);
+        Http::fakeSequence()
+            ->push(['message' => 'overloaded'], 503, ['x-siliconcloud-trace-id' => 'trace-retry'])
+            ->push(['choices' => [['message' => ['content' => '{"reviews":[]}']]]], 200);
+
+        $response = app(SiliconFlowClient::class)->chatJson([
+            ['role' => 'user', 'content' => 'Return JSON.'],
+        ]);
+
+        self::assertSame(['reviews' => []], $response);
+        Http::assertSentCount(2);
+    }
+
+    public function test_generation_retries_model_duplicates_against_existing_reviews(): void
+    {
+        config([
+            'bk.plugin.longos_product_reviews.siliconflow_api_key' => 'test-api-key',
+            'bk.plugin.longos_product_reviews.siliconflow_model'   => 'XingChenAGI/Xing4.0-29B',
+            'bk.plugin.longos_product_reviews.siliconflow_timeout' => 30,
+        ]);
+        $this->review(4, true, 0, 'Existing exact duplicate body');
+        $duplicateResponse = json_encode(['reviews' => [[
+            'spec_id'     => '1',
+            'author_name' => 'First Name',
+            'title'       => 'Review 4',
+            'body'        => 'Existing exact duplicate body',
+        ]]], JSON_THROW_ON_ERROR);
+        $uniqueResponse = json_encode(['reviews' => [[
+            'spec_id'     => '1',
+            'author_name' => 'Second Name',
+            'title'       => 'A distinct generated title',
+            'body'        => 'A clearly different generated review body for this product.',
+        ]]], JSON_THROW_ON_ERROR);
+        Http::fakeSequence()
+            ->push(['choices' => [['message' => ['content' => $duplicateResponse]]]], 200)
+            ->push(['choices' => [['message' => ['content' => $uniqueResponse]]]], 200);
+
+        $preview = app(ReviewGenerationService::class)->preview([
+            'product_id'      => 71,
+            'count'           => 1,
+            'date_from'       => '2026-10-01',
+            'date_to'         => '2026-10-10',
+            'rating_min'      => 4,
+            'rating_max'      => 4,
+            'countries'       => 'Japan',
+            'examples'        => 'A sufficiently detailed example review for style guidance.',
+            'output_language' => 'en-US',
+        ]);
+
+        self::assertSame('A distinct generated title', $preview['items'][0]['title']);
+        Http::assertSentCount(2);
+    }
+
+    public function test_generation_rejects_verified_purchase_claims_in_supported_languages(): void
+    {
+        config([
+            'bk.plugin.longos_product_reviews.siliconflow_api_key' => 'test-api-key',
+            'bk.plugin.longos_product_reviews.siliconflow_model'   => 'XingChenAGI/Xing4.0-29B',
+            'bk.plugin.longos_product_reviews.siliconflow_timeout' => 30,
+        ]);
+        $unsafeResponse = json_encode(['reviews' => [[
+            'spec_id'     => '1',
+            'author_name' => 'Lucia Martin',
+            'title'       => 'Compra verificada',
+            'body'        => 'El formato es compacto y resulta sencillo de guardar cada día.',
+        ]]], JSON_THROW_ON_ERROR);
+        $safeResponse = json_encode(['reviews' => [[
+            'spec_id'     => '1',
+            'author_name' => 'Lucia Martin',
+            'title'       => 'Formato compacto',
+            'body'        => 'El tamaño es práctico y el acabado exterior tiene un aspecto sencillo.',
+        ]]], JSON_THROW_ON_ERROR);
+        Http::fakeSequence()
+            ->push(['choices' => [['message' => ['content' => $unsafeResponse]]]], 200)
+            ->push(['choices' => [['message' => ['content' => $safeResponse]]]], 200);
+
+        $preview = app(ReviewGenerationService::class)->preview([
+            'product_id'      => 71,
+            'count'           => 1,
+            'date_from'       => '2026-10-01',
+            'date_to'         => '2026-10-10',
+            'rating_min'      => 4,
+            'rating_max'      => 5,
+            'countries'       => 'Spain',
+            'examples'        => 'Una reseña de ejemplo suficientemente detallada para orientar el estilo.',
+            'output_language' => 'es-ES',
+        ]);
+
+        self::assertSame('Formato compacto', $preview['items'][0]['title']);
+        Http::assertSentCount(2);
+    }
+
+    public function test_async_generation_batch_encrypts_payload_tracks_progress_and_commits_selected_items_once(): void
+    {
+        register('admin_user', (new \Beike\Models\AdminUser)->forceFill(['id' => 19]), true);
+        config([
+            'bk.plugin.longos_product_reviews.siliconflow_api_key' => 'test-api-key',
+            'bk.plugin.longos_product_reviews.siliconflow_model'   => 'XingChenAGI/Xing4.0-29B',
+            'bk.plugin.longos_product_reviews.siliconflow_timeout' => 30,
+        ]);
+        Http::fake([
+            'api.siliconflow.cn/v1/chat/completions' => Http::response([
+                'choices' => [['message' => ['content' => json_encode(['reviews' => [
+                    ['spec_id' => '1', 'author_name' => 'Taylor Reed', 'title' => 'Convenient size', 'body' => 'The compact shape makes this straightforward to carry during the day.'],
+                    ['spec_id' => '2', 'author_name' => 'Aiko Mori', 'title' => 'Simple to use', 'body' => 'The cap opens smoothly and the exterior has a clean understated finish.'],
+                    ['spec_id' => '3', 'author_name' => 'Noah Martin', 'title' => 'Practical bottle', 'body' => 'It fits well in a side pocket and has been uncomplicated to rinse.'],
+                ]], JSON_THROW_ON_ERROR)]]],
+            ], 200),
+        ]);
+
+        $input = [
+            'product_id'      => 71,
+            'count'           => 3,
+            'date_from'       => '2026-10-01',
+            'date_to'         => '2026-10-10',
+            'rating_min'      => 3,
+            'rating_max'      => 5,
+            'countries'       => "Japan\nFrance",
+            'examples'        => 'Private style example that must be encrypted in storage.',
+            'output_language' => 'en-US',
+        ];
+        $batches = app(ReviewGenerationBatchService::class);
+        $batch   = $batches->create($input, 'XingChenAGI/Xing4.0-29B');
+        self::assertStringNotContainsString('Private style example', $batch->request_ciphertext);
+        self::assertSame($input, $batches->requestData($batch));
+
+        // A queued batch must not silently switch models after settings change.
+        config(['bk.plugin.longos_product_reviews.siliconflow_model' => 'AnotherOrg/NewerModel']);
+        $job = new GenerateReviewBatch($batch->id);
+        $job->handle($batches, app(ReviewGenerationService::class));
+        $batch->refresh();
+        self::assertSame(ReviewGenerationBatch::STATUS_COMPLETED, $batch->status);
+        self::assertSame(3, $batch->processed_count);
+        self::assertStringNotContainsString('Convenient size', (string) $batch->result_ciphertext);
+
+        $result = $batches->result($batch);
+        self::assertIsArray($result);
+        self::assertSame($batch->id, $result['batch_id']);
+        self::assertSame('XingChenAGI/Xing4.0-29B', $result['model']);
+        Http::assertSent(fn ($request): bool => $request['model'] === 'XingChenAGI/Xing4.0-29B'
+            && is_string($request->header('X-Trace-Id')[0] ?? null)
+            && ($request->header('X-Trace-Id')[0] ?? '') !== '');
+        Http::assertSentCount(1);
+        $job->handle($batches, app(ReviewGenerationService::class));
+        Http::assertSentCount(1);
+        $selected = [$result['items'][0]['spec_id'], $result['items'][2]['spec_id']];
+
+        try {
+            $batches->commit($batch->id, new ReviewService, ['999']);
+            self::fail('A tampered preview selection must not be committed.');
+        } catch (GenerationBatchException) {
+            self::assertSame(0, Review::query()->where('generation_batch_id', $batch->id)->count());
+            self::assertSame(ReviewGenerationBatch::STATUS_COMPLETED, $batch->refresh()->status);
+        }
+
+        $created  = $batches->commit($batch->id, new ReviewService, $selected);
+        self::assertCount(2, $created);
+        self::assertSame(ReviewGenerationBatch::STATUS_COMMITTED, $batch->refresh()->status);
+        self::assertSame([$batch->id], $created->pluck('generation_batch_id')->unique()->values()->all());
+
+        $this->expectException(GenerationBatchException::class);
+        $batches->commit($batch->id, new ReviewService, $selected);
+    }
+
+    public function test_async_generation_batch_fails_safely_on_repeated_malformed_output(): void
+    {
+        register('admin_user', (new \Beike\Models\AdminUser)->forceFill(['id' => 20]), true);
+        config([
+            'bk.plugin.longos_product_reviews.siliconflow_api_key' => 'test-api-key',
+            'bk.plugin.longos_product_reviews.siliconflow_model'   => 'XingChenAGI/Xing4.0-29B',
+            'bk.plugin.longos_product_reviews.siliconflow_timeout' => 30,
+        ]);
+        Http::fakeSequence()
+            ->push(['choices' => [['message' => ['content' => '{"unexpected":[]}']]]], 200)
+            ->push(['choices' => [['message' => ['content' => '{"unexpected":[]}']]]], 200);
+        $input = [
+            'product_id'      => 71,
+            'count'           => 1,
+            'date_from'       => '2026-10-01',
+            'date_to'         => '2026-10-10',
+            'rating_min'      => 3,
+            'rating_max'      => 5,
+            'countries'       => 'Japan',
+            'examples'        => 'A sufficiently detailed example review for style guidance.',
+            'output_language' => 'en-US',
+        ];
+        $batches = app(ReviewGenerationBatchService::class);
+        $batch   = $batches->create($input, 'XingChenAGI/Xing4.0-29B');
+        $job     = new GenerateReviewBatch($batch->id);
+
+        $job->handle($batches, app(ReviewGenerationService::class));
+
+        self::assertSame(ReviewGenerationBatch::STATUS_FAILED, $batch->refresh()->status);
+        self::assertSame(0, $batch->processed_count);
+        self::assertNotSame('', trim((string) $batch->error));
+        self::assertNull($batch->result_ciphertext);
+        self::assertSame(0, Review::query()->where('generation_batch_id', $batch->id)->count());
+        Http::assertSentCount(2);
+        $job->handle($batches, app(ReviewGenerationService::class));
+        Http::assertSentCount(2);
+    }
+
+    public function test_generation_prune_command_removes_expired_encrypted_previews(): void
+    {
+        register('admin_user', (new \Beike\Models\AdminUser)->forceFill(['id' => 21]), true);
+        $batches = app(ReviewGenerationBatchService::class);
+        $batch   = $batches->create([
+            'product_id'      => 71,
+            'count'           => 1,
+            'date_from'       => '2026-10-01',
+            'date_to'         => '2026-10-10',
+            'rating_min'      => 4,
+            'rating_max'      => 5,
+            'countries'       => 'Japan',
+            'examples'        => 'Encrypted temporary example content.',
+            'output_language' => 'en-US',
+        ], 'XingChenAGI/Xing4.0-29B');
+        $batch->forceFill(['expires_at' => now()->subMinute()])->saveOrFail();
+
+        self::assertSame(0, Artisan::call('longos:product-reviews:prune-generation'));
+        self::assertNull(ReviewGenerationBatch::query()->find($batch->id));
+        self::assertStringContainsString('pruned 1 expired preview', Artisan::output());
+    }
+
+    public function test_review_admin_blade_templates_compile_with_generator_and_bulk_controls(): void
+    {
+        $compiler = app('blade.compiler');
+        foreach (['generate.blade.php', 'index.blade.php', 'form.blade.php'] as $file) {
+            $source   = (string) file_get_contents(base_path('plugins/LongosProductReviews/Views/admin/' . $file));
+            $compiled = $compiler->compileString($source);
+
+            self::assertNotSame('', trim($compiled));
+            self::assertStringContainsString('<?php', $compiled);
+        }
+    }
+
+    public function test_bulk_verification_updates_manual_reviews_and_skips_generated_content(): void
+    {
+        $manual = $this->review(5, true, 0, 'A manual review with order evidence');
+        $manual->update(['verified_purchase' => false]);
+        $generated = $this->review(4, false, 0, 'Merchant-provided review draft');
+        $generated->update(['verified_purchase' => false, 'content_source' => Review::SOURCE_GENERATED]);
+
+        $result = (new ReviewService)->bulkSetVerification([$manual->id, $generated->id], true);
+
+        self::assertSame(['updated' => 1, 'skipped' => 1], $result);
+        self::assertTrue($manual->refresh()->verified_purchase);
+        self::assertFalse($generated->refresh()->verified_purchase);
+        self::assertSame(2, (new ReviewService)->bulkSetStaffReviewed([$manual->id, $generated->id], true));
+        self::assertTrue($generated->refresh()->staff_reviewed);
+        $generated->update(['published' => true]);
+        $html = view('LongosProductReviews::shop.cards', ['reviews' => collect([$generated->refresh()])])->render();
+        self::assertStringContainsString('Merchant-provided content', $html);
+        self::assertStringNotContainsString('Verified purchase', $html);
     }
 
     private function review(int $rating, bool $published, int $sortOrder, string $body): Review

@@ -24,6 +24,7 @@ class AdminReviewController extends Controller
             'published'  => $request->query('published', ''),
             'verified'   => $request->query('verified', ''),
             'photos'     => $request->query('photos', ''),
+            'source'     => $request->query('source', ''),
             'product_id' => max(0, (int) $request->query('product_id', 0)),
         ];
         $reviews = Review::query()->with(['product.description']);
@@ -49,6 +50,9 @@ class AdminReviewController extends Controller
         if ((string) $filters['photos'] === '1') {
             $reviews->whereJsonLength('images', '>', 0);
         }
+        if (in_array((string) $filters['source'], [Review::SOURCE_MANUAL, Review::SOURCE_GENERATED], true)) {
+            $reviews->where('content_source', $filters['source']);
+        }
         if ($filters['product_id'] > 0) {
             $reviews->where('product_id', $filters['product_id']);
         }
@@ -58,6 +62,7 @@ class AdminReviewController extends Controller
             'published' => Review::query()->published()->count(),
             'drafts'    => Review::query()->where('published', false)->count(),
             'verified'  => Review::query()->where('verified_purchase', true)->count(),
+            'generated' => Review::query()->where('content_source', Review::SOURCE_GENERATED)->count(),
             'average'   => round((float) Review::query()->published()->avg('rating'), 1),
         ];
 
@@ -120,6 +125,29 @@ class AdminReviewController extends Controller
         $service->setPublished(Review::query()->findOrFail($review), (bool) $validated['published']);
 
         return back()->with('success', trans('LongosProductReviews::reviews.publication_updated'));
+    }
+
+    public function bulk(Request $request, ReviewService $service): RedirectResponse
+    {
+        $this->ensureReady();
+        $validated = $request->validate([
+            'review_ids'   => ['bail', 'required', 'array', 'min:1', 'max:100'],
+            'review_ids.*' => ['bail', 'integer', 'distinct', 'exists:longos_product_reviews,id'],
+            'action'       => ['bail', 'required', 'in:verify,unverify,review,unreview'],
+        ]);
+        $ids = array_map('intval', $validated['review_ids']);
+        if (in_array($validated['action'], ['review', 'unreview'], true)) {
+            $updated = $service->bulkSetStaffReviewed($ids, $validated['action'] === 'review');
+
+            return back()->with('success', trans('LongosProductReviews::reviews.bulk_reviewed_updated', ['updated' => $updated]));
+        }
+
+        $result = $service->bulkSetVerification($ids, $validated['action'] === 'verify');
+
+        return back()->with('success', trans('LongosProductReviews::reviews.bulk_verification_updated', [
+            'updated' => $result['updated'],
+            'skipped' => $result['skipped'],
+        ]));
     }
 
     private function form(Review $review): View

@@ -85,6 +85,10 @@ class Kernel extends ConsoleKernel
                 ->hourlyAt(15)
                 ->onOneServer()
                 ->withoutOverlapping();
+            $schedule->command('saas:run longos:product-reviews:prune-generation --continue-on-error')
+                ->hourlyAt(25)
+                ->onOneServer()
+                ->withoutOverlapping();
             $schedule->command('saas:run longos:mail-logs:prune --continue-on-error')
                 ->dailyAt('03:45')
                 ->onOneServer()
@@ -105,6 +109,9 @@ class Kernel extends ConsoleKernel
                 ->when(fn () => trim((string) system_setting('base.rate_api_key', '')) !== '');
             $schedule->command('longos:live-chat:prune')
                 ->hourlyAt(15)
+                ->withoutOverlapping();
+            $schedule->command('longos:product-reviews:prune-generation')
+                ->hourlyAt(25)
                 ->withoutOverlapping();
             $schedule->command('longos:mail-logs:prune')
                 ->dailyAt('03:45')

@@ -72,7 +72,7 @@ class BundledPluginSynchronizer
         self::PRODUCT_REVIEWS => [
             'type'     => 'feature',
             'settings' => ['status' => '1', 'display_limit' => '6'],
-            'tables'   => ['longos_product_reviews'],
+            'tables'   => ['longos_product_reviews', 'longos_product_review_generation_batches'],
         ],
         'longos_live_chat' => [
             'type'     => 'feature',
@@ -207,7 +207,9 @@ class BundledPluginSynchronizer
      */
     public function ensureProductReviewsReady(): void
     {
-        if (Schema::hasTable('longos_product_reviews')) {
+        if (Schema::hasTable('longos_product_reviews')
+            && Schema::hasTable('longos_product_review_generation_batches')
+            && Schema::hasColumns('longos_product_reviews', ['content_source', 'generation_batch_id', 'staff_reviewed'])) {
             return;
         }
 
@@ -245,8 +247,13 @@ class BundledPluginSynchronizer
         // migration but lost the table afterwards. Laravel correctly skips a
         // recorded migration, so invoke the bundled idempotent migration once
         // as a repair fallback before failing the request.
-        if (! Schema::hasTable('longos_product_reviews')) {
-            $files = [base_path('plugins/LongosProductReviews/Migrations/2026_10_09_000000_create_longos_product_reviews_table.php')];
+        if (! Schema::hasTable('longos_product_reviews')
+            || ! Schema::hasTable('longos_product_review_generation_batches')
+            || ! Schema::hasColumns('longos_product_reviews', ['content_source', 'generation_batch_id', 'staff_reviewed'])) {
+            $files = [
+                base_path('plugins/LongosProductReviews/Migrations/2026_10_09_000000_create_longos_product_reviews_table.php'),
+                base_path('plugins/LongosProductReviews/Migrations/2026_11_15_000000_add_ai_metadata_to_longos_product_reviews_table.php'),
+            ];
             foreach ($files as $file) {
                 if (! is_file($file)) {
                     continue;
@@ -312,8 +319,10 @@ class BundledPluginSynchronizer
 
     private function assertProductReviewsReady(): void
     {
-        if (! Schema::hasTable('longos_product_reviews')) {
-            throw new RuntimeException('The bundled LONGOS Product Reviews migration did not create its required table.');
+        if (! Schema::hasTable('longos_product_reviews')
+            || ! Schema::hasTable('longos_product_review_generation_batches')
+            || ! Schema::hasColumns('longos_product_reviews', ['content_source', 'generation_batch_id', 'staff_reviewed'])) {
+            throw new RuntimeException('The bundled LONGOS Product Reviews migrations did not create the required schema.');
         }
     }
 }

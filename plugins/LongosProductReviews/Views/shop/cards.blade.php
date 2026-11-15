@@ -21,6 +21,8 @@
 
     @if($review->verified_purchase)
       <p class="longos-review-card__verified"><i class="bi bi-patch-check-fill" aria-hidden="true"></i> {{ trans('LongosProductReviews::reviews.verified_purchase') }}</p>
+    @elseif($review->isGenerated())
+      <p class="longos-review-card__provided"><i class="bi bi-shop" aria-hidden="true"></i> {{ trans('LongosProductReviews::reviews.merchant_provided_content') }}</p>
     @endif
 
     <p class="longos-review-card__body">{{ $review->body }}</p>

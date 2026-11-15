@@ -9,6 +9,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Review extends Model
 {
+    public const SOURCE_MANUAL = 'manual';
+
+    public const SOURCE_GENERATED = 'generated';
+
     protected $table = 'longos_product_reviews';
 
     protected $fillable = [
@@ -23,6 +27,9 @@ class Review extends Model
         'published',
         'sort_order',
         'reviewed_at',
+        'content_source',
+        'generation_batch_id',
+        'staff_reviewed',
     ];
 
     protected $casts = [
@@ -32,6 +39,7 @@ class Review extends Model
         'published'         => 'boolean',
         'sort_order'        => 'integer',
         'reviewed_at'       => 'datetime',
+        'staff_reviewed'    => 'boolean',
     ];
 
     public function product(): BelongsTo
@@ -42,6 +50,11 @@ class Review extends Model
     public function scopePublished(Builder $query): Builder
     {
         return $query->where('published', true);
+    }
+
+    public function isGenerated(): bool
+    {
+        return $this->content_source === self::SOURCE_GENERATED;
     }
 
     public function scopeStorefrontOrder(Builder $query): Builder
