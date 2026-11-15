@@ -21,6 +21,67 @@
     </a>
   </div>
 
+  @include('LongosProductReviews::admin.ai_bulk')
+
+
+  <div class="card mb-3">
+    <div class="card-header fw-semibold">{{ trans('LongosProductReviews::reviews.ai_title') }}</div>
+    <div class="card-body">
+      <p class="text-muted small">{{ trans('LongosProductReviews::reviews.ai_notice') }}</p>
+      @if($errors->any())
+        <div class="alert alert-danger"><ul class="mb-0">@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>
+      @endif
+      <form method="post" action="{{ admin_route('longos_product_reviews.ai.key') }}" class="row g-2 align-items-end mb-3">
+        @csrf
+        <div class="col-md-7">
+          <label class="form-label" for="reviews-ai-key">SiliconFlow API Key ({{ $aiConfigured ? trans('LongosProductReviews::reviews.ai_configured') : trans('LongosProductReviews::reviews.ai_not_configured') }})</label>
+          <input id="reviews-ai-key" class="form-control" type="password" name="api_key" autocomplete="new-password" placeholder="sk-..." maxlength="512">
+        </div>
+        <div class="col-md-auto"><button class="btn btn-outline-primary" type="submit">{{ trans('LongosProductReviews::reviews.ai_save_key') }}</button></div>
+        @if($aiConfigured)
+          <div class="col-md-auto"><button class="btn btn-outline-danger" type="submit" name="clear_key" value="1" formnovalidate>{{ trans('LongosProductReviews::reviews.ai_remove_key') }}</button></div>
+        @endif
+      </form>
+      <form method="post" action="{{ admin_route('longos_product_reviews.ai.generate') }}" class="row g-3 align-items-end">
+        @csrf
+        <div class="col-lg-5">
+          <label class="form-label" for="reviews-ai-products">{{ trans('LongosProductReviews::reviews.ai_products') }}</label>
+          <textarea id="reviews-ai-products" class="form-control" name="product_ids" rows="2" placeholder="100101,100102,100103">{{ old('product_ids') }}</textarea>
+          <div class="form-text">{{ trans('LongosProductReviews::reviews.ai_products_help') }}</div>
+        </div>
+        <div class="col-sm-4 col-lg-2">
+          <label class="form-label" for="reviews-ai-limit">{{ trans('LongosProductReviews::reviews.ai_limit') }}</label>
+          <input id="reviews-ai-limit" type="number" name="limit" class="form-control" min="1" max="50" value="{{ old('limit', 10) }}" required>
+        </div>
+        <div class="col-sm-4 col-lg-2">
+          <label class="form-label" for="reviews-ai-count">{{ trans('LongosProductReviews::reviews.ai_per_product') }}</label>
+          <input id="reviews-ai-count" type="number" name="per_product" class="form-control" min="1" max="5" value="{{ old('per_product', 3) }}" required>
+        </div>
+        <div class="col-sm-4 col-lg-3">
+          <label class="form-label" for="reviews-ai-language">{{ trans('LongosProductReviews::reviews.ai_language') }}</label>
+          <select id="reviews-ai-language" name="language" class="form-select">
+            @foreach($aiLanguages as $code => $label)<option value="{{ $code }}" @selected(old('language', 'en') === $code)>{{ $label }}</option>@endforeach
+          </select>
+        </div>
+        <div class="col-md-8">
+          <label class="form-check-label"><input type="checkbox" class="form-check-input me-1" name="skip_reviewed" value="1" @checked(old('skip_reviewed'))> {{ trans('LongosProductReviews::reviews.ai_skip_reviewed') }}</label>
+        </div>
+        <div class="col-md-4 text-md-end">
+          <button class="btn btn-primary" type="submit" @disabled(!$aiConfigured)>{{ trans('LongosProductReviews::reviews.ai_generate') }}</button>
+        </div>
+      </form>
+      @if($aiBatch)
+        <div class="alert alert-secondary mt-3 mb-0">
+          {{ trans('LongosProductReviews::reviews.ai_progress') }}:
+          {{ $aiBatch['completed'] ?? 0 }}/{{ $aiBatch['total'] ?? 0 }};
+          {{ trans('LongosProductReviews::reviews.ai_created') }} {{ $aiBatch['created'] ?? 0 }};
+          {{ trans('LongosProductReviews::reviews.ai_failed') }} {{ $aiBatch['failed'] ?? 0 }}.
+          @if(($aiBatch['status'] ?? '') !== 'finished')<span class="small">{{ trans('LongosProductReviews::reviews.ai_refresh') }}</span>@endif
+        </div>
+      @endif
+    </div>
+  </div>
+
   <div class="row g-3 mb-4" aria-label="{{ trans('LongosProductReviews::reviews.menu') }}">
     <div class="col-6 col-xl-3"><div class="card review-stat-card h-100"><div class="card-body"><div class="text-muted small">{{ trans_choice('LongosProductReviews::reviews.review_count', $stats['total'], ['count' => $stats['total']]) }}</div><div class="fs-3 fw-semibold">{{ $stats['total'] }}</div></div></div></div>
     <div class="col-6 col-xl-3"><div class="card review-stat-card h-100"><div class="card-body"><div class="text-muted small">{{ trans('LongosProductReviews::reviews.status_published') }}</div><div class="fs-3 fw-semibold">{{ $stats['published'] }}</div><small class="text-muted">{{ trans('LongosProductReviews::reviews.draft_count') }}: {{ $stats['drafts'] }}</small></div></div></div>
@@ -85,7 +146,7 @@
                   <div><div class="fw-semibold">{{ $review->product?->description?->name ?: '#' . $review->product_id }}</div><small class="text-muted">#{{ $review->product_id }}</small></div>
                 </div>
               </td>
-              <td>{{ $review->author_name }}@if($review->author_country)<div class="small text-muted">{{ $review->author_country }}</div>@endif</td>
+              <td>{{ $review->author_name }}@if($review->ai_generated)<div><span class="badge bg-warning text-dark">{{ trans('LongosProductReviews::reviews.ai_demo_badge') }}</span></div>@endif @if($review->author_country)<div class="small text-muted">{{ $review->author_country }}</div>@endif</td>
               <td><span class="text-warning" aria-hidden="true">{{ str_repeat('★', $review->rating) }}</span><span class="visually-hidden">{{ trans('LongosProductReviews::reviews.out_of_five', ['rating' => $review->rating]) }}</span></td>
               <td style="max-width: 300px"><div class="fw-semibold text-truncate">{{ $review->title }}</div><small class="text-muted">{{ \Illuminate\Support\Str::limit($review->body, 80) }}</small></td>
               <td>
@@ -94,11 +155,13 @@
               </td>
               <td class="text-nowrap">{{ $review->reviewed_at?->format('Y-m-d') }}</td>
               <td class="text-end text-nowrap">
+                @if(! $review->ai_generated)
                 <form class="d-inline" method="post" action="{{ admin_route('longos_product_reviews.publication', $review) }}">
                   @csrf @method('PATCH')
                   <input type="hidden" name="published" value="{{ $review->published ? 0 : 1 }}">
                   <button class="btn btn-outline-{{ $review->published ? 'warning' : 'success' }} review-row-action" type="submit" title="{{ trans('LongosProductReviews::reviews.' . ($review->published ? 'unpublish_review' : 'publish_review')) }}" aria-label="{{ trans('LongosProductReviews::reviews.' . ($review->published ? 'unpublish_review' : 'publish_review')) }}"><i class="bi bi-{{ $review->published ? 'eye-slash' : 'eye' }}" aria-hidden="true"></i></button>
                 </form>
+                @endif
                 <a class="btn btn-outline-secondary review-row-action" href="{{ admin_route('longos_product_reviews.edit', $review) }}" aria-label="{{ trans('common.edit') }}"><i class="bi bi-pencil" aria-hidden="true"></i></a>
                 <form class="d-inline review-delete-form" method="post" action="{{ admin_route('longos_product_reviews.destroy', $review) }}" data-confirm="{{ trans('LongosProductReviews::reviews.confirm_delete') }}">
                   @csrf @method('DELETE')

@@ -116,6 +116,10 @@ class ReviewService
     /** @param array<string, mixed> $data */
     public function update(Review $review, array $data, array $uploads = [], array $remove = []): Review
     {
+        if ($review->ai_generated) {
+            $data['published'] = false;
+            $data['verified_purchase'] = false;
+        }
         $existing = array_values(array_filter((array) $review->images, 'is_string'));
         $remove   = array_values(array_intersect($existing, array_filter($remove, 'is_string')));
         $kept     = array_values(array_diff($existing, $remove));
@@ -148,6 +152,11 @@ class ReviewService
     public function setPublished(Review $review, bool $published): Review
     {
         $this->ensureReady();
+        if ($published && $review->ai_generated) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'published' => trans('LongosProductReviews::reviews.ai_draft_cannot_publish'),
+            ]);
+        }
         $review->forceFill(['published' => $published])->saveOrFail();
 
         return $review->refresh();

@@ -15,6 +15,10 @@
       <div><h2 class="h4 mb-1">{{ trans('LongosProductReviews::reviews.' . ($review->exists ? 'edit_review' : 'add_review')) }}</h2><p class="text-muted mb-0">{{ trans('LongosProductReviews::reviews.subtitle') }}</p></div>
     </div>
 
+    @if($review->ai_generated)
+      <div class="alert alert-warning" role="alert">{{ trans('LongosProductReviews::reviews.ai_draft_notice') }}</div>
+    @endif
+
     @if($errors->any())
       <div class="alert alert-danger" role="alert" tabindex="-1" id="review-form-errors">
         <div class="fw-semibold mb-1">{{ trans('common.error_form') }}</div>
@@ -73,8 +77,8 @@
       </div></div>
 
       <div class="card mb-3"><div class="card-body p-4">
-        <div class="form-check form-switch mb-3"><input type="hidden" name="published" value="0"><input id="review-published" class="form-check-input" type="checkbox" name="published" value="1" @checked((bool) old('published', $review->published ?? true))><label class="form-check-label" for="review-published">{{ trans('LongosProductReviews::reviews.published') }}</label></div>
-        <div class="form-check form-switch"><input type="hidden" name="verified_purchase" value="0"><input id="review-verified" class="form-check-input" type="checkbox" name="verified_purchase" value="1" @checked((bool) old('verified_purchase', $review->verified_purchase ?? true))><label class="form-check-label" for="review-verified">{{ trans('LongosProductReviews::reviews.verified') }}</label></div>
+        <div class="form-check form-switch mb-3"><input type="hidden" name="published" value="0"><input id="review-published" class="form-check-input" type="checkbox" name="published" value="1" @checked((bool) old('published', $review->published ?? true) && ! $review->ai_generated) @disabled($review->ai_generated)><label class="form-check-label" for="review-published">{{ trans('LongosProductReviews::reviews.published') }}</label></div>
+        <div class="form-check form-switch"><input type="hidden" name="verified_purchase" value="0"><input id="review-verified" class="form-check-input" type="checkbox" name="verified_purchase" value="1" @checked((bool) old('verified_purchase', $review->verified_purchase ?? true) && ! $review->ai_generated) @disabled($review->ai_generated)><label class="form-check-label" for="review-verified">{{ trans('LongosProductReviews::reviews.verified') }}</label></div>
       </div></div>
 
       <div class="review-form-actions"><a class="btn btn-outline-secondary" href="{{ admin_route('longos_product_reviews.index') }}">{{ trans('common.cancel') }}</a><button class="btn btn-primary px-4" type="submit" data-review-submit>{{ trans('common.save') }}</button></div>

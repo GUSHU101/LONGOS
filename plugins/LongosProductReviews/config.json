@@ -9,7 +9,7 @@
     "en": "Manage product-specific ratings, written reviews and review photos, with a storefront rating summary and review gallery."
   },
   "type": "feature",
-  "version": "v1.2.0",
+  "version": "v1.3.0",
   "icon": "/image/longos-favicon.svg",
   "author": {
     "name": "LONGOS",
