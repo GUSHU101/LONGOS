@@ -27,9 +27,13 @@ class AdminReviewGenerationController extends Controller
         $this->ensureReady();
         $batches->recoverStale();
         $batches->pruneExpired();
-        $batch = $batches->findOwned((string) $request->query('batch', ''));
+        $requestedBatch = (string) $request->query('batch', '');
+        $batch          = $requestedBatch !== ''
+            ? $batches->findOwned($requestedBatch)
+            : $batches->latestResumableOwned();
+        $recentBatches = $batches->recentOwned();
 
-        return $this->page($request, $settings->public(), $batches, $batch);
+        return $this->page($request, $settings->public(), $batches, $batch, $recentBatches);
     }
 
     public function saveSettings(GenerationSettingsRequest $request, SiliconFlowSettings $settings): RedirectResponse
@@ -153,6 +157,7 @@ class AdminReviewGenerationController extends Controller
         array $settings,
         ReviewGenerationBatchService $batches,
         ?ReviewGenerationBatch $batch = null,
+        iterable $recentBatches = [],
     ): View {
         $batchInput = [];
         $preview    = null;
@@ -185,6 +190,7 @@ class AdminReviewGenerationController extends Controller
             'batch',
             'batchInput',
             'preview',
+            'recentBatches',
         ));
     }
 

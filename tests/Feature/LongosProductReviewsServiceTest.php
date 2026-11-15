@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use PHPUnit\Framework\TestCase;
 use Plugin\LongosProductReviews\Controllers\AdminReviewController;
+use Plugin\LongosProductReviews\Controllers\AdminReviewGenerationController;
 use Plugin\LongosProductReviews\Exceptions\GenerationBatchException;
 use Plugin\LongosProductReviews\Jobs\GenerateReviewBatch;
 use Plugin\LongosProductReviews\Models\Review;
@@ -656,6 +657,7 @@ class LongosProductReviewsServiceTest extends TestCase
         ];
         $batches = app(ReviewGenerationBatchService::class);
         $batch   = $batches->create($input, 'XingChenAGI/Xing4.0-29B');
+        self::assertTrue($batch->expires_at->gt(now()->addDays(6)));
         self::assertStringNotContainsString('Private style example', $batch->request_ciphertext);
         self::assertSame($input, $batches->requestData($batch));
 
@@ -665,6 +667,8 @@ class LongosProductReviewsServiceTest extends TestCase
         $job->handle($batches, app(ReviewGenerationService::class));
         $batch->refresh();
         self::assertSame(ReviewGenerationBatch::STATUS_COMPLETED, $batch->status);
+        self::assertSame($batch->id, $batches->latestResumableOwned()?->id);
+        self::assertSame($batch->id, $batches->recentOwned()->first()?->id);
         self::assertSame(3, $batch->processed_count);
         self::assertStringNotContainsString('Convenient size', (string) $batch->result_ciphertext);
 
@@ -773,6 +777,44 @@ class LongosProductReviewsServiceTest extends TestCase
         self::assertTrue($replacement->wasRecentlyCreated);
     }
 
+    public function test_admin_pages_restore_the_latest_owned_generation_job_without_a_batch_query(): void
+    {
+        register('admin_user', (new \Beike\Models\AdminUser)->forceFill(['id' => 23]), true);
+        $batches = app(ReviewGenerationBatchService::class);
+        $batch   = $batches->create([
+            'product_id'      => 71,
+            'count'           => 2,
+            'date_from'       => '2026-10-01',
+            'date_to'         => '2026-10-10',
+            'rating_min'      => 4,
+            'rating_max'      => 5,
+            'countries'       => 'Japan',
+            'examples'        => 'An encrypted style example that is long enough.',
+            'output_language' => 'en-US',
+        ], 'XingChenAGI/Xing4.0-29B');
+
+        $reviewIndex = (new AdminReviewController)->index(
+            Request::create('/admin/product-reviews'),
+            $batches,
+        );
+        self::assertSame($batch->id, $reviewIndex->getData()['resumeGenerationBatch']?->id);
+        self::assertSame($batch->id, $reviewIndex->getData()['generationBatches']->first()?->id);
+        $tasksHtml = view('LongosProductReviews::admin.partials.generation_tasks', [
+            'generationBatches' => $reviewIndex->getData()['generationBatches'],
+            'watchTasks'        => true,
+        ])->render();
+        self::assertStringContainsString($batch->id, $tasksHtml);
+        self::assertStringContainsString('data-generation-task', $tasksHtml);
+
+        $generator = (new AdminReviewGenerationController)->index(
+            Request::create('/admin/product-reviews/generate'),
+            app(SiliconFlowSettings::class),
+            $batches,
+        );
+        self::assertSame($batch->id, $generator->getData()['batch']?->id);
+        self::assertSame($batch->id, $generator->getData()['recentBatches']->first()?->id);
+    }
+
     public function test_generated_meta_copy_is_rejected_again_before_storage_edit_and_publication(): void
     {
         $service = new ReviewService;
@@ -841,7 +883,7 @@ class LongosProductReviewsServiceTest extends TestCase
     public function test_review_admin_blade_templates_compile_with_generator_and_bulk_controls(): void
     {
         $compiler = app('blade.compiler');
-        foreach (['generate.blade.php', 'index.blade.php', 'form.blade.php'] as $file) {
+        foreach (['generate.blade.php', 'index.blade.php', 'form.blade.php', 'partials/generation_tasks.blade.php'] as $file) {
             $source   = (string) file_get_contents(base_path('plugins/LongosProductReviews/Views/admin/' . $file));
             $compiled = $compiler->compileString($source);
 

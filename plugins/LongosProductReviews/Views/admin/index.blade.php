@@ -17,7 +17,7 @@
       <p class="text-muted mb-0">{{ trans('LongosProductReviews::reviews.subtitle') }}</p>
     </div>
     <div class="d-flex flex-wrap gap-2">
-      <a class="btn btn-outline-primary" href="{{ admin_route('longos_product_reviews.generate') }}">
+      <a class="btn btn-outline-primary" href="{{ $resumeGenerationBatch ? admin_route('longos_product_reviews.generate', ['batch' => $resumeGenerationBatch->id]) : admin_route('longos_product_reviews.generate') }}">
         <i class="bi bi-stars" aria-hidden="true"></i> {{ trans('LongosProductReviews::reviews.ai_generate') }}
       </a>
       <a class="btn btn-primary" href="{{ admin_route('longos_product_reviews.create') }}">
@@ -25,6 +25,12 @@
       </a>
     </div>
   </div>
+
+  @include('LongosProductReviews::admin.partials.generation_tasks', [
+    'generationBatches' => $generationBatches,
+    'watchTasks' => true,
+    'showEmpty' => true,
+  ])
 
   <div class="row g-3 mb-4" aria-label="{{ trans('LongosProductReviews::reviews.menu') }}">
     <div class="col-6 col-xl-3"><div class="card review-stat-card h-100"><div class="card-body"><div class="text-muted small">{{ trans_choice('LongosProductReviews::reviews.review_count', $stats['total'], ['count' => $stats['total']]) }}</div><div class="fs-3 fw-semibold">{{ $stats['total'] }}</div></div></div></div>
@@ -175,5 +181,34 @@
     selectAll?.addEventListener('change', () => { selections.forEach((checkbox) => { checkbox.checked = selectAll.checked }); syncSelection() })
     selections.forEach((checkbox) => checkbox.addEventListener('change', syncSelection))
     syncSelection()
+
+    const generationTasks = [...document.querySelectorAll('[data-generation-task]')]
+    if (generationTasks.length) {
+      const progressTemplate = @json(trans('LongosProductReviews::reviews.ai_batch_progress', ['processed' => '__PROCESSED__', 'total' => '__TOTAL__']));
+      let pollingTasks = false
+      const pollGenerationTasks = async () => {
+        if (pollingTasks || document.hidden) return
+        pollingTasks = true
+        try {
+          const payloads = await Promise.all(generationTasks.map(async (task) => {
+            const response = await fetch(task.dataset.statusUrl, {headers:{Accept:'application/json'},credentials:'same-origin',cache:'no-store'})
+            if (!response.ok) throw new Error()
+            const payload = await response.json()
+            const progress = task.querySelector('[data-task-progress]')
+            if (progress) progress.textContent = progressTemplate.replace('__PROCESSED__', String(payload.processed || 0)).replace('__TOTAL__', String(payload.total || 0))
+            return payload
+          }))
+          if (payloads.some((payload) => payload.finished)) window.location.reload()
+        } catch (error) {
+          // Keep the last known task state visible and retry on the next interval.
+        } finally {
+          pollingTasks = false
+        }
+      }
+      const generationTaskTimer = window.setInterval(pollGenerationTasks, 3000)
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) pollGenerationTasks() })
+      window.addEventListener('pagehide', () => window.clearInterval(generationTaskTimer), {once:true})
+      pollGenerationTasks()
+    }
   </script>
 @endpush

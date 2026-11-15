@@ -10,13 +10,17 @@ use Illuminate\Http\Request;
 use Illuminate\View\View;
 use Plugin\LongosProductReviews\Models\Review;
 use Plugin\LongosProductReviews\Requests\ReviewRequest;
+use Plugin\LongosProductReviews\Services\ReviewGenerationBatchService;
 use Plugin\LongosProductReviews\Services\ReviewService;
 
 class AdminReviewController extends Controller
 {
-    public function index(Request $request): View
+    public function index(Request $request, ?ReviewGenerationBatchService $batchService = null): View
     {
         $this->ensureReady();
+        $batchService ??= app(ReviewGenerationBatchService::class);
+        $batchService->recoverStale();
+        $batchService->pruneExpired();
 
         $filters = [
             'q'          => trim((string) $request->query('q', '')),
@@ -67,9 +71,11 @@ class AdminReviewController extends Controller
         ];
 
         return view('LongosProductReviews::admin.index', [
-            'reviews' => $reviews->orderByDesc('reviewed_at')->orderByDesc('id')->paginate(20)->withQueryString(),
-            'filters' => $filters,
-            'stats'   => $stats,
+            'reviews'                => $reviews->orderByDesc('reviewed_at')->orderByDesc('id')->paginate(20)->withQueryString(),
+            'filters'                => $filters,
+            'stats'                  => $stats,
+            'generationBatches'      => $batchService->recentOwned(5),
+            'resumeGenerationBatch'  => $batchService->latestResumableOwned(),
         ]);
     }
 

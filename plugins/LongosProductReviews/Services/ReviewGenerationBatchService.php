@@ -12,7 +12,7 @@ use Plugin\LongosProductReviews\Models\ReviewGenerationBatch;
 
 class ReviewGenerationBatchService
 {
-    private const PREVIEW_TTL_MINUTES = 120;
+    private const PREVIEW_TTL_MINUTES = 10_080;
 
     /** @param array<string, mixed> $request */
     public function create(array $request, string $model): ReviewGenerationBatch
@@ -69,6 +69,47 @@ class ReviewGenerationBatchService
             ->with('product.description')
             ->whereKey($id)
             ->where('admin_user_id', (int) (current_user()?->id ?? 0))
+            ->first();
+    }
+
+    /** @return Collection<int, ReviewGenerationBatch> */
+    public function recentOwned(int $limit = 8): Collection
+    {
+        $ownerId = (int) (current_user()?->id ?? 0);
+        if ($ownerId < 1) {
+            return new Collection;
+        }
+
+        return ReviewGenerationBatch::query()
+            ->with('product.description')
+            ->where('admin_user_id', $ownerId)
+            ->where('expires_at', '>', now())
+            ->latest('created_at')
+            ->limit(min(20, max(1, $limit)))
+            ->get();
+    }
+
+    public function latestResumableOwned(): ?ReviewGenerationBatch
+    {
+        $ownerId = (int) (current_user()?->id ?? 0);
+        if ($ownerId < 1) {
+            return null;
+        }
+
+        return ReviewGenerationBatch::query()
+            ->with('product.description')
+            ->where('admin_user_id', $ownerId)
+            ->whereIn('status', [
+                ReviewGenerationBatch::STATUS_PENDING,
+                ReviewGenerationBatch::STATUS_RUNNING,
+                ReviewGenerationBatch::STATUS_COMPLETED,
+            ])
+            ->where('expires_at', '>', now())
+            ->orderByRaw('CASE status WHEN ? THEN 0 WHEN ? THEN 1 ELSE 2 END', [
+                ReviewGenerationBatch::STATUS_RUNNING,
+                ReviewGenerationBatch::STATUS_PENDING,
+            ])
+            ->latest('created_at')
             ->first();
     }
 

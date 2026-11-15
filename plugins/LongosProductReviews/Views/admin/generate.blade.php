@@ -32,6 +32,11 @@
       <div class="small mt-1">{{ trans('LongosProductReviews::reviews.ai_safety_help') }}</div>
     </div>
 
+    @include('LongosProductReviews::admin.partials.generation_tasks', [
+      'generationBatches' => $recentBatches,
+      'currentBatchId' => $batch?->id,
+    ])
+
     @if($batchActive)
       <div class="card border-primary mb-4" data-generation-batch data-status-url="{{ admin_route('longos_product_reviews.generate.status', ['batch' => $batch->id]) }}">
         <div class="card-body">
@@ -55,6 +60,8 @@
         <div class="mt-1">{{ $batch->error ?: trans('LongosProductReviews::reviews.ai_batch_failed') }}</div>
         <div class="small mt-2">{{ trans('LongosProductReviews::reviews.ai_batch_retry_help') }}</div>
       </div>
+    @elseif($batch && $batch->status === \Plugin\LongosProductReviews\Models\ReviewGenerationBatch::STATUS_COMPLETED)
+      <div class="alert alert-success" role="status"><i class="bi bi-check-circle" aria-hidden="true"></i> {{ trans('LongosProductReviews::reviews.ai_task_completed_notice') }} <a class="alert-link" href="#review-generation-preview">{{ trans('LongosProductReviews::reviews.ai_task_view_results') }}</a></div>
     @elseif($batch && $batch->status === \Plugin\LongosProductReviews\Models\ReviewGenerationBatch::STATUS_COMMITTED)
       <div class="alert alert-success" role="status"><i class="bi bi-check-circle" aria-hidden="true"></i> {{ trans('LongosProductReviews::reviews.ai_batch_already_committed') }}</div>
     @elseif($batch && $batch->status === \Plugin\LongosProductReviews\Models\ReviewGenerationBatch::STATUS_CANCELLED)
