@@ -8,6 +8,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Plugin\LongosProductReviews\Exceptions\GenerationBatchException;
+use Plugin\LongosProductReviews\Exceptions\RetryableSiliconFlowException;
 use Plugin\LongosProductReviews\Exceptions\SiliconFlowException;
 use Plugin\LongosProductReviews\Models\ReviewGenerationBatch;
 use Plugin\LongosProductReviews\Services\ReviewGenerationBatchService;
@@ -19,7 +20,7 @@ class GenerateReviewBatch implements ShouldQueue, TenantAware
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $tries = 1;
+    public int $tries = 4;
 
     public int $timeout = 3000;
 
@@ -36,6 +37,7 @@ class GenerateReviewBatch implements ShouldQueue, TenantAware
 
         try {
             $request = $batches->requestData($batch);
+            $this->applyInterfaceLocale($request);
             // Freeze each queued batch to the model selected at creation time, even if
             // an administrator changes the plugin setting while the job is waiting.
             $request['_model'] = $batch->model;
@@ -46,6 +48,13 @@ class GenerateReviewBatch implements ShouldQueue, TenantAware
             );
             $batches->complete($batch, $result);
         } catch (Throwable $exception) {
+            if ($exception instanceof RetryableSiliconFlowException && $this->attempts() < $this->tries) {
+                if ($batches->requeue($batch)) {
+                    $this->release(min(600, 60 * (2 ** max(0, $this->attempts() - 1))));
+                }
+
+                return;
+            }
             if (! $exception instanceof SiliconFlowException && ! $exception instanceof GenerationBatchException) {
                 report($exception);
             }
@@ -59,6 +68,14 @@ class GenerateReviewBatch implements ShouldQueue, TenantAware
     public function failed(?Throwable $exception): void
     {
         $batch = ReviewGenerationBatch::query()->find($this->batchId);
+        if ($batch) {
+            try {
+                $this->applyInterfaceLocale(app(ReviewGenerationBatchService::class)->requestData($batch));
+            } catch (Throwable) {
+                // Keep the worker's safe fallback locale if encrypted request
+                // data is unavailable during terminal failure handling.
+            }
+        }
         if ($batch && in_array($batch->status, [ReviewGenerationBatch::STATUS_PENDING, ReviewGenerationBatch::STATUS_RUNNING], true)) {
             app(ReviewGenerationBatchService::class)->fail(
                 $batch,
@@ -67,6 +84,15 @@ class GenerateReviewBatch implements ShouldQueue, TenantAware
         }
         if ($exception) {
             report($exception);
+        }
+    }
+
+    /** @param array<string, mixed> $request */
+    private function applyInterfaceLocale(array $request): void
+    {
+        $locale = (string) ($request['_interface_locale'] ?? '');
+        if (in_array($locale, ['en', 'zh_cn'], true)) {
+            app()->setLocale($locale);
         }
     }
 }

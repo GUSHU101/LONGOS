@@ -128,6 +128,15 @@ return [
         'batch_size' => min(50, max(5, (int) env('LONGOS_TRANSLATION_BATCH_SIZE', 20))),
     ],
 
+    /* Review generation is isolated from storefront and translation work.
+     * Each job can issue up to three model requests concurrently (30 reviews
+     * in groups of ten); the shared per-key/model RPM/TPM gate remains the
+     * final concurrency boundary. */
+    'product_reviews' => [
+        'queue'   => 'product-reviews',
+        'workers' => min(8, max(1, (int) env('LONGOS_PRODUCT_REVIEW_WORKERS', 3))),
+    ],
+
     'network' => [
         // Exact IPs/CIDRs of operator-controlled reverse proxies. Wildcards
         // are deliberately rejected by TrustProxies.

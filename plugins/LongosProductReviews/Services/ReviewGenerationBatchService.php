@@ -2,7 +2,9 @@
 
 namespace Plugin\LongosProductReviews\Services;
 
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -26,37 +28,30 @@ class ReviewGenerationBatchService
             throw new GenerationBatchException(trans('LongosProductReviews::reviews.ai_error_model'));
         }
 
-        return DB::transaction(function () use ($request, $model, $ownerId): ReviewGenerationBatch {
-            // Reuse an active product batch for this administrator. Besides
-            // preventing double-clicks, this avoids charging the tenant twice
-            // when a browser retries a timed-out form submission.
-            $active = ReviewGenerationBatch::query()
-                ->where('admin_user_id', $ownerId)
-                ->where('product_id', (int) $request['product_id'])
-                ->whereIn('status', [
-                    ReviewGenerationBatch::STATUS_PENDING,
-                    ReviewGenerationBatch::STATUS_RUNNING,
-                ])
-                ->where('expires_at', '>', now())
-                ->latest('created_at')
-                ->lockForUpdate()
-                ->first();
-            if ($active) {
+        $productId  = (int) $request['product_id'];
+        $connection = DB::connection();
+        $lockScope  = implode("\0", [
+            (string) (current_site()?->getKey() ?? current_site()?->code ?? ''),
+            (string) $connection->getName(),
+            (string) $connection->getDatabaseName(),
+            (string) $connection->getTablePrefix(),
+            (string) $ownerId,
+            (string) $productId,
+        ]);
+
+        try {
+            return Cache::lock('longos:product-reviews:create:' . hash('sha256', $lockScope), 15)
+                ->block(8, fn (): ReviewGenerationBatch => DB::transaction(
+                    fn (): ReviewGenerationBatch => $this->createOrReuse($request, $model, $ownerId, $productId),
+                ));
+        } catch (LockTimeoutException) {
+            $active = $this->activeOwnedProductBatch($ownerId, $productId);
+            if ($active !== null) {
                 return $active;
             }
 
-            return ReviewGenerationBatch::query()->create([
-                'id'                 => (string) Str::uuid(),
-                'admin_user_id'      => $ownerId,
-                'product_id'         => (int) $request['product_id'],
-                'status'             => ReviewGenerationBatch::STATUS_PENDING,
-                'model'              => $model,
-                'requested_count'    => (int) $request['count'],
-                'processed_count'    => 0,
-                'request_ciphertext' => $this->encrypt($request),
-                'expires_at'         => now()->addMinutes(self::PREVIEW_TTL_MINUTES),
-            ]);
-        });
+            throw new GenerationBatchException(trans('LongosProductReviews::reviews.ai_batch_create_busy'));
+        }
     }
 
     public function findOwned(string $id): ?ReviewGenerationBatch
@@ -203,6 +198,20 @@ class ReviewGenerationBatchService
             ]);
     }
 
+    public function requeue(ReviewGenerationBatch $batch): bool
+    {
+        return ReviewGenerationBatch::query()
+            ->whereKey($batch->id)
+            ->where('status', ReviewGenerationBatch::STATUS_RUNNING)
+            ->update([
+                'status'          => ReviewGenerationBatch::STATUS_PENDING,
+                'processed_count' => 0,
+                'started_at'      => null,
+                'error'           => null,
+                'updated_at'      => now(),
+            ]) === 1;
+    }
+
     public function cancel(string $id): ReviewGenerationBatch
     {
         return DB::transaction(function () use ($id): ReviewGenerationBatch {
@@ -299,7 +308,7 @@ class ReviewGenerationBatchService
     {
         $pending = ReviewGenerationBatch::query()
             ->where('status', ReviewGenerationBatch::STATUS_PENDING)
-            ->where('created_at', '<', now()->subMinutes(30))
+            ->where('updated_at', '<', now()->subMinutes(30))
             ->update([
                 'status'      => ReviewGenerationBatch::STATUS_FAILED,
                 'error'       => trans('LongosProductReviews::reviews.ai_batch_queue_stalled'),
@@ -322,7 +331,7 @@ class ReviewGenerationBatchService
     public function recoverIfStale(ReviewGenerationBatch $batch): ReviewGenerationBatch
     {
         if ($batch->status === ReviewGenerationBatch::STATUS_PENDING
-            && $batch->created_at?->lt(now()->subMinutes(30))) {
+            && $batch->updated_at?->lt(now()->subMinutes(30))) {
             $this->fail($batch, trans('LongosProductReviews::reviews.ai_batch_queue_stalled'));
         } elseif ($batch->status === ReviewGenerationBatch::STATUS_RUNNING
             && $batch->updated_at?->lt(now()->subMinutes(55))) {
@@ -357,5 +366,46 @@ class ReviewGenerationBatchService
         }
 
         return $decoded;
+    }
+
+    /** @param array<string, mixed> $request */
+    private function createOrReuse(array $request, string $model, int $ownerId, int $productId): ReviewGenerationBatch
+    {
+        // The distributed lock covers the empty-row race; this row lock covers
+        // updates once an active batch already exists.
+        $active = $this->activeOwnedProductBatch($ownerId, $productId, true);
+        if ($active !== null) {
+            return $active;
+        }
+
+        return ReviewGenerationBatch::query()->create([
+            'id'                 => (string) Str::uuid(),
+            'admin_user_id'      => $ownerId,
+            'product_id'         => $productId,
+            'status'             => ReviewGenerationBatch::STATUS_PENDING,
+            'model'              => $model,
+            'requested_count'    => (int) $request['count'],
+            'processed_count'    => 0,
+            'request_ciphertext' => $this->encrypt($request),
+            'expires_at'         => now()->addMinutes(self::PREVIEW_TTL_MINUTES),
+        ]);
+    }
+
+    private function activeOwnedProductBatch(int $ownerId, int $productId, bool $lock = false): ?ReviewGenerationBatch
+    {
+        $query = ReviewGenerationBatch::query()
+            ->where('admin_user_id', $ownerId)
+            ->where('product_id', $productId)
+            ->whereIn('status', [
+                ReviewGenerationBatch::STATUS_PENDING,
+                ReviewGenerationBatch::STATUS_RUNNING,
+            ])
+            ->where('expires_at', '>', now())
+            ->latest('created_at');
+        if ($lock) {
+            $query->lockForUpdate();
+        }
+
+        return $query->first();
     }
 }

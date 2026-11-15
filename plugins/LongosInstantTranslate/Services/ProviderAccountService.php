@@ -2,6 +2,7 @@
 
 namespace Plugin\LongosInstantTranslate\Services;
 
+use App\Services\SiliconFlowRateLimitCatalog;
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -13,7 +14,14 @@ final class ProviderAccountService
 {
     public const PROVIDERS = ['siliconflow', 'aliyun', 'volcengine', 'baidu', 'deepl', 'google', 'azure'];
 
-    public function __construct(private readonly ProviderRegistry $providers) {}
+    private readonly SiliconFlowRateLimitCatalog $rateLimits;
+
+    public function __construct(
+        private readonly ProviderRegistry $providers,
+        ?SiliconFlowRateLimitCatalog $rateLimits = null,
+    ) {
+        $this->rateLimits = $rateLimits ?? app(SiliconFlowRateLimitCatalog::class);
+    }
 
     /** @return array<string,array<string,mixed>> */
     public static function profiles(): array
@@ -29,7 +37,8 @@ final class ProviderAccountService
                     SiliconFlowProvider::DEFAULT_MODEL => 'Hunyuan-MT-7B · 专用翻译（当前免费）',
                     'XingChenAGI/Xing4.0-29B'          => 'Xing4.0-29B · 通用模型（当前免费）',
                 ],
-                'rate_only' => true,
+                'model_limits' => SiliconFlowRateLimitCatalog::bundledLevelProfiles(),
+                'rate_only'    => true,
             ],
             'aliyun' => [
                 'label'  => '阿里云机器翻译',
@@ -125,17 +134,26 @@ final class ProviderAccountService
 
         $credentials = array_map(static fn (mixed $value): string => trim((string) $value), $credentials);
         $this->providers->get($provider)->validateCredentialShape($credentials);
-        $identity = hash('sha256', $provider . "\0" . mb_strtolower($label, 'UTF-8'));
-        $existing = DB::table('lit_provider_accounts')->where('provider', $provider)->where('billing_identity_hash', $identity)->first();
-        $values   = [
+        $identity        = hash('sha256', $provider . "\0" . mb_strtolower($label, 'UTF-8'));
+        $existing        = DB::table('lit_provider_accounts')->where('provider', $provider)->where('billing_identity_hash', $identity)->first();
+        $automaticLimits = $provider === 'siliconflow'
+            ? $this->rateLimits->profile((string) ($credentials['model'] ?? ''))
+            : null;
+        $values = [
             'label'                    => $label,
             'credentials_ciphertext'   => Crypt::encryptString(json_encode($credentials, JSON_THROW_ON_ERROR)),
             'credential_fingerprint'   => hash('sha256', json_encode($credentials, JSON_THROW_ON_ERROR)),
             'credential_revision'      => max(1, (int) ($existing->credential_revision ?? 0) + 1),
             'priority'                 => max(1, min(1000, (int) ($input['priority'] ?? 100))),
-            'qps_limit'                => max(1, min(10, (int) ($input['qps_limit'] ?? 1))),
-            'rpm_limit'                => max(1, min(10000, (int) ($input['rpm_limit'] ?? 60))),
-            'tpm_limit'                => max(1, min(5000000, (int) ($input['tpm_limit'] ?? 80000))),
+            'qps_limit'                => $automaticLimits
+                ? min(10, max(1, (int) ceil($automaticLimits['rpm'] / 60)))
+                : max(1, min(10, (int) ($input['qps_limit'] ?? 1))),
+            'rpm_limit'                => $automaticLimits
+                ? $automaticLimits['rpm']
+                : max(1, min(10000, (int) ($input['rpm_limit'] ?? 60))),
+            'tpm_limit'                => $automaticLimits
+                ? $automaticLimits['tpm']
+                : max(1, min(5000000, (int) ($input['tpm_limit'] ?? 80000))),
             'monthly_character_limit'  => $provider === 'siliconflow' ? 0 : max(0, (int) ($input['monthly_character_limit'] ?? 0)),
             'enabled'                  => (bool) ($input['enabled'] ?? false),
             'dispatch_enabled'         => false,
@@ -186,6 +204,39 @@ final class ProviderAccountService
             'dispatch_enabled' => $enabled,
             'updated_at'       => now(),
         ]);
+    }
+
+    /** @param array<string, string> $credentials */
+    public function applyAutomaticRateLimits(object $account, array $credentials): object
+    {
+        if ((string) $account->provider !== 'siliconflow') {
+            return $account;
+        }
+        $limits = $this->rateLimits->profile((string) ($credentials['model'] ?? ''));
+        $values = [
+            'qps_limit' => min(10, max(1, (int) ceil($limits['rpm'] / 60))),
+            'rpm_limit' => $limits['rpm'],
+            'tpm_limit' => $limits['tpm'],
+        ];
+        if ((int) $account->qps_limit    !== $values['qps_limit']
+            || (int) $account->rpm_limit !== $values['rpm_limit']
+            || (int) $account->tpm_limit !== $values['tpm_limit']) {
+            DB::table('lit_provider_accounts')->where('id', $account->id)->update([
+                ...$values,
+                'rate_window_at'      => null,
+                'rate_request_count'  => 0,
+                'rate_token_estimate' => 0,
+                'updated_at'          => now(),
+            ]);
+            foreach ($values as $key => $value) {
+                $account->{$key} = $value;
+            }
+            $account->rate_window_at      = null;
+            $account->rate_request_count  = 0;
+            $account->rate_token_estimate = 0;
+        }
+
+        return $account;
     }
 
     public function disableAfterAuthFailure(int $id, string $code, ?string $traceId): void

@@ -26,9 +26,12 @@ Credentials are encrypted with Laravel's application key and are never
 returned by the admin page or storefront endpoints. Accounts must be saved,
 explicitly verified, and explicitly enabled for dispatch. Non-SiliconFlow
 accounts default to a local monthly character limit of zero, preventing paid
-usage until the merchant sets a budget. Provider priority, QPS, RPM and TPM
-limits are tenant-local. Authentication failures disable dispatch; 429 and
-503 responses enter cooldown and are retried by a later queue run.
+usage until the merchant sets a budget. SiliconFlow model RPM and TPM limits
+are refreshed from the official marketplace, cached for 24 hours, and applied
+automatically with 10% runtime headroom; other provider limits remain
+tenant-local. Authentication failures disable dispatch; classified RPM/TPM
+429 responses and 503 responses enter cooldown and are retried by a later
+queue run.
 
 SiliconFlow uses the official OpenAI-compatible endpoint
 `https://api.siliconflow.cn/v1/chat/completions` with `X-Trace-Id`. As of

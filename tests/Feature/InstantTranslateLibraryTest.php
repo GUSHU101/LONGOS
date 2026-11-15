@@ -2,13 +2,17 @@
 
 namespace Tests\Feature;
 
+use App\Services\SiliconFlowRateLimitCatalog;
+use App\Services\SiliconFlowRateLimiter;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\TestCase;
 use Plugin\LongosInstantTranslate\Providers\ProviderRegistry;
+use Plugin\LongosInstantTranslate\Providers\SiliconFlowProvider;
 use Plugin\LongosInstantTranslate\Providers\TranslationProviderInterface;
 use Plugin\LongosInstantTranslate\Providers\TranslationProviderRequest;
 use Plugin\LongosInstantTranslate\Providers\TranslationProviderResponse;
@@ -195,6 +199,42 @@ class InstantTranslateLibraryTest extends TestCase
         self::assertSame(1, (int) $entry->attempts);
         self::assertSame(0, (int) DB::table('lit_provider_usage')->value('reserved_units'));
         self::assertSame(1, (int) DB::table('lit_provider_usage')->value('request_count'));
+    }
+
+    public function test_siliconflow_provider_limits_are_automatically_selected_from_the_model(): void
+    {
+        $this->migrateLibrary();
+        $accounts  = new ProviderAccountService(new ProviderRegistry);
+        $accountId = $accounts->save([
+            'provider' => 'siliconflow', 'label' => 'automatic limits', 'enabled' => true,
+            'priority' => 1, 'qps_limit' => 1, 'rpm_limit' => 1, 'tpm_limit' => 1,
+        ], ['api_key' => 'test-key', 'model' => SiliconFlowProvider::DEFAULT_MODEL]);
+
+        $account = DB::table('lit_provider_accounts')->where('id', $accountId)->first();
+        self::assertSame(10, (int) $account->qps_limit);
+        self::assertSame(1000, (int) $account->rpm_limit);
+        self::assertSame(80_000, (int) $account->tpm_limit);
+
+        $account->rpm_limit = 2;
+        $account->tpm_limit = 3;
+        DB::table('lit_provider_accounts')->where('id', $accountId)->update(['rpm_limit' => 2, 'tpm_limit' => 3]);
+        $updated = $accounts->applyAutomaticRateLimits($account, [
+            'api_key' => 'test-key', 'model' => SiliconFlowProvider::DEFAULT_MODEL,
+        ]);
+        self::assertSame(1000, (int) $updated->rpm_limit);
+        self::assertSame(80_000, (int) $updated->tpm_limit);
+    }
+
+    public function test_siliconflow_limit_state_is_shared_between_plugin_callers_for_the_same_key_and_model(): void
+    {
+        Cache::flush();
+        $catalog   = app(SiliconFlowRateLimitCatalog::class);
+        $reviews   = new SiliconFlowRateLimiter($catalog);
+        $translate = new SiliconFlowRateLimiter($catalog);
+
+        self::assertSame(0, $reviews->reserveCapacity('shared-key', 'Unknown/FreeModel', 18_000));
+        self::assertGreaterThan(0, $translate->reserveCapacity('shared-key', 'Unknown/FreeModel', 1));
+        self::assertSame(0, $translate->reserveCapacity('other-key', 'Unknown/FreeModel', 1));
     }
 
     public function test_builder_disables_unreadable_credentials_without_poisoning_the_entry(): void

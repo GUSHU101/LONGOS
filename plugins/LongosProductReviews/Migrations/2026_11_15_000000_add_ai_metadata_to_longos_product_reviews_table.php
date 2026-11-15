@@ -27,9 +27,9 @@ return new class extends Migration
         if (! Schema::hasTable('longos_product_review_generation_batches')) {
             Schema::create('longos_product_review_generation_batches', function (Blueprint $table): void {
                 $table->uuid('id')->primary();
-                $table->unsignedBigInteger('admin_user_id')->index();
-                $table->unsignedBigInteger('product_id')->index();
-                $table->string('status', 24)->index();
+                $table->unsignedBigInteger('admin_user_id')->index('lprgb_admin_idx');
+                $table->unsignedBigInteger('product_id')->index('lprgb_product_idx');
+                $table->string('status', 24)->index('lprgb_status_idx');
                 $table->string('model', 160);
                 $table->unsignedSmallInteger('requested_count');
                 $table->unsignedSmallInteger('processed_count')->default(0);
@@ -38,7 +38,7 @@ return new class extends Migration
                 $table->text('error')->nullable();
                 $table->timestamp('started_at')->nullable();
                 $table->timestamp('finished_at')->nullable();
-                $table->timestamp('expires_at')->index();
+                $table->timestamp('expires_at')->index('lprgb_expires_idx');
                 $table->timestamps();
 
                 $table->index(['admin_user_id', 'created_at'], 'longos_review_gen_owner_index');

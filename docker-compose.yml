@@ -34,6 +34,9 @@ x-app-environment: &app-environment
   # the explicit limits saved by the operator.
   LONGOS_TRANSLATION_WORKERS: ${LONGOS_TRANSLATION_WORKERS:-12}
   LONGOS_TRANSLATION_BATCH_SIZE: ${LONGOS_TRANSLATION_BATCH_SIZE:-20}
+  # Product review generation has a separate worker pool and queue. Each job
+  # also distributes ten-review chunks across its configured model pool.
+  LONGOS_PRODUCT_REVIEW_WORKERS: ${LONGOS_PRODUCT_REVIEW_WORKERS:-3}
   LONGOS_DEPLOYMENT_PLATFORM: coolify
   LONGOS_UPDATER_ENABLED: "false"
   LONGOS_PROXY_TOKEN: ${SERVICE_PASSWORD_64_PROXYTOKEN}

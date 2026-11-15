@@ -2,24 +2,33 @@
 
 namespace Plugin\LongosProductReviews\Services;
 
+use App\Services\SiliconFlowRateLimitCatalog;
+use App\Services\SiliconFlowRateLimiter;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Plugin\LongosProductReviews\Exceptions\GenerationOutputException;
+use Plugin\LongosProductReviews\Exceptions\RetryableSiliconFlowException;
 use Plugin\LongosProductReviews\Exceptions\SiliconFlowException;
+use Throwable;
 
 class SiliconFlowClient
 {
     private const API_URL = 'https://api.siliconflow.cn/v1';
 
-    public function __construct(private readonly SiliconFlowSettings $settings) {}
+    public function __construct(
+        private readonly SiliconFlowSettings $settings,
+        private readonly SiliconFlowRateLimitCatalog $rateLimits,
+        private readonly SiliconFlowRateLimiter $rateLimiter,
+    ) {}
 
     /** @return list<string> */
     public function availableChatModels(): array
     {
-        $runtime  = $this->configuredRuntime();
-        $traceId  = (string) Str::uuid();
+        $runtime = $this->configuredRuntime();
+        $traceId = (string) Str::uuid();
 
         $response = $this->requestWithRetry(fn (): Response => Http::acceptJson()
             ->withHeaders(['X-Trace-Id' => $traceId])
@@ -43,25 +52,126 @@ class SiliconFlowClient
      */
     public function chatJson(array $messages, int $maxTokens = 4096, ?string $model = null): array
     {
-        $runtime  = $this->configuredRuntime();
-        $traceId  = (string) Str::uuid();
-        $model    = $this->model($model);
+        $runtime      = $this->configuredRuntime();
+        $traceId      = (string) Str::uuid();
+        $model        = $this->model($model);
+        $maxTokens    = max(512, min(8192, $maxTokens));
+        $tokenCeiling = $this->tokenCeiling($messages, $maxTokens);
 
-        $response = $this->requestWithRetry(fn (): Response => Http::acceptJson()
-            ->asJson()
-            ->withHeaders(['X-Trace-Id' => $traceId])
-            ->withToken($runtime['api_key'])
-            ->connectTimeout(5)
-            ->timeout($runtime['timeout'])
-            ->post(self::API_URL . '/chat/completions', [
-                'model'           => $model,
-                'messages'        => $messages,
-                'response_format' => ['type' => 'json_object'],
-                'temperature'     => 0.85,
-                'max_tokens'      => max(512, min(8192, $maxTokens)),
-                'stream'          => false,
-            ]));
+        $response = $this->requestWithRetry(
+            fn (): Response => Http::acceptJson()
+                ->asJson()
+                ->withHeaders(['X-Trace-Id' => $traceId])
+                ->withToken($runtime['api_key'])
+                ->connectTimeout(min(12, $runtime['timeout']))
+                ->timeout($runtime['timeout'])
+                ->post(self::API_URL . '/chat/completions', $this->requestBody($messages, $maxTokens, $model)),
+            beforeAttempt: fn () => $this->rateLimiter->awaitCapacity($runtime['api_key'], $model, $tokenCeiling),
+            onRateLimit: function (Response $response) use ($runtime, $model): void {
+                $this->rateLimiter->penalize($runtime['api_key'], $model, $this->retryDelaySeconds($response));
+            },
+        );
         $this->assertSuccessful($response);
+
+        return $this->decodeResponse($response);
+    }
+
+    /**
+     * @param list<array{messages:list<array{role:string,content:string}>,max_tokens:int,model:string}> $requests
+     * @return list<array<string, mixed>>
+     */
+    public function chatJsonMany(array $requests): array
+    {
+        if ($requests === []) {
+            return [];
+        }
+        $runtime  = $this->configuredRuntime();
+        $prepared = [];
+        $ready    = [];
+        foreach (array_values($requests) as $index => $request) {
+            $messages         = $request['messages'];
+            $model            = $this->model($request['model']);
+            $maxTokens        = max(512, min(8192, (int) $request['max_tokens']));
+            $tokenCeiling     = $this->tokenCeiling($messages, $maxTokens);
+            $prepared[$index] = [
+                'messages'      => $messages,
+                'model'         => $model,
+                'max_tokens'    => $maxTokens,
+                'token_ceiling' => $tokenCeiling,
+                'trace_id'      => (string) Str::uuid(),
+            ];
+            if ($this->rateLimiter->reserveCapacity($runtime['api_key'], $model, $tokenCeiling) === 0) {
+                $ready[$index] = $prepared[$index];
+            }
+        }
+
+        $responses = [];
+        if ($ready !== []) {
+            $responses = Http::pool(function (Pool $pool) use ($ready, $runtime): void {
+                foreach ($ready as $index => $request) {
+                    $pool->as((string) $index)
+                        ->acceptJson()
+                        ->asJson()
+                        ->withHeaders(['X-Trace-Id' => $request['trace_id']])
+                        ->withToken($runtime['api_key'])
+                        ->connectTimeout(min(12, $runtime['timeout']))
+                        ->timeout($runtime['timeout'])
+                        ->post(
+                            self::API_URL . '/chat/completions',
+                            $this->requestBody($request['messages'], $request['max_tokens'], $request['model']),
+                        );
+                }
+            }, min(SiliconFlowSettings::MAX_MODELS, count($ready)));
+        }
+
+        $decoded = [];
+        foreach ($prepared as $index => $request) {
+            $response = $responses[(string) $index] ?? null;
+            if ($response instanceof Response && $response->successful()) {
+                try {
+                    $decoded[$index] = $this->decodeResponse($response);
+                } catch (GenerationOutputException) {
+                    $decoded[$index] = $this->chatJson(
+                        $request['messages'],
+                        $request['max_tokens'],
+                        $request['model'],
+                    );
+                }
+
+                continue;
+            }
+            if ($response instanceof Response && $response->status() === 429) {
+                $this->rateLimiter->penalize(
+                    $runtime['api_key'],
+                    $request['model'],
+                    $this->retryDelaySeconds($response),
+                );
+            } elseif ($response instanceof Response && ! in_array($response->status(), [408, 425, 500, 502, 503, 504], true)) {
+                $this->assertSuccessful($response);
+            } elseif ($response instanceof Throwable && ! $response instanceof ConnectionException) {
+                throw new RetryableSiliconFlowException(
+                    trans('LongosProductReviews::reviews.ai_error_connection'),
+                    previous: $response,
+                );
+            }
+
+            // A deferred admission or failed pooled request is retried through
+            // the normal bounded path. Already-ready models are never held back
+            // by another model's cooldown window.
+            $decoded[$index] = $this->chatJson(
+                $request['messages'],
+                $request['max_tokens'],
+                $request['model'],
+            );
+        }
+        ksort($decoded);
+
+        return array_values($decoded);
+    }
+
+    /** @return array<string, mixed> */
+    private function decodeResponse(Response $response): array
+    {
 
         $finishReason = trim((string) $response->json('choices.0.finish_reason', ''));
         if ($finishReason === 'length') {
@@ -112,7 +222,28 @@ class SiliconFlowClient
         return $this->configuredRuntime()['model'];
     }
 
-    /** @return array{api_key:string,model:string,timeout:int} */
+    /** @return list<string> */
+    public function configuredModels(): array
+    {
+        return $this->configuredRuntime()['models'];
+    }
+
+    /** @return array{model:string,level:int,rpm:int,tpm:int,source:string} */
+    public function configuredRateLimits(bool $refresh = false): array
+    {
+        return $this->rateLimits->profile($this->configuredModel(), refresh: $refresh);
+    }
+
+    /** @return list<array{model:string,level:int,rpm:int,tpm:int,source:string}> */
+    public function configuredRateLimitProfiles(bool $refresh = false): array
+    {
+        return array_map(
+            fn (string $model): array => $this->rateLimits->profile($model, refresh: $refresh),
+            $this->configuredModels(),
+        );
+    }
+
+    /** @return array{api_key:string,model:string,models:list<string>,timeout:int} */
     private function configuredRuntime(): array
     {
         $runtime = $this->settings->runtime();
@@ -123,21 +254,56 @@ class SiliconFlowClient
         return $runtime;
     }
 
-    /** @param callable(): Response $request */
-    private function requestWithRetry(callable $request): Response
+    /** @param list<array{role:string,content:string}> $messages */
+    private function tokenCeiling(array $messages, int $maxTokens): int
+    {
+        return array_sum(array_map(
+            static fn (array $message): int => strlen((string) ($message['content'] ?? '')),
+            $messages,
+        )) + $maxTokens + 128;
+    }
+
+    /** @param list<array{role:string,content:string}> $messages
+     * @return array<string, mixed>
+     */
+    private function requestBody(array $messages, int $maxTokens, string $model): array
+    {
+        return [
+            'model'           => $model,
+            'messages'        => $messages,
+            'response_format' => ['type' => 'json_object'],
+            'temperature'     => 0.85,
+            'max_tokens'      => $maxTokens,
+            'stream'          => false,
+        ];
+    }
+
+    /** @param callable(): Response $request
+     * @param (callable(): void)|null         $beforeAttempt
+     * @param (callable(Response): void)|null $onRateLimit
+     */
+    private function requestWithRetry(callable $request, ?callable $beforeAttempt = null, ?callable $onRateLimit = null): Response
     {
         $lastConnectionException = null;
-        foreach (range(1, 3) as $attempt) {
+        foreach (range(1, 6) as $attempt) {
             try {
+                if ($beforeAttempt !== null) {
+                    $beforeAttempt();
+                }
                 $response = $request();
-                if (! in_array($response->status(), [408, 425, 429, 500, 502, 503, 504], true) || $attempt === 3) {
+                if (! in_array($response->status(), [408, 425, 429, 500, 502, 503, 504], true) || $attempt === 6) {
                     return $response;
+                }
+                if ($response->status() === 429) {
+                    if ($onRateLimit !== null) {
+                        $onRateLimit($response);
+                    }
                 }
 
                 $delayMs = $this->retryDelayMs($response, $attempt);
             } catch (ConnectionException $exception) {
                 $lastConnectionException = $exception;
-                if ($attempt === 3) {
+                if ($attempt >= 4) {
                     break;
                 }
                 $delayMs = $this->retryDelayMs(null, $attempt);
@@ -145,7 +311,7 @@ class SiliconFlowClient
             usleep($delayMs * 1000);
         }
 
-        throw new SiliconFlowException(
+        throw new RetryableSiliconFlowException(
             trans('LongosProductReviews::reviews.ai_error_connection'),
             previous: $lastConnectionException,
         );
@@ -167,10 +333,25 @@ class SiliconFlowClient
         }
 
         $base = $seconds === null
-            ? min(2500, 250 * (2 ** max(0, $attempt - 1)))
-            : min(10000, $seconds * 1000);
+            ? ($response?->status() === 429
+                ? 60_000
+                : min(15_000, 500 * (2 ** max(0, $attempt - 1))))
+            : min(120_000, $seconds * 1000);
 
-        return $base + random_int(0, min(250, max(25, (int) ($base / 4))));
+        return $base + random_int(0, min(1000, max(50, (int) ($base / 10))));
+    }
+
+    private function retryDelaySeconds(Response $response): int
+    {
+        $retryAfter = trim((string) $response->header('Retry-After'));
+        if (ctype_digit($retryAfter)) {
+            return min(600, max(5, (int) $retryAfter));
+        }
+        if ($retryAfter !== '' && ($timestamp = strtotime($retryAfter)) !== false) {
+            return min(600, max(5, $timestamp - time()));
+        }
+
+        return 60;
     }
 
     private function assertSuccessful(Response $response): void
@@ -182,7 +363,11 @@ class SiliconFlowClient
         $message = match ($response->status()) {
             401, 403 => trans('LongosProductReviews::reviews.ai_error_auth'),
             404      => trans('LongosProductReviews::reviews.ai_error_model'),
-            429      => trans('LongosProductReviews::reviews.ai_error_rate_limit'),
+            429      => trans('LongosProductReviews::reviews.' . match (SiliconFlowRateLimitCatalog::rateLimitCode((array) $response->json())) {
+                'RATE_LIMIT_TPM' => 'ai_error_rate_limit_tpm',
+                'RATE_LIMIT_RPM' => 'ai_error_rate_limit_rpm',
+                default          => 'ai_error_rate_limit',
+            }),
             503, 504 => trans('LongosProductReviews::reviews.ai_error_unavailable'),
             default  => trans('LongosProductReviews::reviews.ai_error_request', ['status' => $response->status()]),
         };
@@ -191,6 +376,10 @@ class SiliconFlowClient
             $message .= ' ' . trans('LongosProductReviews::reviews.ai_trace_id', ['id' => $traceId]);
         }
 
-        throw new SiliconFlowException($message);
+        $exception = in_array($response->status(), [408, 425, 429, 500, 502, 503, 504], true)
+            ? RetryableSiliconFlowException::class
+            : SiliconFlowException::class;
+
+        throw new $exception($message);
     }
 }

@@ -2,6 +2,7 @@
 
 namespace Plugin\LongosInstantTranslate\Providers;
 
+use App\Services\SiliconFlowRateLimitCatalog;
 use InvalidArgumentException;
 use Plugin\LongosInstantTranslate\Services\TextContract;
 
@@ -89,7 +90,7 @@ final class SiliconFlowProvider extends AbstractTranslationProvider
                 401, 403 => 'AUTH',
                 404     => 'NOT_OPENED',
                 402     => 'BALANCE_EXHAUSTED',
-                429     => 'RATE_LIMIT',
+                429     => SiliconFlowRateLimitCatalog::rateLimitCode($payload),
                 503     => 'SERVICE_OVERLOADED',
                 default => 'SILICONFLOW_HTTP_' . $status,
             }, totalTokens: $totalTokens, retryAfterSeconds: $retryAfter);
@@ -113,6 +114,9 @@ final class SiliconFlowProvider extends AbstractTranslationProvider
     {
         if ($failure instanceof TranslationProviderResponse && $failure->errorCode === 'SERVICE_OVERLOADED') {
             return ['kind' => 'definite_failure', 'code' => 'SERVICE_OVERLOADED', 'definitely_unbilled' => true];
+        }
+        if ($failure instanceof TranslationProviderResponse && str_starts_with((string) $failure->errorCode, 'RATE_LIMIT')) {
+            return ['kind' => 'definite_failure', 'code' => (string) $failure->errorCode, 'definitely_unbilled' => true];
         }
 
         return parent::classifyFailure($failure);

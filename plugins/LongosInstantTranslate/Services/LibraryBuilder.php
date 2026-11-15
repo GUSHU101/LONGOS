@@ -2,6 +2,7 @@
 
 namespace Plugin\LongosInstantTranslate\Services;
 
+use App\Services\SiliconFlowRateLimiter;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Plugin\LongosInstantTranslate\Providers\ProviderRegistry;
@@ -11,10 +12,15 @@ use Throwable;
 
 final class LibraryBuilder
 {
+    private readonly SiliconFlowRateLimiter $siliconFlowRateLimiter;
+
     public function __construct(
         private readonly ProviderRegistry $providers,
         private readonly ProviderAccountService $accounts,
-    ) {}
+        ?SiliconFlowRateLimiter $siliconFlowRateLimiter = null,
+    ) {
+        $this->siliconFlowRateLimiter = $siliconFlowRateLimiter ?? app(SiliconFlowRateLimiter::class);
+    }
 
     /** @return array{state:string,entry_id?:int,provider?:string,error?:string} */
     public function processOne(bool $force = false): array
@@ -40,7 +46,8 @@ final class LibraryBuilder
             return ['state' => 'idle'];
         }
 
-        $sawTransient = false;
+        $sawTransient      = false;
+        $minimumRetryDelay = null;
 
         try {
             foreach ($candidates as $account) {
@@ -54,6 +61,9 @@ final class LibraryBuilder
                 try {
                     $credentials = $this->accounts->credentials($account);
                     $provider->validateCredentialShape($credentials);
+                    if ($provider instanceof SiliconFlowProvider) {
+                        $account = $this->accounts->applyAutomaticRateLimits($account, $credentials);
+                    }
                 } catch (Throwable $exception) {
                     $code = $this->localConfigurationCode($exception);
                     $this->accounts->disableAfterAuthFailure((int) $account->id, $code, null);
@@ -64,13 +74,6 @@ final class LibraryBuilder
                 $units = mb_strlen((string) $entry->source_text, 'UTF-8');
                 if (! $this->reserveUsage($account, $units)) {
                     $this->cooldown($account, 'BALANCE_EXHAUSTED', null, 3600);
-                    $sawTransient = true;
-
-                    continue;
-                }
-                $wait = $this->reservePace($account, strlen((string) $entry->source_text) * 2 + 512);
-                if ($wait > 0) {
-                    $this->settleUsage($account, $units, 'release');
                     $sawTransient = true;
 
                     continue;
@@ -94,6 +97,21 @@ final class LibraryBuilder
                             'profile_version' => 'lit-v1',
                         ],
                     );
+                    $tokenEstimate = $provider instanceof SiliconFlowProvider
+                        ? $provider->tokenCeiling($request, (string) $credentials['model'])
+                        : strlen((string) $entry->source_text) * 2 + 512;
+                    $wait = $this->reservePace(
+                        $account,
+                        $tokenEstimate,
+                        $provider instanceof SiliconFlowProvider ? $credentials : null,
+                    );
+                    if ($wait > 0) {
+                        $this->settleUsage($account, $units, 'release');
+                        $sawTransient      = true;
+                        $minimumRetryDelay = $minimumRetryDelay === null ? $wait : min($minimumRetryDelay, $wait);
+
+                        continue;
+                    }
                     $this->markAttempt($entry);
                     $response         = $provider->send($request, $credentials);
                     $responseReceived = true;
@@ -117,10 +135,19 @@ final class LibraryBuilder
 
                         continue;
                     }
-                    if (in_array($code, ['RATE_LIMIT', 'SERVICE_OVERLOADED'], true)) {
+                    if (str_starts_with($code, 'RATE_LIMIT') || $code === 'SERVICE_OVERLOADED') {
                         $this->settleUsage($account, $units, 'release');
-                        $this->cooldown($account, $code, $response->requestId, $response->retryAfterSeconds ?? ($code === 'RATE_LIMIT' ? 60 : 120));
-                        $sawTransient = true;
+                        $retryDelay = $response->retryAfterSeconds ?? (str_starts_with($code, 'RATE_LIMIT') ? 65 : 120);
+                        if ($provider instanceof SiliconFlowProvider && str_starts_with($code, 'RATE_LIMIT')) {
+                            $this->siliconFlowRateLimiter->penalize(
+                                (string) ($credentials['api_key'] ?? ''),
+                                (string) ($credentials['model'] ?? ''),
+                                $retryDelay,
+                            );
+                        }
+                        $this->cooldown($account, $code, $response->requestId, $retryDelay);
+                        $sawTransient      = true;
+                        $minimumRetryDelay = $minimumRetryDelay === null ? $retryDelay : min($minimumRetryDelay, $retryDelay);
 
                         continue;
                     }
@@ -153,7 +180,8 @@ final class LibraryBuilder
                     if ($failure['definitely_unbilled']) {
                         $this->settleUsage($account, $units, 'release');
                         if ($failure['code'] === 'NETWORK_CONNECT_FAILED') {
-                            $sawTransient = true;
+                            $sawTransient      = true;
+                            $minimumRetryDelay = $minimumRetryDelay === null ? 30 : min($minimumRetryDelay, 30);
 
                             continue;
                         }
@@ -169,7 +197,11 @@ final class LibraryBuilder
                 }
             }
 
-            $this->release($entry, $sawTransient ? 'PROVIDER_BUSY' : 'NO_SUPPORTED_PROVIDER', $sawTransient ? 120 : 600);
+            $this->release(
+                $entry,
+                $sawTransient ? 'PROVIDER_BUSY' : 'NO_SUPPORTED_PROVIDER',
+                $sawTransient ? ($minimumRetryDelay ?? 120) : 600,
+            );
 
             return ['state' => $sawTransient ? 'delayed' : 'no_provider', 'entry_id' => (int) $entry->id];
         } catch (Throwable $exception) {
@@ -191,6 +223,9 @@ final class LibraryBuilder
 
         try {
             $credentials = $this->accounts->credentials($account);
+            if ($provider instanceof SiliconFlowProvider) {
+                $account = $this->accounts->applyAutomaticRateLimits($account, $credentials);
+            }
             $request     = new TranslationProviderRequest(
                 requestUuid: (string) Str::uuid(),
                 providerAccountId: (int) $account->id,
@@ -278,9 +313,10 @@ final class LibraryBuilder
         return 'INVALID_PROVIDER_CONFIGURATION';
     }
 
-    private function reservePace(object $account, int $tokenEstimate): int
+    /** @param array<string,string>|null $siliconFlowCredentials */
+    private function reservePace(object $account, int $tokenEstimate, ?array $siliconFlowCredentials = null): int
     {
-        return DB::transaction(function () use ($account, $tokenEstimate): int {
+        return DB::transaction(function () use ($account, $tokenEstimate, $siliconFlowCredentials): int {
             $fresh     = DB::table('lit_provider_accounts')->where('id', $account->id)->lockForUpdate()->first();
             $minimumUs = (int) ceil(1_000_000 / max(1, (int) $fresh->qps_limit));
             $nowUs     = (int) floor(microtime(true) * 1_000_000);
@@ -292,7 +328,19 @@ final class LibraryBuilder
             $expired  = $windowAt === null || $windowAt->lte(now()->subMinute());
             $requests = $expired ? 0 : (int) $fresh->rate_request_count;
             $tokens   = $expired ? 0 : (int) $fresh->rate_token_estimate;
-            if ($requests >= (int) $fresh->rpm_limit || $tokens + $tokenEstimate > (int) $fresh->tpm_limit) {
+            if ($siliconFlowCredentials !== null) {
+                $sharedWait = $this->siliconFlowRateLimiter->reserveCapacity(
+                    (string) ($siliconFlowCredentials['api_key'] ?? ''),
+                    (string) ($siliconFlowCredentials['model'] ?? ''),
+                    $tokenEstimate,
+                );
+                if ($sharedWait > 0) {
+                    return $sharedWait;
+                }
+            }
+            $limits = ['rpm' => (int) $fresh->rpm_limit, 'tpm' => (int) $fresh->tpm_limit];
+            if ($siliconFlowCredentials === null
+                && ($requests >= $limits['rpm'] || $tokens + $tokenEstimate > $limits['tpm'])) {
                 if ($windowAt === null) {
                     return 60;
                 }

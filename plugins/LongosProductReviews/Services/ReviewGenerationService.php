@@ -53,7 +53,15 @@ class ReviewGenerationService
             'name'        => trim((string) ($product->description?->name ?: '#' . $product->id)),
             'description' => Str::limit($this->plainText((string) ($product->description?->content ?? '')), 3000, ''),
         ];
-        $model = $this->client->model((string) ($data['_model'] ?? ''));
+        $requestedModels = array_values(array_filter(
+            (array) ($data['_models'] ?? []),
+            static fn (mixed $model): bool => is_string($model) && trim($model) !== '',
+        ));
+        $primaryModel = trim((string) ($data['_model'] ?? ($requestedModels[0] ?? '')));
+        if ($primaryModel === '') {
+            $primaryModel = $this->client->model();
+        }
+        $models = SiliconFlowSettings::parseModels($primaryModel, implode("\n", $requestedModels));
 
         $items             = [];
         $signatures        = [];
@@ -78,17 +86,50 @@ class ReviewGenerationService
             }
             $recentReviewsSeen++;
         }
-        foreach (array_chunk($specifications, self::CHUNK_SIZE) as $chunk) {
-            $generated = $this->generateUniqueChunk(
-                $productData,
-                $chunk,
-                (string) $data['examples'],
-                (string) $data['output_language'],
-                $signatures,
-                $authors,
-                $knownFingerprints,
-                $model,
-            );
+        $chunks    = array_values(array_chunk($specifications, self::CHUNK_SIZE));
+        $responses = count($chunks) > 1
+            ? $this->client->chatJsonMany(array_map(
+                fn (array $chunk, int $index): array => $this->chunkRequest(
+                    $productData,
+                    $chunk,
+                    (string) $data['examples'],
+                    (string) $data['output_language'],
+                    $models[$index % count($models)],
+                ),
+                $chunks,
+                array_keys($chunks),
+            ))
+            : [];
+        foreach ($chunks as $chunkIndex => $chunk) {
+            $model = $models[$chunkIndex % count($models)];
+            if ($responses === []) {
+                $generated = $this->generateUniqueChunk(
+                    $productData,
+                    $chunk,
+                    (string) $data['examples'],
+                    (string) $data['output_language'],
+                    $signatures,
+                    $authors,
+                    $knownFingerprints,
+                    $model,
+                );
+            } else {
+                try {
+                    $generated = $this->parseChunkResponse($responses[$chunkIndex], $productData, $chunk);
+                    $this->assertChunkUnique($generated, $signatures, $authors, $knownFingerprints);
+                } catch (GenerationOutputException) {
+                    $generated = $this->generateUniqueChunk(
+                        $productData,
+                        $chunk,
+                        (string) $data['examples'],
+                        (string) $data['output_language'],
+                        $signatures,
+                        $authors,
+                        $knownFingerprints,
+                        $model,
+                    );
+                }
+            }
             foreach ($generated as $item) {
                 $signature                                    = $this->signature($item['title'], $item['body']);
                 $signatures[$signature]                       = true;
@@ -109,7 +150,8 @@ class ReviewGenerationService
             'batch_id'     => $batchId !== null && Str::isUuid($batchId) ? $batchId : (string) Str::uuid(),
             'product_id'   => (int) $product->id,
             'product_name' => $productData['name'],
-            'model'        => $model,
+            'model'        => $models[0],
+            'models'       => $models,
             'items'        => $items,
         ];
     }
@@ -178,25 +220,7 @@ class ReviewGenerationService
         foreach (range(1, 2) as $attempt) {
             try {
                 $generated         = $this->generateChunk($product, $specifications, $examples, $language, $model, $retryGuidance);
-                $chunkSignatures   = [];
-                $chunkAuthors      = [];
-                $chunkFingerprints = [];
-                foreach ($generated as $item) {
-                    $signature   = $this->signature($item['title'], $item['body']);
-                    $author      = mb_strtolower($item['author_name']);
-                    $fingerprint = $this->fingerprint($item['title'] . ' ' . $item['body']);
-                    if (isset($knownSignatures[$signature]) || isset($chunkSignatures[$signature])
-                                                            || isset($knownAuthors[$author]) || isset($chunkAuthors[$author])
-                                                            || $this->isNearDuplicate($fingerprint, $knownFingerprints)
-                                                            || $this->isNearDuplicate($fingerprint, $chunkFingerprints)) {
-                        throw new GenerationOutputException(trans('LongosProductReviews::reviews.ai_error_duplicate'));
-                    }
-                    $chunkSignatures[$signature] = true;
-                    $chunkAuthors[$author]       = true;
-                    if ($fingerprint !== []) {
-                        $chunkFingerprints[] = $fingerprint;
-                    }
-                }
+                $this->assertChunkUnique($generated, $knownSignatures, $knownAuthors, $knownFingerprints);
 
                 return $generated;
             } catch (GenerationOutputException $exception) {
@@ -208,11 +232,62 @@ class ReviewGenerationService
         throw $lastException ?? new GenerationOutputException(trans('LongosProductReviews::reviews.ai_error_schema'));
     }
 
+    /**
+     * @param list<array<string,mixed>> $generated
+     * @param array<string,bool>        $knownSignatures
+     * @param array<string,bool>        $knownAuthors
+     * @param list<array<string,true>>  $knownFingerprints
+     */
+    private function assertChunkUnique(
+        array $generated,
+        array $knownSignatures,
+        array $knownAuthors,
+        array $knownFingerprints,
+    ): void {
+        $chunkSignatures   = [];
+        $chunkAuthors      = [];
+        $chunkFingerprints = [];
+        foreach ($generated as $item) {
+            $signature   = $this->signature((string) $item['title'], (string) $item['body']);
+            $author      = mb_strtolower((string) $item['author_name']);
+            $fingerprint = $this->fingerprint((string) $item['title'] . ' ' . (string) $item['body']);
+            if (isset($knownSignatures[$signature]) || isset($chunkSignatures[$signature])
+                                                    || isset($knownAuthors[$author]) || isset($chunkAuthors[$author])
+                                                    || $this->isNearDuplicate($fingerprint, $knownFingerprints)
+                                                    || $this->isNearDuplicate($fingerprint, $chunkFingerprints)) {
+                throw new GenerationOutputException(trans('LongosProductReviews::reviews.ai_error_duplicate'));
+            }
+            $chunkSignatures[$signature] = true;
+            $chunkAuthors[$author]       = true;
+            if ($fingerprint !== []) {
+                $chunkFingerprints[] = $fingerprint;
+            }
+        }
+    }
+
     /** @param array{id:int,name:string,description:string} $product
      * @param list<array{spec_id:string,rating:int,country:string,reviewed_at:string,angle:string,length_guidance:string}> $specifications
      * @return list<array<string,mixed>>
      */
     private function generateChunk(
+        array $product,
+        array $specifications,
+        string $examples,
+        string $language,
+        string $model,
+        string $retryGuidance = '',
+    ): array {
+        $request  = $this->chunkRequest($product, $specifications, $examples, $language, $model, $retryGuidance);
+        $response = $this->client->chatJson($request['messages'], $request['max_tokens'], $request['model']);
+
+        return $this->parseChunkResponse($response, $product, $specifications);
+    }
+
+    /** @param array{id:int,name:string,description:string} $product
+     * @param list<array{spec_id:string,rating:int,country:string,reviewed_at:string,angle:string,length_guidance:string}> $specifications
+     * @return array{messages:list<array{role:string,content:string}>,max_tokens:int,model:string}
+     */
+    private function chunkRequest(
         array $product,
         array $specifications,
         string $examples,
@@ -252,10 +327,24 @@ class ReviewGenerationService
             'Do not include URLs, contact details, HTML, markdown, public figures, or additional keys.',
             $retryGuidance,
         ]);
-        $response = $this->client->chatJson([
-            ['role' => 'system', 'content' => $system],
-            ['role' => 'user', 'content' => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR)],
-        ], 900 + count($specifications) * 420, $model);
+
+        return [
+            'messages' => [
+                ['role' => 'system', 'content' => $system],
+                ['role' => 'user', 'content' => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR)],
+            ],
+            'max_tokens' => 900 + count($specifications) * 420,
+            'model'      => $model,
+        ];
+    }
+
+    /** @param array<string,mixed> $response
+     * @param array{id:int,name:string,description:string}                                                                 $product
+     * @param list<array{spec_id:string,rating:int,country:string,reviewed_at:string,angle:string,length_guidance:string}> $specifications
+     * @return list<array<string,mixed>>
+     */
+    private function parseChunkResponse(array $response, array $product, array $specifications): array
+    {
 
         $rows = $response['reviews'] ?? null;
         if (array_diff(array_keys($response), ['reviews'])                 !== []

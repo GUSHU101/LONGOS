@@ -3,6 +3,7 @@
 namespace Plugin\LongosProductReviews\Controllers;
 
 use App\Services\BundledPluginSynchronizer;
+use App\Services\SiliconFlowRateLimitCatalog;
 use Beike\Admin\Http\Controllers\Controller;
 use Beike\Models\Product;
 use Illuminate\Http\JsonResponse;
@@ -22,8 +23,12 @@ use Plugin\LongosProductReviews\Services\SiliconFlowSettings;
 
 class AdminReviewGenerationController extends Controller
 {
-    public function index(Request $request, SiliconFlowSettings $settings, ReviewGenerationBatchService $batches): View
-    {
+    public function index(
+        Request $request,
+        SiliconFlowSettings $settings,
+        ReviewGenerationBatchService $batches,
+        ?SiliconFlowRateLimitCatalog $rateLimits = null,
+    ): View {
         $this->ensureReady();
         $batches->recoverStale();
         $batches->pruneExpired();
@@ -33,21 +38,38 @@ class AdminReviewGenerationController extends Controller
             : $batches->latestResumableOwned();
         $recentBatches = $batches->recentOwned();
 
-        return $this->page($request, $settings->public(), $batches, $batch, $recentBatches);
+        $publicSettings                        = $settings->public();
+        $catalog                               = $rateLimits ?? app(SiliconFlowRateLimitCatalog::class);
+        $publicSettings['rate_limit_profiles'] = array_map(
+            fn (string $model): array => $catalog->profile($model),
+            $publicSettings['models'],
+        );
+
+        return $this->page($request, $publicSettings, $batches, $batch, $recentBatches);
     }
 
-    public function saveSettings(GenerationSettingsRequest $request, SiliconFlowSettings $settings): RedirectResponse
-    {
+    public function saveSettings(
+        GenerationSettingsRequest $request,
+        SiliconFlowSettings $settings,
+        SiliconFlowRateLimitCatalog $rateLimits,
+    ): RedirectResponse {
         $this->ensureReady();
 
         try {
             $settings->save($request->validated());
+            $limits = array_map(
+                fn (string $model): array => $rateLimits->profile($model, refresh: true),
+                $settings->runtime()['models'],
+            );
         } catch (SiliconFlowException $exception) {
             return back()->withErrors(['api_key' => $exception->getMessage()])->withInput($request->safe()->except('api_key'));
         }
 
         return redirect()->to(admin_route('longos_product_reviews.generate'))
-            ->with('success', trans('LongosProductReviews::reviews.ai_settings_saved'));
+            ->with('success', trans('LongosProductReviews::reviews.ai_settings_saved_limits', [
+                'count'  => count($limits),
+                'limits' => $this->formatLimits($limits),
+            ]));
     }
 
     public function testConnection(SiliconFlowClient $client): RedirectResponse
@@ -55,16 +77,18 @@ class AdminReviewGenerationController extends Controller
         $this->ensureReady();
 
         try {
-            $models = $client->availableChatModels();
-            if (! in_array($client->model(), $models, true)) {
-                throw new SiliconFlowException(trans('LongosProductReviews::reviews.ai_model_not_available', ['model' => $client->model()]));
+            $models  = $client->availableChatModels();
+            $missing = array_values(array_diff($client->configuredModels(), $models));
+            if ($missing !== []) {
+                throw new SiliconFlowException(trans('LongosProductReviews::reviews.ai_model_not_available', ['model' => implode(', ', $missing)]));
             }
+            $limits = $client->configuredRateLimitProfiles(true);
         } catch (SiliconFlowException $exception) {
             return back()->withErrors(['connection' => $exception->getMessage()]);
         }
 
-        return back()->with('success', trans('LongosProductReviews::reviews.ai_connection_success', [
-            'model' => $client->model(),
+        return back()->with('success', trans('LongosProductReviews::reviews.ai_connection_success_limits', [
+            'count' => count($limits), 'limits' => $this->formatLimits($limits),
         ]));
     }
 
@@ -79,9 +103,12 @@ class AdminReviewGenerationController extends Controller
         try {
             // Server-side configuration enforcement is required even though the
             // browser disables this button when no API key has been saved.
-            $batch = $batches->create($request->validated(), $client->configuredModel());
+            $payload                      = $request->validated();
+            $payload['_interface_locale'] = app()->getLocale();
+            $payload['_models']           = $client->configuredModels();
+            $batch                        = $batches->create($payload, $client->configuredModel());
             if ($batch->wasRecentlyCreated) {
-                GenerateReviewBatch::dispatch($batch->id)->onQueue('default');
+                GenerateReviewBatch::dispatch($batch->id)->onQueue((string) config('longos.product_reviews.queue', 'product-reviews'));
             }
         } catch (SiliconFlowException|GenerationBatchException $exception) {
             return back()->withErrors(['generation' => $exception->getMessage()])->withInput();
@@ -151,7 +178,7 @@ class AdminReviewGenerationController extends Controller
             ->with('success', trans('LongosProductReviews::reviews.ai_drafts_created', ['count' => $created->count()]));
     }
 
-    /** @param array{configured:bool,model:string,timeout:int} $settings */
+    /** @param array{configured:bool,model:string,models:list<string>,parallel_models:string,timeout:int,rate_limit_profiles?:list<array<string,mixed>>} $settings */
     private function page(
         Request $request,
         array $settings,
@@ -197,5 +224,16 @@ class AdminReviewGenerationController extends Controller
     private function ensureReady(): void
     {
         app(BundledPluginSynchronizer::class)->ensureProductReviewsReady();
+    }
+
+    /** @param list<array{model:string,rpm:int,tpm:int}> $profiles */
+    private function formatLimits(array $profiles): string
+    {
+        return implode('; ', array_map(
+            static fn (array $profile): string => $profile['model'] . ': '
+                . number_format($profile['rpm']) . ' RPM / '
+                . number_format($profile['tpm']) . ' TPM',
+            $profiles,
+        ));
     }
 }

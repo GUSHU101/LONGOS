@@ -244,11 +244,25 @@ case "$role" in
     esac
     if [ "$translation_workers" -lt 1 ]; then translation_workers=1; fi
     if [ "$translation_workers" -gt 24 ]; then translation_workers=24; fi
+    review_workers="${LONGOS_PRODUCT_REVIEW_WORKERS:-3}"
+    case "$review_workers" in
+      ''|*[!0-9]*) review_workers=3 ;;
+    esac
+    if [ "$review_workers" -lt 1 ]; then review_workers=1; fi
+    if [ "$review_workers" -gt 8 ]; then review_workers=8; fi
 
     worker_pids=""
     su -s /bin/sh www-data -c \
       'exec php -d memory_limit="${PHP_WORKER_MEMORY_LIMIT:-512M}" artisan queue:work --queue=default --sleep=3 --tries=5 --backoff=30 --timeout=3300 --memory=384 --max-time=3600' &
     worker_pids="$worker_pids $!"
+
+    review_index=1
+    while [ "$review_index" -le "$review_workers" ]; do
+      su -s /bin/sh www-data -c \
+        'exec php -d memory_limit="${PHP_WORKER_MEMORY_LIMIT:-512M}" artisan queue:work --queue=product-reviews --sleep=1 --tries=4 --backoff=60 --timeout=3300 --memory=384 --max-time=3600' &
+      worker_pids="$worker_pids $!"
+      review_index=$((review_index + 1))
+    done
 
     translation_index=1
     while [ "$translation_index" -le "$translation_workers" ]; do

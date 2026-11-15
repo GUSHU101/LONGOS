@@ -373,9 +373,10 @@ class LongosProductReviewsServiceTest extends TestCase
     {
         $settings = new SiliconFlowSettings;
         $settings->save([
-            'api_key' => 'sk-tenant-secret',
-            'model'   => 'XingChenAGI/Xing4.0-29B',
-            'timeout' => 45,
+            'api_key'         => 'sk-tenant-secret',
+            'model'           => 'XingChenAGI/Xing4.0-29B',
+            'parallel_models' => "tencent/Hunyuan-MT-7B\nXingChenAGI/Xing4.0-29B",
+            'timeout'         => 45,
         ]);
 
         $stored = (string) DB::table('settings')
@@ -385,6 +386,10 @@ class LongosProductReviewsServiceTest extends TestCase
         self::assertStringStartsWith('encrypted:v1:', $stored);
         self::assertStringNotContainsString('sk-tenant-secret', $stored);
         self::assertSame('sk-tenant-secret', $settings->runtime()['api_key']);
+        self::assertSame(
+            ['XingChenAGI/Xing4.0-29B', 'tencent/Hunyuan-MT-7B'],
+            $settings->runtime()['models'],
+        );
 
         $settings->save([
             'api_key' => '',
@@ -424,6 +429,54 @@ class LongosProductReviewsServiceTest extends TestCase
         ]);
 
         self::assertSame(['reviews' => []], $response);
+        Http::assertSentCount(2);
+    }
+
+    public function test_generation_distributes_chunks_across_the_parallel_model_pool(): void
+    {
+        config([
+            'bk.plugin.longos_product_reviews.siliconflow_api_key' => 'test-api-key',
+            'bk.plugin.longos_product_reviews.siliconflow_model'   => 'XingChenAGI/Xing4.0-29B',
+            'bk.plugin.longos_product_reviews.siliconflow_models'  => "XingChenAGI/Xing4.0-29B\ntencent/Hunyuan-MT-7B",
+            'bk.plugin.longos_product_reviews.siliconflow_timeout' => 30,
+        ]);
+        $call = 0;
+        Http::fake(function () use (&$call) {
+            $rows = [];
+            foreach (range(0, 9) as $index) {
+                $token  = strtr(hash('sha256', $call . ':' . $index), '0123456789', 'qwertyuiop');
+                $rows[] = [
+                    'author_name' => 'Avery ' . ucfirst(substr($token, 0, 8)),
+                    'title'       => 'Practical fit ' . substr($token, 8, 10),
+                    'body'        => 'The compact handling felt straightforward during ordinary use, especially around ' . $token . '.',
+                ];
+            }
+            $call++;
+
+            return Http::response([
+                'choices' => [['message' => ['content' => json_encode(['reviews' => $rows], JSON_THROW_ON_ERROR)]]],
+            ]);
+        });
+
+        $preview = app(ReviewGenerationService::class)->preview([
+            'product_id'          => 71,
+            'count'               => 20,
+            'date_from'           => '2026-10-01',
+            'date_to'             => '2026-10-10',
+            'rating_min'          => 4,
+            'rating_max'          => 5,
+            'rating_distribution' => 'balanced',
+            'review_length'       => 'mixed',
+            'countries'           => "Japan\nFrance",
+            'examples'            => 'Compact and useful, with a simple finish suitable for routine use.',
+            'output_language'     => 'en-US',
+            '_models'             => ['XingChenAGI/Xing4.0-29B', 'tencent/Hunyuan-MT-7B'],
+        ]);
+
+        self::assertCount(20, $preview['items']);
+        self::assertSame(['XingChenAGI/Xing4.0-29B', 'tencent/Hunyuan-MT-7B'], $preview['models']);
+        $sentModels = Http::recorded()->map(fn (array $pair): string => (string) $pair[0]['model'])->sort()->values()->all();
+        self::assertSame(['XingChenAGI/Xing4.0-29B', 'tencent/Hunyuan-MT-7B'], $sentModels);
         Http::assertSentCount(2);
     }
 
@@ -713,15 +766,16 @@ class LongosProductReviewsServiceTest extends TestCase
             ->push(['choices' => [['message' => ['content' => '{"unexpected":[]}']]]], 200)
             ->push(['choices' => [['message' => ['content' => '{"unexpected":[]}']]]], 200);
         $input = [
-            'product_id'      => 71,
-            'count'           => 1,
-            'date_from'       => '2026-10-01',
-            'date_to'         => '2026-10-10',
-            'rating_min'      => 3,
-            'rating_max'      => 5,
-            'countries'       => 'Japan',
-            'examples'        => 'A sufficiently detailed example review for style guidance.',
-            'output_language' => 'en-US',
+            'product_id'        => 71,
+            'count'             => 1,
+            'date_from'         => '2026-10-01',
+            'date_to'           => '2026-10-10',
+            'rating_min'        => 3,
+            'rating_max'        => 5,
+            'countries'         => 'Japan',
+            'examples'          => 'A sufficiently detailed example review for style guidance.',
+            'output_language'   => 'en-US',
+            '_interface_locale' => 'zh_cn',
         ];
         $batches = app(ReviewGenerationBatchService::class);
         $batch   = $batches->create($input, 'XingChenAGI/Xing4.0-29B');
@@ -732,6 +786,7 @@ class LongosProductReviewsServiceTest extends TestCase
         self::assertSame(ReviewGenerationBatch::STATUS_FAILED, $batch->refresh()->status);
         self::assertSame(0, $batch->processed_count);
         self::assertNotSame('', trim((string) $batch->error));
+        self::assertStringContainsString('模型返回', (string) $batch->error);
         self::assertNull($batch->result_ciphertext);
         self::assertSame(0, Review::query()->where('generation_batch_id', $batch->id)->count());
         Http::assertSentCount(2);
@@ -777,6 +832,33 @@ class LongosProductReviewsServiceTest extends TestCase
         self::assertTrue($replacement->wasRecentlyCreated);
     }
 
+    public function test_retryable_batch_requeue_refreshes_stale_clock_and_can_be_claimed_again(): void
+    {
+        register('admin_user', (new \Beike\Models\AdminUser)->forceFill(['id' => 24]), true);
+        $batches = app(ReviewGenerationBatchService::class);
+        $batch   = $batches->create([
+            'product_id'      => 71,
+            'count'           => 1,
+            'date_from'       => '2026-10-01',
+            'date_to'         => '2026-10-10',
+            'rating_min'      => 4,
+            'rating_max'      => 5,
+            'countries'       => 'Japan',
+            'examples'        => 'A sufficiently detailed encrypted example.',
+            'output_language' => 'en-US',
+        ], 'XingChenAGI/Xing4.0-29B');
+        $claimed = $batches->claim($batch->id);
+        self::assertNotNull($claimed);
+
+        $claimed->forceFill(['updated_at' => now()->subHours(2)])->saveOrFail();
+        self::assertTrue($batches->requeue($claimed));
+        $batch->refresh();
+        self::assertSame(ReviewGenerationBatch::STATUS_PENDING, $batch->status);
+        self::assertTrue($batch->updated_at->gt(now()->subMinute()));
+        self::assertNull($batch->started_at);
+        self::assertNotNull($batches->claim($batch->id));
+    }
+
     public function test_admin_pages_restore_the_latest_owned_generation_job_without_a_batch_query(): void
     {
         register('admin_user', (new \Beike\Models\AdminUser)->forceFill(['id' => 23]), true);
@@ -799,6 +881,11 @@ class LongosProductReviewsServiceTest extends TestCase
         );
         self::assertSame($batch->id, $reviewIndex->getData()['resumeGenerationBatch']?->id);
         self::assertSame($batch->id, $reviewIndex->getData()['generationBatches']->first()?->id);
+        Route::get('/admin/product-reviews/generate', static fn (): string => 'generator')
+            ->name(admin_name() . '.longos_product_reviews.generate');
+        Route::get('/admin/product-reviews/generate/{batch}/status', static fn (): string => 'status')
+            ->name(admin_name() . '.longos_product_reviews.generate.status');
+        Route::getRoutes()->refreshNameLookups();
         $tasksHtml = view('LongosProductReviews::admin.partials.generation_tasks', [
             'generationBatches' => $reviewIndex->getData()['generationBatches'],
             'watchTasks'        => true,

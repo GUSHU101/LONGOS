@@ -2,6 +2,7 @@
 
 namespace Plugin\LongosInstantTranslate\Controllers;
 
+use App\Services\SiliconFlowRateLimitCatalog;
 use Beike\Repositories\SettingRepo;
 use Beike\Services\CloudflareIpRangeService;
 use Illuminate\Http\RedirectResponse;
@@ -92,8 +93,11 @@ final class AdminSettingsController
             ->with('success', trans('LongosInstantTranslate::instant.saved'));
     }
 
-    public function saveProvider(Request $request, ProviderAccountService $accounts): RedirectResponse
-    {
+    public function saveProvider(
+        Request $request,
+        ProviderAccountService $accounts,
+        SiliconFlowRateLimitCatalog $rateLimits,
+    ): RedirectResponse {
         abort_if(current_site() === null || ! LibrarySchema::ready(), 404);
         $validated = $request->validate([
             'provider'                => ['required', Rule::in(ProviderAccountService::PROVIDERS)],
@@ -110,12 +114,20 @@ final class AdminSettingsController
         foreach ($profile['fields'] as $field) {
             $credentials[$field['key']] = trim((string) data_get($validated, 'credentials.' . $field['key'], $field['default'] ?? ''));
         }
+        $limits = $validated['provider'] === 'siliconflow'
+            ? $rateLimits->profile((string) ($credentials['model'] ?? ''), refresh: true)
+            : null;
         $accounts->save([
             ...$validated,
             'enabled' => $request->boolean('enabled'),
         ], $credentials);
 
-        return back()->with('success', '服务商账户已加密保存；验证成功后才能开启慢速建库。');
+        $message = '服务商账户已加密保存；验证成功后才能开启慢速建库。';
+        if ($limits !== null) {
+            $message .= " 已自动配置 L0 限速：{$limits['rpm']} RPM / " . number_format($limits['tpm']) . ' TPM。';
+        }
+
+        return back()->with('success', $message);
     }
 
     public function verifyProvider(int $account, LibraryBuilder $builder): RedirectResponse

@@ -91,10 +91,18 @@
             <label class="form-label" for="siliconflow-model">{{ trans('LongosProductReviews::reviews.ai_model') }}</label>
             <input id="siliconflow-model" class="form-control @error('model') is-invalid @enderror" name="model" maxlength="160" value="{{ old('model', $settings['model']) }}" required>
             <div class="form-text">{{ trans('LongosProductReviews::reviews.ai_model_help') }}</div>
+            @foreach($settings['rate_limit_profiles'] as $profile)
+              <div class="form-text {{ $profile['source'] === 'fallback' ? 'text-warning' : 'text-success' }}"><i class="bi bi-speedometer2" aria-hidden="true"></i> <code>{{ $profile['model'] }}</code> — {{ trans('LongosProductReviews::reviews.' . ($profile['source'] === 'fallback' ? 'ai_rate_limits_fallback' : 'ai_rate_limits_detected'), ['rpm' => number_format($profile['rpm']), 'tpm' => number_format($profile['tpm'])]) }}</div>
+            @endforeach
           </div>
           <div class="col-sm-6 col-lg-2">
             <label class="form-label" for="siliconflow-timeout">{{ trans('LongosProductReviews::reviews.ai_timeout') }}</label>
             <input id="siliconflow-timeout" class="form-control @error('timeout') is-invalid @enderror" type="number" name="timeout" min="10" max="120" value="{{ old('timeout', $settings['timeout']) }}" required>
+          </div>
+          <div class="col-12">
+            <label class="form-label" for="siliconflow-parallel-models">{{ trans('LongosProductReviews::reviews.ai_parallel_models') }}</label>
+            <textarea id="siliconflow-parallel-models" class="form-control @error('parallel_models') is-invalid @enderror" name="parallel_models" rows="3" maxlength="1000" spellcheck="false" placeholder="tencent/Hunyuan-MT-7B">{{ old('parallel_models', $settings['parallel_models']) }}</textarea>
+            <div class="form-text">{{ trans('LongosProductReviews::reviews.ai_parallel_models_help') }}</div>
           </div>
           <div class="col-12 d-flex flex-wrap gap-2">
             <button class="btn btn-primary" type="submit"><i class="bi bi-lock" aria-hidden="true"></i> {{ trans('LongosProductReviews::reviews.ai_save_settings') }}</button>
@@ -150,7 +158,7 @@
         $previewCountries = $previewItems->pluck('country')->filter()->unique()->count();
       @endphp
       <div class="card mb-4" id="review-generation-preview">
-        <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2"><strong>{{ trans('LongosProductReviews::reviews.ai_preview_title') }}</strong><span class="text-muted small">{{ $preview['product_name'] }} · {{ $preview['model'] }}</span></div>
+        <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2"><strong>{{ trans('LongosProductReviews::reviews.ai_preview_title') }}</strong><span class="text-muted small">{{ $preview['product_name'] }}</span></div>
         <div class="px-3 py-2 bg-light border-bottom text-muted small">{{ trans('LongosProductReviews::reviews.ai_preview_summary', ['count' => $previewItems->count(), 'average' => $previewAverage, 'countries' => $previewCountries]) }}</div>
         <div class="card-body p-0">
           <div class="table-responsive">
