@@ -122,7 +122,11 @@ final class AiReviewController extends Controller
 
     public static function currentStatus(Request $request): ?array
     {
-        if (! $request->hasSession()) {\n            return null;\n        }\n\n        $batchId = (string) $request->session()->get('longos_product_reviews.ai_batch', '');
+        if (! $request->hasSession()) {
+            return null;
+        }
+
+        $batchId = (string) $request->session()->get('longos_product_reviews.ai_batch', '');
         if (! Str::isUuid($batchId)) {
             return null;
         }
