@@ -98,7 +98,7 @@ class LongosProductReviewsTest extends TestCase
         self::assertStringContainsString('min-height: 46px', $css);
         self::assertStringContainsString('@media (prefers-reduced-motion: reduce)', $css);
         self::assertStringContainsString('.product-review-summary', $css);
-        self::assertStringContainsString('.longos-review-card__provided-inline', $css);
+        self::assertStringNotContainsString('.longos-review-card__provided-inline', $css);
     }
 
     public function test_new_tenants_seed_and_migrate_the_bundled_review_plugin(): void
@@ -138,9 +138,9 @@ class LongosProductReviewsTest extends TestCase
         self::assertMatchesRegularExpression('/\$item\[\'published\'\]\s*=\s*false/', $service);
         self::assertMatchesRegularExpression('/\$item\[\'staff_reviewed\'\]\s*=\s*false/', $service);
         self::assertStringContainsString('ai_preview_commit_help', $view);
-        self::assertStringContainsString('merchant_provided_content', $cards);
-        self::assertStringContainsString('{{ $review->body }}@if($review->isGenerated())', $cards);
-        self::assertStringNotContainsString('longos-review-card__provided"', $cards);
+        self::assertStringNotContainsString('merchant_provided_content', $cards);
+        self::assertStringContainsString('<p class="longos-review-card__body">{{ $review->body }}</p>', $cards);
+        self::assertStringNotContainsString('longos-review-card__provided', $cards);
     }
 
     public function test_plugin_translation_keys_stay_in_sync(): void

@@ -250,14 +250,6 @@
   font-weight: 650;
 }
 
-.longos-review-card__provided-inline {
-  margin-inline-start: .25rem;
-  color: #4d596a;
-  font-size: .8125rem;
-  font-weight: 650;
-  white-space: nowrap;
-}
-
 .longos-review-card__body {
   max-width: 68ch;
   margin: .9rem 0 0;

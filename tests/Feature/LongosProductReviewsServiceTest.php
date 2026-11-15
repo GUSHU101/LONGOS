@@ -1051,7 +1051,10 @@ class LongosProductReviewsServiceTest extends TestCase
         }
 
         $defaultCard = (string) file_get_contents(base_path('themes/default/shared/product.blade.php'));
-        self::assertStringContainsString("@hook('product_list.item.name.after', \$product)", $defaultCard);
+        $category    = (string) file_get_contents(base_path('beike/Shop/Http/Controllers/CategoryController.php'));
+        self::assertStringContainsString("\$product['review_summary']", $defaultCard);
+        self::assertStringContainsString('withProductReviewSummaries($productsFormat)', $category);
+        self::assertStringContainsString('storefrontSummaries($productIds)', $category);
     }
 
     public function test_generated_reviews_support_individual_and_bulk_verification_updates(): void
@@ -1086,9 +1089,9 @@ class LongosProductReviewsServiceTest extends TestCase
         self::assertTrue($generated->refresh()->staff_reviewed);
         $generated->update(['published' => true]);
         $html = view('LongosProductReviews::shop.cards', ['reviews' => collect([$generated->refresh()])])->render();
-        self::assertStringContainsString('Merchant-provided content', $html);
-        self::assertMatchesRegularExpression('/The compact shape is straightforward to carry\.\s*<span class="longos-review-card__provided-inline">\s*·\s*Merchant-provided content<\/span>/', $html);
-        self::assertStringNotContainsString('longos-review-card__provided">', $html);
+        self::assertStringContainsString('The compact shape is straightforward to carry.', $html);
+        self::assertStringNotContainsString('Merchant-provided content', $html);
+        self::assertStringNotContainsString('longos-review-card__provided', $html);
         self::assertStringContainsString('Verified purchase', $html);
     }
 

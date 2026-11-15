@@ -27,7 +27,9 @@
   <div class="product-bottom-info christmas-product-card__content">
     @hook('product_list.item.name.before')
     <h3 class="product-name"><a href="{{ $product['url'] }}">{{ $product['name_format'] }}</a></h3>
-    @hook('product_list.item.name.after', $product)
+    @if (!empty($product['review_summary']))
+      @include('LongosProductReviews::shop.card_rating', ['summary' => $product['review_summary'], 'productUrl' => $product['url']])
+    @endif
     @hookwrapper('product_list.item.price')
     @if ((system_setting('base.show_price_after_login') and current_customer()) or !system_setting('base.show_price_after_login'))
       <div class="product-price" product-id="{{ $product['sku_id'] }}">
