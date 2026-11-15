@@ -228,6 +228,30 @@ class ReviewService
     }
 
     /** @param list<int> $ids */
+    public function bulkSetPublished(array $ids, bool $published): int
+    {
+        $this->ensureReady();
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids), fn (int $id): bool => $id > 0)));
+        if ($ids === []) {
+            return 0;
+        }
+
+        if ($published) {
+            Review::query()
+                ->whereIn('id', $ids)
+                ->where('content_source', Review::SOURCE_GENERATED)
+                ->get(['author_name', 'title', 'body'])
+                ->each(function (Review $review): void {
+                    $this->assertGeneratedContent($review->only(['author_name', 'title', 'body']));
+                });
+        }
+
+        return Review::query()
+            ->whereIn('id', $ids)
+            ->update(['published' => $published]);
+    }
+
+    /** @param list<int> $ids */
     public function bulkSetStaffReviewed(array $ids, bool $reviewed): int
     {
         $this->ensureReady();

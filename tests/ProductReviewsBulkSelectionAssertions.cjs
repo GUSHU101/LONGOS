@@ -6,6 +6,13 @@ const { Window } = require('happy-dom')
 
 const templatePath = path.join(__dirname, '..', 'plugins', 'LongosProductReviews', 'Views', 'admin', 'index.blade.php')
 
+test('product review bulk action menu exposes publication controls', () => {
+  const template = fs.readFileSync(templatePath, 'utf8')
+
+  assert.match(template, /<option value="publish">[\s\S]*?bulk_publish/)
+  assert.match(template, /<option value="unpublish">[\s\S]*?bulk_unpublish/)
+})
+
 function renderedSelectionScript () {
   const template = fs.readFileSync(templatePath, 'utf8')
   const footer = template.slice(template.indexOf("@push('footer')"))

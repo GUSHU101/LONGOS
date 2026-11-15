@@ -139,9 +139,14 @@ class AdminReviewController extends Controller
         $validated = $request->validate([
             'review_ids'   => ['bail', 'required', 'array', 'min:1', 'max:100'],
             'review_ids.*' => ['bail', 'integer', 'distinct', 'exists:longos_product_reviews,id'],
-            'action'       => ['bail', 'required', 'in:verify,unverify,review,unreview'],
+            'action'       => ['bail', 'required', 'in:publish,unpublish,verify,unverify,review,unreview'],
         ]);
         $ids = array_map('intval', $validated['review_ids']);
+        if (in_array($validated['action'], ['publish', 'unpublish'], true)) {
+            $updated = $service->bulkSetPublished($ids, $validated['action'] === 'publish');
+
+            return back()->with('success', trans('LongosProductReviews::reviews.bulk_publication_updated', ['updated' => $updated]));
+        }
         if (in_array($validated['action'], ['review', 'unreview'], true)) {
             $updated = $service->bulkSetStaffReviewed($ids, $validated['action'] === 'review');
 

@@ -98,6 +98,8 @@
         <label class="form-label" for="review-bulk-action">{{ trans('LongosProductReviews::reviews.bulk_action') }}</label>
         <select id="review-bulk-action" class="form-select" name="action" required>
           <option value="">{{ trans('common.please_choose') }}</option>
+          <option value="publish">{{ trans('LongosProductReviews::reviews.bulk_publish') }}</option>
+          <option value="unpublish">{{ trans('LongosProductReviews::reviews.bulk_unpublish') }}</option>
           <option value="verify">{{ trans('LongosProductReviews::reviews.bulk_mark_verified') }}</option>
           <option value="unverify">{{ trans('LongosProductReviews::reviews.bulk_mark_unverified') }}</option>
           <option value="review">{{ trans('LongosProductReviews::reviews.bulk_mark_reviewed') }}</option>
@@ -106,7 +108,7 @@
       </div>
       <button id="review-bulk-submit" class="btn btn-dark" type="submit" disabled>{{ trans('LongosProductReviews::reviews.apply_to_selected') }}</button>
       <span id="review-selection-status" class="text-muted small" role="status" aria-live="polite">{{ trans('LongosProductReviews::reviews.selected_count', ['count' => 0]) }}</span>
-      <p class="w-100 text-muted small mb-0">{{ trans('LongosProductReviews::reviews.bulk_verification_help') }}</p>
+      <p class="w-100 text-muted small mb-0">{{ trans('LongosProductReviews::reviews.bulk_action_help') }}</p>
     </div>
   </form>
 

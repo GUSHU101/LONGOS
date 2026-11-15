@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use PHPUnit\Framework\TestCase;
 use Plugin\LongosProductReviews\Controllers\AdminReviewController;
 use Plugin\LongosProductReviews\Controllers\AdminReviewGenerationController;
@@ -1021,6 +1022,38 @@ class LongosProductReviewsServiceTest extends TestCase
         self::assertMatchesRegularExpression('/The compact shape is straightforward to carry\.\s*<span class="longos-review-card__provided-inline">\s*·\s*Merchant-provided content<\/span>/', $html);
         self::assertStringNotContainsString('longos-review-card__provided">', $html);
         self::assertStringContainsString('Verified purchase', $html);
+    }
+
+    public function test_bulk_publication_updates_manual_and_safe_generated_reviews_atomically(): void
+    {
+        $service   = new ReviewService;
+        $manual    = $this->review(5, false, 0, 'A concise manual review ready to publish.');
+        $generated = $this->review(4, false, 0, 'The compact shape is straightforward to carry every day.');
+        $generated->update(['content_source' => Review::SOURCE_GENERATED]);
+
+        self::assertSame(2, $service->bulkSetPublished([$manual->id, $generated->id], true));
+        self::assertTrue($manual->refresh()->published);
+        self::assertTrue($generated->refresh()->published);
+
+        self::assertSame(2, $service->bulkSetPublished([$manual->id, $generated->id], false));
+        self::assertFalse($manual->refresh()->published);
+        self::assertFalse($generated->refresh()->published);
+
+        $unsafe = $this->review(3, false, 0, 'Safe text before simulating legacy unsafe content.');
+        $unsafe->update([
+            'content_source' => Review::SOURCE_GENERATED,
+            'body'           => 'This is an AI-generated sample review.',
+        ]);
+
+        try {
+            $service->bulkSetPublished([$manual->id, $unsafe->id], true);
+            self::fail('Unsafe legacy generated content must reject the entire bulk publication.');
+        } catch (ValidationException $exception) {
+            self::assertArrayHasKey('body', $exception->errors());
+        }
+
+        self::assertFalse($manual->refresh()->published);
+        self::assertFalse($unsafe->refresh()->published);
     }
 
     private function review(int $rating, bool $published, int $sortOrder, string $body): Review
