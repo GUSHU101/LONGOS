@@ -12,6 +12,7 @@ use Plugin\LongosProductReviews\Models\Review;
 use Plugin\LongosProductReviews\Requests\ReviewRequest;
 use Plugin\LongosProductReviews\Services\ReviewService;
 use Plugin\LongosProductReviews\Services\SiliconFlowReviewDrafts;
+use Plugin\LongosProductReviews\Services\SiliconFlowReviewDrafts;
 
 class AdminReviewController extends Controller
 {
@@ -66,6 +67,9 @@ class AdminReviewController extends Controller
             'reviews' => $reviews->orderByDesc('reviewed_at')->orderByDesc('id')->paginate(20)->withQueryString(),
             'filters' => $filters,
             'stats'   => $stats,
+            'aiConfigured' => app(SiliconFlowReviewDrafts::class)->configured(),
+            'aiLanguages' => SiliconFlowReviewDrafts::LANGUAGES,
+            'aiBatch' => AiReviewController::currentStatus($request),
             'aiConfigured' => app(SiliconFlowReviewDrafts::class)->configured(),
             'aiLanguages' => SiliconFlowReviewDrafts::LANGUAGES,
             'aiBatch' => AiReviewController::currentStatus($request),
