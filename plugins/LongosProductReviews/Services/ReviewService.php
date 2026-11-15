@@ -148,6 +148,11 @@ class ReviewService
     public function setPublished(Review $review, bool $published): Review
     {
         $this->ensureReady();
+        if ($published && $review->author_name === SiliconFlowReviewDrafts::AUTHOR) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'published' => trans('LongosProductReviews::reviews.ai_draft_cannot_publish'),
+            ]);
+        }
         $review->forceFill(['published' => $published])->saveOrFail();
 
         return $review->refresh();
