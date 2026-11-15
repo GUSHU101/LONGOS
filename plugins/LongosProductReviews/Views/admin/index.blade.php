@@ -159,6 +159,7 @@
 
 @push('footer')
   <script>
+  (() => {
     document.querySelectorAll('.review-delete-form').forEach((form) => {
       form.addEventListener('submit', (event) => {
         if (!window.confirm(form.dataset.confirm || '')) event.preventDefault()
@@ -168,7 +169,7 @@
     const selectAll = document.getElementById('review-select-all')
     const bulkSubmit = document.getElementById('review-bulk-submit')
     const selectionStatus = document.getElementById('review-selection-status')
-    const selectedTemplate = @json(trans('LongosProductReviews::reviews.selected_count', ['count' => '__COUNT__']))
+    const selectedTemplate = @json(trans('LongosProductReviews::reviews.selected_count', ['count' => '__COUNT__']));
     const syncSelection = () => {
       const selected = selections.filter((checkbox) => checkbox.checked).length
       bulkSubmit.disabled = selected === 0
@@ -210,5 +211,6 @@
       window.addEventListener('pagehide', () => window.clearInterval(generationTaskTimer), {once:true})
       pollGenerationTasks()
     }
+  })()
   </script>
 @endpush
