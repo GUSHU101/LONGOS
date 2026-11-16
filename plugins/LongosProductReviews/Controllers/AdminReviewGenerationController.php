@@ -17,6 +17,7 @@ use Plugin\LongosProductReviews\Models\ReviewGenerationBatch;
 use Plugin\LongosProductReviews\Requests\GenerateReviewsRequest;
 use Plugin\LongosProductReviews\Requests\GenerationSettingsRequest;
 use Plugin\LongosProductReviews\Services\ReviewGenerationBatchService;
+use Plugin\LongosProductReviews\Services\ReviewGenerationLimits;
 use Plugin\LongosProductReviews\Services\ReviewService;
 use Plugin\LongosProductReviews\Services\SiliconFlowClient;
 use Plugin\LongosProductReviews\Services\SiliconFlowSettings;
@@ -163,7 +164,7 @@ class AdminReviewGenerationController extends Controller
         $this->ensureReady();
         $validated = $request->validate([
             'batch_id'       => ['bail', 'required', 'uuid'],
-            'selected_ids'   => ['bail', 'required', 'array', 'min:1', 'max:30'],
+            'selected_ids'   => ['bail', 'required', 'array', 'min:1', 'max:' . ReviewGenerationLimits::MAX_REVIEWS_PER_BATCH],
             'selected_ids.*' => ['bail', 'string', 'distinct', 'regex:/^[1-9][0-9]*$/'],
         ]);
 

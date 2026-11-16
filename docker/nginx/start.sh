@@ -259,7 +259,7 @@ case "$role" in
     review_index=1
     while [ "$review_index" -le "$review_workers" ]; do
       su -s /bin/sh www-data -c \
-        'exec php -d memory_limit="${PHP_WORKER_MEMORY_LIMIT:-512M}" artisan queue:work --queue=product-reviews --sleep=1 --tries=4 --backoff=60 --timeout=3300 --memory=384 --max-time=3600' &
+        'exec php -d memory_limit="${PHP_WORKER_MEMORY_LIMIT:-512M}" artisan queue:work --queue=product-reviews --sleep=1 --tries=4 --backoff=60 --timeout=5700 --memory=384 --max-time=6000' &
       worker_pids="$worker_pids $!"
       review_index=$((review_index + 1))
     done

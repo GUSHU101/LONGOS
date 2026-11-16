@@ -11,9 +11,11 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use PHPUnit\Framework\TestCase;
 use Plugin\LongosProductReviews\Controllers\AdminReviewController;
@@ -22,7 +24,9 @@ use Plugin\LongosProductReviews\Exceptions\GenerationBatchException;
 use Plugin\LongosProductReviews\Jobs\GenerateReviewBatch;
 use Plugin\LongosProductReviews\Models\Review;
 use Plugin\LongosProductReviews\Models\ReviewGenerationBatch;
+use Plugin\LongosProductReviews\Requests\GenerateReviewsRequest;
 use Plugin\LongosProductReviews\Services\ReviewGenerationBatchService;
+use Plugin\LongosProductReviews\Services\ReviewGenerationLimits;
 use Plugin\LongosProductReviews\Services\ReviewGenerationService;
 use Plugin\LongosProductReviews\Services\ReviewService;
 use Plugin\LongosProductReviews\Services\SiliconFlowClient;
@@ -217,6 +221,77 @@ class LongosProductReviewsServiceTest extends TestCase
         self::assertNotNull($routes->first(static fn ($route): bool => $route->getName() === admin_name() . '.longos_product_reviews.generate.status'));
         self::assertNotNull($routes->first(static fn ($route): bool => $route->getName() === admin_name() . '.longos_product_reviews.generate.cancel'));
         self::assertNotNull($routes->first(static fn ($route): bool => $route->getName() === admin_name() . '.longos_product_reviews.bulk'));
+        self::assertContains(
+            'throttle:product-review-admin',
+            $routes->first(static fn ($route): bool => $route->getName() === admin_name() . '.longos_product_reviews.generate.test')->gatherMiddleware(),
+        );
+        self::assertContains(
+            'throttle:product-review-admin',
+            $routes->first(static fn ($route): bool => $route->getName() === admin_name() . '.longos_product_reviews.generate.preview')->gatherMiddleware(),
+        );
+        self::assertIsCallable(RateLimiter::limiter('product-review-admin'));
+    }
+
+    public function test_generation_limit_accepts_500_and_rejects_501_everywhere(): void
+    {
+        self::assertSame(500, ReviewGenerationLimits::MAX_REVIEWS_PER_BATCH);
+
+        $countRules = (new GenerateReviewsRequest)->rules()['count'];
+        self::assertFalse(Validator::make(['count' => 500], ['count' => $countRules])->fails());
+        self::assertTrue(Validator::make(['count' => 501], ['count' => $countRules])->fails());
+
+        $generator  = (string) file_get_contents(base_path('plugins/LongosProductReviews/Views/admin/generate.blade.php'));
+        $controller = (string) file_get_contents(base_path('plugins/LongosProductReviews/Controllers/AdminReviewGenerationController.php'));
+        $batches    = (string) file_get_contents(base_path('plugins/LongosProductReviews/Services/ReviewGenerationBatchService.php'));
+
+        self::assertStringContainsString('ReviewGenerationLimits::MAX_REVIEWS_PER_BATCH', $generator);
+        self::assertStringContainsString('ReviewGenerationLimits::MAX_REVIEWS_PER_BATCH', $controller);
+        self::assertStringContainsString('ReviewGenerationLimits::MAX_REVIEWS_PER_BATCH', $batches);
+        self::assertStringNotContainsString("'max:30'", $controller . $batches);
+    }
+
+    public function test_maximum_500_item_preview_can_be_completed_and_committed(): void
+    {
+        register('admin_user', (new \Beike\Models\AdminUser)->forceFill(['id' => 31]), true);
+        $service = app(ReviewGenerationBatchService::class);
+        $batch   = $service->create([
+            'product_id' => 71,
+            'count'      => ReviewGenerationLimits::MAX_REVIEWS_PER_BATCH,
+        ], 'XingChenAGI/Xing4.0-29B');
+        $batch = $service->claim($batch->id);
+        self::assertNotNull($batch);
+
+        $items = [];
+        foreach (range(1, ReviewGenerationLimits::MAX_REVIEWS_PER_BATCH) as $index) {
+            $items[] = [
+                'spec_id'     => (string) $index,
+                'product_id'  => 71,
+                'author_name' => 'Customer ' . $index,
+                'country'     => 'United States',
+                'rating'      => 5,
+                'title'       => 'Practical choice ' . $index,
+                'body'        => 'The compact shape is straightforward to carry for routine ' . $index . '.',
+                'reviewed_at' => now()->subMinute()->toDateTimeString(),
+            ];
+        }
+
+        $service->complete($batch, [
+            'batch_id'     => $batch->id,
+            'product_id'   => 71,
+            'product_name' => 'LONGOS Travel Bottle',
+            'model'        => 'XingChenAGI/Xing4.0-29B',
+            'items'        => $items,
+        ]);
+
+        $created = $service->commit(
+            $batch->id,
+            new ReviewService,
+            array_map(static fn (int $id): string => (string) $id, range(1, ReviewGenerationLimits::MAX_REVIEWS_PER_BATCH)),
+        );
+
+        self::assertCount(500, $created);
+        self::assertSame(500, Review::query()->where('generation_batch_id', $batch->id)->count());
+        self::assertSame(ReviewGenerationBatch::STATUS_COMMITTED, $batch->refresh()->status);
     }
 
     public function test_storefront_pagination_never_returns_unpublished_reviews(): void

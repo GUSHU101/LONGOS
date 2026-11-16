@@ -22,7 +22,10 @@ class GenerateReviewBatch implements ShouldQueue, TenantAware
 
     public int $tries = 4;
 
-    public int $timeout = 3000;
+    // A maximum-size batch can legitimately spend substantial time waiting on
+    // the provider's free-tier TPM window. Keep the job alive while the shared
+    // rate limiter deliberately paces requests.
+    public int $timeout = 5400;
 
     public bool $failOnTimeout = true;
 

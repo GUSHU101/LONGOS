@@ -4,6 +4,7 @@ namespace Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
 use Plugin\LongosProductReviews\Services\GeneratedReviewContentPolicy;
+use Plugin\LongosProductReviews\Services\ReviewGenerationLimits;
 use Plugin\LongosProductReviews\Services\ReviewGenerationService;
 use ReflectionClass;
 
@@ -41,6 +42,20 @@ class LongosProductReviewGenerationAlgorithmsTest extends TestCase
 
         self::assertTrue($this->invoke('isNearDuplicate', $rewrite, [$original]));
         self::assertFalse($this->invoke('isNearDuplicate', $distinct, [$original]));
+    }
+
+    public function test_maximum_batch_size_builds_complete_balanced_pools(): void
+    {
+        $count     = ReviewGenerationLimits::MAX_REVIEWS_PER_BATCH;
+        $ratings   = $this->invoke('ratings', $count, 1, 5, 'balanced');
+        $countries = $this->invoke('balancedPool', ['United States', 'Canada', 'Japan'], $count);
+
+        self::assertSame(500, $count);
+        self::assertCount(500, $ratings);
+        self::assertCount(500, $countries);
+        $coveredRatings = array_values(array_unique($ratings));
+        sort($coveredRatings);
+        self::assertSame([1, 2, 3, 4, 5], $coveredRatings);
     }
 
     public function test_generated_content_policy_rejects_creation_disclosures_in_supported_languages(): void

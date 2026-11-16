@@ -9,8 +9,8 @@ Route::prefix('product-reviews')->name('longos_product_reviews.')->group(functio
     Route::post('bulk', [AdminReviewController::class, 'bulk'])->name('bulk');
     Route::get('generate', [AdminReviewGenerationController::class, 'index'])->name('generate');
     Route::post('generate/settings', [AdminReviewGenerationController::class, 'saveSettings'])->name('generate.settings');
-    Route::post('generate/test-connection', [AdminReviewGenerationController::class, 'testConnection'])->middleware('throttle:10,1')->name('generate.test');
-    Route::post('generate/preview', [AdminReviewGenerationController::class, 'preview'])->middleware('throttle:10,1')->name('generate.preview');
+    Route::post('generate/test-connection', [AdminReviewGenerationController::class, 'testConnection'])->middleware('throttle:product-review-admin')->name('generate.test');
+    Route::post('generate/preview', [AdminReviewGenerationController::class, 'preview'])->middleware('throttle:product-review-admin')->name('generate.preview');
     Route::get('generate/batches/{batch}', [AdminReviewGenerationController::class, 'status'])->whereUuid('batch')->middleware('throttle:120,1')->name('generate.status');
     Route::post('generate/batches/{batch}/cancel', [AdminReviewGenerationController::class, 'cancel'])->whereUuid('batch')->middleware('throttle:20,1')->name('generate.cancel');
     Route::post('generate/commit', [AdminReviewGenerationController::class, 'commit'])->name('generate.commit');

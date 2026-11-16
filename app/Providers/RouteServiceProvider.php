@@ -190,6 +190,19 @@ class RouteServiceProvider extends ServiceProvider
             ];
         });
 
+        RateLimiter::for('product-review-admin', function (Request $request) {
+            $adminId = Auth::guard(AdminUser::AUTH_GUARD)->id() ?: 'guest';
+            $siteId  = Site::current()?->getKey() ?: 'unresolved';
+            $route   = (string) ($request->route()?->getName() ?: $request->path());
+            $field   = str_ends_with($route, '.test') ? 'connection' : 'generation';
+
+            return Limit::perMinute(30)
+                ->by("product-review-admin:{$siteId}:{$adminId}:{$route}")
+                ->response(fn () => redirect()->back()->withErrors([
+                    $field => trans('LongosProductReviews::reviews.ai_admin_rate_limited'),
+                ]));
+        });
+
         RateLimiter::for('saas-domain-probe', function (Request $request) {
             $domainId = (string) $request->query('id', 'invalid');
             $source   = $request->ip();

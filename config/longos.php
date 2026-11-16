@@ -129,9 +129,9 @@ return [
     ],
 
     /* Review generation is isolated from storefront and translation work.
-     * Each job can issue up to three model requests concurrently (30 reviews
-     * in groups of ten); the shared per-key/model RPM/TPM gate remains the
-     * final concurrency boundary. */
+     * Batches of up to 500 reviews run in progress-reporting waves of ten-item
+     * requests, with up to six configured models active concurrently. The
+     * shared per-key/model RPM/TPM gate remains the final outbound boundary. */
     'product_reviews' => [
         'queue'   => 'product-reviews',
         'workers' => min(8, max(1, (int) env('LONGOS_PRODUCT_REVIEW_WORKERS', 3))),

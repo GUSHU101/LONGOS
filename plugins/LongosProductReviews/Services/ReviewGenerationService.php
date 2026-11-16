@@ -12,8 +12,6 @@ use Plugin\LongosProductReviews\Requests\GenerateReviewsRequest;
 
 class ReviewGenerationService
 {
-    private const CHUNK_SIZE = 10;
-
     private const NEAR_DUPLICATE_LIMIT = 500;
 
     private const REVIEW_ANGLES = [
@@ -86,38 +84,28 @@ class ReviewGenerationService
             }
             $recentReviewsSeen++;
         }
-        $chunks    = array_values(array_chunk($specifications, self::CHUNK_SIZE));
-        $responses = count($chunks) > 1
-            ? $this->client->chatJsonMany(array_map(
-                fn (array $chunk, int $index): array => $this->chunkRequest(
+        $chunks = array_values(array_chunk($specifications, ReviewGenerationLimits::CHUNK_SIZE));
+        // Process bounded waves instead of preparing every request at once.
+        // A 500-review batch therefore keeps memory stable, reports progress
+        // after each ten reviews and observes cancellation between waves while
+        // still using every configured model concurrently.
+        foreach (array_chunk($chunks, SiliconFlowSettings::MAX_MODELS, true) as $wave) {
+            $requests = [];
+            foreach ($wave as $chunkIndex => $chunk) {
+                $requests[] = $this->chunkRequest(
                     $productData,
                     $chunk,
                     (string) $data['examples'],
                     (string) $data['output_language'],
-                    $models[$index % count($models)],
-                ),
-                $chunks,
-                array_keys($chunks),
-            ))
-            : [];
-        foreach ($chunks as $chunkIndex => $chunk) {
-            $model = $models[$chunkIndex % count($models)];
-            if ($responses === []) {
-                $generated = $this->generateUniqueChunk(
-                    $productData,
-                    $chunk,
-                    (string) $data['examples'],
-                    (string) $data['output_language'],
-                    $signatures,
-                    $authors,
-                    $knownFingerprints,
-                    $model,
+                    $models[$chunkIndex % count($models)],
                 );
-            } else {
-                try {
-                    $generated = $this->parseChunkResponse($responses[$chunkIndex], $productData, $chunk);
-                    $this->assertChunkUnique($generated, $signatures, $authors, $knownFingerprints);
-                } catch (GenerationOutputException) {
+            }
+            $responses = count($requests) > 1 ? $this->client->chatJsonMany($requests) : [];
+
+            foreach (array_values($wave) as $waveIndex => $chunk) {
+                $chunkIndex = array_keys($wave)[$waveIndex];
+                $model      = $models[$chunkIndex % count($models)];
+                if ($responses === []) {
                     $generated = $this->generateUniqueChunk(
                         $productData,
                         $chunk,
@@ -128,20 +116,36 @@ class ReviewGenerationService
                         $knownFingerprints,
                         $model,
                     );
+                } else {
+                    try {
+                        $generated = $this->parseChunkResponse($responses[$waveIndex], $productData, $chunk);
+                        $this->assertChunkUnique($generated, $signatures, $authors, $knownFingerprints);
+                    } catch (GenerationOutputException) {
+                        $generated = $this->generateUniqueChunk(
+                            $productData,
+                            $chunk,
+                            (string) $data['examples'],
+                            (string) $data['output_language'],
+                            $signatures,
+                            $authors,
+                            $knownFingerprints,
+                            $model,
+                        );
+                    }
                 }
-            }
-            foreach ($generated as $item) {
-                $signature                                    = $this->signature($item['title'], $item['body']);
-                $signatures[$signature]                       = true;
-                $authors[mb_strtolower($item['author_name'])] = true;
-                $fingerprint                                  = $this->fingerprint($item['title'] . ' ' . $item['body']);
-                if ($fingerprint !== []) {
-                    $knownFingerprints[] = $fingerprint;
+                foreach ($generated as $item) {
+                    $signature                                    = $this->signature($item['title'], $item['body']);
+                    $signatures[$signature]                       = true;
+                    $authors[mb_strtolower($item['author_name'])] = true;
+                    $fingerprint                                  = $this->fingerprint($item['title'] . ' ' . $item['body']);
+                    if ($fingerprint !== []) {
+                        $knownFingerprints[] = $fingerprint;
+                    }
+                    $items[] = $item;
                 }
-                $items[]                                      = $item;
-            }
-            if ($progress !== null && $progress(count($items)) === false) {
-                throw new GenerationBatchException(trans('LongosProductReviews::reviews.ai_batch_cancelled'));
+                if ($progress !== null && $progress(count($items)) === false) {
+                    throw new GenerationBatchException(trans('LongosProductReviews::reviews.ai_batch_cancelled'));
+                }
             }
         }
         usort($items, static fn (array $left, array $right): int => strcmp($right['reviewed_at'], $left['reviewed_at']));

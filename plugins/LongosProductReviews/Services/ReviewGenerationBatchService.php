@@ -16,6 +16,8 @@ class ReviewGenerationBatchService
 {
     private const PREVIEW_TTL_MINUTES = 10_080;
 
+    private const RUNNING_STALE_MINUTES = 100;
+
     /** @param array<string, mixed> $request */
     public function create(array $request, string $model): ReviewGenerationBatch
     {
@@ -272,7 +274,7 @@ class ReviewGenerationBatchService
                 throw new GenerationBatchException(trans('LongosProductReviews::reviews.ai_preview_selection_invalid'));
             }
             $validator = Validator::make(['items' => $items], [
-                'items'               => ['required', 'array', 'min:1', 'max:30'],
+                'items'               => ['required', 'array', 'min:1', 'max:' . ReviewGenerationLimits::MAX_REVIEWS_PER_BATCH],
                 'items.*.product_id'  => ['required', 'integer', 'in:' . $batch->product_id],
                 'items.*.spec_id'     => ['required', 'string', 'regex:/^[1-9][0-9]*$/'],
                 'items.*.author_name' => ['required', 'string', 'max:120'],
@@ -317,7 +319,7 @@ class ReviewGenerationBatchService
             ]);
         $running = ReviewGenerationBatch::query()
             ->where('status', ReviewGenerationBatch::STATUS_RUNNING)
-            ->where('updated_at', '<', now()->subMinutes(55))
+            ->where('updated_at', '<', now()->subMinutes(self::RUNNING_STALE_MINUTES))
             ->update([
                 'status'      => ReviewGenerationBatch::STATUS_FAILED,
                 'error'       => trans('LongosProductReviews::reviews.ai_batch_worker_stalled'),
@@ -334,7 +336,7 @@ class ReviewGenerationBatchService
             && $batch->updated_at?->lt(now()->subMinutes(30))) {
             $this->fail($batch, trans('LongosProductReviews::reviews.ai_batch_queue_stalled'));
         } elseif ($batch->status === ReviewGenerationBatch::STATUS_RUNNING
-            && $batch->updated_at?->lt(now()->subMinutes(55))) {
+            && $batch->updated_at?->lt(now()->subMinutes(self::RUNNING_STALE_MINUTES))) {
             $this->fail($batch, trans('LongosProductReviews::reviews.ai_batch_worker_stalled'));
         }
 

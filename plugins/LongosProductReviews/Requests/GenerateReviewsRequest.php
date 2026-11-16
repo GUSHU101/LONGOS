@@ -4,6 +4,7 @@ namespace Plugin\LongosProductReviews\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
+use Plugin\LongosProductReviews\Services\ReviewGenerationLimits;
 
 class GenerateReviewsRequest extends FormRequest
 {
@@ -17,7 +18,7 @@ class GenerateReviewsRequest extends FormRequest
     {
         return [
             'product_id'          => ['bail', 'required', 'integer', 'exists:products,id'],
-            'count'               => ['bail', 'required', 'integer', 'between:1,30'],
+            'count'               => ['bail', 'required', 'integer', 'between:1,' . ReviewGenerationLimits::MAX_REVIEWS_PER_BATCH],
             'date_from'           => ['bail', 'required', 'date_format:Y-m-d', 'before_or_equal:today'],
             'date_to'             => ['bail', 'required', 'date_format:Y-m-d', 'after_or_equal:date_from', 'before_or_equal:today'],
             'rating_min'          => ['bail', 'required', 'integer', 'between:1,5'],
