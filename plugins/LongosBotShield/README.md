@@ -41,6 +41,9 @@ bursts.
   policy uses all five of Google's published crawler, fetcher, and agent CIDR
   feeds and ASN identity for Meta. Successful Google feeds are cached for a day
   with a seven-day stale fallback, avoiding request-path DNS lookups.
+  In shielding-scope homepage mode, both declared and source-verified crawlers
+  receive the main-site homepage; crawler verification policy continues to
+  govern the explicit challenge and block modes.
 - HeadlessChrome, Puppeteer, Playwright, Selenium, PhantomJS, WebDriver,
   Cypress, browserless, common script HTTP clients, explicit automation
   headers, and contradictory browser/client-hint/fetch headers are signals.
@@ -75,7 +78,12 @@ rate, scan-path, crawler, automation, and network-risk rules are evaluated.
 
 ## Response modes
 
-- **LONGOS main-site homepage:** fetch the active control site's public `/`
+- **Shielding-scope homepage (default):** independently of the numeric risk
+  score, match the visitor against denied CIDRs, high-risk ASNs, hosting and
+  datacenter networks, residential proxies, VPN/Tor/relay data, organization
+  keywords, crawlers, and headless/script automation signals. Configured lists
+  and the enabled built-in catalog both contribute to this scope. A match
+  fetches the active control site's public `/`
   page server-to-server without forwarding visitor cookies, then render that
   HTML at the requested URL. The host and address bar do not change. On the
   control site or a non-SaaS install, this falls back to the current homepage.
@@ -90,22 +98,33 @@ rate, scan-path, crawler, automation, and network-risk rules are evaluated.
   streams candidate rows instead of loading every tenant and domain, and accepts
   only a standard root HTTP(S) origin (HTTPS in production, with no credentials
   or nonstandard port). Fresh HTML cache hits perform no DNS or HTTP work.
+  Every matching request receives that homepage, including structured and
+  non-cacheable requests. Visitors outside the configured shielding scope are
+  passed through normally and are not redirected or replaced because of a
+  score. Explicit IP and verified-vendor allowlists still take precedence.
 - **Monitor:** record the risk decision and continue normally.
 - **Challenge:** challenge medium-risk browsers and reject high-risk traffic.
+  A valid clearance applies to cacheable and non-cacheable storefront requests,
+  so verified customers can continue cart and checkout submissions. Explicit
+  high-confidence signals and the hard-block threshold still take precedence.
 - **Block:** return `403`, or `429` for rate limits.
 
 Bot Shield runs before storefront cookies and sessions and is also attached to
-the tenant API middleware group. API requests always receive structured problem
-responses rather than substituted HTML. `/api/health` and valid CORS preflight
-requests remain available for operations and browser interoperability.
+the tenant API middleware group. In shielding-scope homepage mode, matching API
+requests receive the same sandboxed main-site homepage and never reach the
+application handler. In challenge and block modes, rejected API requests use
+structured problem responses. `/api/health` and valid CORS preflight requests
+remain available for operations and browser interoperability.
 
 The cross-site fetch is restricted to the active LONGOS control site's verified
 primary domain from the SaaS registry. It never accepts an administrator-entered
 arbitrary URL and never forwards visitor cookies, sessions, authorization, or
-request data. Non-cacheable requests and JSON/API requests are always rejected
-instead of being converted into HTML. The internal bypass signature is
-short-lived, host/path/method bound, consumed before application handlers, and
-fails closed when `APP_KEY` is unavailable.
+request data. Rejected non-cacheable and JSON/API requests never reach
+storefront actions in challenge or block mode. A shielding-scope homepage match
+deliberately receives the sandboxed homepage for every method and response
+format instead. The internal bypass signature is short-lived,
+host/path/method bound, consumed before application handlers, and fails closed
+when `APP_KEY` is unavailable.
 
 ## Setup
 

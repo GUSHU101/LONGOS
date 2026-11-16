@@ -9,7 +9,7 @@
     "en": "Storefront and API protection using IPInfo/ip-api intelligence, crawler and automation signals, bounded lookup budgets, and an IP-verified vendor allowlist."
   },
   "type": "feature",
-  "version": "v1.6.0",
+  "version": "v1.6.1",
   "icon": "/image/longos-favicon.svg",
   "author": {
     "name": "LONGOS",

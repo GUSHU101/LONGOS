@@ -36,15 +36,6 @@ class ProtectStorefront
             return $next($request);
         }
 
-        $challengeProof = trim((string) $request->header(self::CHALLENGE_HEADER));
-        if ($request->isMethod('GET') && $challengeProof !== '') {
-            return $this->completeChallenge(
-                $request,
-                $challengeProof,
-                trim((string) $request->header(self::CHALLENGE_NONCE_HEADER)),
-            );
-        }
-
         if ($this->internalRequest->valid($request)) {
             // Consume internal authentication material at the middleware
             // boundary so controllers, hooks, and application logs never see it.
@@ -53,12 +44,33 @@ class ProtectStorefront
             return $next($request);
         }
 
+        $mode           = $this->settings->enforcementMode();
+        $challengeProof = trim((string) $request->header(self::CHALLENGE_HEADER));
+        if ($mode === 'challenge' && $request->isMethod('GET') && $challengeProof !== '') {
+            return $this->completeChallenge(
+                $request,
+                $challengeProof,
+                trim((string) $request->header(self::CHALLENGE_NONCE_HEADER)),
+            );
+        }
+
         $assessment = $this->engine->assess($request);
         if ($assessment->allowlisted) {
             $this->record($request, $assessment, 'allowlist');
 
             return $next($request);
         }
+
+        if ($mode === 'homepage') {
+            if (! $assessment->matchesConfiguredShieldingScope()) {
+                return $next($request);
+            }
+
+            $this->record($request, $assessment, 'homepage');
+
+            return $this->homepage($request, $assessment);
+        }
+
         if ($assessment->verifiedCrawler && $assessment->score < $this->settings->challengeThreshold()) {
             return $next($request);
         }
@@ -68,17 +80,10 @@ class ProtectStorefront
             return $next($request);
         }
 
-        $mode = $this->settings->enforcementMode();
         if ($mode === 'monitor') {
             $this->record($request, $assessment, 'monitor');
 
             return $next($request);
-        }
-
-        if ($mode === 'homepage' && $request->isMethodCacheable() && ! $this->isStructuredRequest($request)) {
-            $this->record($request, $assessment, 'homepage');
-
-            return $this->homepage($request, $assessment);
         }
 
         $hardBlock = $mode === 'block'
@@ -88,8 +93,7 @@ class ProtectStorefront
             || $assessment->hasReason('ua_automation')
             || $assessment->hasReason('ua_script_client')
             || $assessment->hasReason('rate_limit')
-            || $assessment->hasReason('rate_burst')
-            || ! $request->isMethodCacheable();
+            || $assessment->hasReason('rate_burst');
 
         if (! $hardBlock && $mode === 'challenge' && $this->clearance->valid($request)) {
             $this->record($request, $assessment, 'clearance');
@@ -97,7 +101,10 @@ class ProtectStorefront
             return $next($request);
         }
 
-        if (! $hardBlock && $mode === 'challenge' && ! $this->isStructuredRequest($request)) {
+        if (! $hardBlock
+            && $mode === 'challenge'
+            && $request->isMethodCacheable()
+            && ! $this->isStructuredRequest($request)) {
             $this->record($request, $assessment, 'challenge');
 
             return $this->challenge($request, $assessment);

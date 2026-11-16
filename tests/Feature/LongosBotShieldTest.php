@@ -964,6 +964,7 @@ class LongosBotShieldTest extends TestCase
 
     public function test_api_requests_are_structured_and_health_or_valid_preflight_bypasses_are_narrow(): void
     {
+        config(['bk.plugin.longos_bot_shield.enforcement_mode' => 'block']);
         $settings = app(BotShieldSettings::class);
         $engine   = new class($settings, app(NetworkIntelligenceClient::class), app(CrawlerVerifier::class)) extends BotRiskEngine
         {
@@ -1331,6 +1332,85 @@ class LongosBotShieldTest extends TestCase
         );
     }
 
+    public function test_challenge_clearance_allows_non_cacheable_requests_below_hard_block_threshold(): void
+    {
+        config(['bk.plugin.longos_bot_shield.enforcement_mode' => 'challenge']);
+
+        $settings = app(BotShieldSettings::class);
+        $engine   = new class($settings, app(NetworkIntelligenceClient::class), app(CrawlerVerifier::class)) extends BotRiskEngine
+        {
+            public function assess(Request $request): RiskAssessment
+            {
+                return new RiskAssessment(50, ['hosting_network']);
+            }
+        };
+        $clearance  = app(ClearanceToken::class);
+        $middleware = new ProtectStorefront(
+            $engine,
+            $settings,
+            $clearance,
+            app(InternalHomepageRequest::class),
+            app(MainSiteHomepage::class),
+        );
+        $verified = $this->request('8.8.8.8', $this->chromeUserAgent(), '/products/verified');
+        app()->instance('request', $verified);
+        $token = $clearance->issue($verified);
+
+        $post = Request::create('https://store.example.test/checkout', 'POST', [], [
+            ClearanceToken::COOKIE => $token,
+        ], [], [
+            'REMOTE_ADDR'     => '8.8.8.8',
+            'HTTP_USER_AGENT' => $this->chromeUserAgent(),
+            'HTTP_ACCEPT'     => 'application/json',
+        ]);
+        app()->instance('request', $post);
+
+        $response = $middleware->handle($post, static fn (): Response => new Response('CHECKOUT ACCEPTED'));
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame('CHECKOUT ACCEPTED', $response->getContent());
+        self::assertNull($response->headers->get('X-Longos-Bot-Shield'));
+
+        $post->cookies->remove(ClearanceToken::COOKIE);
+        $blocked = $middleware->handle($post, static fn (): Response => new Response('MUST NOT RUN'));
+
+        self::assertSame(403, $blocked->getStatusCode());
+        self::assertSame('blocked', $blocked->headers->get('X-Longos-Bot-Shield'));
+    }
+
+    public function test_homepage_shielding_scope_covers_network_crawler_and_automation_targets_without_scores(): void
+    {
+        $scopeReasons = [
+            'ip_denylist',
+            'asn_denylist',
+            'organization_keyword',
+            'hosting_network',
+            'residential_proxy',
+            'anonymous_network',
+            'crawler_declared',
+            'crawler_spoofed',
+            'crawler_verified',
+            'ua_generic_crawler',
+            'ua_automation',
+            'ua_script_client',
+            'client_hints_automation',
+            'automation_header',
+        ];
+        foreach ($scopeReasons as $reason) {
+            self::assertTrue(
+                (new RiskAssessment(0, [$reason]))->matchesConfiguredShieldingScope(),
+                $reason,
+            );
+        }
+
+        foreach (['network_provider_unavailable', 'client_hints_missing', 'accept_missing', 'rate_limit'] as $reason) {
+            self::assertFalse(
+                (new RiskAssessment(100, [$reason]))->matchesConfiguredShieldingScope(),
+                $reason,
+            );
+        }
+    }
+
     public function test_homepage_mode_replaces_html_without_redirecting_or_changing_url(): void
     {
         config(['bk.plugin.longos_bot_shield.diagnostic_log' => true]);
@@ -1350,7 +1430,7 @@ class LongosBotShieldTest extends TestCase
         {
             public function assess(Request $request): RiskAssessment
             {
-                return new RiskAssessment(100, ['crawler_declared']);
+                return new RiskAssessment(1, ['asn_denylist']);
             }
         };
         $homepage = new class($internal) extends MainSiteHomepage
@@ -1368,6 +1448,7 @@ class LongosBotShieldTest extends TestCase
             $homepage,
         );
         $request = $this->request('8.8.4.4', 'facebookexternalhit/1.1', '/products/private-offer');
+        $request->headers->set('X-Longos-Bot-Challenge-Proof', 'stale-proof-from-previous-mode');
         app()->instance('request', $request);
 
         $response = (new ApplySecurityHeaders)->handle(
@@ -1396,7 +1477,7 @@ class LongosBotShieldTest extends TestCase
         self::assertFalse($response->isRedirect());
     }
 
-    public function test_homepage_mode_never_turns_json_or_mutating_requests_into_html(): void
+    public function test_homepage_mode_ignores_scores_outside_the_configured_shielding_scope(): void
     {
         $settings = app(BotShieldSettings::class);
         $internal = app(InternalHomepageRequest::class);
@@ -1404,7 +1485,7 @@ class LongosBotShieldTest extends TestCase
         {
             public function assess(Request $request): RiskAssessment
             {
-                return new RiskAssessment(100, ['ua_automation']);
+                return new RiskAssessment(40, ['network_provider_unavailable']);
             }
         };
         $middleware = new ProtectStorefront(
@@ -1416,7 +1497,41 @@ class LongosBotShieldTest extends TestCase
             {
                 public function render(): ?array
                 {
-                    throw new \RuntimeException('JSON requests must not fetch the main-site homepage.');
+                    throw new \RuntimeException('Medium-risk requests must not fetch the main-site homepage.');
+                }
+            },
+        );
+        $request = $this->request('8.8.4.4', $this->chromeUserAgent(), '/products/normal-offer');
+        app()->instance('request', $request);
+
+        $response = $middleware->handle($request, static fn (): Response => new Response('ORIGINAL STOREFRONT'));
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame('ORIGINAL STOREFRONT', $response->getContent());
+        self::assertNull($response->headers->get('X-Longos-Bot-Shield'));
+    }
+
+    public function test_homepage_mode_replaces_structured_mutating_requests_in_the_configured_scope(): void
+    {
+        $settings = app(BotShieldSettings::class);
+        $internal = app(InternalHomepageRequest::class);
+        $engine   = new class($settings, app(NetworkIntelligenceClient::class), app(CrawlerVerifier::class)) extends BotRiskEngine
+        {
+            public function assess(Request $request): RiskAssessment
+            {
+                return new RiskAssessment(5, ['organization_keyword']);
+            }
+        };
+        $middleware = new ProtectStorefront(
+            $engine,
+            $settings,
+            app(ClearanceToken::class),
+            $internal,
+            new class($internal) extends MainSiteHomepage
+            {
+                public function render(): ?array
+                {
+                    return ['html' => '<!doctype html><title>LONGOS Main</title>', 'source' => 'control'];
                 }
             },
         );
@@ -1429,9 +1544,10 @@ class LongosBotShieldTest extends TestCase
 
         $response = $middleware->handle($request, static fn (): Response => new Response('ORIGINAL'));
 
-        self::assertSame(403, $response->getStatusCode());
-        self::assertStringContainsString('security policy', (string) $response->getContent());
-        self::assertSame('application/problem+json', $response->headers->get('Content-Type'));
+        self::assertSame(200, $response->getStatusCode());
+        self::assertStringContainsString('LONGOS Main', (string) $response->getContent());
+        self::assertSame('homepage', $response->headers->get('X-Longos-Bot-Shield'));
+        self::assertSame('text/html; charset=UTF-8', $response->headers->get('Content-Type'));
     }
 
     private function request(string $ip, string $userAgent, string $path = '/products/1'): Request
