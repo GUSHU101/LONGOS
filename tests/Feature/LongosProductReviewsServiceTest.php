@@ -690,9 +690,74 @@ class LongosProductReviewsServiceTest extends TestCase
         foreach (Http::recorded() as [$request]) {
             $payload = json_decode((string) data_get($request->data(), 'messages.1.content'), true, 64, JSON_THROW_ON_ERROR);
             self::assertCount(5, (array) data_get($payload, 'specifications'));
-            self::assertLessThanOrEqual(2_584, (int) data_get($request->data(), 'max_tokens'));
+            self::assertGreaterThanOrEqual(2_688, (int) data_get($request->data(), 'max_tokens'));
+            self::assertLessThanOrEqual(7_808, (int) data_get($request->data(), 'max_tokens'));
         }
         Http::assertSentCount(4);
+    }
+
+    public function test_generation_shrinks_truncated_chunks_until_every_review_is_complete(): void
+    {
+        config([
+            'bk.plugin.longos_product_reviews.siliconflow_api_key' => 'test-api-key',
+            'bk.plugin.longos_product_reviews.siliconflow_model'   => 'XingChenAGI/Xing4.0-29B',
+            'bk.plugin.longos_product_reviews.siliconflow_models'  => "XingChenAGI/Xing4.0-29B\ntencent/Hunyuan-MT-7B",
+            'bk.plugin.longos_product_reviews.siliconflow_timeout' => 30,
+        ]);
+        $call = 0;
+        Http::fake(function ($request) use (&$call) {
+            $payload   = json_decode((string) data_get($request->data(), 'messages.1.content'), true, 64, JSON_THROW_ON_ERROR);
+            $requested = count((array) data_get($payload, 'specifications'));
+            $call++;
+            if ($requested > 1) {
+                return Http::response([
+                    'choices' => [[
+                        'finish_reason' => 'length',
+                        'message'       => ['content' => '{"reviews":['],
+                    ]],
+                ]);
+            }
+
+            $token = strtr(hash('sha256', 'adaptive:' . $call), '0123456789', 'qwertyuiop');
+
+            return Http::response([
+                'choices' => [[
+                    'finish_reason' => 'stop',
+                    'message'       => ['content' => json_encode(['reviews' => [[
+                        'author_name' => 'Customer ' . ucfirst(substr($token, 0, 12)),
+                        'title'       => 'Adaptive result ' . substr($token, 12, 12),
+                        'body'        => 'The compact shape fits neatly into a daily bag and the controls remain accessible ' . $token . '.',
+                    ]]], JSON_THROW_ON_ERROR)],
+                ]],
+            ]);
+        });
+
+        $preview = app(ReviewGenerationService::class)->preview([
+            'product_id'          => 71,
+            'count'               => 6,
+            'date_from'           => '2026-10-01',
+            'date_to'             => '2026-10-10',
+            'rating_min'          => 4,
+            'rating_max'          => 5,
+            'rating_distribution' => 'balanced',
+            'review_length'       => 'long',
+            'countries'           => "Japan\nFrance",
+            'examples'            => 'Compact and useful, with a simple finish suitable for routine use.',
+            'output_language'     => 'en-US',
+            '_models'             => ['XingChenAGI/Xing4.0-29B', 'tencent/Hunyuan-MT-7B'],
+        ]);
+
+        self::assertCount(6, $preview['items']);
+        self::assertCount(6, array_unique(array_column($preview['items'], 'author_name')));
+        $requestedCounts = Http::recorded()->map(function (array $pair): int {
+            $payload = json_decode((string) data_get($pair[0]->data(), 'messages.1.content'), true, 64, JSON_THROW_ON_ERROR);
+
+            return count((array) data_get($payload, 'specifications'));
+        })->all();
+        self::assertSame(2, count(array_filter($requestedCounts, static fn (int $count): bool => $count === 5)));
+        self::assertSame(1, count(array_filter($requestedCounts, static fn (int $count): bool => $count === 2)));
+        self::assertSame(7, count(array_filter($requestedCounts, static fn (int $count): bool => $count === 1)));
+        Http::assertSentCount(10);
     }
 
     public function test_parallel_generation_refills_only_duplicate_rows_and_rotates_the_retry_model(): void
@@ -1232,6 +1297,45 @@ class LongosProductReviewsServiceTest extends TestCase
         self::assertSame(0, Review::query()->where('generation_batch_id', $batch->id)->count());
         Http::assertSentCount(2);
         $job->handle($batches, app(ReviewGenerationService::class));
+        Http::assertSentCount(2);
+    }
+
+    public function test_async_generation_batch_requeues_after_repeated_single_item_truncation(): void
+    {
+        register('admin_user', (new \Beike\Models\AdminUser)->forceFill(['id' => 25]), true);
+        config([
+            'bk.plugin.longos_product_reviews.siliconflow_api_key' => 'test-api-key',
+            'bk.plugin.longos_product_reviews.siliconflow_model'   => 'XingChenAGI/Xing4.0-29B',
+            'bk.plugin.longos_product_reviews.siliconflow_timeout' => 30,
+        ]);
+        Http::fake([
+            'api.siliconflow.cn/v1/chat/completions' => Http::response([
+                'choices' => [[
+                    'finish_reason' => 'length',
+                    'message'       => ['content' => '{"reviews":['],
+                ]],
+            ]),
+        ]);
+        $batches = app(ReviewGenerationBatchService::class);
+        $batch   = $batches->create([
+            'product_id'      => 71,
+            'count'           => 1,
+            'date_from'       => '2026-10-01',
+            'date_to'         => '2026-10-10',
+            'rating_min'      => 4,
+            'rating_max'      => 5,
+            'countries'       => 'Japan',
+            'examples'        => 'A sufficiently detailed example review for style guidance.',
+            'output_language' => 'en-US',
+        ], 'XingChenAGI/Xing4.0-29B');
+
+        (new GenerateReviewBatch($batch->id))->handle($batches, app(ReviewGenerationService::class));
+
+        $batch->refresh();
+        self::assertSame(ReviewGenerationBatch::STATUS_PENDING, $batch->status);
+        self::assertSame(0, $batch->processed_count);
+        self::assertNull($batch->started_at);
+        self::assertNull($batch->error);
         Http::assertSentCount(2);
     }
 

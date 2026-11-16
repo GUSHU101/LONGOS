@@ -230,7 +230,7 @@ return [
     'ai_trace_id'                    => '追踪 ID：:id。',
     'ai_error_empty_response'        => '模型返回了空内容，请重试。',
     'ai_error_invalid_json'          => '模型返回的 JSON 不完整，请降低数量后重试。',
-    'ai_error_truncated'             => '模型输出因长度限制被截断，系统将自动重试；若仍失败请减少单次生成数量。',
+    'ai_error_truncated'             => '模型输出因长度限制被截断。系统已自动缩小分片并执行有界重试；若最终仍失败，请检查当前模型的输出上限或稍后重试。',
     'ai_error_filtered'              => '模型服务拦截了本次输出，请调整示例内容后重试。',
     'ai_error_meta_content'          => '模型输出包含 AI、商家生成、示例、虚构、占位或推广等创作过程说明，系统已拒绝并重新生成。',
     'ai_generated_content_rejected'  => '生成评论的作者、标题和正文不能包含 AI/机器生成、商家/卖家生成、示例、虚构、占位、草稿、推广或赞助等说明，也不能包含联系方式或富文本标记。',

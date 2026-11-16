@@ -13,6 +13,7 @@ use Illuminate\Support\Str;
 use Plugin\LongosProductReviews\Exceptions\GenerationOutputException;
 use Plugin\LongosProductReviews\Exceptions\RetryableSiliconFlowException;
 use Plugin\LongosProductReviews\Exceptions\SiliconFlowException;
+use Plugin\LongosProductReviews\Exceptions\TruncatedGenerationOutputException;
 use Throwable;
 
 class SiliconFlowClient
@@ -186,7 +187,10 @@ class SiliconFlowClient
             }, min(SiliconFlowSettings::MAX_MODELS, count($ready)));
         }
 
-        $decoded = [];
+        // Settle every reservation before decoding any response. Decoding one
+        // truncated pooled response throws by design; settling in the decode
+        // loop would otherwise strand later models' capacity for the rest of
+        // the minute and make adaptive fallback appear stalled.
         foreach ($prepared as $index => $request) {
             $response = $responses[(string) $index] ?? null;
             if ($request['reserved_at'] > 0) {
@@ -198,16 +202,16 @@ class SiliconFlowClient
                     $request['reserved_at'],
                 );
             }
+        }
+
+        $decoded = [];
+        foreach ($prepared as $index => $request) {
+            $response = $responses[(string) $index] ?? null;
             if ($response instanceof Response && $response->successful()) {
-                try {
-                    $decoded[$index] = $this->decodeResponse($response);
-                } catch (GenerationOutputException) {
-                    $decoded[$index] = $this->chatJson(
-                        $request['messages'],
-                        $request['max_tokens'],
-                        $request['model'],
-                    );
-                }
+                // Let the generation service shrink malformed or truncated
+                // chunks. Retrying the identical request here repeatedly hits
+                // the same output ceiling and can fail an otherwise valid wave.
+                $decoded[$index] = $this->decodeResponse($response);
 
                 continue;
             }
@@ -246,7 +250,7 @@ class SiliconFlowClient
 
         $finishReason = trim((string) $response->json('choices.0.finish_reason', ''));
         if ($finishReason === 'length') {
-            throw new GenerationOutputException(trans('LongosProductReviews::reviews.ai_error_truncated'));
+            throw new TruncatedGenerationOutputException(trans('LongosProductReviews::reviews.ai_error_truncated'));
         }
         if ($finishReason === 'content_filter') {
             throw new GenerationOutputException(trans('LongosProductReviews::reviews.ai_error_filtered'));

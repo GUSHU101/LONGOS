@@ -19,7 +19,7 @@ class ReviewGenerationService
      * rows enough opportunities to be regenerated. Schema/content failures are
      * capped separately because repeating a malformed request is rarely useful.
      */
-    private const MAX_CHUNK_ATTEMPTS = 4;
+    private const MAX_CHUNK_ATTEMPTS = 12;
 
     private const MAX_OUTPUT_FAILURES = 2;
 
@@ -109,7 +109,15 @@ class ReviewGenerationService
                     $models[$chunkIndex % count($models)],
                 );
             }
-            $responses = count($requests) > 1 ? $this->client->chatJsonMany($requests) : [];
+
+            try {
+                $responses = count($requests) > 1 ? $this->client->chatJsonMany($requests) : [];
+            } catch (GenerationOutputException) {
+                // One malformed or truncated pooled response must not abort
+                // the whole wave. Regenerate each chunk through the adaptive
+                // path below, which can reduce an oversized request safely.
+                $responses = [];
+            }
 
             foreach (array_values($wave) as $waveIndex => $chunk) {
                 $chunkIndex = array_keys($wave)[$waveIndex];
@@ -249,12 +257,18 @@ class ReviewGenerationService
         $lastException  = null;
         $outputFailures = 0;
         $retryGuidance  = '';
+        $requestSize    = count($pending);
         foreach (range(0, self::MAX_CHUNK_ATTEMPTS - 1) as $attempt) {
             if ($pending === []) {
                 break;
             }
 
-            $pendingCount = count($pending);
+            $requestedSpecifications = array_slice(array_values($pending), 0, $requestSize);
+            $requestedCount          = count($requestedSpecifications);
+            $requestedIds            = array_fill_keys(array_map(
+                static fn (array $specification): string => (string) $specification['spec_id'],
+                $requestedSpecifications,
+            ), true);
 
             try {
                 if ($attempt === 0 && $initialGenerated !== null) {
@@ -264,7 +278,7 @@ class ReviewGenerationService
                     $model       = $models[($chunkIndex + $modelOffset) % count($models)];
                     $generated   = $this->generateChunk(
                         $product,
-                        array_values($pending),
+                        $requestedSpecifications,
                         $examples,
                         $language,
                         $model,
@@ -273,8 +287,17 @@ class ReviewGenerationService
                 }
             } catch (GenerationOutputException $exception) {
                 $lastException = $exception;
-                $outputFailures++;
-                if ($outputFailures >= self::MAX_OUTPUT_FAILURES) {
+                if ($requestedCount > 1) {
+                    $requestSize    = max(1, intdiv($requestedCount, 2));
+                    $outputFailures = 0;
+                    $retryGuidance  = sprintf(
+                        'The previous response exceeded the output limit or was malformed. Generate exactly the next %d requested items only, using compact valid JSON with no commentary.',
+                        $requestSize,
+                    );
+
+                    continue;
+                }
+                if (++$outputFailures >= self::MAX_OUTPUT_FAILURES) {
                     throw $exception;
                 }
                 $retryGuidance = 'The previous response did not pass schema or content validation. Return only the still-requested items with the exact schema and safe, natural copy.';
@@ -282,7 +305,7 @@ class ReviewGenerationService
                 continue;
             }
 
-            $hasInvalidRows = count($generated) < $pendingCount;
+            $hasInvalidRows = count($generated) < $requestedCount;
             $newItems       = $this->acceptUniqueCandidates(
                 $generated,
                 $knownSignatures,
@@ -294,7 +317,11 @@ class ReviewGenerationService
                 $accepted[$specId] = $item;
                 unset($pending[$specId]);
             }
-            if ($pending !== []) {
+            $remainingRequested = array_filter(
+                array_keys($requestedIds),
+                static fn (string $specId): bool => isset($pending[$specId]),
+            );
+            if ($remainingRequested !== []) {
                 $lastException = new GenerationOutputException(trans('LongosProductReviews::reviews.' . ($hasInvalidRows
                     ? 'ai_error_schema'
                     : 'ai_error_duplicate')));
@@ -305,6 +332,11 @@ class ReviewGenerationService
                     'Some rows were accepted and reserved, while others failed validation or uniqueness checks. Generate exactly the remaining %d items only. Use new fictional author names, different openings, substantially different wording, and follow the schema and safety rules exactly.',
                     count($pending),
                 );
+                $requestSize = count($remainingRequested);
+            } elseif ($pending !== []) {
+                $outputFailures = 0;
+                $retryGuidance  = '';
+                $requestSize    = min($requestSize, count($pending));
             }
         }
 
@@ -433,17 +465,17 @@ class ReviewGenerationService
      */
     private function maxTokensForSpecifications(array $specifications): int
     {
-        $tokens = 384;
+        $tokens = 768;
         foreach ($specifications as $specification) {
             $guidance = (string) $specification['length_guidance'];
             $tokens += match (true) {
-                str_starts_with($guidance, 'brief:')    => 160,
-                str_starts_with($guidance, 'detailed:') => 440,
-                default                                 => 280,
+                str_starts_with($guidance, 'brief:')    => 384,
+                str_starts_with($guidance, 'detailed:') => 1_408,
+                default                                 => 768,
             };
         }
 
-        return min(8192, max(640, $tokens));
+        return min(8_192, max(1_024, $tokens));
     }
 
     /** @param array<string,mixed> $response

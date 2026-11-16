@@ -230,7 +230,7 @@ return [
     'ai_trace_id'                    => 'Trace ID: :id.',
     'ai_error_empty_response'        => 'The model returned no content. Try again.',
     'ai_error_invalid_json'          => 'The model returned incomplete JSON. Reduce the batch size and try again.',
-    'ai_error_truncated'             => 'The model output hit its length limit. It will be retried automatically; reduce the batch size if it still fails.',
+    'ai_error_truncated'             => 'The model output hit its length limit. LONGOS reduced the chunk size and performed bounded retries; if it still fails, check the selected model output limit or try again later.',
     'ai_error_filtered'              => 'The model provider filtered this output. Adjust the example content and try again.',
     'ai_error_meta_content'          => 'The model described the content as AI-generated, merchant-created, sample, fictional, placeholder or promotional. It was rejected and regenerated.',
     'ai_generated_content_rejected'  => 'Generated review authors, titles and text cannot mention AI or machine generation, merchant or seller creation, samples, fiction, placeholders, drafts, promotions or sponsorships, and cannot contain contact details or rich-text markup.',

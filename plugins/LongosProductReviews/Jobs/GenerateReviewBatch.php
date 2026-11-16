@@ -10,6 +10,7 @@ use Illuminate\Queue\SerializesModels;
 use Plugin\LongosProductReviews\Exceptions\GenerationBatchException;
 use Plugin\LongosProductReviews\Exceptions\RetryableSiliconFlowException;
 use Plugin\LongosProductReviews\Exceptions\SiliconFlowException;
+use Plugin\LongosProductReviews\Exceptions\TruncatedGenerationOutputException;
 use Plugin\LongosProductReviews\Models\ReviewGenerationBatch;
 use Plugin\LongosProductReviews\Services\ReviewGenerationBatchService;
 use Plugin\LongosProductReviews\Services\ReviewGenerationService;
@@ -51,7 +52,8 @@ class GenerateReviewBatch implements ShouldQueue, TenantAware
             );
             $batches->complete($batch, $result);
         } catch (Throwable $exception) {
-            if ($exception instanceof RetryableSiliconFlowException && $this->attempts() < $this->tries) {
+            if (($exception instanceof RetryableSiliconFlowException || $exception instanceof TruncatedGenerationOutputException)
+                && $this->attempts() < $this->tries) {
                 if ($batches->requeue($batch)) {
                     $this->release(min(600, 60 * (2 ** max(0, $this->attempts() - 1))));
                 }
