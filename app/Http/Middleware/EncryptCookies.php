@@ -12,6 +12,8 @@ class EncryptCookies extends Middleware
      * @var array
      */
     protected $except = [
-        //
+        // Bot Shield runs before the session stack. Its clearance value is
+        // already authenticated and encrypted by Laravel Crypt.
+        'longos_bot_clearance',
     ];
 }

@@ -289,6 +289,7 @@ return [
         // never depend on the upstream marketplace or an external licence
         // endpoint, especially while provisioning an isolated tenant.
         'longos_christmas',
+        'longos_bot_shield',
         'longos_live_chat',
         'longos_platform_pay',
         'longos_product_reviews',

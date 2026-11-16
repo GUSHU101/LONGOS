@@ -463,6 +463,9 @@ class PluginController extends Controller
             $fields['tiktok_pixels']   = \Plugin\PixelTracking\Services\PixelProfiles::normalizeForStorage($fields['tiktok_pixels'] ?? '[]', 'tiktok');
             $fields['snapchat_pixels'] = \Plugin\PixelTracking\Services\PixelProfiles::normalizeForStorage($fields['snapchat_pixels'] ?? '[]', 'snapchat');
         }
+        if ($plugin->code === 'longos_bot_shield') {
+            $fields = \Plugin\LongosBotShield\Services\BotShieldSettings::normalizeForStorage($fields);
+        }
         if ($plugin->code === 'paypal') {
             $fields = \Plugin\Paypal\Services\PaypalSettings::normalizeForStorage($fields);
         }

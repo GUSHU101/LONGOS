@@ -36,6 +36,7 @@ jobs:
           set -euo pipefail
           plugins=(
             FlatShipping
+            LongosBotShield
             LongosInstantTranslate
             LongosLiveChat
             LongosPlatformPay
@@ -322,6 +323,7 @@ jobs:
           wait_for_app
           docker compose exec -T app test -f storage/installed
           docker compose exec -T app test -f plugins/Paypal/Bootstrap.php
+          docker compose exec -T app test -f plugins/LongosBotShield/Bootstrap.php
           docker compose exec -T app test -f plugins/LongosPlatformPay/Bootstrap.php
           docker compose exec -T app test -f plugins/ShopifyProductTransfer/Bootstrap.php
           docker compose exec -T app test ! -e plugins/BeikeShopTestSandbox

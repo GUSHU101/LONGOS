@@ -15,9 +15,18 @@ class ApplySecurityHeaders
         $response = $next($request);
 
         $response->headers->set('X-Content-Type-Options', 'nosniff');
-        $response->headers->set('X-Frame-Options', 'SAMEORIGIN');
-        $response->headers->set('Referrer-Policy', 'strict-origin-when-cross-origin');
-        $response->headers->set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+        if (strtoupper((string) $response->headers->get('X-Frame-Options')) !== 'DENY') {
+            $response->headers->set('X-Frame-Options', 'SAMEORIGIN');
+        }
+        if (strtolower((string) $response->headers->get('Referrer-Policy')) !== 'no-referrer') {
+            $response->headers->set('Referrer-Policy', 'strict-origin-when-cross-origin');
+        }
+        $permissions = strtolower((string) $response->headers->get('Permissions-Policy'));
+        if (! str_contains($permissions, 'camera=()')
+            || ! str_contains($permissions, 'microphone=()')
+            || ! str_contains($permissions, 'geolocation=()')) {
+            $response->headers->set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+        }
         $response->headers->set('X-Permitted-Cross-Domain-Policies', 'none');
 
         if ($request->isSecure() && app()->environment('production')) {
