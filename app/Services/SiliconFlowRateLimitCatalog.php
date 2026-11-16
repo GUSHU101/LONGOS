@@ -12,6 +12,8 @@ final class SiliconFlowRateLimitCatalog
 
     private const CACHE_HOURS = 24;
 
+    private const REFRESH_COOLDOWN_MINUTES = 15;
+
     private const FALLBACK_RPM = 60;
 
     private const FALLBACK_TPM = 20_000;
@@ -60,7 +62,9 @@ final class SiliconFlowRateLimitCatalog
             }
         }
 
-        if ($refresh && $model !== '') {
+        $refreshAllowed = $refresh && $model !== ''
+                                   && Cache::add($key . ':refresh-gate', true, now()->addMinutes(self::REFRESH_COOLDOWN_MINUTES));
+        if ($refreshAllowed) {
             $html = $this->marketplaceHtml();
             if ($html !== null) {
                 $discovered = self::parseModelProfile($html, $model, $level);

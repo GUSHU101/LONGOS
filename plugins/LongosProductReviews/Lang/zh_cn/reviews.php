@@ -123,6 +123,8 @@ return [
     'ai_connection_success'         => '连接成功，模型 :model 当前可用。',
     'ai_connection_success_limits'  => '连接成功，:count 个模型均可用；已自动识别 L0 限额：:limits。',
     'ai_admin_rate_limited'          => '操作过于频繁，请稍候再试。已提交的生成任务不受影响。',
+    'ai_connection_test_running'     => '连接测试正在进行，请勿重复提交。',
+    'ai_connection_test_failed'      => '暂时无法完成连接测试，系统会保留已有限速配置，请稍后重试。',
     'ai_model_not_available'        => '连接成功，但当前聊天模型列表中没有 :model。',
     'ai_rate_limits_detected'       => '自动限速：L0 最高 :rpm RPM / :tpm TPM；运行时预留 10% 安全余量，并在 429 后自动等待重试。',
     'ai_rate_limits_fallback'       => '该模型暂未从官方模型广场识别到限额，正在使用保守限速；测试连接会重新检测。',

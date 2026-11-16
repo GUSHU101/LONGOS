@@ -123,6 +123,8 @@ return [
     'ai_connection_success'         => 'Connection successful. Model :model is currently available.',
     'ai_connection_success_limits'  => 'Connection successful. All :count models are available; detected L0 limits: :limits.',
     'ai_admin_rate_limited'          => 'Too many actions were submitted. Please wait briefly and try again. Existing generation tasks are unaffected.',
+    'ai_connection_test_running'     => 'A connection test is already running. Please do not submit it again.',
+    'ai_connection_test_failed'      => 'The connection test could not be completed right now. Existing rate-limit settings were preserved; please retry later.',
     'ai_model_not_available'        => 'Connection succeeded, but :model was not found in the current chat model list.',
     'ai_rate_limits_detected'       => 'Automatic limit: L0 maximum :rpm RPM / :tpm TPM. Runtime keeps 10% headroom and automatically waits and retries after HTTP 429.',
     'ai_rate_limits_fallback'       => 'No marketplace limit was detected for this model yet, so a conservative fallback is active. Test the connection to refresh detection.',

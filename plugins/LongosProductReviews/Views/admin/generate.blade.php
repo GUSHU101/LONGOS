@@ -109,9 +109,9 @@
             <span class="text-muted small align-self-center">{{ trans('LongosProductReviews::reviews.ai_save_before_test') }}</span>
           </div>
         </form>
-        <form method="post" action="{{ admin_route('longos_product_reviews.generate.test') }}" class="mt-2">
+        <form method="post" action="{{ admin_route('longos_product_reviews.generate.test') }}" class="mt-2" data-connection-test-form>
           @csrf
-          <button class="btn btn-outline-secondary" type="submit" @disabled(!$settings['configured'])><i class="bi bi-plug" aria-hidden="true"></i> {{ trans('LongosProductReviews::reviews.ai_test_connection') }}</button>
+          <button class="btn btn-outline-secondary" type="submit" data-connection-test-submit @disabled(!$settings['configured'])><i class="bi bi-plug" aria-hidden="true"></i> {{ trans('LongosProductReviews::reviews.ai_test_connection') }}</button>
         </form>
       </div>
     </div>
@@ -202,6 +202,7 @@
   input.addEventListener('keydown',(event)=>{const options=[...results.querySelectorAll('[role="option"]')];if((event.key==='ArrowDown'||event.key==='ArrowUp')&&options.length){event.preventDefault();active=(active+(event.key==='ArrowDown'?1:-1)+options.length)%options.length;options.forEach((option,index)=>option.classList.toggle('is-active',index===active));input.setAttribute('aria-activedescendant',options[active].id);options[active].scrollIntoView({block:'nearest'})}else if(event.key==='Enter'&&active>=0){event.preventDefault();options[active].click()}else if(event.key==='Escape')close()})
   document.addEventListener('click',(event)=>{if(!event.target.closest('.review-product-picker'))close()})
   form.addEventListener('submit',(event)=>{if(!productId.value){event.preventDefault();help.textContent=messages.required;help.classList.add('text-danger');input.setAttribute('aria-invalid','true');input.focus();return}const button=form.querySelector('[data-generate-submit]');button.disabled=true;button.setAttribute('aria-busy','true');button.textContent=messages.generating})
+  document.querySelector('[data-connection-test-form]')?.addEventListener('submit', (event) => { const button=event.currentTarget.querySelector('[data-connection-test-submit]'); if(button){button.disabled=true;button.setAttribute('aria-busy','true')} })
   document.getElementById('review-generation-preview')?.scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'})
 
   const generatedSelections = [...document.querySelectorAll('.generation-row-select')]
@@ -228,9 +229,11 @@
     const progress = batch.querySelector('[data-batch-progress]')
     const count = batch.querySelector('[data-batch-count]')
     const progressTemplate = @json(trans('LongosProductReviews::reviews.ai_batch_progress', ['processed' => '__PROCESSED__', 'total' => '__TOTAL__']));
-    let polling = false
+    let polling = false, stopped = false, timer = null, delay = 2000
+    const schedule = () => { if(!stopped){window.clearTimeout(timer);timer=window.setTimeout(poll,delay)} }
     const poll = async () => {
-      if (polling || document.hidden) return
+      if (polling) return
+      if (document.hidden) { delay=Math.min(10000,Math.max(3000,delay));schedule();return }
       polling = true
       try {
         const response = await fetch(batch.dataset.statusUrl, {headers:{Accept:'application/json'},credentials:'same-origin',cache:'no-store'})
@@ -239,16 +242,18 @@
         progress.max = Math.max(1, Number(payload.total) || 1)
         progress.value = Math.max(0, Number(payload.processed) || 0)
         count.textContent = progressTemplate.replace('__PROCESSED__', String(payload.processed || 0)).replace('__TOTAL__', String(payload.total || 0))
-        if (payload.finished) window.location.reload()
+        delay = 2000
+        if (payload.finished) { stopped=true;window.location.reload();return }
       } catch (error) {
         count.textContent = @json(trans('LongosProductReviews::reviews.ai_batch_status_error'));
+        delay = Math.min(30000, Math.max(4000, delay * 2))
       } finally {
         polling = false
+        schedule()
       }
     }
-    const timer = window.setInterval(poll, 2000)
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) poll() })
-    window.addEventListener('pagehide', () => window.clearInterval(timer), {once:true})
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) { delay=2000;poll() } })
+    window.addEventListener('pagehide', () => { stopped=true;window.clearTimeout(timer) }, {once:true})
     poll()
   }
 })()

@@ -9,6 +9,7 @@ use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\RateLimiter;
@@ -229,7 +230,23 @@ class LongosProductReviewsServiceTest extends TestCase
             'throttle:product-review-admin',
             $routes->first(static fn ($route): bool => $route->getName() === admin_name() . '.longos_product_reviews.generate.preview')->gatherMiddleware(),
         );
-        self::assertIsCallable(RateLimiter::limiter('product-review-admin'));
+        self::assertContains(
+            'throttle:product-review-admin',
+            $routes->first(static fn ($route): bool => $route->getName() === admin_name() . '.longos_product_reviews.generate.cancel')->gatherMiddleware(),
+        );
+        self::assertNotContains(
+            'throttle:120,1',
+            $routes->first(static fn ($route): bool => $route->getName() === admin_name() . '.longos_product_reviews.generate.status')->gatherMiddleware(),
+        );
+        $limiter = RateLimiter::limiter('product-review-admin');
+        self::assertIsCallable($limiter);
+        $limiterRequest = Request::create('/admin/product-reviews/generate/test-connection', 'POST');
+        $limiterRoute   = (new \Illuminate\Routing\Route('POST', '/admin/product-reviews/generate/test-connection', fn (): null => null))
+            ->name(admin_name() . '.longos_product_reviews.generate.test');
+        $limiterRequest->setRouteResolver(static fn () => $limiterRoute);
+        $limit = $limiter($limiterRequest);
+        self::assertSame(30, $limit->maxAttempts);
+        self::assertIsCallable($limit->responseCallback);
     }
 
     public function test_generation_limit_accepts_500_and_rejects_501_everywhere(): void
@@ -491,6 +508,67 @@ class LongosProductReviewsServiceTest extends TestCase
             collect($preview['items'])->pluck('country')->all(),
             $created->pluck('author_country')->all(),
         );
+    }
+
+    public function test_connection_model_discovery_is_rate_gated_and_short_lived_cached(): void
+    {
+        $apiKey = 'models-cache-test-key';
+        config([
+            'bk.plugin.longos_product_reviews.siliconflow_api_key' => $apiKey,
+            'bk.plugin.longos_product_reviews.siliconflow_model'   => 'XingChenAGI/Xing4.0-29B',
+            'bk.plugin.longos_product_reviews.siliconflow_timeout' => 30,
+        ]);
+        Cache::forget('longos:siliconflow:chat-models:' . hash('sha256', $apiKey));
+        Cache::forget('longos:siliconflow:chat-models:' . hash('sha256', $apiKey) . ':stale');
+        Cache::forget('longos:siliconflow:rate:' . hash('sha256', $apiKey . "\0XingChenAGI/Xing4.0-29B"));
+        Http::fake([
+            'api.siliconflow.cn/v1/models*' => Http::response(['data' => [
+                ['id' => 'XingChenAGI/Xing4.0-29B'],
+                ['id' => 'tencent/Hunyuan-MT-7B'],
+            ]], 200),
+        ]);
+
+        $client = app(SiliconFlowClient::class);
+        self::assertSame(
+            ['XingChenAGI/Xing4.0-29B', 'tencent/Hunyuan-MT-7B'],
+            $client->availableChatModels(),
+        );
+        self::assertSame(
+            ['XingChenAGI/Xing4.0-29B', 'tencent/Hunyuan-MT-7B'],
+            $client->availableChatModels(),
+        );
+
+        Http::assertSentCount(1);
+        Http::assertSent(fn ($request): bool => $request->url() === 'https://api.siliconflow.cn/v1/models?sub_type=chat'
+            && $request->hasHeader('Authorization', 'Bearer ' . $apiKey));
+    }
+
+    public function test_connection_model_discovery_uses_stale_success_during_provider_429(): void
+    {
+        $apiKey   = 'models-stale-fallback-key';
+        $cacheKey = 'longos:siliconflow:chat-models:' . hash('sha256', $apiKey);
+        config([
+            'bk.plugin.longos_product_reviews.siliconflow_api_key' => $apiKey,
+            'bk.plugin.longos_product_reviews.siliconflow_model'   => 'XingChenAGI/Xing4.0-29B',
+            'bk.plugin.longos_product_reviews.siliconflow_timeout' => 30,
+        ]);
+        Cache::forget($cacheKey);
+        Cache::put($cacheKey . ':stale', ['XingChenAGI/Xing4.0-29B'], now()->addHour());
+        Cache::forget('longos:siliconflow:rate:' . hash('sha256', $apiKey . "\0XingChenAGI/Xing4.0-29B"));
+        Http::fake([
+            'api.siliconflow.cn/v1/models*' => Http::response(
+                ['message' => 'RPM limit reached'],
+                429,
+                ['Retry-After' => '60'],
+            ),
+        ]);
+
+        $client = app(SiliconFlowClient::class);
+        self::assertSame(['XingChenAGI/Xing4.0-29B'], $client->availableChatModels());
+        // The provider cooldown is shared, so the next click returns the last
+        // known-good model list without sending another request or waiting.
+        self::assertSame(['XingChenAGI/Xing4.0-29B'], $client->availableChatModels());
+        Http::assertSentCount(1);
     }
 
     public function test_siliconflow_api_key_is_encrypted_and_blank_updates_preserve_it(): void
@@ -1107,6 +1185,9 @@ class LongosProductReviewsServiceTest extends TestCase
         self::assertMatchesRegularExpression('/const commitTemplate = @json\(.+\);$/m', $generator);
         self::assertMatchesRegularExpression('/const progressTemplate = @json\(.+\);$/m', $generator);
         self::assertMatchesRegularExpression('/count\.textContent = @json\(.+\);$/m', $generator);
+        self::assertStringContainsString('data-connection-test-form', $generator);
+        self::assertStringContainsString('delay * 2', $generator);
+        self::assertStringNotContainsString('setInterval(poll', $generator);
     }
 
     public function test_product_card_templates_compile_with_the_review_rating_hook(): void

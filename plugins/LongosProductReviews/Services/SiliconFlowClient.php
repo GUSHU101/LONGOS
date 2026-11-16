@@ -7,6 +7,7 @@ use App\Services\SiliconFlowRateLimiter;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\Response;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Plugin\LongosProductReviews\Exceptions\GenerationOutputException;
@@ -18,6 +19,10 @@ class SiliconFlowClient
 {
     private const API_URL = 'https://api.siliconflow.cn/v1';
 
+    private const MODELS_CACHE_MINUTES = 15;
+
+    private const MODELS_STALE_HOURS = 24;
+
     public function __construct(
         private readonly SiliconFlowSettings $settings,
         private readonly SiliconFlowRateLimitCatalog $rateLimits,
@@ -27,24 +32,62 @@ class SiliconFlowClient
     /** @return list<string> */
     public function availableChatModels(): array
     {
-        $runtime = $this->configuredRuntime();
+        $runtime  = $this->configuredRuntime();
+        $cacheKey = 'longos:siliconflow:chat-models:' . hash('sha256', $runtime['api_key']);
+        $cached   = $this->normalizeModelList(Cache::get($cacheKey));
+        if ($cached !== []) {
+            return $cached;
+        }
+
         $traceId = (string) Str::uuid();
+        $model   = $runtime['model'];
 
-        $response = $this->requestWithRetry(fn (): Response => Http::acceptJson()
-            ->withHeaders(['X-Trace-Id' => $traceId])
-            ->withToken($runtime['api_key'])
-            ->connectTimeout(5)
-            ->timeout($runtime['timeout'])
-            ->get(self::API_URL . '/models', ['sub_type' => 'chat']));
-        $this->assertSuccessful($response);
+        try {
+            // A browser action must never wait through a full provider cooldown
+            // and become a proxy timeout. Record a 429 in the shared limiter,
+            // then return a controlled form message (or stale known-good data).
+            $response = $this->requestWithRetry(
+                fn (): Response => Http::acceptJson()
+                    ->withHeaders(['X-Trace-Id' => $traceId])
+                    ->withToken($runtime['api_key'])
+                    ->connectTimeout(5)
+                    ->timeout($runtime['timeout'])
+                    ->get(self::API_URL . '/models', ['sub_type' => 'chat']),
+                beforeAttempt: function () use ($runtime, $model): void {
+                    if ($this->rateLimiter->reserveCapacity($runtime['api_key'], $model, 1) > 0) {
+                        throw new RetryableSiliconFlowException(trans('LongosProductReviews::reviews.ai_error_rate_limit'));
+                    }
+                },
+                onRateLimit: fn (Response $response) => $this->rateLimiter->penalize(
+                    $runtime['api_key'],
+                    $model,
+                    $this->retryDelaySeconds($response),
+                ),
+                maxAttempts: 1,
+            );
+            $this->assertSuccessful($response);
+        } catch (RetryableSiliconFlowException $exception) {
+            $stale = $this->normalizeModelList(Cache::get($cacheKey . ':stale'));
+            if ($stale !== []) {
+                return $stale;
+            }
 
-        return collect((array) $response->json('data', []))
+            throw $exception;
+        }
+
+        $models = collect((array) $response->json('data', []))
             ->pluck('id')
             ->filter(fn (mixed $id): bool => is_string($id) && trim($id) !== '')
             ->map(fn (string $id): string => trim($id))
             ->unique()
             ->values()
             ->all();
+        if ($models !== []) {
+            Cache::put($cacheKey, $models, now()->addMinutes(self::MODELS_CACHE_MINUTES));
+            Cache::put($cacheKey . ':stale', $models, now()->addHours(self::MODELS_STALE_HOURS));
+        }
+
+        return $models;
     }
 
     /** @param list<array{role:string,content:string}> $messages
@@ -282,28 +325,33 @@ class SiliconFlowClient
      * @param (callable(): void)|null         $beforeAttempt
      * @param (callable(Response): void)|null $onRateLimit
      */
-    private function requestWithRetry(callable $request, ?callable $beforeAttempt = null, ?callable $onRateLimit = null): Response
-    {
+    private function requestWithRetry(
+        callable $request,
+        ?callable $beforeAttempt = null,
+        ?callable $onRateLimit = null,
+        int $maxAttempts = 6,
+    ): Response {
         $lastConnectionException = null;
-        foreach (range(1, 6) as $attempt) {
+        $maxAttempts             = min(10, max(1, $maxAttempts));
+        foreach (range(1, $maxAttempts) as $attempt) {
             try {
                 if ($beforeAttempt !== null) {
                     $beforeAttempt();
                 }
                 $response = $request();
-                if (! in_array($response->status(), [408, 425, 429, 500, 502, 503, 504], true) || $attempt === 6) {
-                    return $response;
-                }
                 if ($response->status() === 429) {
                     if ($onRateLimit !== null) {
                         $onRateLimit($response);
                     }
                 }
+                if (! in_array($response->status(), [408, 425, 429, 500, 502, 503, 504], true) || $attempt === $maxAttempts) {
+                    return $response;
+                }
 
                 $delayMs = $this->retryDelayMs($response, $attempt);
             } catch (ConnectionException $exception) {
                 $lastConnectionException = $exception;
-                if ($attempt >= 4) {
+                if ($attempt >= min(4, $maxAttempts)) {
                     break;
                 }
                 $delayMs = $this->retryDelayMs(null, $attempt);
@@ -315,6 +363,21 @@ class SiliconFlowClient
             trans('LongosProductReviews::reviews.ai_error_connection'),
             previous: $lastConnectionException,
         );
+    }
+
+    /** @return list<string> */
+    private function normalizeModelList(mixed $value): array
+    {
+        if (! is_array($value) || ! array_is_list($value)) {
+            return [];
+        }
+
+        return collect($value)
+            ->filter(static fn (mixed $id): bool => is_string($id) && trim($id) !== '')
+            ->map(static fn (string $id): string => trim($id))
+            ->unique()
+            ->values()
+            ->all();
     }
 
     private function retryDelayMs(?Response $response, int $attempt): int

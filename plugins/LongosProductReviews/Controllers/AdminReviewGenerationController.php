@@ -9,6 +9,7 @@ use Beike\Models\Product;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\View\View;
 use Plugin\LongosProductReviews\Exceptions\GenerationBatchException;
 use Plugin\LongosProductReviews\Exceptions\SiliconFlowException;
@@ -76,8 +77,19 @@ class AdminReviewGenerationController extends Controller
     public function testConnection(SiliconFlowClient $client): RedirectResponse
     {
         $this->ensureReady();
+        $scope = implode(':', [
+            (string) (current_site()?->getKey() ?? current_site()?->code ?? 'unresolved'),
+            (string) (current_user()?->id ?? 'guest'),
+        ]);
+        $lock     = null;
+        $acquired = false;
 
         try {
+            $lock     = Cache::lock('longos:product-reviews:test-connection:' . hash('sha256', $scope), 600);
+            $acquired = $lock->get();
+            if (! $acquired) {
+                return back()->withErrors(['connection' => trans('LongosProductReviews::reviews.ai_connection_test_running')]);
+            }
             $models  = $client->availableChatModels();
             $missing = array_values(array_diff($client->configuredModels(), $models));
             if ($missing !== []) {
@@ -86,6 +98,18 @@ class AdminReviewGenerationController extends Controller
             $limits = $client->configuredRateLimitProfiles(true);
         } catch (SiliconFlowException $exception) {
             return back()->withErrors(['connection' => $exception->getMessage()]);
+        } catch (\Throwable $exception) {
+            report($exception);
+
+            return back()->withErrors(['connection' => trans('LongosProductReviews::reviews.ai_connection_test_failed')]);
+        } finally {
+            if ($acquired && $lock !== null) {
+                try {
+                    $lock->release();
+                } catch (\Throwable $exception) {
+                    report($exception);
+                }
+            }
         }
 
         return back()->with('success', trans('LongosProductReviews::reviews.ai_connection_success_limits', [
