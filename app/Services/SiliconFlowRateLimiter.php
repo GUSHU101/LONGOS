@@ -38,6 +38,46 @@ final class SiliconFlowRateLimiter
         }
     }
 
+    public function settleCapacity(
+        string $apiKey,
+        string $model,
+        int $reservedTokens,
+        int $actualTokens,
+        int $reservedAt,
+    ): void {
+        if ($reservedAt < 1) {
+            return;
+        }
+
+        $profile        = $this->catalog->profile($model);
+        $tpm            = self::effectiveLimits($profile['rpm'], $profile['tpm'])['tpm'];
+        $reservedTokens = min($tpm, max(1, $reservedTokens));
+        $actualTokens   = min($reservedTokens, max(0, $actualTokens));
+        $releaseTokens  = $reservedTokens - $actualTokens;
+        if ($releaseTokens < 1) {
+            return;
+        }
+
+        $key = $this->key($apiKey, $model);
+
+        try {
+            Cache::lock($key . ':lock', 10)->block(5, function () use ($key, $releaseTokens, $reservedAt): void {
+                $state         = $this->state($key);
+                $windowStarted = (int) $state['window_started_at'];
+                // A late response must never subtract tokens reserved in a
+                // newer minute window by another worker.
+                if ($windowStarted > $reservedAt || $windowStarted <= $reservedAt - 60) {
+                    return;
+                }
+                $state['tokens'] = max(0, (int) $state['tokens'] - $releaseTokens);
+                Cache::put($key, $state, now()->addMinutes(12));
+            });
+        } catch (LockTimeoutException) {
+            // Keeping the conservative reservation is safer than racing a
+            // concurrent worker when the distributed lock is unavailable.
+        }
+    }
+
     /** @return array{rpm:int,tpm:int} */
     public static function effectiveLimits(int $rpm, int $tpm): array
     {
@@ -45,6 +85,19 @@ final class SiliconFlowRateLimiter
             'rpm' => max(1, (int) floor($rpm * self::HEADROOM_PERCENT / 100)),
             'tpm' => max(1, (int) floor($tpm * self::HEADROOM_PERCENT / 100)),
         ];
+    }
+
+    public static function estimateTokens(string $value): int
+    {
+        if ($value === '') {
+            return 0;
+        }
+
+        // Three UTF-8 bytes per token is conservative for CJK text and still
+        // leaves headroom for ordinary Latin text, which is usually closer to
+        // four characters per token. Counting every byte as a token made the
+        // local TPM gate wait even when the provider had ample capacity.
+        return max(1, (int) ceil(strlen($value) / 3));
     }
 
     private function reserve(string $apiKey, string $model, int $tokenEstimate): int

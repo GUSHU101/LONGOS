@@ -100,6 +100,7 @@ class SiliconFlowClient
         $model        = $this->model($model);
         $maxTokens    = max(512, min(8192, $maxTokens));
         $tokenCeiling = $this->tokenCeiling($messages, $maxTokens);
+        $reservedAt   = 0;
 
         $response = $this->requestWithRetry(
             fn (): Response => Http::acceptJson()
@@ -109,9 +110,25 @@ class SiliconFlowClient
                 ->connectTimeout(min(12, $runtime['timeout']))
                 ->timeout($runtime['timeout'])
                 ->post(self::API_URL . '/chat/completions', $this->requestBody($messages, $maxTokens, $model)),
-            beforeAttempt: fn () => $this->rateLimiter->awaitCapacity($runtime['api_key'], $model, $tokenCeiling),
+            beforeAttempt: function () use ($runtime, $model, $tokenCeiling, &$reservedAt): void {
+                $this->rateLimiter->awaitCapacity($runtime['api_key'], $model, $tokenCeiling);
+                $reservedAt = time();
+            },
             onRateLimit: function (Response $response) use ($runtime, $model): void {
                 $this->rateLimiter->penalize($runtime['api_key'], $model, $this->retryDelaySeconds($response));
+            },
+            afterAttempt: function (?Response $response) use ($runtime, $model, $messages, $tokenCeiling, &$reservedAt): void {
+                if ($reservedAt < 1) {
+                    return;
+                }
+                $this->rateLimiter->settleCapacity(
+                    $runtime['api_key'],
+                    $model,
+                    $tokenCeiling,
+                    $this->actualTokenUsage($response, $messages),
+                    $reservedAt,
+                );
+                $reservedAt = 0;
             },
         );
         $this->assertSuccessful($response);
@@ -142,9 +159,11 @@ class SiliconFlowClient
                 'max_tokens'    => $maxTokens,
                 'token_ceiling' => $tokenCeiling,
                 'trace_id'      => (string) Str::uuid(),
+                'reserved_at'   => 0,
             ];
             if ($this->rateLimiter->reserveCapacity($runtime['api_key'], $model, $tokenCeiling) === 0) {
-                $ready[$index] = $prepared[$index];
+                $prepared[$index]['reserved_at'] = time();
+                $ready[$index]                   = $prepared[$index];
             }
         }
 
@@ -170,6 +189,15 @@ class SiliconFlowClient
         $decoded = [];
         foreach ($prepared as $index => $request) {
             $response = $responses[(string) $index] ?? null;
+            if ($request['reserved_at'] > 0) {
+                $this->rateLimiter->settleCapacity(
+                    $runtime['api_key'],
+                    $request['model'],
+                    $request['token_ceiling'],
+                    $this->actualTokenUsage($response instanceof Response ? $response : null, $request['messages']),
+                    $request['reserved_at'],
+                );
+            }
             if ($response instanceof Response && $response->successful()) {
                 try {
                     $decoded[$index] = $this->decodeResponse($response);
@@ -301,9 +329,29 @@ class SiliconFlowClient
     private function tokenCeiling(array $messages, int $maxTokens): int
     {
         return array_sum(array_map(
-            static fn (array $message): int => strlen((string) ($message['content'] ?? '')),
+            static fn (array $message): int => SiliconFlowRateLimiter::estimateTokens((string) ($message['content'] ?? '')),
             $messages,
         )) + $maxTokens + 128;
+    }
+
+    /** @param list<array{role:string,content:string}> $messages */
+    private function actualTokenUsage(?Response $response, array $messages): int
+    {
+        if ($response === null || ! $response->successful()) {
+            return 0;
+        }
+
+        $reported = (int) $response->json('usage.total_tokens', 0);
+        if ($reported > 0) {
+            return $reported;
+        }
+
+        $completion = (string) $response->json('choices.0.message.content', '');
+
+        return array_sum(array_map(
+            static fn (array $message): int => SiliconFlowRateLimiter::estimateTokens((string) ($message['content'] ?? '')),
+            $messages,
+        )) + SiliconFlowRateLimiter::estimateTokens($completion) + 128;
     }
 
     /** @param list<array{role:string,content:string}> $messages
@@ -322,14 +370,16 @@ class SiliconFlowClient
     }
 
     /** @param callable(): Response $request
-     * @param (callable(): void)|null         $beforeAttempt
-     * @param (callable(Response): void)|null $onRateLimit
+     * @param (callable(): void)|null          $beforeAttempt
+     * @param (callable(Response): void)|null  $onRateLimit
+     * @param (callable(?Response): void)|null $afterAttempt
      */
     private function requestWithRetry(
         callable $request,
         ?callable $beforeAttempt = null,
         ?callable $onRateLimit = null,
         int $maxAttempts = 6,
+        ?callable $afterAttempt = null,
     ): Response {
         $lastConnectionException = null;
         $maxAttempts             = min(10, max(1, $maxAttempts));
@@ -339,6 +389,9 @@ class SiliconFlowClient
                     $beforeAttempt();
                 }
                 $response = $request();
+                if ($afterAttempt !== null) {
+                    $afterAttempt($response);
+                }
                 if ($response->status() === 429) {
                     if ($onRateLimit !== null) {
                         $onRateLimit($response);
@@ -350,6 +403,9 @@ class SiliconFlowClient
 
                 $delayMs = $this->retryDelayMs($response, $attempt);
             } catch (ConnectionException $exception) {
+                if ($afterAttempt !== null) {
+                    $afterAttempt(null);
+                }
                 $lastConnectionException = $exception;
                 if ($attempt >= min(4, $maxAttempts)) {
                     break;

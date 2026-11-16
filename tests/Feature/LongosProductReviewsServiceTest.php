@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Services\SiliconFlowRateLimiter as SharedSiliconFlowRateLimiter;
 use Beike\Repositories\PluginRepo;
 use Beike\Shop\Providers\PluginServiceProvider;
 use Closure;
@@ -643,9 +644,11 @@ class LongosProductReviewsServiceTest extends TestCase
             'bk.plugin.longos_product_reviews.siliconflow_timeout' => 30,
         ]);
         $call = 0;
-        Http::fake(function () use (&$call) {
-            $rows = [];
-            foreach (range(0, 9) as $index) {
+        Http::fake(function ($request) use (&$call) {
+            $payload   = json_decode((string) data_get($request->data(), 'messages.1.content'), true, 64, JSON_THROW_ON_ERROR);
+            $requested = count((array) data_get($payload, 'specifications'));
+            $rows      = [];
+            foreach (range(0, $requested - 1) as $index) {
                 $token  = strtr(hash('sha256', $call . ':' . $index), '0123456789', 'qwertyuiop');
                 $rows[] = [
                     'author_name' => 'Avery ' . ucfirst(substr($token, 0, 8)),
@@ -678,8 +681,18 @@ class LongosProductReviewsServiceTest extends TestCase
         self::assertCount(20, $preview['items']);
         self::assertSame(['XingChenAGI/Xing4.0-29B', 'tencent/Hunyuan-MT-7B'], $preview['models']);
         $sentModels = Http::recorded()->map(fn (array $pair): string => (string) $pair[0]['model'])->sort()->values()->all();
-        self::assertSame(['XingChenAGI/Xing4.0-29B', 'tencent/Hunyuan-MT-7B'], $sentModels);
-        Http::assertSentCount(2);
+        self::assertSame([
+            'XingChenAGI/Xing4.0-29B',
+            'XingChenAGI/Xing4.0-29B',
+            'tencent/Hunyuan-MT-7B',
+            'tencent/Hunyuan-MT-7B',
+        ], $sentModels);
+        foreach (Http::recorded() as [$request]) {
+            $payload = json_decode((string) data_get($request->data(), 'messages.1.content'), true, 64, JSON_THROW_ON_ERROR);
+            self::assertCount(5, (array) data_get($payload, 'specifications'));
+            self::assertLessThanOrEqual(2_584, (int) data_get($request->data(), 'max_tokens'));
+        }
+        Http::assertSentCount(4);
     }
 
     public function test_parallel_generation_refills_only_duplicate_rows_and_rotates_the_retry_model(): void
@@ -731,10 +744,47 @@ class LongosProductReviewsServiceTest extends TestCase
         self::assertCount(20, $preview['items']);
         self::assertCount(20, array_unique(array_column($preview['items'], 'author_name')));
         $requests = Http::recorded()->map(fn (array $pair): array => $pair[0]->data())->values();
-        $retry    = json_decode((string) data_get($requests[2], 'messages.1.content'), true, 64, JSON_THROW_ON_ERROR);
+        $retry    = json_decode((string) data_get($requests[4], 'messages.1.content'), true, 64, JSON_THROW_ON_ERROR);
         self::assertCount(1, (array) data_get($retry, 'specifications'));
-        self::assertSame('tencent/Hunyuan-MT-7B', data_get($requests[2], 'model'));
-        Http::assertSentCount(3);
+        self::assertSame('tencent/Hunyuan-MT-7B', data_get($requests[4], 'model'));
+        Http::assertSentCount(5);
+    }
+
+    public function test_shared_rate_limiter_releases_unused_token_reservations(): void
+    {
+        $limiter    = app(SharedSiliconFlowRateLimiter::class);
+        $apiKey     = 'review-settlement-' . (string) \Illuminate\Support\Str::uuid();
+        $model      = 'XingChenAGI/Xing4.0-29B';
+        $reserved   = 20_000;
+        $reservedAt = time();
+
+        self::assertSame(0, $limiter->reserveCapacity($apiKey, $model, $reserved));
+        self::assertGreaterThan(0, $limiter->reserveCapacity($apiKey, $model, $reserved));
+
+        $limiter->settleCapacity($apiKey, $model, $reserved, 2_000, $reservedAt);
+
+        self::assertSame(0, $limiter->reserveCapacity($apiKey, $model, $reserved));
+    }
+
+    public function test_siliconflow_client_settles_reported_usage_before_the_next_large_request(): void
+    {
+        config([
+            'bk.plugin.longos_product_reviews.siliconflow_api_key' => 'settlement-client-' . (string) \Illuminate\Support\Str::uuid(),
+            'bk.plugin.longos_product_reviews.siliconflow_model'   => 'XingChenAGI/Xing4.0-29B',
+            'bk.plugin.longos_product_reviews.siliconflow_timeout' => 30,
+        ]);
+        Http::fake([
+            'api.siliconflow.cn/v1/chat/completions' => Http::response([
+                'choices' => [['message' => ['content' => '{"reviews":[]}']]],
+                'usage'   => ['total_tokens' => 500],
+            ]),
+        ]);
+        $messages = [['role' => 'user', 'content' => str_repeat('a', 35_000)]];
+        $client   = app(SiliconFlowClient::class);
+
+        self::assertSame(['reviews' => []], $client->chatJson($messages, 8_192));
+        self::assertSame(['reviews' => []], $client->chatJson($messages, 8_192));
+        Http::assertSentCount(2);
     }
 
     public function test_generation_retries_model_duplicates_against_existing_reviews(): void

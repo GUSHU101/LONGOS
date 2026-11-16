@@ -96,7 +96,7 @@ class ReviewGenerationService
         $chunks = array_values(array_chunk($specifications, ReviewGenerationLimits::CHUNK_SIZE));
         // Process bounded waves instead of preparing every request at once.
         // A 500-review batch therefore keeps memory stable, reports progress
-        // after each ten reviews and observes cancellation between waves while
+        // after each five reviews and observes cancellation between waves while
         // still using every configured model concurrently.
         foreach (array_chunk($chunks, SiliconFlowSettings::MAX_MODELS, true) as $wave) {
             $requests = [];
@@ -423,9 +423,27 @@ class ReviewGenerationService
                 ['role' => 'system', 'content' => $system],
                 ['role' => 'user', 'content' => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR)],
             ],
-            'max_tokens' => 900 + count($specifications) * 420,
+            'max_tokens' => $this->maxTokensForSpecifications($specifications),
             'model'      => $model,
         ];
+    }
+
+    /**
+     * @param list<array{spec_id:string,rating:int,country:string,reviewed_at:string,angle:string,length_guidance:string}> $specifications
+     */
+    private function maxTokensForSpecifications(array $specifications): int
+    {
+        $tokens = 384;
+        foreach ($specifications as $specification) {
+            $guidance = (string) $specification['length_guidance'];
+            $tokens += match (true) {
+                str_starts_with($guidance, 'brief:')    => 160,
+                str_starts_with($guidance, 'detailed:') => 440,
+                default                                 => 280,
+            };
+        }
+
+        return min(8192, max(640, $tokens));
     }
 
     /** @param array<string,mixed> $response

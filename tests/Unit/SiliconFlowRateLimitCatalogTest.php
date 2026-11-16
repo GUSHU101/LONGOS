@@ -40,4 +40,11 @@ HTML;
         self::assertSame('RATE_LIMIT', SiliconFlowRateLimitCatalog::rateLimitCode(['message' => 'Request rate limited.']));
         self::assertSame(['rpm' => 900, 'tpm' => 36_000], SiliconFlowRateLimiter::effectiveLimits(1000, 40_000));
     }
+
+    public function test_token_estimation_does_not_count_every_utf8_byte_as_a_token(): void
+    {
+        self::assertSame(100, SiliconFlowRateLimiter::estimateTokens(str_repeat('a', 300)));
+        self::assertSame(100, SiliconFlowRateLimiter::estimateTokens(str_repeat('中', 100)));
+        self::assertSame(0, SiliconFlowRateLimiter::estimateTokens(''));
+    }
 }

@@ -6,7 +6,7 @@ final class ReviewGenerationLimits
 {
     public const MAX_REVIEWS_PER_BATCH = 500;
 
-    public const CHUNK_SIZE = 10;
+    public const CHUNK_SIZE = 5;
 
     private function __construct() {}
 }
