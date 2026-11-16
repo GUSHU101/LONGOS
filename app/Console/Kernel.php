@@ -69,6 +69,10 @@ class Kernel extends ConsoleKernel
                 ->hourly()
                 ->onOneServer()
                 ->withoutOverlapping();
+            $schedule->command('saas:run longos:cache:prune-expired --continue-on-error')
+                ->everyTenMinutes()
+                ->onOneServer()
+                ->withoutOverlapping();
             $schedule->command('saas:platform-pay:reconcile')
                 ->everyFiveMinutes()
                 ->onOneServer()
@@ -115,6 +119,9 @@ class Kernel extends ConsoleKernel
                 ->withoutOverlapping();
             $schedule->command('longos:mail-logs:prune')
                 ->dailyAt('03:45')
+                ->withoutOverlapping();
+            $schedule->command('longos:cache:prune-expired')
+                ->everyTenMinutes()
                 ->withoutOverlapping();
             $schedule->command('longos:locations:sync')
                 ->weeklyOn(1, '04:20')

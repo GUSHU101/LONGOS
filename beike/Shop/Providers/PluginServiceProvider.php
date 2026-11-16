@@ -243,7 +243,18 @@ class PluginServiceProvider extends ServiceProvider
 
         if ($shopMiddlewares) {
             foreach ($shopMiddlewares as $shopMiddleware) {
-                $router->pushMiddlewareToGroup('shop', "plugin.runtime:{$runtimeCode},{$shopMiddleware}");
+                $runtimeMiddleware = "plugin.runtime:{$runtimeCode},{$shopMiddleware}";
+                if ($runtimeCode === 'longos_bot_shield') {
+                    // Bot Shield needs only the globally resolved tenant and
+                    // trusted client IP. Run it before cookies and sessions so
+                    // rejected automation cannot consume the storefront stack.
+                    $router->prependMiddlewareToGroup('shop', $runtimeMiddleware);
+                    $router->prependMiddlewareToGroup('api', $runtimeMiddleware);
+
+                    continue;
+                }
+
+                $router->pushMiddlewareToGroup('shop', $runtimeMiddleware);
             }
         }
 

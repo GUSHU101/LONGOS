@@ -1,0 +1,285 @@
+<?php
+
+use Illuminate\Validation\Rule;
+use Plugin\LongosBotShield\Support\CidrMatcher;
+
+$enabled = static fn (): bool => filter_var(request()->input('status', false), FILTER_VALIDATE_BOOLEAN);
+
+$cidrRules = static function (string $attribute, mixed $value, Closure $fail): void {
+    $invalid = CidrMatcher::invalidEntries((string) $value);
+    if ($invalid !== []) {
+        $fail('无效的 IP/CIDR：' . implode('、', array_slice($invalid, 0, 5)));
+    }
+};
+
+$asnRules = static function (string $attribute, mixed $value, Closure $fail): void {
+    $entries = preg_split('/[\s,;]+/u', trim((string) $value)) ?: [];
+    $invalid = array_values(array_filter($entries, static function (string $entry): bool {
+        if ($entry === '' || preg_match('/^(?:AS)?([1-9]\d{0,9})$/i', $entry, $matches) !== 1) {
+            return $entry !== '';
+        }
+
+        return (int) $matches[1] > 4294967295;
+    }));
+    if ($invalid !== []) {
+        $fail('无效的 ASN：' . implode('、', array_slice($invalid, 0, 5)));
+    }
+};
+
+return [
+    [
+        'name'            => 'ipinfo_token',
+        'label_key'       => 'shield.ipinfo_token',
+        'description_key' => 'shield.ipinfo_token_help',
+        'section_key'     => 'shield.section_provider',
+        'type'            => 'password',
+        'required'        => true,
+        'rules'           => [Rule::requiredIf($enabled), 'nullable', 'string', 'max:2048'],
+    ],
+    [
+        'name'            => 'enforcement_mode',
+        'label_key'       => 'shield.enforcement_mode',
+        'description_key' => 'shield.enforcement_mode_help',
+        'section_key'     => 'shield.section_policy',
+        'type'            => 'select',
+        'value'           => 'homepage',
+        'required'        => true,
+        'rules'           => ['required', Rule::in(['monitor', 'challenge', 'block', 'homepage'])],
+        'options'         => [
+            ['value' => 'homepage', 'label_key' => 'shield.mode_homepage'],
+            ['value' => 'monitor', 'label_key' => 'shield.mode_monitor'],
+            ['value' => 'challenge', 'label_key' => 'shield.mode_challenge'],
+            ['value' => 'block', 'label_key' => 'shield.mode_block'],
+        ],
+    ],
+    [
+        'name'            => 'ip_api_fallback_enabled',
+        'label_key'       => 'shield.ip_api_fallback_enabled',
+        'description_key' => 'shield.ip_api_fallback_enabled_help',
+        'section_key'     => 'shield.section_provider',
+        'type'            => 'bool',
+        'value'           => '1',
+        'required'        => false,
+        'rules'           => ['nullable', 'boolean'],
+    ],
+    [
+        'name'            => 'ip_api_key',
+        'label_key'       => 'shield.ip_api_key',
+        'description_key' => 'shield.ip_api_key_help',
+        'section_key'     => 'shield.section_provider',
+        'type'            => 'password',
+        'value'           => '',
+        'required'        => false,
+        'rules'           => ['nullable', 'string', 'max:2048'],
+    ],
+    [
+        'name'            => 'crawler_policy',
+        'label_key'       => 'shield.crawler_policy',
+        'description_key' => 'shield.crawler_policy_help',
+        'section_key'     => 'shield.section_policy',
+        'type'            => 'select',
+        'value'           => 'block_all',
+        'required'        => true,
+        'rules'           => ['required', Rule::in(['block_all', 'allow_verified'])],
+        'options'         => [
+            ['value' => 'block_all', 'label_key' => 'shield.crawler_block_all'],
+            ['value' => 'allow_verified', 'label_key' => 'shield.crawler_allow_verified'],
+        ],
+    ],
+    [
+        'name'            => 'provider_failure_policy',
+        'label_key'       => 'shield.provider_failure_policy',
+        'description_key' => 'shield.provider_failure_policy_help',
+        'section_key'     => 'shield.section_policy',
+        'type'            => 'select',
+        'value'           => 'ua_only',
+        'required'        => true,
+        'rules'           => ['required', Rule::in(['ua_only', 'challenge'])],
+        'options'         => [
+            ['value' => 'ua_only', 'label_key' => 'shield.failure_ua_only'],
+            ['value' => 'challenge', 'label_key' => 'shield.failure_challenge'],
+        ],
+    ],
+    [
+        'name'            => 'use_builtin_catalog',
+        'label_key'       => 'shield.use_builtin_catalog',
+        'description_key' => 'shield.use_builtin_catalog_help',
+        'section_key'     => 'shield.section_policy',
+        'type'            => 'bool',
+        'value'           => '1',
+        'required'        => false,
+        'rules'           => ['nullable', 'boolean'],
+    ],
+    [
+        'name'            => 'vendor_allowlist_enabled',
+        'label_key'       => 'shield.vendor_allowlist_enabled',
+        'description_key' => 'shield.vendor_allowlist_enabled_help',
+        'section_key'     => 'shield.section_policy',
+        'type'            => 'bool',
+        'value'           => '0',
+        'required'        => false,
+        'rules'           => ['nullable', 'boolean'],
+    ],
+    [
+        'name'            => 'suspicious_path_detection',
+        'label_key'       => 'shield.suspicious_path_detection',
+        'description_key' => 'shield.suspicious_path_detection_help',
+        'section_key'     => 'shield.section_policy',
+        'type'            => 'bool',
+        'value'           => '1',
+        'required'        => false,
+        'rules'           => ['nullable', 'boolean'],
+    ],
+    [
+        'name'            => 'header_anomaly_detection',
+        'label_key'       => 'shield.header_anomaly_detection',
+        'description_key' => 'shield.header_anomaly_detection_help',
+        'section_key'     => 'shield.section_policy',
+        'type'            => 'bool',
+        'value'           => '1',
+        'required'        => false,
+        'rules'           => ['nullable', 'boolean'],
+    ],
+    [
+        'name'            => 'challenge_threshold',
+        'label_key'       => 'shield.challenge_threshold',
+        'description_key' => 'shield.challenge_threshold_help',
+        'section_key'     => 'shield.section_scoring',
+        'type'            => 'number',
+        'value'           => '40',
+        'min'             => 10,
+        'max'             => 95,
+        'required'        => true,
+        'rules'           => ['required', 'integer', 'min:10', 'max:95'],
+    ],
+    [
+        'name'            => 'block_threshold',
+        'label_key'       => 'shield.block_threshold',
+        'description_key' => 'shield.block_threshold_help',
+        'section_key'     => 'shield.section_scoring',
+        'type'            => 'number',
+        'value'           => '80',
+        'min'             => 20,
+        'max'             => 100,
+        'required'        => true,
+        'rules'           => ['required', 'integer', 'min:20', 'max:100', 'gte:challenge_threshold'],
+    ],
+    [
+        'name'            => 'requests_per_minute',
+        'label_key'       => 'shield.requests_per_minute',
+        'description_key' => 'shield.requests_per_minute_help',
+        'section_key'     => 'shield.section_scoring',
+        'type'            => 'number',
+        'value'           => '120',
+        'min'             => 10,
+        'max'             => 5000,
+        'required'        => true,
+        'rules'           => ['required', 'integer', 'min:10', 'max:5000'],
+    ],
+    [
+        'name'            => 'burst_per_10_seconds',
+        'label_key'       => 'shield.burst_per_10_seconds',
+        'description_key' => 'shield.burst_per_10_seconds_help',
+        'section_key'     => 'shield.section_scoring',
+        'type'            => 'number',
+        'value'           => '35',
+        'min'             => 5,
+        'max'             => 500,
+        'required'        => true,
+        'rules'           => ['required', 'integer', 'min:5', 'max:500'],
+    ],
+    [
+        'name'            => 'cache_minutes',
+        'label_key'       => 'shield.cache_minutes',
+        'description_key' => 'shield.cache_minutes_help',
+        'section_key'     => 'shield.section_provider',
+        'type'            => 'number',
+        'value'           => '1440',
+        'min'             => 5,
+        'max'             => 10080,
+        'required'        => true,
+        'rules'           => ['required', 'integer', 'min:5', 'max:10080'],
+    ],
+    [
+        'name'            => 'provider_requests_per_minute',
+        'label_key'       => 'shield.provider_requests_per_minute',
+        'description_key' => 'shield.provider_requests_per_minute_help',
+        'section_key'     => 'shield.section_provider',
+        'type'            => 'number',
+        'value'           => '300',
+        'min'             => 10,
+        'max'             => 5000,
+        'required'        => true,
+        'rules'           => ['required', 'integer', 'min:10', 'max:5000'],
+    ],
+    [
+        'name'            => 'allowed_asns',
+        'label_key'       => 'shield.allowed_asns',
+        'description_key' => 'shield.allowed_asns_help',
+        'section_key'     => 'shield.section_lists',
+        'type'            => 'textarea',
+        'value'           => '',
+        'required'        => false,
+        'rules'           => ['nullable', 'string', 'max:8000', $asnRules],
+    ],
+    [
+        'name'            => 'allowed_organization_keywords',
+        'label_key'       => 'shield.allowed_organization_keywords',
+        'description_key' => 'shield.allowed_organization_keywords_help',
+        'section_key'     => 'shield.section_lists',
+        'type'            => 'textarea',
+        'value'           => '',
+        'required'        => false,
+        'rules'           => ['nullable', 'string', 'max:12000'],
+    ],
+    [
+        'name'            => 'allow_cidrs',
+        'label_key'       => 'shield.allow_cidrs',
+        'description_key' => 'shield.allow_cidrs_help',
+        'section_key'     => 'shield.section_lists',
+        'type'            => 'textarea',
+        'value'           => '',
+        'required'        => false,
+        'rules'           => ['nullable', 'string', 'max:12000', $cidrRules],
+    ],
+    [
+        'name'            => 'deny_cidrs',
+        'label_key'       => 'shield.deny_cidrs',
+        'description_key' => 'shield.deny_cidrs_help',
+        'section_key'     => 'shield.section_lists',
+        'type'            => 'textarea',
+        'value'           => '',
+        'required'        => false,
+        'rules'           => ['nullable', 'string', 'max:12000', $cidrRules],
+    ],
+    [
+        'name'            => 'blocked_asns',
+        'label_key'       => 'shield.blocked_asns',
+        'description_key' => 'shield.blocked_asns_help',
+        'section_key'     => 'shield.section_lists',
+        'type'            => 'textarea',
+        'value'           => 'AS174, AS3356, AS6939',
+        'required'        => false,
+        'rules'           => ['nullable', 'string', 'max:8000', $asnRules],
+    ],
+    [
+        'name'            => 'organization_keywords',
+        'label_key'       => 'shield.organization_keywords',
+        'description_key' => 'shield.organization_keywords_help',
+        'section_key'     => 'shield.section_lists',
+        'type'            => 'textarea',
+        'value'           => 'facebook, meta, google, tiktok, amazon, hosting, data center, datacenter, microsoft azure, digitalocean, linode, akamai, ovh, hetzner, choopa, m2f',
+        'required'        => false,
+        'rules'           => ['nullable', 'string', 'max:12000'],
+    ],
+    [
+        'name'            => 'diagnostic_log',
+        'label_key'       => 'shield.diagnostic_log',
+        'description_key' => 'shield.diagnostic_log_help',
+        'section_key'     => 'shield.section_diagnostics',
+        'type'            => 'bool',
+        'value'           => '1',
+        'required'        => false,
+        'rules'           => ['nullable', 'boolean'],
+    ],
+];
