@@ -244,7 +244,7 @@ return [
         'description_key' => 'shield.organization_keywords_help',
         'section_key'     => 'shield.section_lists',
         'type'            => 'textarea',
-        'value'           => 'facebook, meta, google, tiktok, amazon, hosting, data center, datacenter, microsoft azure, digitalocean, linode, akamai, ovh, hetzner, choopa, m2f',
+        'value'           => 'hosting, data center, datacenter, microsoft azure, digitalocean, linode, akamai, ovh, hetzner, choopa, m2f',
         'required'        => false,
         'rules'           => ['nullable', 'string', 'max:12000'],
     ],

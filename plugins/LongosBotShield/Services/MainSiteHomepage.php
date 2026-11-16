@@ -4,7 +4,6 @@ namespace Plugin\LongosBotShield\Services;
 
 use App\Saas\Models\Site;
 use Beike\Shop\Http\Controllers\HomeController;
-use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Plugin\LongosBotShield\Support\IpAddress;
@@ -12,6 +11,10 @@ use Throwable;
 
 class MainSiteHomepage
 {
+    public const CONNECT_TIMEOUT_SECONDS = 0.3;
+
+    public const REQUEST_TIMEOUT_SECONDS = 0.8;
+
     public function __construct(private readonly InternalHomepageRequest $internalRequest) {}
 
     /** @return array{html: string, source: string}|null */
@@ -71,12 +74,8 @@ class MainSiteHomepage
                 ->withHeaders([
                     InternalHomepageRequest::HEADER => $internalHeader,
                 ])
-                ->connectTimeout(2.0)
-                ->timeout(5.0)
-                ->retry(2, 150, static function (Throwable $exception): bool {
-                    return ! $exception instanceof RequestException
-                        || $exception->response->serverError();
-                }, throw: false)
+                ->connectTimeout(self::CONNECT_TIMEOUT_SECONDS)
+                ->timeout(self::REQUEST_TIMEOUT_SECONDS)
                 ->withOptions($connectionOptions)
                 ->withoutRedirecting()
                 ->get($url);
@@ -93,8 +92,8 @@ class MainSiteHomepage
             }
 
             $html = $this->withBaseUrl($html, $url);
-            Cache::put($cacheKey, $html, now()->addMinute());
-            Cache::put($staleKey, $html, now()->addMinutes(10));
+            Cache::put($cacheKey, $html, now()->addMinutes(5));
+            Cache::put($staleKey, $html, now()->addHour());
 
             return ['html' => $html, 'source' => 'control'];
         } catch (Throwable) {

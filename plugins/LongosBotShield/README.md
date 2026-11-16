@@ -22,8 +22,9 @@ bursts.
   expired database-cache and lock rows in bounded batches every ten minutes.
   Per-IP atomic refresh markers also collapse concurrent misses into one
   provider request instead of spending the budget on a cache stampede. Marker
-  contention and provider failures reuse the last trusted success for up to
-  seven days; an `unavailable` result is never itself shielding evidence.
+  contention and provider failures reuse the last trusted success for one
+  additional day beyond the configured fresh lifetime (48 hours total with
+  the default); an `unavailable` result is never itself shielding evidence.
 - Storefront request handling reads fresh/stale cache and local catalogs first.
   A first-seen IP performs one IPInfo call capped at 0.45 seconds; failure or a
   missing ASN can perform one Radar fallback capped at 0.30 seconds. Neither
@@ -57,14 +58,20 @@ bursts.
 - HeadlessChrome, Puppeteer, Playwright, Selenium, PhantomJS, WebDriver,
   Cypress, browserless, common script HTTP clients, explicit automation
   headers, and contradictory browser/client-hint/fetch headers are signals.
-- Per-IP limits operate in both one-minute and ten-second windows. Unsafe HTTP
+- Per-IP limits operate in both one-minute and ten-second windows. They are
+  supporting signals only: shared-NAT traffic is never challenged or blocked
+  by a rate threshold alone. When a request is already inside the configured
+  shielding scope, a rate signal changes a rejection to `429`. Unsafe HTTP
   methods and common secret/configuration/exploit scanning paths are rejected,
   including up to four layers of URL encoding.
 - The local JavaScript challenge checks standard automation exposure and
-  several non-invasive browser-coherence signals. It receives only a one-time
-  proof bound to tenant, host, IP, UA, and URI. The server atomically consumes
-  the signed proof once and sets the final clearance as an HttpOnly cookie;
-  clients do not perform repeated hashes or other proof-of-work loops.
+  does not reject browsers for missing optional Chrome, language, or window
+  properties. It receives only a one-time proof bound to tenant, host, coarse
+  IP prefix, UA, and URI. The server atomically consumes the signed proof once
+  and sets a one-hour clearance as a Secure HttpOnly cookie. The clearance is
+  bound to tenant, host, and UA but not IP, so a verified mobile shopper can
+  move between Wi-Fi and carrier networks without losing a cart or checkout
+  submission. Clients do not perform repeated hashes or proof-of-work loops.
   Challenge and block documents use
   nonce-based CSP policies. This is a bounded cost gate, not device attestation.
 
@@ -102,9 +109,11 @@ rate, scan-path, crawler, automation, and network-risk rules are evaluated.
   `X-Robots-Tag: noindex, nofollow, noarchive` for operational auditability.
   A main-site `<base>` preserves relative visual assets, while a sandbox CSP
   prevents substituted scripts, forms, or navigation from inheriting the
-  child storefront's browser origin and session authority. A fifteen-second atomic
-  refresh lock prevents cache stampedes; a previously validated copy may be
-  served for up to ten minutes when the control homepage briefly returns 5xx.
+  child storefront's browser origin and session authority. A fifteen-second
+  atomic refresh lock prevents cache stampedes. Fetches have a 0.3-second
+  connection and 0.8-second total timeout with no retry; successful HTML stays
+  fresh for five minutes and a previously validated copy may be served for up
+  to one hour when the control homepage briefly returns 5xx.
   Control-site discovery is cached briefly behind its own atomic refresh marker,
   streams candidate rows instead of loading every tenant and domain, and accepts
   only a standard root HTTP(S) origin (HTTPS in production, with no credentials
@@ -115,10 +124,12 @@ rate, scan-path, crawler, automation, and network-risk rules are evaluated.
   take precedence.
 - **Monitor:** record shielding-scope matches and continue normally.
 - **Challenge:** challenge network-identity matches and reject deterministic
-  automation, spoofed crawlers, deny-list, scanner, or rate-limit matches.
+  automation, spoofed crawlers, deny-list, or scanner matches. Rate thresholds
+  alone never trigger enforcement.
   A valid clearance applies to cacheable and non-cacheable storefront requests,
   so verified customers can continue cart and checkout submissions.
-- **Block:** return `403`, or `429` for every enforcement-scope match.
+- **Block:** return `403`, or `429` when an enforcement-scope match also exceeds
+  a rate threshold.
 
 All four modes consume the same reason-based detection result. No configured
 numeric threshold participates in an enforcement decision.
@@ -139,6 +150,11 @@ deliberately receives the sandboxed homepage for every method and response
 format instead. The internal bypass signature is short-lived,
 host/path/method bound, consumed before application handlers, and fails closed
 when `APP_KEY` is unavailable.
+
+Stripe webhooks and PayPal provider notifications/return continuations bypass
+Bot Shield and remain protected by their payment plugin's signed or
+order-bound validation. Customer-initiated payment create/capture endpoints do
+not bypass Bot Shield.
 
 ## Setup
 

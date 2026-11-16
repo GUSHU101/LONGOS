@@ -9,7 +9,7 @@
     "en": "Storefront and API protection using IPInfo with Cloudflare Radar ASN fallback, crawler and automation signals, and a configured shielding scope."
   },
   "type": "feature",
-  "version": "v1.7.0",
+  "version": "v1.7.1",
   "icon": "/image/longos-favicon.svg",
   "author": {
     "name": "LONGOS",

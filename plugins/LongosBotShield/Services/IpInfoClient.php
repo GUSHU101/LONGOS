@@ -139,7 +139,11 @@ class IpInfoClient
             $this->clearFailures($scope);
             $result = $this->normalize($payload);
             Cache::put($cacheKey, $result, now()->addMinutes($this->settings->cacheMinutes()));
-            Cache::put($cacheKey . ':stale', $result, now()->addDays(7));
+            Cache::put(
+                $cacheKey . ':stale',
+                $result,
+                now()->addMinutes(min(20160, $this->settings->cacheMinutes() + 1440)),
+            );
 
             return $result;
         } catch (Throwable) {

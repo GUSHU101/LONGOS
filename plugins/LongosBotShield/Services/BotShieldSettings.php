@@ -10,6 +10,17 @@ class BotShieldSettings
 {
     public const ENCRYPTED_PREFIX = 'enc:v1:';
 
+    private const LEGACY_ORGANIZATION_DEFAULTS = [
+        'facebook', 'meta', 'google', 'tiktok', 'amazon', 'hosting', 'data center',
+        'datacenter', 'microsoft azure', 'digitalocean', 'linode', 'akamai', 'ovh',
+        'hetzner', 'choopa', 'm2f',
+    ];
+
+    private const ORGANIZATION_DEFAULTS = [
+        'hosting', 'data center', 'datacenter', 'microsoft azure', 'digitalocean',
+        'linode', 'akamai', 'ovh', 'hetzner', 'choopa', 'm2f',
+    ];
+
     public static function normalizeForStorage(array $fields): array
     {
         foreach (['ipinfo_token', 'cloudflare_radar_token'] as $name) {
@@ -20,6 +31,13 @@ class BotShieldSettings
             $secret = trim((string) $fields[$name]);
             if ($secret !== '' && ! str_starts_with($secret, self::ENCRYPTED_PREFIX)) {
                 $fields[$name] = self::ENCRYPTED_PREFIX . Crypt::encryptString($secret);
+            }
+        }
+
+        if (array_key_exists('organization_keywords', $fields)) {
+            $keywords = self::parseCommaList($fields['organization_keywords']);
+            if (self::isLegacyOrganizationDefaults($keywords)) {
+                $fields['organization_keywords'] = implode(', ', self::ORGANIZATION_DEFAULTS);
             }
         }
 
@@ -135,8 +153,11 @@ class BotShieldSettings
     {
         $values = $this->commaList(
             'organization_keywords',
-            'facebook, meta, google, tiktok, amazon, hosting, data center, datacenter, microsoft azure, digitalocean, linode, akamai, ovh, hetzner, choopa, m2f',
+            implode(', ', self::ORGANIZATION_DEFAULTS),
         );
+        if (self::isLegacyOrganizationDefaults(array_map(mb_strtolower(...), $values))) {
+            $values = self::ORGANIZATION_DEFAULTS;
+        }
         if ($this->useBuiltinCatalog()) {
             $values = array_merge(ThreatCatalog::ORGANIZATION_KEYWORDS, $values);
         }
@@ -232,12 +253,36 @@ class BotShieldSettings
     private function commaList(string $name, string $default = ''): array
     {
         $value = $this->value($name, $default);
-        $items = is_array($value) ? $value : (preg_split('/[,;\r\n]+/u', (string) $value) ?: []);
+        $items = self::parseCommaList($value);
 
         return array_values(array_filter(array_map(
             static fn (mixed $item): string => trim((string) $item),
             $items,
         ), static fn (string $item): bool => $item !== ''));
+    }
+
+    /** @return list<string> */
+    private static function parseCommaList(mixed $value): array
+    {
+        $items = is_array($value) ? $value : (preg_split('/[,;\r\n]+/u', (string) $value) ?: []);
+
+        return array_values(array_filter(array_map(
+            static fn (mixed $item): string => mb_strtolower(trim((string) $item)),
+            $items,
+        ), static fn (string $item): bool => $item !== ''));
+    }
+
+    /** @param list<string> $keywords */
+    private static function isLegacyOrganizationDefaults(array $keywords): bool
+    {
+        if ($keywords === self::LEGACY_ORGANIZATION_DEFAULTS) {
+            return true;
+        }
+
+        return $keywords === array_values(array_filter(
+            self::LEGACY_ORGANIZATION_DEFAULTS,
+            static fn (string $keyword): bool => $keyword !== 'datacenter',
+        ));
     }
 
     /**

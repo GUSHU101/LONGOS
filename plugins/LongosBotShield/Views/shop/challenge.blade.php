@@ -35,13 +35,7 @@
         || Boolean(window._phantom)
         || Boolean(window.__nightmare)
         || /headlesschrome|phantomjs|slimerjs|playwright|puppeteer|selenium/.test(ua);
-      const softSignals = [
-        !navigator.languages || navigator.languages.length === 0,
-        screen.width === 0 || screen.height === 0,
-        window.outerWidth === 0 || window.outerHeight === 0,
-        /chrome\//.test(ua) && !window.chrome,
-      ].filter(Boolean).length;
-      const automated = hardSignal || softSignals >= 2;
+      const automated = hardSignal;
       if (automated) {
         document.querySelector('.spinner').style.display = 'none';
         document.getElementById('shield-message').textContent = @json(trans('LongosBotShield::shield.challenge_failed'));

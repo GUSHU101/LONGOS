@@ -27,8 +27,6 @@ class RiskAssessment
         'method_unsafe',
         'request_target_oversized',
         'suspicious_path',
-        'rate_limit',
-        'rate_burst',
     ];
 
     private const IMMEDIATE_BLOCK_REASONS = [
@@ -45,8 +43,6 @@ class RiskAssessment
         'ua_script_client',
         'client_hints_automation',
         'automation_header',
-        'rate_limit',
-        'rate_burst',
     ];
 
     /** @param list<string> $reasons */

@@ -121,6 +121,18 @@ class LongosBotShieldTest extends TestCase
         self::assertContains('AS12076', $settings->blockedAsns());
         self::assertContains('digitalocean', $settings->organizationKeywords());
         self::assertContains('hetzner', $settings->organizationKeywords());
+        self::assertContains('google llc', $settings->organizationKeywords());
+        self::assertContains('amazon technologies', $settings->organizationKeywords());
+        self::assertNotContains('google', $settings->organizationKeywords());
+        self::assertNotContains('amazon', $settings->organizationKeywords());
+        self::assertNotContains('meta', $settings->organizationKeywords());
+        $normalized = BotShieldSettings::normalizeForStorage([
+            'organization_keywords' => 'facebook, meta, google, tiktok, amazon, hosting, data center, datacenter, microsoft azure, digitalocean, linode, akamai, ovh, hetzner, choopa, m2f',
+        ]);
+        self::assertSame(
+            'hosting, data center, datacenter, microsoft azure, digitalocean, linode, akamai, ovh, hetzner, choopa, m2f',
+            $normalized['organization_keywords'],
+        );
         self::assertContains('gptbot', ThreatCatalog::crawlerMarkers());
         self::assertContains('bingbot', ThreatCatalog::crawlerMarkers());
         self::assertContains('google-agent', ThreatCatalog::crawlerMarkers());
@@ -150,10 +162,14 @@ class LongosBotShieldTest extends TestCase
     {
         $ipinfoTimeout = (new \ReflectionClass(IpInfoClient::class))->getConstant('REQUEST_TIMEOUT_SECONDS');
         $radarTimeout  = (new \ReflectionClass(CloudflareRadarClient::class))->getConstant('REQUEST_TIMEOUT_SECONDS');
+        $homeConnect   = MainSiteHomepage::CONNECT_TIMEOUT_SECONDS;
+        $homeTimeout   = MainSiteHomepage::REQUEST_TIMEOUT_SECONDS;
 
         self::assertSame(0.45, $ipinfoTimeout);
         self::assertSame(0.3, $radarTimeout);
         self::assertLessThanOrEqual(0.8, $ipinfoTimeout + $radarTimeout);
+        self::assertSame(0.3, $homeConnect);
+        self::assertSame(0.8, $homeTimeout);
         self::assertStringNotContainsString(
             '->retry(',
             (string) file_get_contents(base_path('plugins/LongosBotShield/Services/IpInfoClient.php')),
@@ -161,6 +177,10 @@ class LongosBotShieldTest extends TestCase
         self::assertStringNotContainsString(
             '->retry(',
             (string) file_get_contents(base_path('plugins/LongosBotShield/Services/CloudflareRadarClient.php')),
+        );
+        self::assertStringNotContainsString(
+            '->retry(',
+            (string) file_get_contents(base_path('plugins/LongosBotShield/Services/MainSiteHomepage.php')),
         );
     }
 
@@ -1019,6 +1039,170 @@ class LongosBotShieldTest extends TestCase
         );
     }
 
+    public function test_payment_provider_continuations_bypass_shield_but_customer_capture_does_not(): void
+    {
+        config(['bk.plugin.longos_bot_shield.enforcement_mode' => 'block']);
+        $settings = app(BotShieldSettings::class);
+        $engine   = new class($settings, app(NetworkIntelligenceClient::class), app(CrawlerVerifier::class)) extends BotRiskEngine
+        {
+            public int $assessments = 0;
+
+            public function assess(Request $request): RiskAssessment
+            {
+                $this->assessments++;
+
+                return new RiskAssessment(['ua_script_client']);
+            }
+        };
+        $middleware = new ProtectStorefront(
+            $engine,
+            $settings,
+            app(ClearanceToken::class),
+            app(InternalHomepageRequest::class),
+            app(MainSiteHomepage::class),
+        );
+
+        $continuations = [
+            ['POST', '/callback/stripe'],
+            ['POST', '/paypal/nvp/notify'],
+            ['POST', '/paypal/nvp/return'],
+            ['GET', '/paypal/nvp/cancel'],
+            ['GET', '/paypal/rest/return'],
+            ['GET', '/paypal/rest/cancel'],
+        ];
+        foreach ($continuations as [$method, $path]) {
+            $request = Request::create('https://store.example.test' . $path, $method, [], [], [], [
+                'REMOTE_ADDR'     => '8.8.8.8',
+                'HTTP_USER_AGENT' => 'PaymentProvider/1.0',
+            ]);
+            app()->instance('request', $request);
+            $response = $middleware->handle(
+                $request,
+                static fn (): Response => new Response('PAYMENT CONTINUATION'),
+            );
+
+            self::assertSame('PAYMENT CONTINUATION', $response->getContent(), $path);
+        }
+        self::assertSame(0, $engine->assessments);
+
+        foreach (['/stripe/capture', '/paypal/capture', '/paypal/create'] as $path) {
+            $request = Request::create('https://store.example.test' . $path, 'POST', [], [], [], [
+                'REMOTE_ADDR'     => '8.8.8.8',
+                'HTTP_USER_AGENT' => 'PaymentProvider/1.0',
+                'HTTP_ACCEPT'     => 'application/json',
+            ]);
+            app()->instance('request', $request);
+            $response = $middleware->handle($request, static fn (): Response => new Response('MUST NOT RUN'));
+
+            self::assertSame(403, $response->getStatusCode(), $path);
+        }
+        self::assertSame(3, $engine->assessments);
+    }
+
+    public function test_all_modes_pass_normal_cart_and_checkout_requests_without_a_scope_match(): void
+    {
+        $settings = app(BotShieldSettings::class);
+        $engine   = new class($settings, app(NetworkIntelligenceClient::class), app(CrawlerVerifier::class)) extends BotRiskEngine
+        {
+            public function assess(Request $request): RiskAssessment
+            {
+                return new RiskAssessment([]);
+            }
+        };
+        $internal   = app(InternalHomepageRequest::class);
+        $middleware = new ProtectStorefront(
+            $engine,
+            $settings,
+            app(ClearanceToken::class),
+            $internal,
+            new class($internal) extends MainSiteHomepage
+            {
+                public function render(): ?array
+                {
+                    throw new \RuntimeException('Normal shopping traffic must not render the replacement homepage.');
+                }
+            },
+        );
+
+        foreach (['homepage', 'monitor', 'challenge', 'block'] as $mode) {
+            config(['bk.plugin.longos_bot_shield.enforcement_mode' => $mode]);
+            foreach (['/cart', '/checkout', '/stripe/capture', '/paypal/capture'] as $path) {
+                $request = Request::create('https://store.example.test' . $path, 'POST', [], [], [], [
+                    'REMOTE_ADDR'     => '1.1.1.1',
+                    'HTTP_USER_AGENT' => $this->chromeUserAgent(),
+                    'HTTP_ACCEPT'     => 'application/json',
+                ]);
+                app()->instance('request', $request);
+                $response = $middleware->handle(
+                    $request,
+                    static fn (): Response => new Response('SHOPPING ACCEPTED'),
+                );
+
+                self::assertSame('SHOPPING ACCEPTED', $response->getContent(), $mode . ' ' . $path);
+            }
+        }
+    }
+
+    public function test_rate_thresholds_are_supporting_signals_and_never_block_shared_nat_alone(): void
+    {
+        $rateOnly = new RiskAssessment(['rate_limit', 'rate_burst']);
+        self::assertFalse($rateOnly->matchesEnforcementScope());
+        self::assertFalse($rateOnly->requiresImmediateBlock());
+
+        config(['bk.plugin.longos_bot_shield.enforcement_mode' => 'block']);
+        $settings = app(BotShieldSettings::class);
+        $engine   = new class($settings, app(NetworkIntelligenceClient::class), app(CrawlerVerifier::class)) extends BotRiskEngine
+        {
+            public function assess(Request $request): RiskAssessment
+            {
+                return new RiskAssessment(['rate_limit', 'rate_burst']);
+            }
+        };
+        $middleware = new ProtectStorefront(
+            $engine,
+            $settings,
+            app(ClearanceToken::class),
+            app(InternalHomepageRequest::class),
+            app(MainSiteHomepage::class),
+        );
+        $request = Request::create('https://store.example.test/checkout', 'POST', [], [], [], [
+            'REMOTE_ADDR'     => '1.1.1.1',
+            'HTTP_USER_AGENT' => $this->chromeUserAgent(),
+            'HTTP_ACCEPT'     => 'application/json',
+        ]);
+        app()->instance('request', $request);
+
+        $response = $middleware->handle($request, static fn (): Response => new Response('NAT SHOPPER ACCEPTED'));
+        self::assertSame('NAT SHOPPER ACCEPTED', $response->getContent());
+    }
+
+    public function test_rate_signal_does_not_skip_network_scope_detection(): void
+    {
+        config([
+            'bk.plugin.longos_bot_shield.requests_per_minute'  => 10,
+            'bk.plugin.longos_bot_shield.burst_per_10_seconds' => 100,
+        ]);
+        Http::fake(['api.ipinfo.io/*' => Http::response([
+            'ip' => '8.8.8.8',
+            'as' => [
+                'asn'    => 'AS16509',
+                'name'   => 'Amazon.com, Inc.',
+                'domain' => 'amazon.com',
+                'type'   => 'hosting',
+            ],
+            'is_hosting' => true,
+        ], 200)]);
+
+        for ($requestNumber = 0; $requestNumber < 10; $requestNumber++) {
+            app(BotRiskEngine::class)->assess($this->request('8.8.8.8', $this->chromeUserAgent()));
+        }
+        $limited = app(BotRiskEngine::class)->assess($this->request('8.8.8.8', $this->chromeUserAgent()));
+
+        self::assertContains('rate_limit', $limited->reasons);
+        self::assertContains('hosting_network', $limited->reasons);
+        self::assertTrue($limited->matchesConfiguredShieldingScope());
+    }
+
     public function test_expired_database_cache_and_lock_rows_are_pruned_in_bounded_batches(): void
     {
         config([
@@ -1159,7 +1343,7 @@ class LongosBotShieldTest extends TestCase
                 && ! $request->hasHeader('Authorization')
                 && $internal->valid($verification);
         });
-        Http::assertSentCount(3);
+        Http::assertSentCount(2);
     }
 
     public function test_child_store_fails_closed_when_control_site_homepage_is_unavailable(): void
@@ -1269,6 +1453,9 @@ class LongosBotShieldTest extends TestCase
         self::assertIsString($proof);
         self::assertStringNotContainsString('crypto.subtle', $html);
         self::assertStringNotContainsString('powChallenge', $html);
+        self::assertStringNotContainsString('navigator.languages', $html);
+        self::assertStringNotContainsString('window.outerWidth', $html);
+        self::assertStringNotContainsString('window.chrome', $html);
 
         $wrongTarget = Request::create('https://store.example.test/products/other', 'GET', [], [], [], [
             'REMOTE_ADDR'                       => '8.8.8.8',
@@ -1283,7 +1470,7 @@ class LongosBotShieldTest extends TestCase
         );
 
         $proofRequest = Request::create('https://store.example.test/products/challenge', 'GET', [], [], [], [
-            'REMOTE_ADDR'                       => '8.8.8.8',
+            'REMOTE_ADDR'                       => '8.8.8.42',
             'HTTP_USER_AGENT'                   => $this->chromeUserAgent(),
             'HTTP_ACCEPT'                       => 'application/json',
             'HTTP_X_LONGOS_BOT_CHALLENGE_PROOF' => $proof,
@@ -1299,6 +1486,7 @@ class LongosBotShieldTest extends TestCase
         self::assertTrue($cookie->isHttpOnly());
         self::assertTrue($cookie->isSecure());
         self::assertSame('lax', $cookie->getSameSite());
+        self::assertGreaterThanOrEqual(time() + 3500, $cookie->getExpiresTime());
 
         $proofRequest->cookies->set(ClearanceToken::COOKIE, $cookie->getValue());
         self::assertTrue($clearance->valid($proofRequest));
@@ -1343,7 +1531,7 @@ class LongosBotShieldTest extends TestCase
         $post = Request::create('https://store.example.test/checkout', 'POST', [], [
             ClearanceToken::COOKIE => $token,
         ], [], [
-            'REMOTE_ADDR'     => '8.8.8.8',
+            'REMOTE_ADDR'     => '1.1.1.1',
             'HTTP_USER_AGENT' => $this->chromeUserAgent(),
             'HTTP_ACCEPT'     => 'application/json',
         ]);

@@ -272,8 +272,6 @@ class BotRiskEngine
     {
         return array_intersect($reasons, [
             'ip_denylist',
-            'rate_limit',
-            'rate_burst',
             'method_unsafe',
             'request_target_oversized',
             'suspicious_path',

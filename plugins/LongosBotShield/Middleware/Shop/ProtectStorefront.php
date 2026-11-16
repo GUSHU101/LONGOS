@@ -30,7 +30,9 @@ class ProtectStorefront
 
     public function handle(Request $request, Closure $next): Response
     {
-        if ($this->isOperationalBypass($request) || $this->isCorsPreflight($request)) {
+        if ($this->isOperationalBypass($request)
+            || $this->isPaymentContinuationBypass($request)
+            || $this->isCorsPreflight($request)) {
             return $next($request);
         }
 
@@ -160,7 +162,7 @@ class ProtectStorefront
         $response->withCookie(cookie(
             ClearanceToken::COOKIE,
             $this->clearance->issue($request),
-            15,
+            60,
             '/',
             null,
             $request->isSecure(),
@@ -238,6 +240,24 @@ class ProtectStorefront
     private function isOperationalBypass(Request $request): bool
     {
         return $request->is('api/health');
+    }
+
+    private function isPaymentContinuationBypass(Request $request): bool
+    {
+        // Provider callbacks validate their own signed/order-bound payloads.
+        // They must remain reachable when a browser returns via cross-site
+        // POST (no SameSite=Lax cookie) or a provider webhook originates from
+        // a cloud ASN/script client. User-initiated create/capture endpoints
+        // are deliberately not bypassed.
+        if ($request->isMethod('POST')
+            && ($request->is('callback/stripe') || $request->is('paypal/nvp/notify'))) {
+            return true;
+        }
+
+        return $request->is('paypal/rest/return')
+            || $request->is('paypal/rest/cancel')
+            || $request->is('paypal/nvp/return')
+            || $request->is('paypal/nvp/cancel');
     }
 
     private function isCorsPreflight(Request $request): bool

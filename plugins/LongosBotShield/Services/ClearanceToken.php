@@ -14,9 +14,13 @@ class ClearanceToken
 
     public function __construct(private readonly BotShieldSettings $settings) {}
 
-    public function issue(Request $request, int $ttlSeconds = 900): string
+    public function issue(Request $request, int $ttlSeconds = 3600): string
     {
-        $payload        = $this->binding($request);
+        // The durable clearance intentionally is not IP-bound. Mobile shoppers
+        // commonly move between Wi-Fi and carrier networks during a session;
+        // tenant, host, UA, encryption, Secure and HttpOnly still prevent a
+        // clearance from becoming a portable bearer token.
+        $payload        = $this->binding($request, false);
         $payload['exp'] = time() + max(60, min(3600, $ttlSeconds));
 
         return $this->encrypt($payload);
@@ -26,7 +30,7 @@ class ClearanceToken
     public function issueChallenge(Request $request, int $ttlSeconds = 90): array
     {
         $ttl               = max(30, min(120, $ttlSeconds));
-        $payload           = $this->binding($request);
+        $payload           = $this->binding($request, true);
         $payload['id']     = bin2hex(random_bytes(32));
         $payload['exp']    = time() + $ttl;
         $payload['iat_ms'] = (int) floor(microtime(true) * 1000);
@@ -45,6 +49,7 @@ class ClearanceToken
             || preg_match('/^[a-f0-9]{64}$/D', (string) ($payload['id'] ?? '')) !== 1
             || (int) ($payload['exp'] ?? 0) < time()
             || (int) ($payload['exp'] ?? 0) > time() + 120
+            || trim((string) ($payload['ip'] ?? '')) === ''
             || ! hash_equals($this->targetHash($request), (string) ($payload['target'] ?? ''))
             || ! $this->matchesRequest($payload, $request)) {
             return false;
@@ -85,26 +90,42 @@ class ClearanceToken
         }
     }
 
-    private function binding(Request $request): array
+    private function binding(Request $request, bool $includeNetwork): array
     {
-        $ip = IpAddress::normalize((string) $request->ip());
-
-        return [
+        $binding = [
             'tenant' => $this->settings->tenantKey(),
             'host'   => strtolower($request->getHost()),
-            'ip'     => $this->settings->ipHash($ip),
             'ua'     => hash('sha256', (string) $request->userAgent()),
         ];
+        if ($includeNetwork) {
+            $binding['ip'] = $this->settings->ipHash(
+                $this->networkBinding(IpAddress::normalize((string) $request->ip())),
+            );
+        }
+
+        return $binding;
     }
 
     private function matchesRequest(array $payload, Request $request): bool
     {
-        $binding = $this->binding($request);
+        $binding = $this->binding($request, false);
+        if (! hash_equals($binding['tenant'], (string) ($payload['tenant'] ?? ''))
+            || ! hash_equals($binding['host'], (string) ($payload['host'] ?? ''))
+            || ! hash_equals($binding['ua'], (string) ($payload['ua'] ?? ''))) {
+            return false;
+        }
 
-        return hash_equals($binding['tenant'], (string) ($payload['tenant'] ?? ''))
-            && hash_equals($binding['host'], (string) ($payload['host'] ?? ''))
-            && hash_equals($binding['ip'], (string) ($payload['ip'] ?? ''))
-            && hash_equals($binding['ua'], (string) ($payload['ua'] ?? ''));
+        $payloadIp = trim((string) ($payload['ip'] ?? ''));
+        if ($payloadIp === '') {
+            return true;
+        }
+
+        $ip = IpAddress::normalize((string) $request->ip());
+
+        // Accept both the current network-prefix challenge binding and the
+        // exact-IP binding issued by older releases during a rolling deploy.
+        return hash_equals($payloadIp, $this->settings->ipHash($this->networkBinding($ip)))
+            || hash_equals($payloadIp, $this->settings->ipHash($ip));
     }
 
     private function bindingHash(array $payload): string
@@ -129,6 +150,20 @@ class ClearanceToken
     private function targetHash(Request $request): string
     {
         return hash('sha256', strtolower($request->getHost()) . '|' . $request->getRequestUri());
+    }
+
+    private function networkBinding(string $ip): string
+    {
+        $packed = @inet_pton($ip);
+        if ($packed === false) {
+            return 'invalid';
+        }
+
+        return match (strlen($packed)) {
+            4       => 'v4:' . bin2hex(substr($packed, 0, 3)),
+            16      => 'v6:' . bin2hex(substr($packed, 0, 7)),
+            default => 'invalid',
+        };
     }
 
     private function encrypt(array $payload): string
