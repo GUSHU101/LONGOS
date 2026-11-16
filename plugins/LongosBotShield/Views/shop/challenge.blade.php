@@ -48,48 +48,20 @@
         return;
       }
       const token = @json($challengeToken);
-      const powChallenge = @json($challengePow);
-      const powBits = @json($challengeBits);
       const fail = () => {
         document.querySelector('.spinner').style.display = 'none';
         document.getElementById('shield-message').textContent = @json(trans('LongosBotShield::shield.challenge_failed'));
       };
-      const meetsDifficulty = (bytes, bits) => {
-        const wholeBytes = Math.floor(bits / 8);
-        for (let index = 0; index < wholeBytes; index++) {
-          if (bytes[index] !== 0) return false;
-        }
-        const remaining = bits % 8;
-        return remaining === 0 || (bytes[wholeBytes] >> (8 - remaining)) === 0;
-      };
-      const solve = async () => {
-        if (!window.crypto?.subtle || typeof TextEncoder === 'undefined') return null;
-        const encoder = new TextEncoder();
-        const batchSize = 64;
-        for (let base = 0; base < 2000000; base += batchSize) {
-          const candidates = Array.from({ length: batchSize }, (_, offset) => base + offset);
-          const hashes = await Promise.all(candidates.map((candidate) =>
-            crypto.subtle.digest('SHA-256', encoder.encode(`${powChallenge}:${candidate}`))
-          ));
-          for (let index = 0; index < hashes.length; index++) {
-            if (meetsDifficulty(new Uint8Array(hashes[index]), powBits)) return String(candidates[index]);
-          }
-        }
-        return null;
-      };
       window.setTimeout(async () => {
         try {
-          const powNonce = await solve();
-          if (powNonce === null) return fail();
           const controller = new AbortController();
-          const timeout = window.setTimeout(() => controller.abort(), 10000);
+          const timeout = window.setTimeout(() => controller.abort(), 3000);
           let response;
           try {
             response = await fetch(location.href, {
               method: 'GET',
               headers: {
                 'X-Longos-Bot-Challenge-Proof': token,
-                'X-Longos-Bot-Challenge-Nonce': powNonce,
                 'Accept': 'application/json'
               },
               credentials: 'same-origin',
@@ -105,7 +77,7 @@
         } catch (_) {
           fail();
         }
-      }, 350);
+      }, 50);
     })();
   </script>
 </body>

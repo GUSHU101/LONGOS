@@ -21,9 +21,9 @@ use Plugin\LongosBotShield\Middleware\Shop\ProtectStorefront;
 use Plugin\LongosBotShield\Services\BotRiskEngine;
 use Plugin\LongosBotShield\Services\BotShieldSettings;
 use Plugin\LongosBotShield\Services\ClearanceToken;
+use Plugin\LongosBotShield\Services\CloudflareRadarClient;
 use Plugin\LongosBotShield\Services\CrawlerVerifier;
 use Plugin\LongosBotShield\Services\InternalHomepageRequest;
-use Plugin\LongosBotShield\Services\IpApiClient;
 use Plugin\LongosBotShield\Services\IpInfoClient;
 use Plugin\LongosBotShield\Services\MainSiteHomepage;
 use Plugin\LongosBotShield\Services\NetworkIntelligenceClient;
@@ -42,30 +42,28 @@ class LongosBotShieldTest extends TestCase
         $app = require dirname(__DIR__, 2) . '/bootstrap/app.php';
         $app->make(Kernel::class)->bootstrap();
         config([
-            'cache.default'                                             => 'array',
-            'bk.plugin.longos_bot_shield.ipinfo_token'                  => 'ipinfo-test-token',
-            'bk.plugin.longos_bot_shield.ip_api_fallback_enabled'       => true,
-            'bk.plugin.longos_bot_shield.ip_api_key'                    => '',
-            'bk.plugin.longos_bot_shield.enforcement_mode'              => 'homepage',
-            'bk.plugin.longos_bot_shield.crawler_policy'                => 'block_all',
-            'bk.plugin.longos_bot_shield.provider_failure_policy'       => 'ua_only',
-            'bk.plugin.longos_bot_shield.challenge_threshold'           => 40,
-            'bk.plugin.longos_bot_shield.block_threshold'               => 80,
-            'bk.plugin.longos_bot_shield.requests_per_minute'           => 120,
-            'bk.plugin.longos_bot_shield.burst_per_10_seconds'          => 35,
-            'bk.plugin.longos_bot_shield.cache_minutes'                 => 1440,
-            'bk.plugin.longos_bot_shield.provider_requests_per_minute'  => 300,
-            'bk.plugin.longos_bot_shield.use_builtin_catalog'           => true,
-            'bk.plugin.longos_bot_shield.vendor_allowlist_enabled'      => false,
-            'bk.plugin.longos_bot_shield.allowed_asns'                  => '',
-            'bk.plugin.longos_bot_shield.allowed_organization_keywords' => '',
-            'bk.plugin.longos_bot_shield.suspicious_path_detection'     => true,
-            'bk.plugin.longos_bot_shield.header_anomaly_detection'      => true,
-            'bk.plugin.longos_bot_shield.allow_cidrs'                   => '',
-            'bk.plugin.longos_bot_shield.deny_cidrs'                    => '',
-            'bk.plugin.longos_bot_shield.blocked_asns'                  => 'AS174, AS3356, AS6939',
-            'bk.plugin.longos_bot_shield.organization_keywords'         => 'facebook, meta, google, tiktok, amazon, hosting, data center, microsoft azure, digitalocean, linode, akamai, ovh, hetzner, choopa, m2f',
-            'bk.plugin.longos_bot_shield.diagnostic_log'                => false,
+            'cache.default'                                                 => 'array',
+            'bk.plugin.longos_bot_shield.ipinfo_token'                      => 'ipinfo-test-token',
+            'bk.plugin.longos_bot_shield.ipinfo_api_tier'                   => 'lookup',
+            'bk.plugin.longos_bot_shield.cloudflare_radar_fallback_enabled' => true,
+            'bk.plugin.longos_bot_shield.cloudflare_radar_token'            => '',
+            'bk.plugin.longos_bot_shield.enforcement_mode'                  => 'homepage',
+            'bk.plugin.longos_bot_shield.crawler_policy'                    => 'block_all',
+            'bk.plugin.longos_bot_shield.requests_per_minute'               => 120,
+            'bk.plugin.longos_bot_shield.burst_per_10_seconds'              => 35,
+            'bk.plugin.longos_bot_shield.cache_minutes'                     => 1440,
+            'bk.plugin.longos_bot_shield.provider_requests_per_minute'      => 300,
+            'bk.plugin.longos_bot_shield.use_builtin_catalog'               => true,
+            'bk.plugin.longos_bot_shield.vendor_allowlist_enabled'          => false,
+            'bk.plugin.longos_bot_shield.allowed_asns'                      => '',
+            'bk.plugin.longos_bot_shield.allowed_organization_keywords'     => '',
+            'bk.plugin.longos_bot_shield.suspicious_path_detection'         => true,
+            'bk.plugin.longos_bot_shield.header_anomaly_detection'          => true,
+            'bk.plugin.longos_bot_shield.allow_cidrs'                       => '',
+            'bk.plugin.longos_bot_shield.deny_cidrs'                        => '',
+            'bk.plugin.longos_bot_shield.blocked_asns'                      => 'AS174, AS3356, AS6939',
+            'bk.plugin.longos_bot_shield.organization_keywords'             => 'facebook, meta, google, tiktok, amazon, hosting, data center, microsoft azure, digitalocean, linode, akamai, ovh, hetzner, choopa, m2f',
+            'bk.plugin.longos_bot_shield.diagnostic_log'                    => false,
         ]);
         Cache::flush();
     }
@@ -132,7 +130,41 @@ class LongosBotShieldTest extends TestCase
         self::assertSame($settings->ipHash('8.8.8.8'), $settings->ipHash('::ffff:8.8.8.8'));
     }
 
-    public function test_ipinfo_residential_proxy_and_company_fields_are_scored(): void
+    public function test_configuration_panel_exposes_scope_and_provider_controls_without_scores(): void
+    {
+        $columns = require base_path('plugins/LongosBotShield/columns.php');
+        $names   = array_column($columns, 'name');
+
+        self::assertContains('ipinfo_api_tier', $names);
+        self::assertContains('cloudflare_radar_fallback_enabled', $names);
+        self::assertContains('cloudflare_radar_token', $names);
+        self::assertContains('blocked_asns', $names);
+        self::assertContains('organization_keywords', $names);
+        self::assertNotContains('challenge_threshold', $names);
+        self::assertNotContains('block_threshold', $names);
+        self::assertNotContains('provider_failure_policy', $names);
+        self::assertNotContains('ip_api_key', $names);
+    }
+
+    public function test_cold_provider_chain_stays_within_the_conversion_latency_budget(): void
+    {
+        $ipinfoTimeout = (new \ReflectionClass(IpInfoClient::class))->getConstant('REQUEST_TIMEOUT_SECONDS');
+        $radarTimeout  = (new \ReflectionClass(CloudflareRadarClient::class))->getConstant('REQUEST_TIMEOUT_SECONDS');
+
+        self::assertSame(0.45, $ipinfoTimeout);
+        self::assertSame(0.3, $radarTimeout);
+        self::assertLessThanOrEqual(0.8, $ipinfoTimeout + $radarTimeout);
+        self::assertStringNotContainsString(
+            '->retry(',
+            (string) file_get_contents(base_path('plugins/LongosBotShield/Services/IpInfoClient.php')),
+        );
+        self::assertStringNotContainsString(
+            '->retry(',
+            (string) file_get_contents(base_path('plugins/LongosBotShield/Services/CloudflareRadarClient.php')),
+        );
+    }
+
+    public function test_ipinfo_residential_proxy_and_company_fields_enter_the_shielding_scope(): void
     {
         Http::fake(['api.ipinfo.io/*' => Http::response([
             'ip' => '8.8.4.4',
@@ -159,151 +191,132 @@ class LongosBotShieldTest extends TestCase
         self::assertTrue($result['is_res_proxy']);
         self::assertTrue($result['is_anonymous']);
         self::assertSame('M2F Datacenter Proxy', $result['company_name']);
-        self::assertSame(100, $assessment->score);
         self::assertContains('residential_proxy', $assessment->reasons);
         self::assertContains('anonymous_network', $assessment->reasons);
         self::assertContains('organization_keyword', $assessment->reasons);
     }
 
-    public function test_ip_api_pro_is_used_as_an_https_fallback_and_its_result_is_scored(): void
+    public function test_cloudflare_radar_is_used_as_the_asn_fallback(): void
     {
-        config(['bk.plugin.longos_bot_shield.ip_api_key' => 'ip-api-pro-test-key']);
+        config(['bk.plugin.longos_bot_shield.cloudflare_radar_token' => 'radar-test-token']);
         Http::fake([
-            'api.ipinfo.io/*'  => Http::response(['error' => 'temporarily unavailable'], 503),
-            'pro.ip-api.com/*' => Http::response([
-                'status'  => 'success',
-                'query'   => '8.8.4.4',
-                'isp'     => 'M247 Europe SRL',
-                'org'     => 'M247 Datacenter',
-                'as'      => 'AS9009 M247 Europe SRL',
-                'asname'  => 'M247',
-                'mobile'  => false,
-                'proxy'   => true,
-                'hosting' => true,
-            ], 200, ['X-Rl' => '44', 'X-Ttl' => '60']),
+            'api.ipinfo.io/*'       => Http::response(['error' => 'temporarily unavailable'], 503),
+            'api.cloudflare.com/*'  => Http::response($this->radarAsn('AS9009', 'M247 Europe SRL'), 200),
         ]);
 
         $result     = app(NetworkIntelligenceClient::class)->lookup('8.8.4.4');
         $assessment = app(BotRiskEngine::class)->assess($this->request('8.8.4.4', $this->chromeUserAgent()));
 
         self::assertSame('ok', $result['status']);
-        self::assertSame('ip-api', $result['provider']);
+        self::assertSame('cloudflare-radar', $result['provider']);
         self::assertSame('AS9009', $result['asn']);
-        self::assertTrue($result['is_hosting']);
-        self::assertTrue($result['is_proxy']);
-        self::assertSame(100, $assessment->score);
+        self::assertFalse($result['security_data_present']);
+        self::assertFalse($result['is_proxy']);
         self::assertContains('asn_denylist', $assessment->reasons);
-        self::assertContains('anonymous_network', $assessment->reasons);
         Http::assertSent(static fn (ClientRequest $request): bool => str_starts_with(
             $request->url(),
-            'https://pro.ip-api.com/json/8.8.4.4?',
-        ) && str_contains($request->url(), 'key=ip-api-pro-test-key'));
-        Http::assertNotSent(static fn (ClientRequest $request): bool => str_starts_with($request->url(), 'http://ip-api.com/'));
+            'https://api.cloudflare.com/client/v4/radar/entities/asns/ip?',
+        )   && str_contains($request->url(), 'ip=8.8.4.4')
+            && $request->hasHeader('Authorization', 'Bearer radar-test-token'));
     }
 
-    public function test_ip_api_enriches_an_ipinfo_response_that_lacks_security_fields(): void
+    public function test_ipinfo_lite_asn_does_not_trigger_an_unnecessary_radar_lookup(): void
     {
-        config(['bk.plugin.longos_bot_shield.ip_api_key' => 'ip-api-pro-test-key']);
+        config([
+            'bk.plugin.longos_bot_shield.ipinfo_api_tier'        => 'lite',
+            'bk.plugin.longos_bot_shield.cloudflare_radar_token' => 'radar-test-token',
+        ]);
+        Http::fake(['api.ipinfo.io/*' => Http::response([
+            'ip'        => '8.8.8.8',
+            'asn'       => 'AS15169',
+            'as_name'   => 'Google LLC',
+            'as_domain' => 'google.com',
+        ], 200)]);
+
+        $result = app(NetworkIntelligenceClient::class)->lookup('8.8.8.8');
+
+        self::assertSame('ipinfo', $result['provider']);
+        self::assertSame('AS15169', $result['asn']);
+        self::assertSame('Google LLC', $result['name']);
+        self::assertSame('google.com', $result['domain']);
+        self::assertFalse($result['security_data_present']);
+        Http::assertSentCount(1);
+        Http::assertSent(static fn (ClientRequest $request): bool => $request->url() === 'https://api.ipinfo.io/lite/8.8.8.8');
+    }
+
+    public function test_radar_enriches_only_a_missing_ipinfo_asn_without_inventing_security_flags(): void
+    {
+        config(['bk.plugin.longos_bot_shield.cloudflare_radar_token' => 'radar-test-token']);
         Http::fake([
             'api.ipinfo.io/*' => Http::response([
-                'ip' => '8.8.8.8',
-                'as' => [
-                    'asn'    => 'AS15169',
-                    'name'   => 'Google LLC',
-                    'domain' => 'google.com',
-                    'type'   => 'business',
-                ],
+                'ip'           => '8.8.8.8',
+                'is_hosting'   => false,
+                'is_anonymous' => false,
             ], 200),
-            'pro.ip-api.com/*' => Http::response([
-                'status'  => 'success',
-                'query'   => '8.8.8.8',
-                'org'     => 'Google Cloud',
-                'as'      => 'AS15169 Google LLC',
-                'asname'  => 'GOOGLE',
-                'proxy'   => true,
-                'hosting' => true,
-            ], 200, ['X-Rl' => '40', 'X-Ttl' => '60']),
+            'api.cloudflare.com/*' => Http::response($this->radarAsn('AS15169', 'Google LLC', 'https://google.com'), 200),
         ]);
 
         $result = app(NetworkIntelligenceClient::class)->lookup('8.8.8.8');
 
-        self::assertSame('ok', $result['status']);
-        self::assertSame('ipinfo+ip-api', $result['provider']);
+        self::assertSame('ipinfo+cloudflare-radar', $result['provider']);
         self::assertSame('AS15169', $result['asn']);
         self::assertSame('google.com', $result['domain']);
-        self::assertTrue($result['security_data_present']);
-        self::assertTrue($result['is_hosting']);
-        self::assertTrue($result['is_proxy']);
+        self::assertFalse($result['is_hosting']);
+        self::assertFalse($result['is_proxy']);
     }
 
     public function test_provider_clients_reject_oversized_json_before_normalization(): void
     {
-        config(['bk.plugin.longos_bot_shield.ip_api_key' => 'ip-api-pro-test-key']);
+        config(['bk.plugin.longos_bot_shield.cloudflare_radar_token' => 'radar-test-token']);
         $oversized = str_repeat('x', 524289);
         Http::fake([
-            'api.ipinfo.io/*'  => Http::response($oversized, 200, ['Content-Type' => 'application/json']),
-            'pro.ip-api.com/*' => Http::response($oversized, 200, ['Content-Type' => 'application/json']),
+            'api.ipinfo.io/*'       => Http::response($oversized, 200, ['Content-Type' => 'application/json']),
+            'api.cloudflare.com/*'  => Http::response($oversized, 200, ['Content-Type' => 'application/json']),
         ]);
 
         self::assertSame('unavailable', app(IpInfoClient::class)->lookup('8.8.8.8')['status']);
-        self::assertSame('unavailable', app(IpApiClient::class)->lookup('8.8.4.4')['status']);
+        self::assertSame('unavailable', app(CloudflareRadarClient::class)->lookup('8.8.4.4')['status']);
         Http::assertSentCount(2);
     }
 
-    public function test_provider_responses_are_bound_to_the_requested_ip(): void
+    public function test_invalid_ipinfo_response_falls_back_to_cloudflare_radar(): void
     {
-        config(['bk.plugin.longos_bot_shield.ip_api_key' => 'ip-api-pro-test-key']);
+        config(['bk.plugin.longos_bot_shield.cloudflare_radar_token' => 'radar-test-token']);
         Http::fake([
             'api.ipinfo.io/*' => Http::response([
                 'ip' => '1.1.1.1',
                 'as' => ['asn' => 'AS13335', 'name' => 'Wrong response'],
             ], 200),
-            'pro.ip-api.com/*' => Http::response([
-                'status'  => 'success',
-                'query'   => '8.8.4.4',
-                'org'     => 'Google LLC',
-                'as'      => 'AS15169 Google LLC',
-                'asname'  => 'GOOGLE',
-                'proxy'   => false,
-                'hosting' => true,
-            ], 200, ['X-Rl' => '39', 'X-Ttl' => '60']),
+            'api.cloudflare.com/*' => Http::response($this->radarAsn('AS15169', 'Google LLC'), 200),
         ]);
 
         $result = app(NetworkIntelligenceClient::class)->lookup('8.8.4.4');
 
-        self::assertSame('ip-api', $result['provider']);
+        self::assertSame('cloudflare-radar', $result['provider']);
         self::assertSame('AS15169', $result['asn']);
     }
 
-    public function test_ip_api_rejects_a_success_payload_for_a_different_ip(): void
+    public function test_cloudflare_radar_rejects_a_malformed_success_payload(): void
     {
-        config(['bk.plugin.longos_bot_shield.ip_api_key' => 'ip-api-pro-test-key']);
-        Http::fake(['pro.ip-api.com/*' => Http::response([
-            'status'  => 'success',
-            'query'   => '1.1.1.1',
-            'as'      => 'AS13335 Cloudflare',
-            'asname'  => 'CLOUDFLARENET',
-            'proxy'   => false,
-            'hosting' => true,
+        config(['bk.plugin.longos_bot_shield.cloudflare_radar_token' => 'radar-test-token']);
+        Http::fake(['api.cloudflare.com/*' => Http::response([
+            'success' => true,
+            'result'  => ['asn' => ['asn' => 0, 'name' => 'Invalid']],
         ], 200)]);
 
-        self::assertSame('unavailable', app(IpApiClient::class)->lookup('8.8.4.4')['status']);
+        self::assertSame('unavailable', app(CloudflareRadarClient::class)->lookup('8.8.4.4')['status']);
     }
 
-    public function test_ip_api_rate_headers_open_its_own_fallback_circuit(): void
+    public function test_cloudflare_radar_rate_limit_opens_its_own_circuit(): void
     {
-        config(['bk.plugin.longos_bot_shield.ip_api_key' => 'ip-api-pro-test-key']);
-        Http::fake(['pro.ip-api.com/*' => Http::response([
-            'status'  => 'success',
-            'query'   => '8.8.8.8',
-            'as'      => 'AS15169 Google LLC',
-            'asname'  => 'GOOGLE',
-            'proxy'   => false,
-            'hosting' => true,
-        ], 200, ['X-Rl' => '0', 'X-Ttl' => '30'])]);
-        $client = app(IpApiClient::class);
+        config(['bk.plugin.longos_bot_shield.cloudflare_radar_token' => 'radar-test-token']);
+        Http::fake(['api.cloudflare.com/*' => Http::response([
+            'success' => false,
+            'errors'  => [['message' => 'rate limited']],
+        ], 429, ['Retry-After' => '30'])]);
+        $client = app(CloudflareRadarClient::class);
 
-        self::assertSame('ok', $client->lookup('8.8.8.8')['status']);
+        self::assertSame('unavailable', $client->lookup('8.8.8.8')['status']);
         $sentBeforeOpenCircuit = Http::recorded()->count();
         self::assertSame('unavailable', $client->lookup('8.8.4.4')['status']);
         self::assertSame($sentBeforeOpenCircuit, Http::recorded()->count());
@@ -317,9 +330,7 @@ class LongosBotShieldTest extends TestCase
         $google   = $engine->assess($this->request('8.8.8.8', 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'));
         $headless = $engine->assess($this->request('1.1.1.1', 'Mozilla/5.0 HeadlessChrome/124.0 Puppeteer'));
 
-        self::assertSame(100, $google->score);
         self::assertContains('crawler_declared', $google->reasons);
-        self::assertSame(100, $headless->score);
         self::assertContains('ua_automation', $headless->reasons);
     }
 
@@ -350,7 +361,7 @@ class LongosBotShieldTest extends TestCase
         Http::assertSentCount(5);
     }
 
-    public function test_requested_hosting_and_asn_signals_cross_the_block_threshold(): void
+    public function test_requested_hosting_and_asn_signals_enter_the_shielding_scope(): void
     {
         Http::fake(['api.ipinfo.io/*' => Http::response([
             'ip' => '9.9.9.9',
@@ -366,9 +377,9 @@ class LongosBotShieldTest extends TestCase
 
         $assessment = app(BotRiskEngine::class)->assess($this->request('9.9.9.9', $this->chromeUserAgent()));
 
-        self::assertGreaterThanOrEqual(80, $assessment->score);
         self::assertContains('asn_denylist', $assessment->reasons);
         self::assertContains('hosting_network', $assessment->reasons);
+        self::assertTrue($assessment->matchesConfiguredShieldingScope());
     }
 
     public function test_generic_crawlers_and_exploit_scan_paths_are_high_risk_without_provider_calls(): void
@@ -389,13 +400,9 @@ class LongosBotShieldTest extends TestCase
             '/' . str_repeat('a', 8193),
         ));
 
-        self::assertSame(100, $crawler->score);
         self::assertContains('ua_generic_crawler', $crawler->reasons);
-        self::assertSame(100, $pathScan->score);
         self::assertContains('suspicious_path', $pathScan->reasons);
-        self::assertSame(100, $encodedScan->score);
         self::assertContains('suspicious_path', $encodedScan->reasons);
-        self::assertSame(100, $oversized->score);
         self::assertContains('request_target_oversized', $oversized->reasons);
         Http::assertNothingSent();
     }
@@ -407,7 +414,6 @@ class LongosBotShieldTest extends TestCase
 
         $assessment = app(BotRiskEngine::class)->assess($this->request('8.8.8.8', $userAgent));
 
-        self::assertSame(0, $assessment->score);
         self::assertNotContains('crawler_declared', $assessment->reasons);
     }
 
@@ -427,7 +433,6 @@ class LongosBotShieldTest extends TestCase
 
         $assessment = app(BotRiskEngine::class)->assess($this->request('8.8.8.8', $this->chromeUserAgent()));
 
-        self::assertSame(0, $assessment->score);
         self::assertNotContains('organization_keyword', $assessment->reasons);
     }
 
@@ -443,7 +448,6 @@ class LongosBotShieldTest extends TestCase
         }
 
         $limited = $engine->assess($this->request('9.9.9.9', $this->chromeUserAgent()));
-        self::assertSame(100, $limited->score);
         self::assertContains('rate_burst', $limited->reasons);
     }
 
@@ -472,22 +476,19 @@ class LongosBotShieldTest extends TestCase
         self::assertSame(2, Http::recorded()->count());
     }
 
-    public function test_provider_failure_policy_runs_only_after_both_providers_fail(): void
+    public function test_provider_failure_is_not_treated_as_shielding_evidence(): void
     {
-        config([
-            'bk.plugin.longos_bot_shield.ip_api_key'              => 'ip-api-pro-test-key',
-            'bk.plugin.longos_bot_shield.provider_failure_policy' => 'challenge',
-        ]);
+        config(['bk.plugin.longos_bot_shield.cloudflare_radar_token' => 'radar-test-token']);
         Http::fake([
-            'api.ipinfo.io/*'  => Http::response(['error' => 'unavailable'], 503),
-            'pro.ip-api.com/*' => Http::response(['status' => 'fail', 'message' => 'unavailable'], 503),
+            'api.ipinfo.io/*'       => Http::response(['error' => 'unavailable'], 503),
+            'api.cloudflare.com/*'  => Http::response(['success' => false], 503),
         ]);
 
         $assessment = app(BotRiskEngine::class)->assess($this->request('8.8.8.8', $this->chromeUserAgent()));
 
-        self::assertSame(40, $assessment->score);
-        self::assertContains('network_provider_unavailable', $assessment->reasons);
-        Http::assertSentCount(3);
+        self::assertFalse($assessment->matchesEnforcementScope());
+        Http::assertSent(static fn (ClientRequest $request): bool => str_starts_with($request->url(), 'https://api.ipinfo.io/'));
+        Http::assertSent(static fn (ClientRequest $request): bool => str_starts_with($request->url(), 'https://api.cloudflare.com/'));
     }
 
     public function test_ipinfo_circuit_breaker_stops_failure_amplification(): void
@@ -577,7 +578,11 @@ class LongosBotShieldTest extends TestCase
         $settings = app(BotShieldSettings::class);
         $scope    = hash(
             'sha256',
-            $settings->tenantKey() . '|' . hash('sha256', $settings->ipinfoToken()),
+            implode('|', [
+                $settings->tenantKey(),
+                $settings->ipinfoApiTier(),
+                hash('sha256', $settings->ipinfoToken()),
+            ]),
         );
         $cacheKey = 'longos:bot-shield:ipinfo:' . $scope . ':' . $settings->ipHash($ip);
         Cache::put($cacheKey . ':refreshing', true, now()->addSeconds(15));
@@ -592,29 +597,43 @@ class LongosBotShieldTest extends TestCase
         Http::assertSentCount(1);
     }
 
-    public function test_ip_api_singleflight_marker_collapses_concurrent_cache_misses(): void
+    public function test_ipinfo_singleflight_contention_reuses_the_last_trusted_result(): void
     {
-        config(['bk.plugin.longos_bot_shield.ip_api_key' => 'ip-api-pro-test-key']);
+        $ip       = '8.8.8.8';
+        $settings = app(BotShieldSettings::class);
+        $scope    = hash('sha256', implode('|', [
+            $settings->tenantKey(),
+            $settings->ipinfoApiTier(),
+            hash('sha256', $settings->ipinfoToken()),
+        ]));
+        $cacheKey = 'longos:bot-shield:ipinfo:' . $scope . ':' . $settings->ipHash($ip);
+        Http::fake(['api.ipinfo.io/*' => Http::response($this->residentialNetwork($ip), 200)]);
+        $client = app(IpInfoClient::class);
+
+        self::assertSame('ok', $client->lookup($ip)['status']);
+        Cache::forget($cacheKey);
+        Cache::put($cacheKey . ':refreshing', true, now()->addSeconds(15));
+
+        $stale = $client->lookup($ip);
+
+        self::assertSame('ok', $stale['status']);
+        self::assertSame('AS7922', $stale['asn']);
+        Http::assertSentCount(1);
+    }
+
+    public function test_cloudflare_radar_singleflight_marker_collapses_concurrent_cache_misses(): void
+    {
+        config(['bk.plugin.longos_bot_shield.cloudflare_radar_token' => 'radar-test-token']);
         $ip       = '8.8.4.4';
         $settings = app(BotShieldSettings::class);
         $scope    = hash(
             'sha256',
-            $settings->tenantKey() . '|' . hash('sha256', $settings->ipApiKey()),
+            $settings->tenantKey() . '|' . hash('sha256', $settings->cloudflareRadarToken()),
         );
-        $cacheKey = 'longos:bot-shield:ip-api:' . $scope . ':' . $settings->ipHash($ip);
+        $cacheKey = 'longos:bot-shield:cloudflare-radar:' . $scope . ':' . $settings->ipHash($ip);
         Cache::put($cacheKey . ':refreshing', true, now()->addSeconds(15));
-        Http::fake(['pro.ip-api.com/*' => Http::response([
-            'status'  => 'success',
-            'query'   => $ip,
-            'isp'     => 'Residential ISP',
-            'org'     => 'Residential ISP',
-            'as'      => 'AS7922 Residential ISP',
-            'asname'  => 'COMCAST',
-            'mobile'  => false,
-            'proxy'   => false,
-            'hosting' => false,
-        ], 200, ['X-Rl' => '44', 'X-Ttl' => '60'])]);
-        $client = app(IpApiClient::class);
+        Http::fake(['api.cloudflare.com/*' => Http::response($this->radarAsn('AS7922', 'Residential ISP'), 200)]);
+        $client = app(CloudflareRadarClient::class);
 
         self::assertSame('unavailable', $client->lookup($ip)['status']);
         Http::assertNothingSent();
@@ -632,7 +651,6 @@ class LongosBotShieldTest extends TestCase
         $assessment = app(BotRiskEngine::class)->assess($this->request('8.8.8.8', 'Googlebot/2.1 HeadlessChrome'));
 
         self::assertTrue($assessment->allowlisted);
-        self::assertSame(0, $assessment->score);
         Http::assertNothingSent();
         self::assertTrue(CidrMatcher::contains('2001:4860:4860::8888', ['2001:4860::/32']));
         self::assertSame(['10.0.0.0/99', 'not-an-ip'], CidrMatcher::invalidEntries("10.0.0.0/99\nnot-an-ip"));
@@ -668,7 +686,6 @@ class LongosBotShieldTest extends TestCase
         $assessment = app(BotRiskEngine::class)->assess($request);
 
         self::assertTrue($assessment->allowlisted);
-        self::assertSame(0, $assessment->score);
         self::assertSame(['vendor_allowlist_asn'], $assessment->reasons);
 
         $middleware = new ProtectStorefront(
@@ -720,7 +737,6 @@ class LongosBotShieldTest extends TestCase
         ));
 
         self::assertTrue($assessment->allowlisted);
-        self::assertSame(0, $assessment->score);
         self::assertSame(['vendor_allowlist_organization'], $assessment->reasons);
 
         config([
@@ -776,13 +792,12 @@ class LongosBotShieldTest extends TestCase
         $spoofed = app(BotRiskEngine::class)->assess($this->request('8.8.8.8', 'Googlebot/2.1 HeadlessChrome'));
 
         self::assertFalse($spoofed->allowlisted);
-        self::assertSame(100, $spoofed->score);
         self::assertContains('crawler_declared', $spoofed->reasons);
 
         $unavailable = app(BotRiskEngine::class)->assess($this->request('8.8.4.4', 'Googlebot/2.1 HeadlessChrome'));
 
         self::assertFalse($unavailable->allowlisted);
-        self::assertSame(100, $unavailable->score);
+        self::assertContains('crawler_declared', $unavailable->reasons);
     }
 
     public function test_disabled_vendor_allowlist_does_not_query_providers_or_bypass_detection(): void
@@ -799,30 +814,19 @@ class LongosBotShieldTest extends TestCase
         ));
 
         self::assertFalse($assessment->allowlisted);
-        self::assertSame(100, $assessment->score);
         Http::assertNothingSent();
     }
 
-    public function test_vendor_asn_allowlist_uses_ip_api_when_ipinfo_is_unavailable(): void
+    public function test_vendor_asn_allowlist_uses_cloudflare_radar_when_ipinfo_is_unavailable(): void
     {
         config([
             'bk.plugin.longos_bot_shield.vendor_allowlist_enabled' => true,
             'bk.plugin.longos_bot_shield.allowed_asns'             => 'AS64510',
-            'bk.plugin.longos_bot_shield.ip_api_key'               => 'ip-api-pro-test-key',
+            'bk.plugin.longos_bot_shield.cloudflare_radar_token'   => 'radar-test-token',
         ]);
         Http::fake([
-            'api.ipinfo.io/*'  => Http::response(['error' => 'temporarily unavailable'], 503),
-            'pro.ip-api.com/*' => Http::response([
-                'status'  => 'success',
-                'query'   => '8.8.4.4',
-                'isp'     => 'Trusted Vendor Limited',
-                'org'     => 'Trusted Vendor Cloud',
-                'as'      => 'AS64510 Trusted Vendor Limited',
-                'asname'  => 'TRUSTED-VENDOR',
-                'mobile'  => false,
-                'proxy'   => false,
-                'hosting' => true,
-            ], 200, ['X-Rl' => '40', 'X-Ttl' => '60']),
+            'api.ipinfo.io/*'       => Http::response(['error' => 'temporarily unavailable'], 503),
+            'api.cloudflare.com/*'  => Http::response($this->radarAsn('AS64510', 'Trusted Vendor Limited'), 200),
         ]);
 
         $assessment = app(BotRiskEngine::class)->assess($this->request(
@@ -833,11 +837,11 @@ class LongosBotShieldTest extends TestCase
         self::assertTrue($assessment->allowlisted);
         self::assertSame(['vendor_allowlist_asn'], $assessment->reasons);
         $recorded = Http::recorded();
-        self::assertCount(2, $recorded->filter(
+        self::assertNotEmpty($recorded->filter(
             static fn (array $exchange): bool => str_starts_with($exchange[0]->url(), 'https://api.ipinfo.io/'),
         ));
         self::assertCount(1, $recorded->filter(
-            static fn (array $exchange): bool => str_starts_with($exchange[0]->url(), 'https://pro.ip-api.com/'),
+            static fn (array $exchange): bool => str_starts_with($exchange[0]->url(), 'https://api.cloudflare.com/'),
         ));
     }
 
@@ -852,25 +856,24 @@ class LongosBotShieldTest extends TestCase
         ));
 
         self::assertFalse($assessment->allowlisted);
-        self::assertSame(100, $assessment->score);
         Http::assertNothingSent();
     }
 
     public function test_ipinfo_token_is_encrypted_at_rest_and_blank_runtime_values_fail_closed(): void
     {
         $stored = BotShieldSettings::normalizeForStorage([
-            'ipinfo_token' => 'secret-token-value',
-            'ip_api_key'   => 'fallback-secret-value',
+            'ipinfo_token'            => 'secret-token-value',
+            'cloudflare_radar_token'  => 'fallback-secret-value',
         ]);
 
         self::assertStringStartsWith(BotShieldSettings::ENCRYPTED_PREFIX, $stored['ipinfo_token']);
         self::assertStringNotContainsString('secret-token-value', $stored['ipinfo_token']);
-        self::assertStringStartsWith(BotShieldSettings::ENCRYPTED_PREFIX, $stored['ip_api_key']);
-        self::assertStringNotContainsString('fallback-secret-value', $stored['ip_api_key']);
+        self::assertStringStartsWith(BotShieldSettings::ENCRYPTED_PREFIX, $stored['cloudflare_radar_token']);
+        self::assertStringNotContainsString('fallback-secret-value', $stored['cloudflare_radar_token']);
         config(['bk.plugin.longos_bot_shield.ipinfo_token' => $stored['ipinfo_token']]);
-        config(['bk.plugin.longos_bot_shield.ip_api_key' => $stored['ip_api_key']]);
+        config(['bk.plugin.longos_bot_shield.cloudflare_radar_token' => $stored['cloudflare_radar_token']]);
         self::assertSame('secret-token-value', app(BotShieldSettings::class)->ipinfoToken());
-        self::assertSame('fallback-secret-value', app(BotShieldSettings::class)->ipApiKey());
+        self::assertSame('fallback-secret-value', app(BotShieldSettings::class)->cloudflareRadarToken());
 
         config(['bk.plugin.longos_bot_shield.ipinfo_token' => BotShieldSettings::ENCRYPTED_PREFIX . 'damaged']);
         self::assertSame('', app(BotShieldSettings::class)->ipinfoToken());
@@ -970,7 +973,7 @@ class LongosBotShieldTest extends TestCase
         {
             public function assess(Request $request): RiskAssessment
             {
-                return new RiskAssessment(100, ['ua_script_client']);
+                return new RiskAssessment(['ua_script_client']);
             }
         };
         $middleware = new ProtectStorefront(
@@ -1239,7 +1242,7 @@ class LongosBotShieldTest extends TestCase
         {
             public function assess(Request $request): RiskAssessment
             {
-                return new RiskAssessment(50, ['hosting_network']);
+                return new RiskAssessment(['hosting_network']);
             }
         };
         $clearance  = app(ClearanceToken::class);
@@ -1264,31 +1267,14 @@ class LongosBotShieldTest extends TestCase
         self::assertSame(1, preg_match('/const token = ("(?:\\\\.|[^"\\\\])+");/', $html, $match));
         $proof = json_decode($match[1], true, 8, JSON_THROW_ON_ERROR);
         self::assertIsString($proof);
-        self::assertSame(1, preg_match('/const powChallenge = ("[a-f0-9]{32}");/', $html, $powMatch));
-        $powChallenge = json_decode($powMatch[1], true, 8, JSON_THROW_ON_ERROR);
-        self::assertSame(1, preg_match('/const powBits = (\d+);/', $html, $bitsMatch));
-        $powBits  = (int) $bitsMatch[1];
-        $powNonce = $this->solveProofOfWork($powChallenge, $powBits);
-        usleep(300000);
-
-        $missingWork = Request::create('https://store.example.test/products/challenge', 'GET', [], [], [], [
-            'REMOTE_ADDR'                       => '8.8.8.8',
-            'HTTP_USER_AGENT'                   => $this->chromeUserAgent(),
-            'HTTP_ACCEPT'                       => 'application/json',
-            'HTTP_X_LONGOS_BOT_CHALLENGE_PROOF' => $proof,
-        ]);
-        app()->instance('request', $missingWork);
-        self::assertSame(
-            403,
-            $middleware->handle($missingWork, static fn (): Response => new Response('MUST NOT RUN'))->getStatusCode(),
-        );
+        self::assertStringNotContainsString('crypto.subtle', $html);
+        self::assertStringNotContainsString('powChallenge', $html);
 
         $wrongTarget = Request::create('https://store.example.test/products/other', 'GET', [], [], [], [
             'REMOTE_ADDR'                       => '8.8.8.8',
             'HTTP_USER_AGENT'                   => $this->chromeUserAgent(),
             'HTTP_ACCEPT'                       => 'application/json',
             'HTTP_X_LONGOS_BOT_CHALLENGE_PROOF' => $proof,
-            'HTTP_X_LONGOS_BOT_CHALLENGE_NONCE' => $powNonce,
         ]);
         app()->instance('request', $wrongTarget);
         self::assertSame(
@@ -1297,11 +1283,10 @@ class LongosBotShieldTest extends TestCase
         );
 
         $proofRequest = Request::create('https://store.example.test/products/challenge', 'GET', [], [], [], [
-            'REMOTE_ADDR'                           => '8.8.8.8',
-            'HTTP_USER_AGENT'                       => $this->chromeUserAgent(),
-            'HTTP_ACCEPT'                           => 'application/json',
-            'HTTP_X_LONGOS_BOT_CHALLENGE_PROOF'     => $proof,
-            'HTTP_X_LONGOS_BOT_CHALLENGE_NONCE'     => $powNonce,
+            'REMOTE_ADDR'                       => '8.8.8.8',
+            'HTTP_USER_AGENT'                   => $this->chromeUserAgent(),
+            'HTTP_ACCEPT'                       => 'application/json',
+            'HTTP_X_LONGOS_BOT_CHALLENGE_PROOF' => $proof,
         ]);
         app()->instance('request', $proofRequest);
         $cleared = $middleware->handle($proofRequest, static fn (): Response => new Response('MUST NOT RUN'));
@@ -1323,7 +1308,6 @@ class LongosBotShieldTest extends TestCase
             'HTTP_USER_AGENT'                   => $this->chromeUserAgent(),
             'HTTP_ACCEPT'                       => 'application/json',
             'HTTP_X_LONGOS_BOT_CHALLENGE_PROOF' => $proof,
-            'HTTP_X_LONGOS_BOT_CHALLENGE_NONCE' => $powNonce,
         ]);
         app()->instance('request', $replay);
         self::assertSame(
@@ -1332,7 +1316,7 @@ class LongosBotShieldTest extends TestCase
         );
     }
 
-    public function test_challenge_clearance_allows_non_cacheable_requests_below_hard_block_threshold(): void
+    public function test_challenge_clearance_allows_non_cacheable_network_scope_requests(): void
     {
         config(['bk.plugin.longos_bot_shield.enforcement_mode' => 'challenge']);
 
@@ -1341,7 +1325,7 @@ class LongosBotShieldTest extends TestCase
         {
             public function assess(Request $request): RiskAssessment
             {
-                return new RiskAssessment(50, ['hosting_network']);
+                return new RiskAssessment(['hosting_network']);
             }
         };
         $clearance  = app(ClearanceToken::class);
@@ -1378,7 +1362,7 @@ class LongosBotShieldTest extends TestCase
         self::assertSame('blocked', $blocked->headers->get('X-Longos-Bot-Shield'));
     }
 
-    public function test_homepage_shielding_scope_covers_network_crawler_and_automation_targets_without_scores(): void
+    public function test_homepage_shielding_scope_covers_network_crawler_and_automation_targets(): void
     {
         $scopeReasons = [
             'ip_denylist',
@@ -1398,14 +1382,14 @@ class LongosBotShieldTest extends TestCase
         ];
         foreach ($scopeReasons as $reason) {
             self::assertTrue(
-                (new RiskAssessment(0, [$reason]))->matchesConfiguredShieldingScope(),
+                (new RiskAssessment([$reason]))->matchesConfiguredShieldingScope(),
                 $reason,
             );
         }
 
-        foreach (['network_provider_unavailable', 'client_hints_missing', 'accept_missing', 'rate_limit'] as $reason) {
+        foreach (['client_hints_missing', 'accept_missing', 'rate_limit'] as $reason) {
             self::assertFalse(
-                (new RiskAssessment(100, [$reason]))->matchesConfiguredShieldingScope(),
+                (new RiskAssessment([$reason]))->matchesConfiguredShieldingScope(),
                 $reason,
             );
         }
@@ -1430,7 +1414,7 @@ class LongosBotShieldTest extends TestCase
         {
             public function assess(Request $request): RiskAssessment
             {
-                return new RiskAssessment(1, ['asn_denylist']);
+                return new RiskAssessment(['asn_denylist']);
             }
         };
         $homepage = new class($internal) extends MainSiteHomepage
@@ -1477,7 +1461,7 @@ class LongosBotShieldTest extends TestCase
         self::assertFalse($response->isRedirect());
     }
 
-    public function test_homepage_mode_ignores_scores_outside_the_configured_shielding_scope(): void
+    public function test_homepage_mode_ignores_signals_outside_the_configured_shielding_scope(): void
     {
         $settings = app(BotShieldSettings::class);
         $internal = app(InternalHomepageRequest::class);
@@ -1485,7 +1469,7 @@ class LongosBotShieldTest extends TestCase
         {
             public function assess(Request $request): RiskAssessment
             {
-                return new RiskAssessment(40, ['network_provider_unavailable']);
+                return new RiskAssessment(['client_hints_missing']);
             }
         };
         $middleware = new ProtectStorefront(
@@ -1519,7 +1503,7 @@ class LongosBotShieldTest extends TestCase
         {
             public function assess(Request $request): RiskAssessment
             {
-                return new RiskAssessment(5, ['organization_keyword']);
+                return new RiskAssessment(['organization_keyword']);
             }
         };
         $middleware = new ProtectStorefront(
@@ -1566,32 +1550,6 @@ class LongosBotShieldTest extends TestCase
         return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36';
     }
 
-    private function solveProofOfWork(string $challenge, int $bits): string
-    {
-        for ($nonce = 0; $nonce < 2000000; $nonce++) {
-            $hash       = hash('sha256', $challenge . ':' . $nonce, true);
-            $wholeBytes = intdiv($bits, 8);
-            $valid      = true;
-            for ($index = 0; $index < $wholeBytes; $index++) {
-                if (ord($hash[$index]) !== 0) {
-                    $valid = false;
-
-                    break;
-                }
-            }
-            if (! $valid) {
-                continue;
-            }
-
-            $remaining = $bits % 8;
-            if ($remaining === 0 || (ord($hash[$wholeBytes]) >> (8 - $remaining)) === 0) {
-                return (string) $nonce;
-            }
-        }
-
-        self::fail('Unable to solve the bounded browser proof of work.');
-    }
-
     private function residentialNetwork(string $ip = '8.8.8.8'): array
     {
         return [
@@ -1604,6 +1562,23 @@ class LongosBotShieldTest extends TestCase
             ],
             'is_hosting'   => false,
             'is_anonymous' => false,
+        ];
+    }
+
+    private function radarAsn(string $asn, string $name, string $website = ''): array
+    {
+        return [
+            'success' => true,
+            'result'  => [
+                'asn' => [
+                    'asn'     => (int) preg_replace('/^AS/i', '', $asn),
+                    'name'    => $name,
+                    'orgName' => $name,
+                    'website' => $website,
+                    'country' => 'US',
+                    'source'  => 'ARIN',
+                ],
+            ],
         ];
     }
 }

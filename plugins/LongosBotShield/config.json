@@ -5,11 +5,11 @@
     "en": "LONGOS Bot Shield"
   },
   "description": {
-    "zh_cn": "基于 IPInfo/ip-api ASN、机房与代理数据、爬虫与无头自动化特征、频率/查询预算及可验证厂商白名单的店面与 API 防护。",
-    "en": "Storefront and API protection using IPInfo/ip-api intelligence, crawler and automation signals, bounded lookup budgets, and an IP-verified vendor allowlist."
+    "zh_cn": "基于 IPInfo 与 Cloudflare Radar ASN 兜底、机房与代理数据、爬虫与无头自动化特征及预设屏蔽范围的店面与 API 防护。",
+    "en": "Storefront and API protection using IPInfo with Cloudflare Radar ASN fallback, crawler and automation signals, and a configured shielding scope."
   },
   "type": "feature",
-  "version": "v1.6.1",
+  "version": "v1.7.0",
   "icon": "/image/longos-favicon.svg",
   "author": {
     "name": "LONGOS",

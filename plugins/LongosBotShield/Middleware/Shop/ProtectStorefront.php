@@ -18,8 +18,6 @@ class ProtectStorefront
 {
     private const CHALLENGE_HEADER = 'X-Longos-Bot-Challenge-Proof';
 
-    private const CHALLENGE_NONCE_HEADER = 'X-Longos-Bot-Challenge-Nonce';
-
     private const REFERENCE_ATTRIBUTE = '_longos_bot_shield_reference';
 
     public function __construct(
@@ -47,11 +45,7 @@ class ProtectStorefront
         $mode           = $this->settings->enforcementMode();
         $challengeProof = trim((string) $request->header(self::CHALLENGE_HEADER));
         if ($mode === 'challenge' && $request->isMethod('GET') && $challengeProof !== '') {
-            return $this->completeChallenge(
-                $request,
-                $challengeProof,
-                trim((string) $request->header(self::CHALLENGE_NONCE_HEADER)),
-            );
+            return $this->completeChallenge($request, $challengeProof);
         }
 
         $assessment = $this->engine->assess($request);
@@ -71,12 +65,7 @@ class ProtectStorefront
             return $this->homepage($request, $assessment);
         }
 
-        if ($assessment->verifiedCrawler && $assessment->score < $this->settings->challengeThreshold()) {
-            return $next($request);
-        }
-
-        $threshold = $this->settings->challengeThreshold();
-        if ($assessment->score < $threshold) {
+        if (! $assessment->matchesEnforcementScope()) {
             return $next($request);
         }
 
@@ -86,23 +75,22 @@ class ProtectStorefront
             return $next($request);
         }
 
-        $hardBlock = $mode === 'block'
-            || $assessment->score >= $this->settings->blockThreshold()
-            || $assessment->hasReason('crawler_declared')
-            || $assessment->hasReason('crawler_spoofed')
-            || $assessment->hasReason('ua_automation')
-            || $assessment->hasReason('ua_script_client')
-            || $assessment->hasReason('rate_limit')
-            || $assessment->hasReason('rate_burst');
+        if ($assessment->verifiedCrawler && $this->settings->crawlerPolicy() === 'allow_verified') {
+            $this->record($request, $assessment, 'verified-crawler');
 
-        if (! $hardBlock && $mode === 'challenge' && $this->clearance->valid($request)) {
+            return $next($request);
+        }
+
+        if ($mode === 'challenge'
+            && ! $assessment->requiresImmediateBlock()
+            && $this->clearance->valid($request)) {
             $this->record($request, $assessment, 'clearance');
 
             return $next($request);
         }
 
-        if (! $hardBlock
-            && $mode === 'challenge'
+        if ($mode === 'challenge'
+            && ! $assessment->requiresImmediateBlock()
             && $request->isMethodCacheable()
             && ! $this->isStructuredRequest($request)) {
             $this->record($request, $assessment, 'challenge');
@@ -142,8 +130,6 @@ class ProtectStorefront
         $challenge = $this->clearance->issueChallenge($request);
         $response  = response()->view('LongosBotShield::shop.challenge', [
             'challengeToken' => $challenge['token'],
-            'challengePow'   => $challenge['challenge'],
-            'challengeBits'  => $challenge['bits'],
             'cspNonce'       => $nonce,
             'reference'      => $this->reference($request, $assessment),
         ], 503);
@@ -155,7 +141,7 @@ class ProtectStorefront
         return $response;
     }
 
-    private function completeChallenge(Request $request, string $proof, string $nonce): Response
+    private function completeChallenge(Request $request, string $proof): Response
     {
         $rateKey = 'longos:bot-shield:challenge-proof:' . hash(
             'sha256',
@@ -166,7 +152,7 @@ class ProtectStorefront
         }
         RateLimiter::hit($rateKey, 60);
 
-        if (! $this->clearance->consumeChallenge($request, $proof, $nonce)) {
+        if (! $this->clearance->consumeChallenge($request, $proof)) {
             return $this->challengeRejected(403);
         }
 
@@ -304,7 +290,7 @@ class ProtectStorefront
             'ip_hash'   => substr($this->settings->ipHash((string) $request->ip()), 0, 20),
             'method'    => $request->getMethod(),
             'reference' => $this->reference($request, $assessment),
-            'score'     => $assessment->score,
+            'signals'   => count($assessment->reasons),
             'reasons'   => $assessment->reasons,
             'action'    => $action,
         ]);

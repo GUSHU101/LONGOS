@@ -22,9 +22,7 @@ class ClearanceToken
         return $this->encrypt($payload);
     }
 
-    /**
-     * @return array{token: string, challenge: string, bits: int}
-     */
+    /** @return array{token: string} */
     public function issueChallenge(Request $request, int $ttlSeconds = 90): array
     {
         $ttl               = max(30, min(120, $ttlSeconds));
@@ -33,25 +31,20 @@ class ClearanceToken
         $payload['exp']    = time() + $ttl;
         $payload['iat_ms'] = (int) floor(microtime(true) * 1000);
         $payload['target'] = $this->targetHash($request);
-        $payload['pow']    = bin2hex(random_bytes(16));
-        $payload['bits']   = 14;
         Cache::put($this->challengeKey($payload['id']), $this->bindingHash($payload), now()->addSeconds($ttl));
 
         return [
-            'token'     => $this->encrypt($payload),
-            'challenge' => $payload['pow'],
-            'bits'      => $payload['bits'],
+            'token' => $this->encrypt($payload),
         ];
     }
 
-    public function consumeChallenge(Request $request, string $token, string $nonce): bool
+    public function consumeChallenge(Request $request, string $token): bool
     {
         $payload = $this->decrypt($token);
         if ($payload === null
             || preg_match('/^[a-f0-9]{64}$/D', (string) ($payload['id'] ?? '')) !== 1
             || (int) ($payload['exp'] ?? 0) < time()
             || (int) ($payload['exp'] ?? 0) > time() + 120
-            || ! $this->validProofOfWork($payload, $nonce)
             || ! hash_equals($this->targetHash($request), (string) ($payload['target'] ?? ''))
             || ! $this->matchesRequest($payload, $request)) {
             return false;
@@ -125,38 +118,7 @@ class ClearanceToken
             (string) ($payload['exp'] ?? ''),
             (string) ($payload['iat_ms'] ?? ''),
             (string) ($payload['target'] ?? ''),
-            (string) ($payload['pow'] ?? ''),
-            (string) ($payload['bits'] ?? ''),
         ]), (string) config('app.key', 'longos-bot-shield'));
-    }
-
-    private function validProofOfWork(array $payload, string $nonce): bool
-    {
-        $challenge = (string) ($payload['pow'] ?? '');
-        $bits      = (int) ($payload['bits'] ?? 0);
-        $issuedAt  = (int) ($payload['iat_ms'] ?? 0);
-        $now       = (int) floor(microtime(true) * 1000);
-        if (preg_match('/^[a-f0-9]{32}$/D', $challenge) !== 1
-            || preg_match('/^\d{1,8}$/D', $nonce)       !== 1
-            || $bits < 12
-            || $bits > 20
-            || $issuedAt <= 0
-            || $now - $issuedAt < 250
-            || $now - $issuedAt > 120000) {
-            return false;
-        }
-
-        $hash       = hash('sha256', $challenge . ':' . $nonce, true);
-        $wholeBytes = intdiv($bits, 8);
-        for ($index = 0; $index < $wholeBytes; $index++) {
-            if (ord($hash[$index]) !== 0) {
-                return false;
-            }
-        }
-
-        $remaining = $bits % 8;
-
-        return $remaining === 0 || (ord($hash[$wholeBytes]) >> (8 - $remaining)) === 0;
     }
 
     private function challengeKey(string $id): string

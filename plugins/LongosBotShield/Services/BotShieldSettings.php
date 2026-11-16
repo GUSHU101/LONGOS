@@ -12,7 +12,7 @@ class BotShieldSettings
 
     public static function normalizeForStorage(array $fields): array
     {
-        foreach (['ipinfo_token', 'ip_api_key'] as $name) {
+        foreach (['ipinfo_token', 'cloudflare_radar_token'] as $name) {
             if (! array_key_exists($name, $fields)) {
                 continue;
             }
@@ -31,14 +31,25 @@ class BotShieldSettings
         return $this->secret('ipinfo_token');
     }
 
-    public function ipApiKey(): string
+    public function ipinfoApiTier(): string
     {
-        return $this->secret('ip_api_key');
+        return (string) $this->value('ipinfo_api_tier', 'lite') === 'lookup'
+            ? 'lookup'
+            : 'lite';
     }
 
-    public function ipApiFallbackEnabled(): bool
+    public function cloudflareRadarToken(): string
     {
-        return filter_var($this->value('ip_api_fallback_enabled', true), FILTER_VALIDATE_BOOLEAN);
+        $tenantToken = $this->secret('cloudflare_radar_token');
+
+        return $tenantToken !== ''
+            ? $tenantToken
+            : trim((string) config('longos.cloudflare.radar_api_token', ''));
+    }
+
+    public function cloudflareRadarFallbackEnabled(): bool
+    {
+        return filter_var($this->value('cloudflare_radar_fallback_enabled', true), FILTER_VALIDATE_BOOLEAN);
     }
 
     private function secret(string $name): string
@@ -67,23 +78,6 @@ class BotShieldSettings
         return (string) $this->value('crawler_policy', 'block_all') === 'allow_verified'
             ? 'allow_verified'
             : 'block_all';
-    }
-
-    public function providerFailurePolicy(): string
-    {
-        return (string) $this->value('provider_failure_policy', 'ua_only') === 'challenge'
-            ? 'challenge'
-            : 'ua_only';
-    }
-
-    public function challengeThreshold(): int
-    {
-        return max(10, min(95, (int) $this->value('challenge_threshold', 40)));
-    }
-
-    public function blockThreshold(): int
-    {
-        return max($this->challengeThreshold(), min(100, (int) $this->value('block_threshold', 80)));
     }
 
     public function requestsPerMinute(): int

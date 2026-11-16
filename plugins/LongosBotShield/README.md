@@ -7,9 +7,11 @@ bursts.
 
 ## Decisions and signals
 
-- IPInfo Lookup API ASN, company, privacy, hosting, proxy, residential-proxy,
-  VPN, Tor, relay, anycast, and bogon fields are fetched with a Bearer token.
-  Location data is discarded.
+- IPInfo Lite is the default endpoint. It provides the official free,
+  unlimited country and basic ASN dataset; LONGOS consumes the ASN identity
+  and discards location fields. Operators with the matching paid entitlement
+  can explicitly select Advanced Lookup for hosting, privacy, proxy,
+  residential-proxy, VPN, Tor, relay, anycast, and bogon fields.
 - Successful lookups are cached by tenant and an HMAC of the visitor IP.
   The cache namespace includes a token fingerprint, so credential rotation
   takes effect immediately. Failures cache for one minute; repeated failures,
@@ -19,16 +21,24 @@ bursts.
   consuming additional provider calls. The production scheduler removes
   expired database-cache and lock rows in bounded batches every ten minutes.
   Per-IP atomic refresh markers also collapse concurrent misses into one
-  provider request instead of spending the budget on a cache stampede.
-- IPInfo is the primary provider. When it is unavailable or its circuit is
-  open, the optional ip-api Pro HTTPS fallback supplies ASN, ISP/organization,
-  proxy, and hosting signals. Its `X-Rl` and `X-Ttl` headers proactively open
-  an independent circuit before the provider rate limit is exceeded. The
-  HTTP-only, non-commercial ip-api free endpoint is never used.
-- Provider payloads are accepted only when their returned IP matches the
-  requested canonical IPv4/IPv6 address. If IPInfo returns ASN data without
-  security fields, ip-api Pro enriches and merges the missing signals rather
-  than replacing trustworthy primary data.
+  provider request instead of spending the budget on a cache stampede. Marker
+  contention and provider failures reuse the last trusted success for up to
+  seven days; an `unavailable` result is never itself shielding evidence.
+- Storefront request handling reads fresh/stale cache and local catalogs first.
+  A first-seen IP performs one IPInfo call capped at 0.45 seconds; failure or a
+  missing ASN can perform one Radar fallback capped at 0.30 seconds. Neither
+  call retries, so the complete cold external path is budgeted to about 0.75
+  seconds. Stale trusted data is returned immediately and refreshed after the
+  response instead of making the visitor wait.
+- IPInfo is the primary provider. When it is unavailable, circuit-broken, or
+  missing an ASN, the optional Cloudflare Radar HTTPS fallback supplies ASN
+  and organization identity. Radar has an independent circuit breaker and
+  never manufactures hosting, proxy, VPN, or privacy flags that its ASN API
+  does not return.
+- IPInfo payloads are accepted only when their returned IP matches the
+  requested canonical IPv4/IPv6 address. Cloudflare Radar receives the
+  canonical IP as a TLS-protected query parameter and its response must match
+  the documented successful ASN schema before it is cached or merged.
 - The release-owned catalog includes major global cloud, hosting, CDN,
   backbone, and datacenter networks. It includes Cogent (`AS174`),
   Lumen/Level3 (`AS3356`), Hurricane Electric (`AS6939`), Meta, Google,
@@ -37,7 +47,7 @@ bursts.
 - The crawler catalog covers Google, Meta, Microsoft/Bing, TikTok/ByteDance,
   search engines, AI crawlers, SEO tools, link-preview bots, archives, and
   monitoring agents. Generic bot/spider/crawler/scanner UA patterns are also
-  scored. Declared crawlers are blocked by default. The optional verified
+  classified. Declared crawlers are blocked by default. The optional verified
   policy uses all five of Google's published crawler, fetcher, and agent CIDR
   feeds and ASN identity for Meta. Successful Google feeds are cached for a day
   with a seven-day stale fallback, avoiding request-path DNS lookups.
@@ -52,9 +62,10 @@ bursts.
   including up to four layers of URL encoding.
 - The local JavaScript challenge checks standard automation exposure and
   several non-invasive browser-coherence signals. It receives only a one-time
-  proof bound to tenant, host, IP, UA, and URI, then solves a server-verified
-  14-bit SHA-256 work challenge. The server consumes the proof once and sets
-  the final clearance as an HttpOnly cookie. Challenge and block documents use
+  proof bound to tenant, host, IP, UA, and URI. The server atomically consumes
+  the signed proof once and sets the final clearance as an HttpOnly cookie;
+  clients do not perform repeated hashes or other proof-of-work loops.
+  Challenge and block documents use
   nonce-based CSP policies. This is a bounded cost gate, not device attestation.
 
 ## Vendor allowlist
@@ -68,8 +79,8 @@ rate, scan-path, crawler, automation, and network-risk rules are evaluated.
   Domain entries match the exact returned domain or one of its subdomains;
   `notgoogle.com` does not match `google.com`.
 - A declared or spoofed crawler user agent never grants allowlist access. The
-  decision requires a successful IPInfo or ip-api response whose returned IP
-  is the canonical visitor IP.
+  decision requires a successful IPInfo or Cloudflare Radar response for the
+  canonical visitor IP.
 - If the identity provider is unavailable or does not match, normal protection
   continues. When the mode is disabled or both lists are blank, it adds no
   provider lookup.
@@ -78,8 +89,8 @@ rate, scan-path, crawler, automation, and network-risk rules are evaluated.
 
 ## Response modes
 
-- **Shielding-scope homepage (default):** independently of the numeric risk
-  score, match the visitor against denied CIDRs, high-risk ASNs, hosting and
+- **Shielding-scope homepage (default):** match the visitor against denied
+  CIDRs, high-risk ASNs, hosting and
   datacenter networks, residential proxies, VPN/Tor/relay data, organization
   keywords, crawlers, and headless/script automation signals. Configured lists
   and the enabled built-in catalog both contribute to this scope. A match
@@ -100,14 +111,17 @@ rate, scan-path, crawler, automation, and network-risk rules are evaluated.
   or nonstandard port). Fresh HTML cache hits perform no DNS or HTTP work.
   Every matching request receives that homepage, including structured and
   non-cacheable requests. Visitors outside the configured shielding scope are
-  passed through normally and are not redirected or replaced because of a
-  score. Explicit IP and verified-vendor allowlists still take precedence.
-- **Monitor:** record the risk decision and continue normally.
-- **Challenge:** challenge medium-risk browsers and reject high-risk traffic.
+  passed through normally. Explicit IP and verified-vendor allowlists still
+  take precedence.
+- **Monitor:** record shielding-scope matches and continue normally.
+- **Challenge:** challenge network-identity matches and reject deterministic
+  automation, spoofed crawlers, deny-list, scanner, or rate-limit matches.
   A valid clearance applies to cacheable and non-cacheable storefront requests,
-  so verified customers can continue cart and checkout submissions. Explicit
-  high-confidence signals and the hard-block threshold still take precedence.
-- **Block:** return `403`, or `429` for rate limits.
+  so verified customers can continue cart and checkout submissions.
+- **Block:** return `403`, or `429` for every enforcement-scope match.
+
+All four modes consume the same reason-based detection result. No configured
+numeric threshold participates in an enforcement decision.
 
 Bot Shield runs before storefront cookies and sessions and is also attached to
 the tenant API middleware group. In shielding-scope homepage mode, matching API
@@ -129,27 +143,30 @@ when `APP_KEY` is unavailable.
 ## Setup
 
 1. Install the plugin from LONGOS administration.
-2. Open the plugin settings and enter an IPInfo API token with ASN and network
-   flag access (Core or higher for hosting/anonymous flags).
-3. Optionally enter an ip-api Pro key to enable the commercial-use HTTPS
-   fallback. A missing key simply leaves the fallback inactive.
-4. Review the crawler policy, action mode, CIDR lists, ASN list, and thresholds.
+2. Open the plugin settings, enter an IPInfo API token, and select Lite for the
+   free unlimited country/ASN endpoint. Select Advanced Lookup only if the
+   account is entitled to its hosting/privacy fields.
+3. Optionally enter a separate Cloudflare Radar token with `User Details:Read`
+   to enable ASN fallback. A platform operator can instead provide
+   `CLOUDFLARE_RADAR_API_TOKEN`; the DNS automation token is not reused.
+4. Review the crawler policy, action mode, CIDR lists, ASN list, and traffic
+   limits.
 5. If trusted provider traffic must bypass every detection rule, configure its
    exact ASN and explicitly enable vendor allowlist mode.
 6. Enable the plugin. Start with Monitor mode if the storefront sits behind
    unusual corporate NAT or proxy infrastructure.
 
-Both provider credentials are encrypted at rest with Laravel Crypt. The IPInfo
-token is sent only in the `Authorization: Bearer` header to
-`https://api.ipinfo.io`. ip-api requires its Pro key as an HTTPS query
-parameter; LONGOS does not log the provider request URL.
+Tenant provider credentials are encrypted at rest with Laravel Crypt. The
+IPInfo and Cloudflare Radar tokens are sent only in `Authorization: Bearer`
+headers to their documented HTTPS APIs. LONGOS does not log provider request
+URLs or credentials.
 
 Provider lookups disclose the visitor IP address to the configured services.
 Operators should list these processors and the purpose of fraud/abuse
 prevention in their privacy documentation and select retention/contract terms
 appropriate to their jurisdiction.
 
-Diagnostics contain only a keyed IP hash, score, reason categories, action,
+Diagnostics contain only a keyed IP hash, matched reason categories, action,
 and a support reference that rotates every ten minutes. The same reference is
 returned to the visitor, so an operator can correlate a report without storing
 the raw visitor address.
@@ -160,15 +177,16 @@ A server cannot reliably identify a freshly installed desktop VM or VDI from
 HTTP headers alone. Cloud-hosted VDIs are usually covered by IPInfo hosting/ASN
 signals; the browser challenge adds a second signal. The plugin intentionally
 does not perform invasive hardware fingerprinting, and advanced automation can
-hide individual browser properties. Treat the score as layered risk detection,
-not proof of a physical device type.
+hide individual browser properties. Treat reason-based detection as an abuse
+control, not proof of a physical device type.
 
 ## References
 
 - [IPInfo API overview](https://ipinfo.io/developers/ipinfo-api)
+- [IPInfo Lite API](https://ipinfo.io/developers/lite-api)
 - [IPInfo Core API fields](https://ipinfo.io/developers/core-api)
 - [IPInfo privacy and residential-proxy fields](https://ipinfo.io/developers/ip-privacy-detection-api-data)
-- [ip-api JSON fields, limits, and HTTPS notice](https://ip-api.com/docs/api:json)
+- [Cloudflare Radar ASN lookup by IP](https://developers.cloudflare.com/api/resources/radar/subresources/entities/subresources/asns/methods/ip/)
 - [Google crawler verification](https://developers.google.com/crawling/docs/crawlers-fetchers/verify-google-requests)
 - [Google user-triggered fetchers and agents](https://developers.google.com/crawling/docs/crawlers-fetchers/google-user-triggered-fetchers)
 - [OpenAI crawler user agents](https://developers.openai.com/api/docs/bots)

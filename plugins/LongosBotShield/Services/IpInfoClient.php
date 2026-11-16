@@ -2,7 +2,6 @@
 
 namespace Plugin\LongosBotShield\Services;
 
-use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Plugin\LongosBotShield\Support\IpAddress;
@@ -12,10 +11,52 @@ class IpInfoClient
 {
     private const MAX_RESPONSE_BYTES = 524288;
 
+    private const CONNECT_TIMEOUT_SECONDS = 0.2;
+
+    private const REQUEST_TIMEOUT_SECONDS = 0.45;
+
     public function __construct(
         private readonly BotShieldSettings $settings,
         private readonly ProviderRequestBudget $requestBudget,
     ) {}
+
+    public function available(): bool
+    {
+        return $this->settings->ipinfoToken() !== '';
+    }
+
+    /** @return array<string, bool|string> */
+    public function lookupCached(string $ip): array
+    {
+        $ip = IpAddress::normalize($ip);
+        if (! IpAddress::isPublic($ip)) {
+            return $this->emptyResult('local');
+        }
+
+        $token = $this->settings->ipinfoToken();
+        if ($token === '') {
+            return $this->emptyResult('unavailable');
+        }
+
+        $cacheKey = $this->cacheKey($ip, $token);
+        $cached   = Cache::get($cacheKey);
+        if (is_array($cached) && ($cached['status'] ?? '') === 'ok') {
+            $cached['cache_stale'] = false;
+
+            return $cached;
+        }
+
+        $stale = Cache::get($cacheKey . ':stale');
+        if (is_array($stale) && ($stale['status'] ?? '') === 'ok') {
+            $stale['cache_stale'] = true;
+
+            return $stale;
+        }
+
+        return is_array($cached) && isset($cached['status'])
+            ? $cached
+            : $this->emptyResult('unavailable');
+    }
 
     /**
      * @return array{
@@ -49,19 +90,24 @@ class IpInfoClient
         }
 
         $token    = $this->settings->ipinfoToken();
-        $scope    = hash('sha256', $this->settings->tenantKey() . '|' . hash('sha256', $token));
-        $cacheKey = 'longos:bot-shield:ipinfo:' . $scope . ':' . $this->settings->ipHash($ip);
+        $scope    = $this->scope($token);
+        $cacheKey = $this->cacheKey($ip, $token);
         $cached   = Cache::get($cacheKey);
         if (is_array($cached) && isset($cached['status'])) {
             return $cached;
         }
 
+        $stale = Cache::get($cacheKey . ':stale');
+        if (! is_array($stale) || ($stale['status'] ?? '') !== 'ok') {
+            $stale = null;
+        }
+
         if ($token === '' || Cache::has($this->circuitKey($scope))) {
-            return $this->emptyResult('unavailable');
+            return $stale ?? $this->emptyResult('unavailable');
         }
         $refreshKey = $cacheKey . ':refreshing';
         if (! Cache::add($refreshKey, true, now()->addSeconds(15))) {
-            return $this->emptyResult('unavailable');
+            return $stale ?? $this->emptyResult('unavailable');
         }
 
         try {
@@ -71,18 +117,14 @@ class IpInfoClient
 
             $response = Http::acceptJson()
                 ->withToken($token)
-                ->connectTimeout(1.0)
-                ->timeout(2.5)
-                ->retry(2, 100, static function (Throwable $exception): bool {
-                    return ! $exception instanceof RequestException
-                        || $exception->response->serverError();
-                }, throw: false)
-                ->get('https://api.ipinfo.io/lookup/' . rawurlencode($ip));
+                ->connectTimeout(self::CONNECT_TIMEOUT_SECONDS)
+                ->timeout(self::REQUEST_TIMEOUT_SECONDS)
+                ->get($this->endpoint($ip));
 
             if (strlen((string) $response->body()) > self::MAX_RESPONSE_BYTES) {
                 $this->recordFailure($scope, $response->status());
 
-                return $this->cacheFailure($cacheKey);
+                return $this->cacheFailure($cacheKey, $stale);
             }
 
             $payload = $response->json();
@@ -91,18 +133,19 @@ class IpInfoClient
                 || ! $this->validPayloadForIp($payload, $ip)) {
                 $this->recordFailure($scope, $response->status());
 
-                return $this->cacheFailure($cacheKey);
+                return $this->cacheFailure($cacheKey, $stale);
             }
 
             $this->clearFailures($scope);
             $result = $this->normalize($payload);
             Cache::put($cacheKey, $result, now()->addMinutes($this->settings->cacheMinutes()));
+            Cache::put($cacheKey . ':stale', $result, now()->addDays(7));
 
             return $result;
         } catch (Throwable) {
             $this->recordFailure($scope);
 
-            return $this->cacheFailure($cacheKey);
+            return $this->cacheFailure($cacheKey, $stale);
         } finally {
             Cache::forget($refreshKey);
         }
@@ -114,8 +157,8 @@ class IpInfoClient
         $company   = is_array($payload['company'] ?? null) ? $payload['company'] : [];
         $anonymous = is_array($payload['anonymous'] ?? null) ? $payload['anonymous'] : [];
         $privacy   = is_array($payload['privacy'] ?? null) ? $payload['privacy'] : [];
-        $asn       = strtoupper(trim((string) ($as['asn'] ?? '')));
-        $name      = trim((string) ($as['name'] ?? $as['org'] ?? ''));
+        $asn       = strtoupper(trim((string) ($as['asn'] ?? $payload['asn'] ?? '')));
+        $name      = trim((string) ($as['name'] ?? $as['org'] ?? $payload['as_name'] ?? ''));
 
         // The legacy endpoint may return `org` as "AS123 Example LLC".
         $legacyOrg = trim((string) ($payload['org'] ?? ''));
@@ -159,7 +202,7 @@ class IpInfoClient
             'security_data_present' => $securityDataPresent,
             'asn'                   => $asn,
             'name'                  => $name,
-            'domain'                => trim((string) ($as['domain'] ?? '')),
+            'domain'                => trim((string) ($as['domain'] ?? $payload['as_domain'] ?? '')),
             'type'                  => mb_strtolower(trim((string) ($as['type'] ?? ''))),
             'company_name'          => trim((string) ($company['name'] ?? '')),
             'company_domain'        => trim((string) ($company['domain'] ?? '')),
@@ -194,8 +237,14 @@ class IpInfoClient
             && IpAddress::normalize((string) $payload['ip']) === $ip;
     }
 
-    private function cacheFailure(string $cacheKey): array
+    private function cacheFailure(string $cacheKey, ?array $stale = null): array
     {
+        if ($stale !== null) {
+            Cache::put($cacheKey, $stale, now()->addMinute());
+
+            return $stale;
+        }
+
         $result = $this->emptyResult('unavailable');
         Cache::put($cacheKey, $result, now()->addMinute());
 
@@ -257,5 +306,24 @@ class IpInfoClient
             'is_anycast'            => false,
             'is_bogon'              => false,
         ];
+    }
+
+    private function endpoint(string $ip): string
+    {
+        return 'https://api.ipinfo.io/' . $this->settings->ipinfoApiTier() . '/' . rawurlencode($ip);
+    }
+
+    private function cacheKey(string $ip, string $token): string
+    {
+        return 'longos:bot-shield:ipinfo:' . $this->scope($token) . ':' . $this->settings->ipHash($ip);
+    }
+
+    private function scope(string $token): string
+    {
+        return hash('sha256', implode('|', [
+            $this->settings->tenantKey(),
+            $this->settings->ipinfoApiTier(),
+            hash('sha256', $token),
+        ]));
     }
 }
