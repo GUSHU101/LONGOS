@@ -14,6 +14,15 @@ class ReviewGenerationService
 {
     private const NEAR_DUPLICATE_LIMIT = 500;
 
+    /**
+     * Keep replacement work bounded while giving a shrinking set of rejected
+     * rows enough opportunities to be regenerated. Schema/content failures are
+     * capped separately because repeating a malformed request is rarely useful.
+     */
+    private const MAX_CHUNK_ATTEMPTS = 4;
+
+    private const MAX_OUTPUT_FAILURES = 2;
+
     private const REVIEW_ANGLES = [
         'first impression',
         'daily usability',
@@ -104,7 +113,6 @@ class ReviewGenerationService
 
             foreach (array_values($wave) as $waveIndex => $chunk) {
                 $chunkIndex = array_keys($wave)[$waveIndex];
-                $model      = $models[$chunkIndex % count($models)];
                 if ($responses === []) {
                     $generated = $this->generateUniqueChunk(
                         $productData,
@@ -114,24 +122,32 @@ class ReviewGenerationService
                         $signatures,
                         $authors,
                         $knownFingerprints,
-                        $model,
+                        $models,
+                        $chunkIndex,
                     );
                 } else {
+                    $initialGenerated = null;
+
                     try {
-                        $generated = $this->parseChunkResponse($responses[$waveIndex], $productData, $chunk);
-                        $this->assertChunkUnique($generated, $signatures, $authors, $knownFingerprints);
+                        $initialGenerated = $this->parseChunkResponse($responses[$waveIndex], $productData, $chunk);
                     } catch (GenerationOutputException) {
-                        $generated = $this->generateUniqueChunk(
-                            $productData,
-                            $chunk,
-                            (string) $data['examples'],
-                            (string) $data['output_language'],
-                            $signatures,
-                            $authors,
-                            $knownFingerprints,
-                            $model,
-                        );
+                        // The pooled response already consumed the chunk's
+                        // primary model. Retry from the next model when one is
+                        // configured instead of immediately repeating it.
                     }
+                    $generated = $this->generateUniqueChunk(
+                        $productData,
+                        $chunk,
+                        (string) $data['examples'],
+                        (string) $data['output_language'],
+                        $signatures,
+                        $authors,
+                        $knownFingerprints,
+                        $models,
+                        $chunkIndex,
+                        $initialGenerated,
+                        $initialGenerated === null ? 1 : 0,
+                    );
                 }
                 foreach ($generated as $item) {
                     $signature                                    = $this->signature($item['title'], $item['body']);
@@ -207,6 +223,8 @@ class ReviewGenerationService
      * @param array<string, bool>                                                                                          $knownSignatures
      * @param array<string, bool>                                                                                          $knownAuthors
      * @param list<array<string, true>>                                                                                    $knownFingerprints
+     * @param list<string>                                                                                                 $models
+     * @param list<array<string,mixed>>|null                                                                               $initialGenerated
      * @return list<array<string,mixed>>
      */
     private function generateUniqueChunk(
@@ -217,23 +235,89 @@ class ReviewGenerationService
         array $knownSignatures,
         array $knownAuthors,
         array $knownFingerprints,
-        string $model,
+        array $models,
+        int $chunkIndex,
+        ?array $initialGenerated = null,
+        int $firstModelOffset = 0,
     ): array {
-        $lastException = null;
-        $retryGuidance = '';
-        foreach (range(1, 2) as $attempt) {
-            try {
-                $generated         = $this->generateChunk($product, $specifications, $examples, $language, $model, $retryGuidance);
-                $this->assertChunkUnique($generated, $knownSignatures, $knownAuthors, $knownFingerprints);
+        $pending = [];
+        foreach ($specifications as $specification) {
+            $pending[$specification['spec_id']] = $specification;
+        }
 
-                return $generated;
+        $accepted       = [];
+        $lastException  = null;
+        $outputFailures = 0;
+        $retryGuidance  = '';
+        foreach (range(0, self::MAX_CHUNK_ATTEMPTS - 1) as $attempt) {
+            if ($pending === []) {
+                break;
+            }
+
+            $pendingCount = count($pending);
+
+            try {
+                if ($attempt === 0 && $initialGenerated !== null) {
+                    $generated = $initialGenerated;
+                } else {
+                    $modelOffset = $firstModelOffset + $attempt;
+                    $model       = $models[($chunkIndex + $modelOffset) % count($models)];
+                    $generated   = $this->generateChunk(
+                        $product,
+                        array_values($pending),
+                        $examples,
+                        $language,
+                        $model,
+                        $retryGuidance,
+                    );
+                }
             } catch (GenerationOutputException $exception) {
                 $lastException = $exception;
-                $retryGuidance = 'The previous response was rejected by validation. Regenerate every requested item with more distinct wording and follow the schema and safety rules exactly.';
+                $outputFailures++;
+                if ($outputFailures >= self::MAX_OUTPUT_FAILURES) {
+                    throw $exception;
+                }
+                $retryGuidance = 'The previous response did not pass schema or content validation. Return only the still-requested items with the exact schema and safe, natural copy.';
+
+                continue;
+            }
+
+            $hasInvalidRows = count($generated) < $pendingCount;
+            $newItems       = $this->acceptUniqueCandidates(
+                $generated,
+                $knownSignatures,
+                $knownAuthors,
+                $knownFingerprints,
+            );
+            foreach ($newItems as $item) {
+                $specId            = (string) $item['spec_id'];
+                $accepted[$specId] = $item;
+                unset($pending[$specId]);
+            }
+            if ($pending !== []) {
+                $lastException = new GenerationOutputException(trans('LongosProductReviews::reviews.' . ($hasInvalidRows
+                    ? 'ai_error_schema'
+                    : 'ai_error_duplicate')));
+                if ($hasInvalidRows && ++$outputFailures >= self::MAX_OUTPUT_FAILURES) {
+                    throw $lastException;
+                }
+                $retryGuidance = sprintf(
+                    'Some rows were accepted and reserved, while others failed validation or uniqueness checks. Generate exactly the remaining %d items only. Use new fictional author names, different openings, substantially different wording, and follow the schema and safety rules exactly.',
+                    count($pending),
+                );
             }
         }
 
-        throw $lastException ?? new GenerationOutputException(trans('LongosProductReviews::reviews.ai_error_schema'));
+        if ($pending !== []) {
+            throw $lastException ?? new GenerationOutputException(trans('LongosProductReviews::reviews.ai_error_count'));
+        }
+
+        $ordered = [];
+        foreach ($specifications as $specification) {
+            $ordered[] = $accepted[$specification['spec_id']];
+        }
+
+        return $ordered;
     }
 
     /**
@@ -241,32 +325,34 @@ class ReviewGenerationService
      * @param array<string,bool>        $knownSignatures
      * @param array<string,bool>        $knownAuthors
      * @param list<array<string,true>>  $knownFingerprints
+     * @return list<array<string,mixed>>
      */
-    private function assertChunkUnique(
+    private function acceptUniqueCandidates(
         array $generated,
-        array $knownSignatures,
-        array $knownAuthors,
-        array $knownFingerprints,
-    ): void {
-        $chunkSignatures   = [];
-        $chunkAuthors      = [];
-        $chunkFingerprints = [];
+        array &$knownSignatures,
+        array &$knownAuthors,
+        array &$knownFingerprints,
+    ): array {
+        $accepted = [];
         foreach ($generated as $item) {
             $signature   = $this->signature((string) $item['title'], (string) $item['body']);
-            $author      = mb_strtolower((string) $item['author_name']);
+            $author      = mb_strtolower(trim((string) $item['author_name']));
             $fingerprint = $this->fingerprint((string) $item['title'] . ' ' . (string) $item['body']);
-            if (isset($knownSignatures[$signature]) || isset($chunkSignatures[$signature])
-                                                    || isset($knownAuthors[$author]) || isset($chunkAuthors[$author])
-                                                    || $this->isNearDuplicate($fingerprint, $knownFingerprints)
-                                                    || $this->isNearDuplicate($fingerprint, $chunkFingerprints)) {
-                throw new GenerationOutputException(trans('LongosProductReviews::reviews.ai_error_duplicate'));
+            if (isset($knownSignatures[$signature])
+                || isset($knownAuthors[$author])
+                || $this->isNearDuplicate($fingerprint, $knownFingerprints)) {
+                continue;
             }
-            $chunkSignatures[$signature] = true;
-            $chunkAuthors[$author]       = true;
+
+            $knownSignatures[$signature] = true;
+            $knownAuthors[$author]       = true;
             if ($fingerprint !== []) {
-                $chunkFingerprints[] = $fingerprint;
+                $knownFingerprints[] = $fingerprint;
             }
+            $accepted[] = $item;
         }
+
+        return $accepted;
     }
 
     /** @param array{id:int,name:string,description:string} $product
@@ -355,30 +441,22 @@ class ReviewGenerationService
             || ! is_array($rows) || ! array_is_list($rows) || count($rows) !== count($specifications)) {
             throw new GenerationOutputException(trans('LongosProductReviews::reviews.ai_error_schema'));
         }
-        foreach ($rows as $row) {
+        $items = [];
+        foreach ($specifications as $index => $specification) {
+            $row = $rows[$index] ?? null;
             if (! is_array($row)
                 || array_diff(array_keys($row), ['author_name', 'title', 'body']) !== []
                 || ! is_string($row['author_name'] ?? null)
                 || ! is_string($row['title'] ?? null)
                 || ! is_string($row['body'] ?? null)) {
-                throw new GenerationOutputException(trans('LongosProductReviews::reviews.ai_error_schema'));
-            }
-        }
-
-        $items = [];
-        foreach ($specifications as $index => $specification) {
-            $row = $rows[$index] ?? null;
-            if (! is_array($row)) {
-                throw new GenerationOutputException(trans('LongosProductReviews::reviews.ai_error_count'));
+                continue;
             }
             $rawAuthor = (string) ($row['author_name'] ?? '');
             $rawTitle  = (string) ($row['title'] ?? '');
             $rawBody   = (string) ($row['body'] ?? '');
             $violation = $this->contentPolicy->violation($rawAuthor, $rawTitle, $rawBody);
             if ($violation !== null) {
-                throw new GenerationOutputException(trans('LongosProductReviews::reviews.' . ($violation === GeneratedReviewContentPolicy::VIOLATION_META
-                    ? 'ai_error_meta_content'
-                    : 'ai_error_schema')));
+                continue;
             }
             $author = $this->cleanField($rawAuthor);
             $title  = $this->cleanField($rawTitle);
@@ -389,7 +467,7 @@ class ReviewGenerationService
                 || mb_strlen($title)  > 160
                 || mb_strlen($body) < 10
                 || mb_strlen($body) > 1200) {
-                throw new GenerationOutputException(trans('LongosProductReviews::reviews.ai_error_schema'));
+                continue;
             }
             $items[] = [
                 'spec_id'     => $specification['spec_id'],

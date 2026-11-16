@@ -682,6 +682,61 @@ class LongosProductReviewsServiceTest extends TestCase
         Http::assertSentCount(2);
     }
 
+    public function test_parallel_generation_refills_only_duplicate_rows_and_rotates_the_retry_model(): void
+    {
+        config([
+            'bk.plugin.longos_product_reviews.siliconflow_api_key' => 'test-api-key',
+            'bk.plugin.longos_product_reviews.siliconflow_model'   => 'XingChenAGI/Xing4.0-29B',
+            'bk.plugin.longos_product_reviews.siliconflow_models'  => "XingChenAGI/Xing4.0-29B\ntencent/Hunyuan-MT-7B",
+            'bk.plugin.longos_product_reviews.siliconflow_timeout' => 30,
+        ]);
+        $call = 0;
+        Http::fake(function ($request) use (&$call) {
+            $requestNumber = $call++;
+            $payload       = json_decode((string) data_get($request->data(), 'messages.1.content'), true, 64, JSON_THROW_ON_ERROR);
+            $requested     = count((array) data_get($payload, 'specifications'));
+            $rows          = [];
+            foreach (range(0, $requested - 1) as $index) {
+                $token  = strtr(hash('sha256', 'parallel-refill:' . $requestNumber . ':' . $index), '0123456789', 'qwertyuiop');
+                $rows[] = [
+                    'author_name' => 'Customer ' . ucfirst(substr($token, 0, 12)),
+                    'title'       => 'Different handling ' . substr($token, 12, 12),
+                    'body'        => 'This review uses a separate observation and vocabulary marker ' . $token . ' for uniqueness.',
+                ];
+            }
+            if ($requestNumber === 0) {
+                $rows[1] = $rows[0];
+            }
+
+            return Http::response([
+                'choices' => [['message' => ['content' => json_encode(['reviews' => $rows], JSON_THROW_ON_ERROR)]]],
+            ]);
+        });
+
+        $preview = app(ReviewGenerationService::class)->preview([
+            'product_id'          => 71,
+            'count'               => 20,
+            'date_from'           => '2026-10-01',
+            'date_to'             => '2026-10-20',
+            'rating_min'          => 4,
+            'rating_max'          => 5,
+            'rating_distribution' => 'balanced',
+            'review_length'       => 'mixed',
+            'countries'           => "Japan\nFrance",
+            'examples'            => 'Compact and useful, with a simple finish suitable for routine use.',
+            'output_language'     => 'en-US',
+            '_models'             => ['XingChenAGI/Xing4.0-29B', 'tencent/Hunyuan-MT-7B'],
+        ]);
+
+        self::assertCount(20, $preview['items']);
+        self::assertCount(20, array_unique(array_column($preview['items'], 'author_name')));
+        $requests = Http::recorded()->map(fn (array $pair): array => $pair[0]->data())->values();
+        $retry    = json_decode((string) data_get($requests[2], 'messages.1.content'), true, 64, JSON_THROW_ON_ERROR);
+        self::assertCount(1, (array) data_get($retry, 'specifications'));
+        self::assertSame('tencent/Hunyuan-MT-7B', data_get($requests[2], 'model'));
+        Http::assertSentCount(3);
+    }
+
     public function test_generation_retries_model_duplicates_against_existing_reviews(): void
     {
         config([
@@ -717,6 +772,140 @@ class LongosProductReviewsServiceTest extends TestCase
         ]);
 
         self::assertSame('A distinct generated title', $preview['items'][0]['title']);
+        Http::assertSentCount(2);
+    }
+
+    public function test_generation_keeps_valid_rows_and_only_regenerates_duplicate_gaps(): void
+    {
+        config([
+            'bk.plugin.longos_product_reviews.siliconflow_api_key' => 'test-api-key',
+            'bk.plugin.longos_product_reviews.siliconflow_model'   => 'XingChenAGI/Xing4.0-29B',
+            'bk.plugin.longos_product_reviews.siliconflow_timeout' => 30,
+        ]);
+        $this->review(4, true, 0, 'Existing exact duplicate body');
+
+        $firstPass = json_encode(['reviews' => [
+            [
+                'author_name' => 'Jamie North',
+                'title'       => 'Compact profile',
+                'body'        => 'Slim edges make the case comfortable to slide into a small evening bag.',
+            ],
+            [
+                'author_name' => 'Jamie North',
+                'title'       => 'Compact profile',
+                'body'        => 'Slim edges make the case comfortable to slide into a small evening bag.',
+            ],
+            [
+                'author_name' => 'Aiko Fujita',
+                'title'       => 'Distinct clasp',
+                'body'        => 'The magnetic closure aligns quickly, while the stitched border gives the exterior a tidy look.',
+            ],
+            [
+                'author_name' => 'Legacy Customer',
+                'title'       => 'Review 4',
+                'body'        => 'Existing exact duplicate body',
+            ],
+        ]], JSON_THROW_ON_ERROR);
+        $replacementPass = json_encode(['reviews' => [
+            [
+                'author_name' => 'Priya Shah',
+                'title'       => 'Room for essentials',
+                'body'        => 'Cards sit in separate slots, and the wrist strap makes short errands more convenient.',
+            ],
+            [
+                'author_name' => 'Camille Roy',
+                'title'       => 'Soft interior lining',
+                'body'        => 'Inside material feels smooth around the phone, with cutouts that remain easy to reach.',
+            ],
+        ]], JSON_THROW_ON_ERROR);
+        Http::fakeSequence()
+            ->push(['choices' => [['message' => ['content' => $firstPass]]]], 200)
+            ->push(['choices' => [['message' => ['content' => $replacementPass]]]], 200);
+
+        $preview = app(ReviewGenerationService::class)->preview([
+            'product_id'          => 71,
+            'count'               => 4,
+            'date_from'           => '2026-10-01',
+            'date_to'             => '2026-10-10',
+            'rating_min'          => 4,
+            'rating_max'          => 4,
+            'rating_distribution' => 'balanced',
+            'review_length'       => 'medium',
+            'countries'           => 'Japan',
+            'examples'            => 'A sufficiently detailed example review for style guidance.',
+            'output_language'     => 'en-US',
+        ]);
+
+        self::assertCount(4, $preview['items']);
+        $itemsBySpec = collect($preview['items'])->keyBy('spec_id');
+        self::assertSame('Compact profile', $itemsBySpec->get('1')['title']);
+        self::assertSame('Room for essentials', $itemsBySpec->get('2')['title']);
+        self::assertSame('Distinct clasp', $itemsBySpec->get('3')['title']);
+        self::assertSame('Soft interior lining', $itemsBySpec->get('4')['title']);
+        self::assertCount(4, array_unique(array_column($preview['items'], 'author_name')));
+
+        $requests = Http::recorded()->map(fn (array $pair): array => $pair[0]->data())->values();
+        $first    = json_decode((string) data_get($requests[0], 'messages.1.content'), true, 64, JSON_THROW_ON_ERROR);
+        $retry    = json_decode((string) data_get($requests[1], 'messages.1.content'), true, 64, JSON_THROW_ON_ERROR);
+        self::assertCount(4, (array) data_get($first, 'specifications'));
+        self::assertCount(2, (array) data_get($retry, 'specifications'));
+        self::assertStringContainsString('remaining 2 items only', (string) data_get($requests[1], 'messages.0.content'));
+        Http::assertSentCount(2);
+    }
+
+    public function test_generation_keeps_valid_rows_when_one_row_fails_content_validation(): void
+    {
+        config([
+            'bk.plugin.longos_product_reviews.siliconflow_api_key' => 'test-api-key',
+            'bk.plugin.longos_product_reviews.siliconflow_model'   => 'XingChenAGI/Xing4.0-29B',
+            'bk.plugin.longos_product_reviews.siliconflow_timeout' => 30,
+        ]);
+        Http::fakeSequence()
+            ->push(['choices' => [['message' => ['content' => json_encode(['reviews' => [
+                [
+                    'author_name' => 'Nora Kim',
+                    'title'       => 'Neat exterior',
+                    'body'        => 'The clean outer finish works well with a compact everyday bag.',
+                ],
+                [
+                    'author_name' => 'Invalid Row',
+                    'title'       => 'Extra metadata',
+                    'body'        => 'This otherwise usable sentence includes a field that was never requested.',
+                    'source'      => 'model-added',
+                ],
+                [
+                    'author_name' => 'Leo Martin',
+                    'title'       => 'Accessible buttons',
+                    'body'        => 'The side controls remain easy to press and the opening around the camera is tidy.',
+                ],
+            ]], JSON_THROW_ON_ERROR)]]]], 200)
+            ->push(['choices' => [['message' => ['content' => json_encode(['reviews' => [[
+                'author_name' => 'Mina Patel',
+                'title'       => 'Useful card slots',
+                'body'        => 'The separate slots keep a few essential cards organized without adding much bulk.',
+            ]]], JSON_THROW_ON_ERROR)]]]], 200);
+
+        $preview = app(ReviewGenerationService::class)->preview([
+            'product_id'          => 71,
+            'count'               => 3,
+            'date_from'           => '2026-10-01',
+            'date_to'             => '2026-10-10',
+            'rating_min'          => 4,
+            'rating_max'          => 5,
+            'rating_distribution' => 'balanced',
+            'review_length'       => 'medium',
+            'countries'           => 'Japan',
+            'examples'            => 'A sufficiently detailed example review for style guidance.',
+            'output_language'     => 'en-US',
+        ]);
+
+        $itemsBySpec = collect($preview['items'])->keyBy('spec_id');
+        self::assertSame('Neat exterior', $itemsBySpec->get('1')['title']);
+        self::assertSame('Useful card slots', $itemsBySpec->get('2')['title']);
+        self::assertSame('Accessible buttons', $itemsBySpec->get('3')['title']);
+        $requests = Http::recorded()->map(fn (array $pair): array => $pair[0]->data())->values();
+        $retry    = json_decode((string) data_get($requests[1], 'messages.1.content'), true, 64, JSON_THROW_ON_ERROR);
+        self::assertCount(1, (array) data_get($retry, 'specifications'));
         Http::assertSentCount(2);
     }
 
