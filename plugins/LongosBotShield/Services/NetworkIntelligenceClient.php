@@ -8,12 +8,28 @@ use Illuminate\Support\Facades\Cache;
 class NetworkIntelligenceClient
 {
     public function __construct(
+        private readonly IpInfoLocalDatabase $localDatabase,
         private readonly IpInfoClient $ipInfo,
         private readonly BotShieldSettings $settings,
     ) {}
 
     public function lookup(string $ip): array
     {
+        $local         = $this->localDatabase->lookup($ip);
+        $localFallback = null;
+        if (($local['status'] ?? '') === 'ok') {
+            $this->localDatabase->scheduleSyncIfStale($this->settings->ipinfoToken());
+            if (! ($local['identity_incomplete'] ?? false)) {
+                return $local;
+            }
+
+            // Keep the exact local ASN as the final fallback so a failed
+            // enrichment request cannot remove a deny-list match.
+            $localFallback = $local;
+        } else {
+            $this->localDatabase->scheduleSyncIfStale($this->settings->ipinfoToken());
+        }
+
         $result = $this->ipInfo->lookupCached($ip);
         if (($result['status'] ?? '') === 'ok') {
             if (($result['cache_stale'] ?? false) === true) {
@@ -28,11 +44,17 @@ class NetworkIntelligenceClient
         // a strict 0.8-second maximum request budget.
         $refreshKey = $this->refreshKey($ip);
         if (! Cache::add($refreshKey, true, now()->addSeconds(15))) {
-            return $result;
+            return $localFallback ?? $result;
         }
 
         try {
-            return $this->refresh($ip);
+            $refreshed = $localFallback !== null
+                ? ($this->ipInfo->available()
+                    ? $this->ipInfo->lookup($ip)
+                    : $this->ipInfo->lookupCached($ip))
+                : $this->refresh($ip);
+
+            return ($refreshed['status'] ?? '') === 'ok' ? $refreshed : ($localFallback ?? $refreshed);
         } finally {
             Cache::forget($refreshKey);
         }
@@ -40,9 +62,16 @@ class NetworkIntelligenceClient
 
     public function refresh(string $ip): array
     {
-        return $this->ipInfo->available()
+        $local = $this->localDatabase->lookup($ip);
+        if (($local['status'] ?? '') === 'ok' && ! ($local['identity_incomplete'] ?? false)) {
+            return $local;
+        }
+
+        $live = $this->ipInfo->available()
             ? $this->ipInfo->lookup($ip)
             : $this->ipInfo->lookupCached($ip);
+
+        return ($live['status'] ?? '') === 'ok' ? $live : $local;
     }
 
     private function scheduleRefresh(string $ip): void

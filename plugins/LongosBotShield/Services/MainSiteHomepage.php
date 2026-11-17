@@ -13,20 +13,31 @@ use Throwable;
 
 class MainSiteHomepage
 {
-    public const CONNECT_TIMEOUT_SECONDS = 0.3;
+    public const CONNECT_TIMEOUT_SECONDS = 1.0;
 
-    public const REQUEST_TIMEOUT_SECONDS = 0.8;
+    public const REQUEST_TIMEOUT_SECONDS = 5.0;
+
+    private const MAXIMUM_HTML_BYTES = 8 * 1024 * 1024;
+
+    private const FRESH_CACHE_MINUTES = 60;
+
+    private const STALE_CACHE_HOURS = 24;
+
+    private string $lastStatus = 'not_run';
 
     public function __construct(private readonly InternalHomepageRequest $internalRequest) {}
 
     /** @return array{html: string, source: string}|null */
     public function render(): ?array
     {
-        $current = current_site();
+        $this->lastStatus = 'not_run';
+        $current          = current_site();
         if (! config('saas.enabled')) {
             return $this->renderCurrent();
         }
         if ($current === null) {
+            $this->lastStatus = 'site_context_unavailable';
+
             return null;
         }
         if ((bool) data_get($current->meta, 'control_site', false)) {
@@ -37,6 +48,8 @@ class MainSiteHomepage
         if ($origin === null) {
             // A child storefront must never substitute its own content when
             // the configured LONGOS control site is unavailable.
+            $this->lastStatus = 'control_origin_unavailable';
+
             return null;
         }
 
@@ -49,10 +62,14 @@ class MainSiteHomepage
         $lockKey  = $cacheKey . ':refreshing';
         $cached   = Cache::get($cacheKey);
         if (is_string($cached) && $cached !== '') {
+            $this->lastStatus = 'ready_cache';
+
             return ['html' => $this->withBaseUrl($cached, $url), 'source' => 'control-cache'];
         }
         $stale = Cache::get($staleKey);
         if (! Cache::add($lockKey, true, now()->addSeconds(15))) {
+            $this->lastStatus = is_string($stale) && $stale !== '' ? 'ready_stale' : 'refresh_in_progress';
+
             return is_string($stale) && $stale !== ''
                 ? ['html' => $this->withBaseUrl($stale, $url), 'source' => 'control-cache-stale']
                 : null;
@@ -61,6 +78,10 @@ class MainSiteHomepage
         try {
             $connectionOptions = $this->connectionOptions($host, $scheme);
             if ($connectionOptions === null) {
+                $this->lastStatus = is_string($stale) && $stale !== ''
+                    ? 'ready_stale'
+                    : 'control_address_unavailable';
+
                 return is_string($stale) && $stale !== ''
                     ? ['html' => $this->withBaseUrl($stale, $url), 'source' => 'control-cache-stale']
                     : null;
@@ -68,6 +89,8 @@ class MainSiteHomepage
 
             $internalHeader = $this->internalRequest->headerValue($host);
             if ($internalHeader === '') {
+                $this->lastStatus = 'internal_auth_unavailable';
+
                 return null;
             }
 
@@ -87,18 +110,25 @@ class MainSiteHomepage
             if (! $response->successful()
                 || ! str_contains($contentType, 'text/html')
                 || $html === ''
-                || strlen($html) > 2 * 1024 * 1024) {
+                || strlen($html) > self::MAXIMUM_HTML_BYTES) {
+                $this->lastStatus = is_string($stale) && $stale !== ''
+                    ? 'ready_stale'
+                    : $this->invalidResponseStatus($response->status(), $contentType, $html);
+
                 return is_string($stale) && $stale !== ''
                     ? ['html' => $this->withBaseUrl($stale, $url), 'source' => 'control-cache-stale']
                     : null;
             }
 
             $html = $this->withBaseUrl($html, $url);
-            Cache::put($cacheKey, $html, now()->addMinutes(5));
-            Cache::put($staleKey, $html, now()->addHour());
+            Cache::put($cacheKey, $html, now()->addMinutes(self::FRESH_CACHE_MINUTES));
+            Cache::put($staleKey, $html, now()->addHours(self::STALE_CACHE_HOURS));
+            $this->lastStatus = 'ready';
 
             return ['html' => $html, 'source' => 'control'];
         } catch (Throwable) {
+            $this->lastStatus = is_string($stale) && $stale !== '' ? 'ready_stale' : 'request_failed';
+
             return is_string($stale) && $stale !== ''
                 ? ['html' => $this->withBaseUrl($stale, $url), 'source' => 'control-cache-stale']
                 : null;
@@ -110,10 +140,11 @@ class MainSiteHomepage
     /** @return array{html: string, source: string}|null */
     private function renderCurrent(): ?array
     {
-        $original = request();
-        $origin   = $original->getSchemeAndHttpHost() . '/';
-        $siteKey  = current_site()?->getKey() ?? 'standalone';
-        $cacheKey = 'longos:bot-shield:current-home:' . hash('sha256', implode('|', [
+        $this->lastStatus = 'not_run';
+        $original         = request();
+        $origin           = $original->getSchemeAndHttpHost() . '/';
+        $siteKey          = current_site()?->getKey() ?? 'standalone';
+        $cacheKey         = 'longos:bot-shield:current-home:' . hash('sha256', implode('|', [
             (string) $siteKey,
             $origin,
             app()->getLocale(),
@@ -122,10 +153,14 @@ class MainSiteHomepage
         $lockKey  = $cacheKey . ':refreshing';
         $cached   = Cache::get($cacheKey);
         if (is_string($cached) && $cached !== '') {
+            $this->lastStatus = 'ready_cache';
+
             return ['html' => $cached, 'source' => 'current-cache'];
         }
         $stale = Cache::get($staleKey);
         if (! Cache::add($lockKey, true, now()->addSeconds(15))) {
+            $this->lastStatus = is_string($stale) && $stale !== '' ? 'ready_stale' : 'refresh_in_progress';
+
             return is_string($stale) && $stale !== ''
                 ? ['html' => $stale, 'source' => 'current-cache-stale']
                 : null;
@@ -156,24 +191,49 @@ class MainSiteHomepage
                 app()->instance('request', $original);
                 $url->setRequest($urlRequest);
             }
-            if ($html === '' || strlen($html) > 2 * 1024 * 1024) {
+            if ($html === '' || strlen($html) > self::MAXIMUM_HTML_BYTES) {
+                $this->lastStatus = $html === '' ? 'empty_html' : 'html_too_large';
+
                 return null;
             }
             $html = $this->withBaseUrl($html, $origin);
-            Cache::put($cacheKey, $html, now()->addMinutes(5));
-            Cache::put($staleKey, $html, now()->addHour());
+            Cache::put($cacheKey, $html, now()->addMinutes(self::FRESH_CACHE_MINUTES));
+            Cache::put($staleKey, $html, now()->addHours(self::STALE_CACHE_HOURS));
+            $this->lastStatus = 'ready';
 
             return [
                 'html'   => $html,
                 'source' => 'current',
             ];
         } catch (Throwable) {
+            $this->lastStatus = is_string($stale) && $stale !== '' ? 'ready_stale' : 'render_failed';
+
             return is_string($stale) && $stale !== ''
                 ? ['html' => $stale, 'source' => 'current-cache-stale']
                 : null;
         } finally {
             Cache::forget($lockKey);
         }
+    }
+
+    public function lastStatus(): string
+    {
+        return $this->lastStatus;
+    }
+
+    private function invalidResponseStatus(int $httpStatus, string $contentType, string $html): string
+    {
+        if ($httpStatus < 200 || $httpStatus >= 300) {
+            return 'upstream_http_' . $httpStatus;
+        }
+        if (! str_contains($contentType, 'text/html')) {
+            return 'invalid_content_type';
+        }
+        if ($html === '') {
+            return 'empty_html';
+        }
+
+        return 'html_too_large';
     }
 
     protected function controlSite(): ?Site

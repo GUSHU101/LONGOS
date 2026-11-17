@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Validation\Rule;
+use Plugin\LongosBotShield\Services\ThreatCatalog;
 use Plugin\LongosBotShield\Support\CidrMatcher;
 
 $enabled = static fn (): bool => filter_var(request()->input('status', false), FILTER_VALIDATE_BOOLEAN);
@@ -68,6 +69,23 @@ return [
         'action_form'        => true,
         'action_label_key'   => 'shield.ipinfo_health_action',
         'action_feedback'    => 'longos-bot-shield-health-feedback',
+    ],
+    [
+        'name'               => 'builtin_catalog',
+        'label_key'          => 'shield.builtin_catalog',
+        'description_key'    => 'shield.builtin_catalog_help',
+        'description_params' => [
+            'platforms' => count(ThreatCatalog::platformAsns()),
+            'hosting'   => count(ThreatCatalog::HOSTING_ASNS),
+            'names'     => count(ThreatCatalog::ORGANIZATION_KEYWORDS) + count(ThreatCatalog::PROXY_ORGANIZATION_KEYWORDS),
+            'crawlers'  => count(ThreatCatalog::crawlerMarkers()),
+            'headless'  => count(ThreatCatalog::AUTOMATION_MARKERS),
+            'scripts'   => count(ThreatCatalog::SCRIPT_CLIENT_MARKERS),
+        ],
+        'section_key' => 'shield.section_lists',
+        'type'        => 'guide',
+        'tone'        => 'success',
+        'required'    => false,
     ],
     [
         'name'            => 'vendor_allowlist_enabled',

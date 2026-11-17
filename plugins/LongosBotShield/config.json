@@ -5,11 +5,11 @@
     "en": "LONGOS Bot Shield"
   },
   "description": {
-    "zh_cn": "使用 IPInfo Lite 与内置 Meta、TikTok、Amazon、Google ASN/机房库及爬虫、无头、脚本特征识别屏蔽范围，命中后展示主站首页。",
-    "en": "Single-action storefront protection using IPInfo Lite plus built-in Meta, TikTok, Amazon, Google, hosting, crawler, headless, and script catalogs."
+    "zh_cn": "通过可信 Cloudflare 边缘还原访客 IP，使用每日 IPInfo Lite 本地数据与内置 Meta、TikTok、Amazon、Google ASN/机房库识别屏蔽范围，命中后展示主站首页。",
+    "en": "Single-action protection using trusted Cloudflare visitor IPs, a daily local IPInfo Lite database, and built-in Meta, TikTok, Amazon, Google, hosting, crawler, headless, and script catalogs."
   },
   "type": "feature",
-  "version": "v1.8.4",
+  "version": "v1.9.0",
   "icon": "/image/longos-favicon.svg",
   "author": {
     "name": "LONGOS",

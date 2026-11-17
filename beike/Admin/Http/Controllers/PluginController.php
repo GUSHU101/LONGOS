@@ -22,6 +22,7 @@ use Beike\Models\AdminUser;
 use Beike\Plugin\Plugin;
 use Beike\Repositories\PluginRepo;
 use Beike\Repositories\SettingRepo;
+use Beike\Services\CloudflareIpRangeService;
 use Exception;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\View\View;
@@ -33,7 +34,10 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use League\CommonMark\GithubFlavoredMarkdownConverter;
 use Plugin\LongosBotShield\Services\BotRiskEngine;
+use Plugin\LongosBotShield\Services\BotShieldSettings;
 use Plugin\LongosBotShield\Services\IpInfoClient;
+use Plugin\LongosBotShield\Services\IpInfoLocalDatabase;
+use Plugin\LongosBotShield\Services\MainSiteHomepage;
 use Plugin\LongosPlatformPay\Services\PlatformPaymentCredentials;
 
 class PluginController extends Controller
@@ -490,26 +494,50 @@ class PluginController extends Controller
         return redirect($this->getRedirect())->with('success', trans('common.updated_success'));
     }
 
-    public function botShieldHealth(Request $request, IpInfoClient $ipInfo, BotRiskEngine $engine): JsonResponse
-    {
+    public function botShieldHealth(
+        Request $request,
+        IpInfoClient $ipInfo,
+        BotRiskEngine $engine,
+        BotShieldSettings $settings,
+        IpInfoLocalDatabase $localDatabase,
+        MainSiteHomepage $homepage,
+    ): JsonResponse {
         $input = $request->input('ipinfo_token', '');
+        $token = '';
         if (! is_scalar($input)) {
             $result = ['healthy' => false, 'status' => 'invalid_token', 'provider' => 'ipinfo'];
         } else {
-            $submitted = trim((string) $input);
-            $result    = $ipInfo->probe($submitted !== '' ? $submitted : null, (string) $request->ip());
+            $submitted          = trim((string) $input);
+            $token              = $submitted !== '' ? $submitted : $settings->ipinfoToken();
+            $result             = $ipInfo->probe($token, (string) $request->ip());
+            $result['database'] = $localDatabase->syncIfStale($token);
+            $homepageResult     = $homepage->render();
+            $result['homepage'] = [
+                'ready'  => $homepageResult !== null,
+                'source' => (string) ($homepageResult['source'] ?? $homepage->lastStatus()),
+            ];
+
+            $network = $result['healthy']
+                ? [
+                    'status' => 'ok',
+                    'asn'    => (string) ($result['asn'] ?? ''),
+                    'name'   => (string) ($result['name'] ?? ''),
+                    'domain' => (string) ($result['domain'] ?? ''),
+                ]
+                : $localDatabase->lookup((string) $request->ip());
+            if (($network['status'] ?? '') === 'ok') {
+                $result['asn']      = (string) ($network['asn'] ?? '');
+                $result['name']     = (string) ($network['name'] ?? '');
+                $result['domain']   = (string) ($network['domain'] ?? '');
+                $assessment         = $engine->assessWithNetwork($request, $network);
+                $result['shielded'] = ! $assessment->allowlisted
+                    && $assessment->matchesConfiguredShieldingScope();
+                $result['reasons'] = $assessment->reasons;
+            }
         }
-        if ($result['healthy']) {
-            $assessment = $engine->assessWithNetwork($request, [
-                'status' => 'ok',
-                'asn'    => (string) ($result['asn'] ?? ''),
-                'name'   => (string) ($result['name'] ?? ''),
-                'domain' => (string) ($result['domain'] ?? ''),
-            ]);
-            $result['shielded'] = ! $assessment->allowlisted
-                && $assessment->matchesConfiguredShieldingScope();
-            $result['reasons']  = $assessment->reasons;
-        }
+        $result['visitor_ip_source'] = $request->attributes->getBoolean(CloudflareIpRangeService::REQUEST_ATTRIBUTE)
+            ? 'cloudflare'
+            : 'direct';
         $status = in_array($result['status'], [
             'healthy', 'missing', 'invalid_token', 'invalid_target', 'unauthorized', 'rate_limited', 'invalid_response', 'unavailable',
         ], true) ? $result['status'] : 'unavailable';
@@ -522,8 +550,35 @@ class PluginController extends Controller
             'asn'          => (string) ($result['asn'] ?? ''),
             'name'         => (string) ($result['name'] ?? ''),
         ]);
+        if (is_scalar($input)) {
+            $message .= ' ' . trans(
+                'LongosBotShield::shield.visitor_ip_source_' . $result['visitor_ip_source'],
+            );
+            $message .= ' ' . trans(
+                ($result['database']['ready'] ?? false)
+                    ? 'LongosBotShield::shield.local_database_ready'
+                    : 'LongosBotShield::shield.local_database_unavailable',
+                [
+                    'size' => (string) ($result['database']['size_mb'] ?? '0'),
+                    'age'  => (int) ($result['database']['age_hours'] ?? 0),
+                ],
+            );
+            $message .= ' ' . trans(
+                ($result['homepage']['ready'] ?? false)
+                    ? 'LongosBotShield::shield.homepage_ready'
+                    : 'LongosBotShield::shield.homepage_unavailable',
+                ['status' => (string) ($result['homepage']['source'] ?? 'not_run')],
+            );
+        }
 
-        return $result['healthy']
+        $providerStatus = (string) ($result['status'] ?? 'unavailable');
+        $tokenFailure   = in_array($providerStatus, ['missing', 'invalid_token', 'invalid_target', 'unauthorized'], true);
+        $fullyHealthy   = ! $tokenFailure
+            && ($result['database']['ready'] ?? false)
+            && ($result['homepage']['ready'] ?? false);
+        $result['operational'] = $fullyHealthy;
+
+        return $fullyHealthy
             ? json_success($message, $result)
             : json_fail($message, $result);
     }

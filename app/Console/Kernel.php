@@ -93,6 +93,10 @@ class Kernel extends ConsoleKernel
                 ->hourlyAt(25)
                 ->onOneServer()
                 ->withoutOverlapping();
+            $schedule->command('saas:run longos:bot-shield:sync-ipinfo --continue-on-error')
+                ->dailyAt('02:35')
+                ->onOneServer()
+                ->withoutOverlapping(30);
             $schedule->command('saas:run longos:mail-logs:prune --continue-on-error')
                 ->dailyAt('03:45')
                 ->onOneServer()
@@ -117,6 +121,9 @@ class Kernel extends ConsoleKernel
             $schedule->command('longos:product-reviews:prune-generation')
                 ->hourlyAt(25)
                 ->withoutOverlapping();
+            $schedule->command('longos:bot-shield:sync-ipinfo')
+                ->dailyAt('02:35')
+                ->withoutOverlapping(30);
             $schedule->command('longos:mail-logs:prune')
                 ->dailyAt('03:45')
                 ->withoutOverlapping();

@@ -25,6 +25,7 @@ use Plugin\LongosBotShield\Services\BotRiskEngine;
 use Plugin\LongosBotShield\Services\BotShieldSettings;
 use Plugin\LongosBotShield\Services\InternalHomepageRequest;
 use Plugin\LongosBotShield\Services\IpInfoClient;
+use Plugin\LongosBotShield\Services\IpInfoLocalDatabase;
 use Plugin\LongosBotShield\Services\MainSiteHomepage;
 use Plugin\LongosBotShield\Services\NetworkIntelligenceClient;
 use Plugin\LongosBotShield\Services\RiskAssessment;
@@ -75,6 +76,7 @@ class LongosBotShieldTest extends TestCase
             collect($columns)->firstWhere('name', 'ipinfo_health')['action_route'],
         );
         self::assertTrue(collect($columns)->firstWhere('name', 'ipinfo_health')['action_form']);
+        self::assertSame('guide', collect($columns)->firstWhere('name', 'builtin_catalog')['type']);
         self::assertContains('blocked_asns', $names);
         self::assertContains('organization_keywords', $names);
         self::assertContains('allow_cidrs', $names);
@@ -349,6 +351,9 @@ class LongosBotShieldTest extends TestCase
             ]),
             $client,
             app(BotRiskEngine::class),
+            app(BotShieldSettings::class),
+            app(IpInfoLocalDatabase::class),
+            app(MainSiteHomepage::class),
         );
         self::assertSame(422, $malformed->getStatusCode());
         self::assertSame('invalid_token', $malformed->getData(true)['data']['status']);
@@ -386,10 +391,27 @@ class LongosBotShieldTest extends TestCase
             ],
         );
         $client   = app(IpInfoClient::class);
+        $database = $this->createMock(IpInfoLocalDatabase::class);
+        $database->expects(self::once())
+            ->method('syncIfStale')
+            ->with('ipinfo-test-token')
+            ->willReturn([
+                'ready'     => true,
+                'status'    => 'downloaded',
+                'age_hours' => 0,
+                'size_mb'   => 24.93,
+            ]);
+        $homepage = $this->createMock(MainSiteHomepage::class);
+        $homepage->expects(self::once())
+            ->method('render')
+            ->willReturn(['html' => '<html><head></head></html>', 'source' => 'control']);
         $response = (new PluginController)->botShieldHealth(
             $request,
             $client,
             app(BotRiskEngine::class),
+            app(BotShieldSettings::class),
+            $database,
+            $homepage,
         );
         $data = $response->getData(true)['data'];
 
@@ -400,9 +422,61 @@ class LongosBotShieldTest extends TestCase
         self::assertTrue($data['shielded']);
         self::assertContains('asn_denylist', $data['reasons']);
         self::assertContains('organization_keyword', $data['reasons']);
+        self::assertTrue($data['database']['ready']);
+        self::assertTrue($data['homepage']['ready']);
+        self::assertSame('direct', $data['visitor_ip_source']);
 
         self::assertSame('ok', $client->lookup('8.8.4.4')['status']);
         Http::assertSentCount(1);
+    }
+
+    public function test_health_remains_operational_when_live_api_fails_but_local_data_and_homepage_are_ready(): void
+    {
+        $request = $this->browserRequest('8.8.8.8', '/admin/plugins/longos-bot-shield/health');
+        $ipInfo  = $this->createMock(IpInfoClient::class);
+        $ipInfo->expects(self::once())
+            ->method('probe')
+            ->willReturn([
+                'healthy'    => false,
+                'status'     => 'unavailable',
+                'provider'   => 'ipinfo',
+                'ip'         => '8.8.8.8',
+                'latency_ms' => 3000,
+            ]);
+        $database = $this->createMock(IpInfoLocalDatabase::class);
+        $database->expects(self::once())
+            ->method('syncIfStale')
+            ->willReturn(['ready' => true, 'status' => 'fresh', 'age_hours' => 2, 'size_mb' => 25.92]);
+        $database->expects(self::once())
+            ->method('lookup')
+            ->with('8.8.8.8')
+            ->willReturn([
+                'status'   => 'ok',
+                'provider' => 'ipinfo-local',
+                'asn'      => 'AS32934',
+                'name'     => 'Meta Platforms, Inc.',
+                'domain'   => 'meta.com',
+            ]);
+        $homepage = $this->createMock(MainSiteHomepage::class);
+        $homepage->expects(self::once())
+            ->method('render')
+            ->willReturn(['html' => '<html><head></head></html>', 'source' => 'control-cache']);
+
+        $response = (new PluginController)->botShieldHealth(
+            $request,
+            $ipInfo,
+            app(BotRiskEngine::class),
+            app(BotShieldSettings::class),
+            $database,
+            $homepage,
+        );
+        $data = $response->getData(true)['data'];
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertTrue($data['operational']);
+        self::assertTrue($data['shielded']);
+        self::assertSame('AS32934', $data['asn']);
+        self::assertContains('asn_denylist', $data['reasons']);
     }
 
     public function test_ipinfo_auth_failure_opens_a_token_scoped_circuit_and_rotation_recovers(): void
@@ -522,8 +596,112 @@ class LongosBotShieldTest extends TestCase
             '->retry(',
             (string) file_get_contents(base_path('plugins/LongosBotShield/Services/IpInfoClient.php')),
         );
-        self::assertSame(0.3, MainSiteHomepage::CONNECT_TIMEOUT_SECONDS);
-        self::assertSame(0.8, MainSiteHomepage::REQUEST_TIMEOUT_SECONDS);
+        self::assertSame(1.0, MainSiteHomepage::CONNECT_TIMEOUT_SECONDS);
+        self::assertSame(5.0, MainSiteHomepage::REQUEST_TIMEOUT_SECONDS);
+    }
+
+    public function test_local_dataset_uses_streamed_indexed_mmdb_instead_of_loading_csv(): void
+    {
+        $source = (string) file_get_contents(base_path(
+            'plugins/LongosBotShield/Services/IpInfoLocalDatabase.php',
+        ));
+
+        self::assertStringContainsString('ipinfo_lite.mmdb', $source);
+        self::assertStringContainsString("'sink'", $source);
+        self::assertStringContainsString('MaxMind\\Db\\Reader', $source);
+        self::assertStringContainsString('@rename', $source);
+        self::assertStringContainsString('pruneAbandonedTemporaryFiles', $source);
+        self::assertStringNotContainsString('ipinfo_lite.csv', $source);
+        self::assertStringNotContainsString('->body()', $source);
+        self::assertStringNotContainsString('.backup', $source);
+    }
+
+    public function test_local_ipinfo_database_resolves_platform_asn_without_an_api_request(): void
+    {
+        $database = $this->createMock(IpInfoLocalDatabase::class);
+        $database->expects(self::once())
+            ->method('lookup')
+            ->with('8.8.8.8')
+            ->willReturn([
+                'status'                => 'ok',
+                'provider'              => 'ipinfo-local',
+                'security_data_present' => false,
+                'asn'                   => 'AS32934',
+                'name'                  => 'Meta Platforms, Inc.',
+                'domain'                => 'meta.com',
+            ]);
+        $database->expects(self::once())->method('scheduleSyncIfStale');
+        Http::fake();
+
+        $settings = app(BotShieldSettings::class);
+        $network  = new NetworkIntelligenceClient($database, app(IpInfoClient::class), $settings);
+        $result   = $network->lookup('8.8.8.8');
+
+        self::assertSame('ipinfo-local', $result['provider']);
+        self::assertSame('AS32934', $result['asn']);
+        self::assertContains('AS32934', $settings->blockedAsns());
+        Http::assertNothingSent();
+    }
+
+    public function test_incomplete_local_identity_uses_the_bounded_live_api_fallback(): void
+    {
+        $database = $this->createMock(IpInfoLocalDatabase::class);
+        $database->expects(self::once())
+            ->method('lookup')
+            ->willReturn([
+                'status'              => 'ok',
+                'provider'            => 'ipinfo-local',
+                'identity_incomplete' => true,
+                'asn'                 => 'AS32934',
+                'name'                => '',
+                'domain'              => '',
+            ]);
+        $database->expects(self::once())->method('scheduleSyncIfStale');
+        Http::fake(['api.ipinfo.io/*' => Http::response([
+            'ip'        => '8.8.4.4',
+            'asn'       => 'AS32934',
+            'as_name'   => 'Meta Platforms, Inc.',
+            'as_domain' => 'meta.com',
+        ], 200)]);
+
+        $network = new NetworkIntelligenceClient(
+            $database,
+            app(IpInfoClient::class),
+            app(BotShieldSettings::class),
+        );
+        $result = $network->lookup('8.8.4.4');
+
+        self::assertSame('ok', $result['status']);
+        self::assertSame('AS32934', $result['asn']);
+        Http::assertSentCount(1);
+    }
+
+    public function test_failed_identity_enrichment_keeps_the_local_asn_match(): void
+    {
+        $local = [
+            'status'              => 'ok',
+            'provider'            => 'ipinfo-local',
+            'identity_incomplete' => true,
+            'asn'                 => 'AS32934',
+            'name'                => '',
+            'domain'              => '',
+        ];
+        $database = $this->createMock(IpInfoLocalDatabase::class);
+        $database->expects(self::once())->method('lookup')->willReturn($local);
+        $database->expects(self::once())->method('scheduleSyncIfStale');
+        Http::fake(['api.ipinfo.io/*' => Http::response([], 503)]);
+
+        $network = new NetworkIntelligenceClient(
+            $database,
+            app(IpInfoClient::class),
+            app(BotShieldSettings::class),
+        );
+        $result = $network->lookup('8.8.4.4');
+
+        self::assertSame('ok', $result['status']);
+        self::assertSame('ipinfo-local', $result['provider']);
+        self::assertSame('AS32934', $result['asn']);
+        Http::assertSentCount(1);
     }
 
     public function test_platform_asn_from_ipinfo_lite_enters_the_shielding_scope(): void
@@ -832,6 +1010,7 @@ class LongosBotShieldTest extends TestCase
         $cached = $service->render();
         self::assertSame('control', $first['source']);
         self::assertSame('control-cache', $cached['source']);
+        self::assertSame('ready_cache', $service->lastStatus());
         self::assertSame(1, $service->lookups);
         self::assertStringContainsString(
             '<base data-longos-bot-shield="1" href="https://main.example.test/">',
@@ -947,6 +1126,11 @@ class LongosBotShieldTest extends TestCase
             );
         }
         self::assertFileDoesNotExist(base_path('plugins/LongosBotShield/Services/CloudflareRadarClient.php'));
+        self::assertFileExists(base_path('plugins/LongosBotShield/Console/SyncIpInfoDatabase.php'));
+        self::assertStringContainsString(
+            'longos:bot-shield:sync-ipinfo',
+            (string) file_get_contents(base_path('app/Console/Kernel.php')),
+        );
     }
 
     public function test_allow_and_deny_cidrs_remain_deterministic_and_local(): void
