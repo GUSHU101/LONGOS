@@ -205,8 +205,8 @@ class BundledPluginSynchronizer
     }
 
     /**
-     * Remove retired modes and credentials, and clear only the exact legacy
-     * transit-ASN default. Merchant-authored ASN additions remain untouched.
+     * Remove retired modes, credentials and release-owned transit defaults.
+     * Other merchant-authored ASN additions remain untouched.
      */
     private function cleanupBotShieldLegacySettings(): void
     {
@@ -234,12 +234,12 @@ class BundledPluginSynchronizer
                 },
                 $asns,
             ))));
-            sort($asns, SORT_NATURAL);
-            $legacy = self::BOT_SHIELD_LEGACY_TRANSIT_DEFAULTS;
-            sort($legacy, SORT_NATURAL);
-
-            if ($asns === $legacy) {
-                $blocked->forceFill(['value' => '', 'json' => false])->save();
+            $remaining = array_values(array_diff($asns, self::BOT_SHIELD_LEGACY_TRANSIT_DEFAULTS));
+            if ($remaining !== $asns) {
+                $blocked->forceFill([
+                    'value' => implode(', ', $remaining),
+                    'json'  => false,
+                ])->save();
             }
         }
 

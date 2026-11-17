@@ -222,7 +222,7 @@ class LongosBotShieldTest extends TestCase
         }
     }
 
-    public function test_upgrade_removes_retired_settings_and_only_the_exact_legacy_transit_default(): void
+    public function test_upgrade_removes_retired_settings_and_legacy_transit_defaults_only(): void
     {
         $originalDefault = config('database.default');
         config([
@@ -268,14 +268,14 @@ class LongosBotShieldTest extends TestCase
                 DB::table('settings')->where('name', 'organization_keywords')->value('value'),
             );
 
-            DB::table('settings')->where('name', 'blocked_asns')->update(['value' => 'AS174, AS65000']);
+            DB::table('settings')->where('name', 'blocked_asns')->update(['value' => 'AS174, AS65000, AS906']);
             DB::table('settings')->where('name', 'organization_keywords')->update(['value' => 'my private host']);
             Closure::bind(
                 fn (): mixed => $this->cleanupBotShieldLegacySettings(),
                 $synchronizer,
                 BundledPluginSynchronizer::class,
             )();
-            self::assertSame('AS174, AS65000', DB::table('settings')->where('name', 'blocked_asns')->value('value'));
+            self::assertSame('AS65000, AS906', DB::table('settings')->where('name', 'blocked_asns')->value('value'));
             self::assertSame('my private host', DB::table('settings')->where('name', 'organization_keywords')->value('value'));
         } finally {
             config(['database.default' => $originalDefault]);
