@@ -51,9 +51,15 @@ class ShareViewData
     }
 
     /**
+     * Prepare the storefront layout outside the normal middleware pipeline.
+     *
+     * Bot Shield uses this narrow entry point when it renders the control
+     * homepage before sessions and cookies are started. Keeping the data
+     * preparation here avoids duplicating menu, footer and policy behavior.
+     *
      * @throws \Exception
      */
-    protected function loadShopShareViewData()
+    public function loadShopShareViewData(): void
     {
         if (is_admin()) {
             $adminLanguages  = $this->handleAdminLanguages();

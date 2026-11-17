@@ -2,8 +2,10 @@
 
 namespace Plugin\LongosBotShield\Services;
 
+use App\Http\Middleware\ShareViewData;
 use App\Saas\Models\Site;
 use Beike\Shop\Http\Controllers\HomeController;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Plugin\LongosBotShield\Support\IpAddress;
@@ -108,18 +110,69 @@ class MainSiteHomepage
     /** @return array{html: string, source: string}|null */
     private function renderCurrent(): ?array
     {
+        $original = request();
+        $origin   = $original->getSchemeAndHttpHost() . '/';
+        $siteKey  = current_site()?->getKey() ?? 'standalone';
+        $cacheKey = 'longos:bot-shield:current-home:' . hash('sha256', implode('|', [
+            (string) $siteKey,
+            $origin,
+            app()->getLocale(),
+        ]));
+        $staleKey = $cacheKey . ':stale';
+        $lockKey  = $cacheKey . ':refreshing';
+        $cached   = Cache::get($cacheKey);
+        if (is_string($cached) && $cached !== '') {
+            return ['html' => $cached, 'source' => 'current-cache'];
+        }
+        $stale = Cache::get($staleKey);
+        if (! Cache::add($lockKey, true, now()->addSeconds(15))) {
+            return is_string($stale) && $stale !== ''
+                ? ['html' => $stale, 'source' => 'current-cache-stale']
+                : null;
+        }
+
         try {
-            $html = app(HomeController::class)->index()->render();
+            $url         = app('url');
+            $urlRequest  = $url->getRequest();
+            $homepageGet = Request::create($origin, 'GET', [], [], [], [
+                'HTTP_HOST'       => $original->getHttpHost(),
+                'HTTP_ACCEPT'     => 'text/html',
+                'HTTP_USER_AGENT' => 'LONGOS-BotShield-Homepage/1.0',
+                'REMOTE_ADDR'     => '127.0.0.1',
+                'SERVER_PORT'     => $original->getPort(),
+                'HTTPS'           => $original->isSecure() ? 'on' : 'off',
+            ]);
+
+            // Bot Shield runs before ShareViewData and the session stack.
+            // Render against a clean GET / request so an in-scope visitor's
+            // path, query string, cookies and body cannot influence the
+            // control homepage. Restore both request bindings immediately.
+            try {
+                app()->instance('request', $homepageGet);
+                $url->setRequest($homepageGet);
+                app(ShareViewData::class)->loadShopShareViewData();
+                $html = app(HomeController::class)->index()->render();
+            } finally {
+                app()->instance('request', $original);
+                $url->setRequest($urlRequest);
+            }
             if ($html === '' || strlen($html) > 2 * 1024 * 1024) {
                 return null;
             }
+            $html = $this->withBaseUrl($html, $origin);
+            Cache::put($cacheKey, $html, now()->addMinutes(5));
+            Cache::put($staleKey, $html, now()->addHour());
 
             return [
-                'html'   => $this->withBaseUrl($html, url('/')),
+                'html'   => $html,
                 'source' => 'current',
             ];
         } catch (Throwable) {
-            return null;
+            return is_string($stale) && $stale !== ''
+                ? ['html' => $stale, 'source' => 'current-cache-stale']
+                : null;
+        } finally {
+            Cache::forget($lockKey);
         }
     }
 

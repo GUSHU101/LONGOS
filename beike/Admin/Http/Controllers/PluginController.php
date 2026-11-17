@@ -32,6 +32,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use League\CommonMark\GithubFlavoredMarkdownConverter;
+use Plugin\LongosBotShield\Services\IpInfoClient;
 use Plugin\LongosPlatformPay\Services\PlatformPaymentCredentials;
 
 class PluginController extends Controller
@@ -454,7 +455,9 @@ class PluginController extends Controller
         if (method_exists($plugin, 'validate')) {
             $validator = $plugin->validate($fields);
             if ($validator->fails()) {
-                return back()->withErrors($validator)->withInput();
+                return back()
+                    ->withErrors($validator)
+                    ->withInput($this->safePluginInput($plugin, $fields));
             }
         }
 
@@ -484,6 +487,25 @@ class PluginController extends Controller
         hook_action('admin.plugin.update.after', $data);
 
         return redirect($this->getRedirect())->with('success', trans('common.updated_success'));
+    }
+
+    public function botShieldHealth(Request $request, IpInfoClient $ipInfo): JsonResponse
+    {
+        $input = $request->input('ipinfo_token', '');
+        if (! is_scalar($input)) {
+            $result = ['healthy' => false, 'status' => 'invalid_token', 'provider' => 'ipinfo'];
+        } else {
+            $submitted = trim((string) $input);
+            $result    = $ipInfo->probe($submitted !== '' ? $submitted : null);
+        }
+        $status    = in_array($result['status'], [
+            'healthy', 'missing', 'invalid_token', 'unauthorized', 'rate_limited', 'invalid_response', 'unavailable',
+        ], true) ? $result['status'] : 'unavailable';
+        $message = trans("LongosBotShield::shield.ipinfo_health_{$status}");
+
+        return $result['healthy']
+            ? json_success($message, $result)
+            : json_fail($message, $result);
     }
 
     /**
@@ -601,6 +623,24 @@ class PluginController extends Controller
             $existing = plugin_setting("{$plugin->code}.{$name}", '');
             if ($existing !== '') {
                 $fields[$name] = $existing;
+            }
+        }
+
+        return $fields;
+    }
+
+    /**
+     * Validation redirects use the session flash bag. Never persist a newly
+     * entered or previously encrypted plugin credential in that unencrypted
+     * transient store.
+     */
+    private function safePluginInput(Plugin $plugin, array $fields): array
+    {
+        foreach ($plugin->getColumns() as $column) {
+            $name = (string) ($column['name'] ?? '');
+            $type = strtolower((string) ($column['type'] ?? ''));
+            if ($name !== '' && in_array($type, ['password', 'secret'], true)) {
+                unset($fields[$name]);
             }
         }
 

@@ -5,15 +5,36 @@ use Plugin\LongosBotShield\Support\CidrMatcher;
 
 $enabled = static fn (): bool => filter_var(request()->input('status', false), FILTER_VALIDATE_BOOLEAN);
 
+$tokenRules = static function (string $attribute, mixed $value, Closure $fail): void {
+    if (! is_string($value)) {
+        $fail('无效的 IPInfo Token。');
+
+        return;
+    }
+    if ($value !== '' && preg_match('/^[\x21-\x7E]{6,2048}$/D', $value) !== 1) {
+        $fail('无效的 IPInfo Token：只允许 6-2048 个可见 ASCII 字符，不能包含空格或换行。');
+    }
+};
+
 $cidrRules = static function (string $attribute, mixed $value, Closure $fail): void {
-    $invalid = CidrMatcher::invalidEntries((string) $value);
+    if (! is_string($value)) {
+        $fail('无效的 IP/CIDR 列表。');
+
+        return;
+    }
+    $invalid = CidrMatcher::invalidEntries($value);
     if ($invalid !== []) {
         $fail('无效的 IP/CIDR：' . implode('、', array_slice($invalid, 0, 5)));
     }
 };
 
 $asnRules = static function (string $attribute, mixed $value, Closure $fail): void {
-    $entries = preg_split('/[\s,;]+/u', trim((string) $value)) ?: [];
+    if (! is_string($value)) {
+        $fail('无效的 ASN 列表。');
+
+        return;
+    }
+    $entries = preg_split('/[\s,;]+/u', trim($value)) ?: [];
     $invalid = array_values(array_filter($entries, static function (string $entry): bool {
         if ($entry === '' || preg_match('/^(?:AS)?([1-9]\d{0,9})$/i', $entry, $matches) !== 1) {
             return $entry !== '';
@@ -34,7 +55,19 @@ return [
         'section_key'     => 'shield.section_provider',
         'type'            => 'password',
         'required'        => true,
-        'rules'           => [Rule::requiredIf($enabled), 'nullable', 'string', 'max:2048'],
+        'rules'           => [Rule::requiredIf($enabled), 'nullable', 'string', 'max:2048', $tokenRules],
+    ],
+    [
+        'name'               => 'ipinfo_health',
+        'label_key'          => 'shield.ipinfo_health',
+        'description_key'    => 'shield.ipinfo_health_help',
+        'section_key'        => 'shield.section_provider',
+        'type'               => 'action',
+        'required'           => false,
+        'action_route'       => 'plugins.bot_shield_health',
+        'action_form'        => true,
+        'action_label_key'   => 'shield.ipinfo_health_action',
+        'action_feedback'    => 'longos-bot-shield-health-feedback',
     ],
     [
         'name'            => 'vendor_allowlist_enabled',
@@ -116,7 +149,7 @@ return [
         'description_key' => 'shield.blocked_asns_help',
         'section_key'     => 'shield.section_lists',
         'type'            => 'textarea',
-        'value'           => 'AS174, AS3356, AS6939',
+        'value'           => '',
         'required'        => false,
         'rules'           => ['nullable', 'string', 'max:8000', $asnRules],
     ],

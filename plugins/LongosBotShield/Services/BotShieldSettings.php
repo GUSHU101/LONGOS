@@ -93,7 +93,7 @@ class BotShieldSettings
     /** @return list<string> */
     public function blockedAsns(): array
     {
-        $values = $this->list('blocked_asns', 'AS174, AS3356, AS6939');
+        $values = $this->list('blocked_asns');
 
         $values = array_merge(ThreatCatalog::platformAsns(), ThreatCatalog::HOSTING_ASNS, $values);
 

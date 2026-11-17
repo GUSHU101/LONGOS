@@ -25,8 +25,10 @@ class ThreatCatalog
 
     /** @var list<string> */
     public const HOSTING_ASNS = [
-        // Transit, backbone, hosting and cloud platforms.
-        'AS174', 'AS801', 'AS3356', 'AS3598', 'AS6939', 'AS7224',
+        // High-confidence hosting, cloud, CDN and platform networks. Generic
+        // transit carriers and consumer-access networks are intentionally
+        // excluded because an origin ASN alone is not proof of automation.
+        'AS3598', 'AS7224',
         'AS8068', 'AS8069', 'AS8070', 'AS8075', 'AS8987', 'AS9009',
         'AS12076', 'AS12876', 'AS13335', 'AS14061', 'AS14618', 'AS15169', 'AS16276',
         'AS16509', 'AS16625', 'AS19551', 'AS19994', 'AS20473', 'AS20940',
@@ -34,7 +36,7 @@ class ThreatCatalog
         'AS29802', 'AS31898', 'AS32934', 'AS36351', 'AS36352', 'AS37963',
         'AS45090', 'AS45102', 'AS46606', 'AS47583', 'AS51167', 'AS54113',
         'AS54825', 'AS55286', 'AS55990', 'AS58593', 'AS60068', 'AS60781', 'AS62240',
-        'AS63949', 'AS8100', 'AS132203', 'AS136907', 'AS139070', 'AS139190',
+        'AS63949', 'AS132203', 'AS136907', 'AS139070', 'AS139190',
         'AS212238', 'AS394089', 'AS396982', 'AS43515',
     ];
 
@@ -43,13 +45,12 @@ class ThreatCatalog
         'facebook', 'meta platforms', 'google llc', 'google cloud', 'tiktok', 'bytedance',
         'amazon technologies', 'amazon data services', 'amazon.com', 'microsoft azure',
         'microsoft corporation', 'digitalocean', 'linode', 'akamai', 'ovh', 'ovhcloud',
-        'hetzner', 'choopa', 'vultr', 'm247', 'm2f', 'cogent', 'lumen', 'level 3',
-        'hurricane electric', 'oracle cloud', 'oracle corporation', 'alibaba cloud',
+        'hetzner', 'choopa', 'vultr', 'm247', 'm2f', 'oracle cloud', 'oracle corporation', 'alibaba cloud',
         'alicloud', 'tencent cloud', 'huawei cloud', 'cloudflare', 'fastly', 'leaseweb',
         'contabo', 'hostinger', 'scaleway', 'online s.a.s', 'online.net', 'equinix metal',
         'packet host', 'softlayer', 'ibm cloud', 'rackspace', 'godaddy', 'colo crossing',
         'colocrossing', 'quadranet', 'hivelocity', 'clouvider', 'serverius', 'psychz',
-        'datacamp limited', 'cdn77', 'netcup', 'ionos', '1&1 internet',
+        'datacamp limited', 'cdn77', 'netcup', 'ionos',
         'cherry servers', 'latitude.sh', 'kamatera', 'phoenixnap', 'edgecast',
         'verizon digital media', 'zenlayer', 'cloudcone', 'upcloud', 'fly.io',
         'render.com', 'railway', 'netlify', 'vercel', 'github', 'gitlab', 'firebase',

@@ -25,6 +25,56 @@ class IpInfoClient
         return $this->settings->ipinfoToken() !== '';
     }
 
+    /** @return array{healthy: bool, status: string, provider: string, asn?: string, name?: string} */
+    public function probe(?string $token = null): array
+    {
+        $token = trim($token ?? $this->settings->ipinfoToken());
+        if ($token === '') {
+            return $this->probeResult(false, 'missing');
+        }
+        if (preg_match('/^[\x21-\x7E]{6,2048}$/D', $token) !== 1) {
+            return $this->probeResult(false, 'invalid_token');
+        }
+
+        try {
+            $response = Http::acceptJson()
+                ->withToken($token)
+                ->connectTimeout(self::CONNECT_TIMEOUT_SECONDS)
+                ->timeout(self::REQUEST_TIMEOUT_SECONDS)
+                ->get($this->endpoint('8.8.8.8'));
+
+            if (in_array($response->status(), [401, 403], true)) {
+                return $this->probeResult(false, 'unauthorized');
+            }
+            if ($response->status() === 429) {
+                return $this->probeResult(false, 'rate_limited');
+            }
+            if (! $response->successful() || strlen((string) $response->body()) > self::MAX_RESPONSE_BYTES) {
+                return $this->probeResult(false, 'unavailable');
+            }
+
+            $payload = $response->json();
+            if (! is_array($payload) || ! $this->validPayloadForIp($payload, '8.8.8.8')) {
+                return $this->probeResult(false, 'invalid_response');
+            }
+
+            $result = $this->normalize($payload);
+            if ($result['asn'] === '') {
+                return $this->probeResult(false, 'invalid_response');
+            }
+
+            return [
+                'healthy'  => true,
+                'status'   => 'healthy',
+                'provider' => 'ipinfo',
+                'asn'      => $result['asn'],
+                'name'     => $result['name'],
+            ];
+        } catch (Throwable) {
+            return $this->probeResult(false, 'unavailable');
+        }
+    }
+
     /** @return array<string, bool|string> */
     public function lookupCached(string $ip): array
     {
@@ -309,6 +359,16 @@ class IpInfoClient
             'is_relay'              => false,
             'is_anycast'            => false,
             'is_bogon'              => false,
+        ];
+    }
+
+    /** @return array{healthy: bool, status: string, provider: string} */
+    private function probeResult(bool $healthy, string $status): array
+    {
+        return [
+            'healthy'  => $healthy,
+            'status'   => $status,
+            'provider' => 'ipinfo',
         ];
     }
 

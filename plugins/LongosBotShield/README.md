@@ -12,9 +12,10 @@ the tenant panel. It contains:
 
 - high-confidence Meta/Facebook, TikTok/ByteDance, Amazon/AWS, and Google cloud
   or content ASNs, while deliberately excluding consumer access networks such
-  as Google Fiber/WiFi;
-- major hosting, cloud, CDN, backbone, colocation, and datacenter ASNs and
-  organization names;
+  as Google Fiber/WiFi, Amazon Leo, generic transit carriers, consumer ISPs,
+  and end-user IPv6 tunnel networks;
+- major hosting, cloud, CDN, platform, colocation, and datacenter ASNs and
+  organization names, excluding generic transit-carrier identity;
 - known commercial VPN and proxy-network owner names, matched through their
   ASN identity without using broad `vpn` or `proxy` substrings;
 - Google, Meta, TikTok, search, AI, SEO, social-preview, archive, and monitoring
@@ -75,8 +76,10 @@ always continue normally.
 1. Open LONGOS Bot Shield in administration.
 2. Enter an IPInfo Lite API token and save. After reload, the field remains
    blank by design and shows **stored securely**.
-3. Review optional allowlists and tenant-specific deny additions.
-4. Enable the plugin.
+3. Select **Test IPInfo connection**. The bounded live probe validates the
+   entered or saved token without saving or displaying it.
+4. Review optional allowlists and tenant-specific deny additions.
+5. Enable the plugin.
 
 Diagnostics contain only tenant identity, an irreversible keyed IP hash,
 matched reason categories, and a rotating support reference. Raw visitor IPs

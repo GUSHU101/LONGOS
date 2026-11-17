@@ -12,6 +12,28 @@ use RuntimeException;
 
 class BundledPluginSynchronizer
 {
+    private const BOT_SHIELD = 'longos_bot_shield';
+
+    private const BOT_SHIELD_OBSOLETE_SETTINGS = [
+        'block_threshold',
+        'burst_per_10_seconds',
+        'challenge_threshold',
+        'cloudflare_radar_fallback_enabled',
+        'cloudflare_radar_token',
+        'crawler_policy',
+        'enforcement_mode',
+        'header_anomaly_detection',
+        'ip_api_fallback_enabled',
+        'ip_api_key',
+        'ipinfo_api_tier',
+        'provider_failure_policy',
+        'requests_per_minute',
+        'suspicious_path_detection',
+        'use_builtin_catalog',
+    ];
+
+    private const BOT_SHIELD_LEGACY_TRANSIT_DEFAULTS = ['AS174', 'AS3356', 'AS6939'];
+
     private const PRODUCT_REVIEWS = 'longos_product_reviews';
 
     private const PLATFORM_PAYMENT = 'longos_platform_pay';
@@ -79,10 +101,11 @@ class BundledPluginSynchronizer
             'settings' => ['status' => '1', 'retention_days' => '1'],
             'tables'   => ['longos_live_chat_conversations', 'longos_live_chat_messages'],
         ],
-        'longos_bot_shield' => [
+        self::BOT_SHIELD => [
             'type'     => 'feature',
             // Protection requires a tenant-owned IPInfo token and an explicit
-            // policy review, so new and upgraded stores start disabled.
+            // policy review, so new stores start disabled. Upgrades preserve
+            // the tenant's existing enabled/disabled choice.
             'settings' => [
                 'status'                              => '0',
                 'ipinfo_token'                        => '',
@@ -93,7 +116,7 @@ class BundledPluginSynchronizer
                 'allowed_organization_keywords'       => '',
                 'allow_cidrs'                         => '',
                 'deny_cidrs'                          => '',
-                'blocked_asns'                        => 'AS174, AS3356, AS6939',
+                'blocked_asns'                        => '',
                 'organization_keywords'               => 'hosting, data center, datacenter, microsoft azure, digitalocean, linode, akamai, ovh, hetzner, choopa, m2f',
                 'diagnostic_log'                      => '1',
             ],
@@ -145,6 +168,10 @@ class BundledPluginSynchronizer
                 );
             }
 
+            if ($code === self::BOT_SHIELD) {
+                $this->cleanupBotShieldLegacySettings();
+            }
+
             // Bundled packages bypass the interactive plugin installer. Keep
             // their browser assets in sync during the normal, serialized
             // application upgrade so an updated PHP hook never references a
@@ -175,6 +202,66 @@ class BundledPluginSynchronizer
         }
 
         SettingRepo::clearCache();
+    }
+
+    /**
+     * Remove retired modes and credentials, and clear only the exact legacy
+     * transit-ASN default. Merchant-authored ASN additions remain untouched.
+     */
+    private function cleanupBotShieldLegacySettings(): void
+    {
+        Setting::query()
+            ->where('type', 'plugin')
+            ->where('space', self::BOT_SHIELD)
+            ->whereIn('name', self::BOT_SHIELD_OBSOLETE_SETTINGS)
+            ->delete();
+
+        $blocked = Setting::query()
+            ->where('type', 'plugin')
+            ->where('space', self::BOT_SHIELD)
+            ->where('name', 'blocked_asns')
+            ->first();
+        if ($blocked !== null) {
+            $asns = preg_split('/[\s,;]+/u', strtoupper(trim((string) $blocked->value))) ?: [];
+            $asns = array_values(array_unique(array_filter(array_map(
+                static function (string $asn): string {
+                    $asn = trim($asn);
+                    if ($asn === '') {
+                        return '';
+                    }
+
+                    return str_starts_with($asn, 'AS') ? $asn : 'AS' . $asn;
+                },
+                $asns,
+            ))));
+            sort($asns, SORT_NATURAL);
+            $legacy = self::BOT_SHIELD_LEGACY_TRANSIT_DEFAULTS;
+            sort($legacy, SORT_NATURAL);
+
+            if ($asns === $legacy) {
+                $blocked->forceFill(['value' => '', 'json' => false])->save();
+            }
+        }
+
+        // Older releases stored platform names in this tenant-editable field.
+        // Normalize only the exact former default so the upgraded panel shows
+        // the smaller merchant-addition list without overwriting custom data.
+        $organizations = Setting::query()
+            ->where('type', 'plugin')
+            ->where('space', self::BOT_SHIELD)
+            ->where('name', 'organization_keywords')
+            ->first();
+        if ($organizations !== null) {
+            $normalized = \Plugin\LongosBotShield\Services\BotShieldSettings::normalizeForStorage([
+                'organization_keywords' => (string) $organizations->value,
+            ]);
+            if ($normalized['organization_keywords'] !== (string) $organizations->value) {
+                $organizations->forceFill([
+                    'value' => $normalized['organization_keywords'],
+                    'json'  => false,
+                ])->save();
+            }
+        }
     }
 
     /**

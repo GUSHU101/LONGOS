@@ -2,11 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Http\Middleware\ShareViewData;
 use App\Saas\Models\Domain;
 use App\Saas\Models\Site;
+use App\Services\BundledPluginSynchronizer;
 use Beike\Admin\Http\Controllers\PluginController;
 use Beike\Plugin\Plugin;
 use Beike\Repositories\SettingRepo;
+use Beike\Shop\Http\Controllers\HomeController;
 use Beike\Shop\Providers\PluginServiceProvider;
 use Closure;
 use Illuminate\Contracts\Console\Kernel;
@@ -67,6 +70,11 @@ class LongosBotShieldTest extends TestCase
         $names   = array_column($columns, 'name');
 
         self::assertContains('ipinfo_token', $names);
+        self::assertSame(
+            'plugins.bot_shield_health',
+            collect($columns)->firstWhere('name', 'ipinfo_health')['action_route'],
+        );
+        self::assertTrue(collect($columns)->firstWhere('name', 'ipinfo_health')['action_form']);
         self::assertContains('blocked_asns', $names);
         self::assertContains('organization_keywords', $names);
         self::assertContains('allow_cidrs', $names);
@@ -106,6 +114,10 @@ class LongosBotShieldTest extends TestCase
         }
         self::assertNotContains('AS16591', ThreatCatalog::platformAsns(), 'Google Fiber is consumer access.');
         self::assertNotContains('AS36492', ThreatCatalog::platformAsns(), 'Google WiFi is consumer access.');
+        foreach (['AS174', 'AS801', 'AS3356', 'AS6939', 'AS8100'] as $consumerOrTransitAsn) {
+            self::assertNotContains($consumerOrTransitAsn, ThreatCatalog::HOSTING_ASNS);
+            self::assertNotContains($consumerOrTransitAsn, app(BotShieldSettings::class)->blockedAsns());
+        }
 
         $settings = app(BotShieldSettings::class);
         foreach (ThreatCatalog::platformAsns() as $asn) {
@@ -125,6 +137,9 @@ class LongosBotShieldTest extends TestCase
         }
         self::assertNotContains('vpn', ThreatCatalog::PROXY_ORGANIZATION_KEYWORDS);
         self::assertNotContains('proxy', ThreatCatalog::PROXY_ORGANIZATION_KEYWORDS);
+        foreach (['cogent', 'lumen', 'level 3', 'hurricane electric', '1&1 internet'] as $transitIdentity) {
+            self::assertNotContains($transitIdentity, ThreatCatalog::ORGANIZATION_KEYWORDS);
+        }
     }
 
     public function test_ipinfo_token_is_encrypted_persisted_preserved_and_decrypted(): void
@@ -189,9 +204,82 @@ class LongosBotShieldTest extends TestCase
             self::assertStringContainsString('$hasSavedSecret', $form);
             self::assertStringContainsString(':required="$secretRequired"', $form);
             self::assertStringContainsString("__('admin/plugin.secret_saved')", $form);
+
+            $safeInput = Closure::bind(
+                fn (): array => $this->safePluginInput($plugin, [
+                    'status'        => '1',
+                    'ipinfo_token'  => 'must-not-enter-session',
+                    'cache_minutes' => '1440',
+                ]),
+                $controller,
+                PluginController::class,
+            )();
+            self::assertArrayNotHasKey('ipinfo_token', $safeInput);
+            self::assertSame('1440', $safeInput['cache_minutes']);
         } finally {
             config(['database.default' => $originalDefault]);
             DB::purge('bot_shield_settings_test');
+        }
+    }
+
+    public function test_upgrade_removes_retired_settings_and_only_the_exact_legacy_transit_default(): void
+    {
+        $originalDefault = config('database.default');
+        config([
+            'database.default'                              => 'bot_shield_cleanup_test',
+            'database.connections.bot_shield_cleanup_test'  => [
+                'driver'                  => 'sqlite',
+                'database'                => ':memory:',
+                'prefix'                  => '',
+                'foreign_key_constraints' => true,
+            ],
+        ]);
+        DB::purge('bot_shield_cleanup_test');
+        Schema::connection('bot_shield_cleanup_test')->create('settings', static function ($table): void {
+            $table->id();
+            $table->string('type');
+            $table->string('space');
+            $table->string('name');
+            $table->text('value')->nullable();
+            $table->boolean('json')->default(false);
+            $table->timestamps();
+        });
+
+        try {
+            $now = now();
+            DB::table('settings')->insert([
+                ['type' => 'plugin', 'space' => 'longos_bot_shield', 'name' => 'cloudflare_radar_token', 'value' => 'retired-secret', 'json' => false, 'created_at' => $now, 'updated_at' => $now],
+                ['type' => 'plugin', 'space' => 'longos_bot_shield', 'name' => 'enforcement_mode', 'value' => 'challenge', 'json' => false, 'created_at' => $now, 'updated_at' => $now],
+                ['type' => 'plugin', 'space' => 'longos_bot_shield', 'name' => 'blocked_asns', 'value' => 'AS6939, 174; AS3356', 'json' => false, 'created_at' => $now, 'updated_at' => $now],
+                ['type' => 'plugin', 'space' => 'longos_bot_shield', 'name' => 'organization_keywords', 'value' => 'facebook, meta, google, tiktok, amazon, hosting, data center, microsoft azure, digitalocean, linode, akamai, ovh, hetzner, choopa, m2f', 'json' => false, 'created_at' => $now, 'updated_at' => $now],
+            ]);
+            $synchronizer = app(BundledPluginSynchronizer::class);
+            Closure::bind(
+                fn (): mixed => $this->cleanupBotShieldLegacySettings(),
+                $synchronizer,
+                BundledPluginSynchronizer::class,
+            )();
+
+            self::assertFalse(DB::table('settings')->where('name', 'cloudflare_radar_token')->exists());
+            self::assertFalse(DB::table('settings')->where('name', 'enforcement_mode')->exists());
+            self::assertSame('', DB::table('settings')->where('name', 'blocked_asns')->value('value'));
+            self::assertSame(
+                'hosting, data center, datacenter, microsoft azure, digitalocean, linode, akamai, ovh, hetzner, choopa, m2f',
+                DB::table('settings')->where('name', 'organization_keywords')->value('value'),
+            );
+
+            DB::table('settings')->where('name', 'blocked_asns')->update(['value' => 'AS174, AS65000']);
+            DB::table('settings')->where('name', 'organization_keywords')->update(['value' => 'my private host']);
+            Closure::bind(
+                fn (): mixed => $this->cleanupBotShieldLegacySettings(),
+                $synchronizer,
+                BundledPluginSynchronizer::class,
+            )();
+            self::assertSame('AS174, AS65000', DB::table('settings')->where('name', 'blocked_asns')->value('value'));
+            self::assertSame('my private host', DB::table('settings')->where('name', 'organization_keywords')->value('value'));
+        } finally {
+            config(['database.default' => $originalDefault]);
+            DB::purge('bot_shield_cleanup_test');
         }
     }
 
@@ -215,6 +303,103 @@ class LongosBotShieldTest extends TestCase
         Http::assertSent(static fn (ClientRequest $request): bool => $request->url() === 'https://api.ipinfo.io/lite/8.8.8.8'
             && $request->hasHeader('Authorization', 'Bearer ipinfo-test-token')
             && ! str_contains($request->url(), 'token='));
+    }
+
+    public function test_ipinfo_live_probe_validates_the_entered_token_without_caching_it(): void
+    {
+        Http::fake(static function (ClientRequest $request) {
+            if ($request->hasHeader('Authorization', 'Bearer valid-token')) {
+                return Http::response([
+                    'ip'        => '8.8.8.8',
+                    'asn'       => 'AS15169',
+                    'as_name'   => 'Google LLC',
+                    'as_domain' => 'google.com',
+                ], 200);
+            }
+
+            return Http::response(['error' => ['title' => 'Unauthorized']], 401);
+        });
+
+        $client = app(IpInfoClient::class);
+        $valid  = $client->probe('valid-token');
+        self::assertTrue($valid['healthy']);
+        self::assertSame('healthy', $valid['status']);
+        self::assertSame('AS15169', $valid['asn']);
+        self::assertSame('unauthorized', $client->probe('invalid-token')['status']);
+        self::assertSame('missing', $client->probe('')['status']);
+        self::assertSame('invalid_token', $client->probe("invalid\r\ntoken")['status']);
+
+        $malformed = (new PluginController)->botShieldHealth(
+            Request::create('/admin/plugins/longos-bot-shield/health', 'POST', [
+                'ipinfo_token' => ['not-a-scalar'],
+            ]),
+            $client,
+        );
+        self::assertSame(422, $malformed->getStatusCode());
+        self::assertSame('invalid_token', $malformed->getData(true)['data']['status']);
+        Http::assertSentCount(2);
+    }
+
+    public function test_ipinfo_auth_failure_opens_a_token_scoped_circuit_and_rotation_recovers(): void
+    {
+        config(['bk.plugin.longos_bot_shield.ipinfo_token' => 'bad-token']);
+        Http::fake(static function (ClientRequest $request) {
+            if ($request->hasHeader('Authorization', 'Bearer bad-token')) {
+                return Http::response(['error' => ['title' => 'Unauthorized']], 401);
+            }
+
+            $ip = rawurldecode((string) basename(parse_url($request->url(), PHP_URL_PATH)));
+
+            return Http::response([
+                'ip'        => $ip,
+                'asn'       => 'AS65001',
+                'as_name'   => 'Residential Example',
+                'as_domain' => 'residential.example',
+            ], 200);
+        });
+
+        $client = app(IpInfoClient::class);
+        self::assertSame('unavailable', $client->lookup('8.8.8.8')['status']);
+        self::assertSame('unavailable', $client->lookup('1.1.1.1')['status']);
+        Http::assertSentCount(1);
+
+        config(['bk.plugin.longos_bot_shield.ipinfo_token' => 'rotated-token']);
+        self::assertSame('ok', $client->lookup('9.9.9.9')['status']);
+        Http::assertSentCount(2);
+    }
+
+    public function test_provider_budget_caps_uncached_ipinfo_requests_without_blocking_the_next_visitor(): void
+    {
+        config(['bk.plugin.longos_bot_shield.provider_requests_per_minute' => 10]);
+        Http::fake(static function (ClientRequest $request) {
+            $ip = rawurldecode((string) basename(parse_url($request->url(), PHP_URL_PATH)));
+
+            return Http::response([
+                'ip'        => $ip,
+                'asn'       => 'AS65001',
+                'as_name'   => 'Residential Example',
+                'as_domain' => 'residential.example',
+            ], 200);
+        });
+
+        $client = app(IpInfoClient::class);
+        foreach (range(1, 10) as $octet) {
+            self::assertSame('ok', $client->lookup("8.8.4.{$octet}")['status']);
+        }
+        self::assertSame('unavailable', $client->lookup('8.8.4.11')['status']);
+        Http::assertSentCount(10);
+    }
+
+    public function test_network_singleflight_contention_never_starts_a_second_provider_request(): void
+    {
+        Http::fake();
+        $network = app(NetworkIntelligenceClient::class);
+        $method  = new \ReflectionMethod($network, 'refreshKey');
+        $key     = $method->invoke($network, '8.8.8.8');
+        Cache::put($key, true, now()->addSeconds(15));
+
+        self::assertSame('unavailable', $network->lookup('8.8.8.8')['status']);
+        Http::assertNothingSent();
     }
 
     public function test_ipinfo_rejects_mismatched_payload_and_fails_open(): void
@@ -302,6 +487,45 @@ class LongosBotShieldTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_social_in_app_browser_is_not_mistaken_for_a_preview_crawler(): void
+    {
+        Http::fake(['api.ipinfo.io/*' => Http::response([
+            'ip'        => '8.8.4.4',
+            'asn'       => 'AS65001',
+            'as_name'   => 'Residential Example',
+            'as_domain' => 'residential.example',
+        ], 200)]);
+        $request = $this->request(
+            '8.8.4.4',
+            'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36 [FBAN/FB4A;FBAV/500.0]',
+        );
+
+        $assessment = app(BotRiskEngine::class)->assess($request);
+        self::assertFalse($assessment->matchesConfiguredShieldingScope());
+        self::assertNotContains('crawler_declared', $assessment->reasons);
+    }
+
+    public function test_explicit_vendor_asn_allowlist_has_priority_over_local_automation_signals(): void
+    {
+        config([
+            'bk.plugin.longos_bot_shield.vendor_allowlist_enabled' => true,
+            'bk.plugin.longos_bot_shield.allowed_asns'             => '15169',
+        ]);
+        Http::fake(['api.ipinfo.io/*' => Http::response([
+            'ip'        => '8.8.8.8',
+            'asn'       => 'AS15169',
+            'as_name'   => 'Google LLC',
+            'as_domain' => 'google.com',
+        ], 200)]);
+
+        $assessment = app(BotRiskEngine::class)->assess($this->request(
+            '8.8.8.8',
+            'Mozilla/5.0 HeadlessChrome/124.0 Playwright',
+        ));
+        self::assertTrue($assessment->allowlisted);
+        self::assertSame(['vendor_allowlist_asn'], $assessment->reasons);
+    }
+
     public function test_normal_browser_and_checkout_continue_when_scope_does_not_match(): void
     {
         $engine     = $this->engineReturning(new RiskAssessment([]));
@@ -358,6 +582,41 @@ class LongosBotShieldTest extends TestCase
         self::assertSame('/products/private', $request->getPathInfo());
         self::assertFalse($response->isRedirect());
         self::assertSame("sandbox; frame-ancestors 'none'", $response->headers->get('Content-Security-Policy'));
+    }
+
+    public function test_scope_match_replaces_a_structured_mutating_request_with_the_homepage(): void
+    {
+        $internal   = app(InternalHomepageRequest::class);
+        $middleware = new ProtectStorefront(
+            $this->engineReturning(new RiskAssessment(['ua_script_client'])),
+            app(BotShieldSettings::class),
+            $internal,
+            new class($internal) extends MainSiteHomepage
+            {
+                public function render(): ?array
+                {
+                    return ['html' => '<title>CONTROL HOME</title>', 'source' => 'control-cache'];
+                }
+            },
+        );
+        $request = Request::create(
+            'https://store.example.test/checkout/confirm',
+            'POST',
+            [],
+            [],
+            [],
+            [
+                'REMOTE_ADDR'     => '8.8.8.8',
+                'HTTP_USER_AGENT' => 'python-requests/2.32',
+                'HTTP_ACCEPT'     => 'application/json',
+            ],
+        );
+        app()->instance('request', $request);
+
+        $response = $middleware->handle($request, static fn (): Response => new Response('MUST NOT RUN'));
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame('homepage', $response->headers->get('X-Longos-Bot-Shield'));
+        self::assertStringContainsString('CONTROL HOME', (string) $response->getContent());
     }
 
     public function test_scope_match_returns_temporary_unavailable_when_no_homepage_exists(): void
@@ -494,6 +753,84 @@ class LongosBotShieldTest extends TestCase
                 && $internal->valid($verification);
         });
         Http::assertSentCount(1);
+    }
+
+    public function test_current_control_site_prepares_layout_data_before_direct_homepage_render(): void
+    {
+        config(['saas.enabled' => false]);
+        $visitor = Request::create(
+            'https://main.example.test/products/private?iframe=1&design=1',
+            'POST',
+            ['secret'          => 'visitor-body'],
+            ['visitor_session' => 'must-not-be-forwarded'],
+        );
+        app()->instance('request', $visitor);
+        app('url')->setRequest($visitor);
+        $shareData = new class extends ShareViewData
+        {
+            public int $calls = 0;
+
+            public function loadShopShareViewData(): void
+            {
+                $this->calls++;
+                view()->share('shop_base_url', 'https://main.example.test/');
+            }
+        };
+        app()->instance(ShareViewData::class, $shareData);
+        app()->instance(HomeController::class, new class extends HomeController
+        {
+            public function index(): mixed
+            {
+                return new class
+                {
+                    public function render(): string
+                    {
+                        return '<html><head></head><body>'
+                            . e((string) view()->shared('shop_base_url')) . '|'
+                            . e(request()->getMethod()) . '|'
+                            . e(request()->getPathInfo()) . '|'
+                            . e((string) request('iframe')) . '|'
+                            . e((string) request()->cookie('visitor_session')) . '|'
+                            . e((string) request('secret'))
+                            . '</body></html>';
+                    }
+                };
+            }
+        });
+
+        $homepage = app(MainSiteHomepage::class)->render();
+        self::assertSame(1, $shareData->calls);
+        self::assertSame('current', $homepage['source']);
+        self::assertStringContainsString('https://main.example.test/|GET|/|||', $homepage['html']);
+        self::assertSame('/products/private', request()->getPathInfo());
+        self::assertSame('1', request('iframe'));
+
+        $cached = app(MainSiteHomepage::class)->render();
+        self::assertSame('current-cache', $cached['source']);
+        self::assertSame($homepage['html'], $cached['html']);
+        self::assertSame(1, $shareData->calls);
+    }
+
+    public function test_internal_homepage_signature_is_host_bound_and_short_lived(): void
+    {
+        $signature = app(InternalHomepageRequest::class);
+        $timestamp = time();
+        $header    = $signature->headerValue('main.example.test', $timestamp, '/');
+
+        $valid = Request::create('https://main.example.test/', 'GET');
+        $valid->headers->set(InternalHomepageRequest::HEADER, $header);
+        self::assertTrue($signature->valid($valid));
+
+        $wrongHost = Request::create('https://other.example.test/', 'GET');
+        $wrongHost->headers->set(InternalHomepageRequest::HEADER, $header);
+        self::assertFalse($signature->valid($wrongHost));
+
+        $expired = Request::create('https://main.example.test/', 'GET');
+        $expired->headers->set(
+            InternalHomepageRequest::HEADER,
+            $signature->headerValue('main.example.test', $timestamp - 31, '/'),
+        );
+        self::assertFalse($signature->valid($expired));
     }
 
     public function test_middleware_registration_and_removed_radar_configuration_are_consistent(): void
