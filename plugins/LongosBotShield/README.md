@@ -78,10 +78,17 @@ always continue normally.
 2. Enter an IPInfo Lite API token and save. After reload, the field remains
    blank by design and shows **stored securely**.
 3. Select **Test IPInfo connection**. The live administration probe has a
-   separate three-second diagnostic window, reports its measured latency, and
-   validates the entered or saved token without saving or displaying it.
+   separate three-second diagnostic window. It resolves the administrator's
+   current ingress IP, reports the returned ASN/organization and the exact
+   shield/pass decision, and warms trusted cache for that IP without saving or
+   displaying the token.
 4. Review optional allowlists and tenant-specific deny additions.
 5. Enable the plugin.
+
+For a provider-independent result, add the exact test address or its verified
+network to **IP/CIDR shielding scope**. ASN and organization rules require a
+successful current or cached IPInfo Lite response; IP/CIDR and user-agent
+automation rules are entirely local.
 
 Diagnostics contain only tenant identity, an irreversible keyed IP hash,
 matched reason categories, and a rotating support reference. Raw visitor IPs

@@ -30,8 +30,8 @@ class IpInfoClient
         return $this->settings->ipinfoToken() !== '';
     }
 
-    /** @return array{healthy: bool, status: string, provider: string, latency_ms?: int, asn?: string, name?: string} */
-    public function probe(?string $token = null): array
+    /** @return array{healthy: bool, status: string, provider: string, latency_ms?: int, ip?: string, asn?: string, name?: string, domain?: string} */
+    public function probe(?string $token = null, ?string $targetIp = null): array
     {
         $token = trim($token ?? $this->settings->ipinfoToken());
         if ($token === '') {
@@ -39,6 +39,10 @@ class IpInfoClient
         }
         if (preg_match('/^[\x21-\x7E]{6,2048}$/D', $token) !== 1) {
             return $this->probeResult(false, 'invalid_token');
+        }
+        $targetIp = IpAddress::normalize($targetIp ?? '8.8.8.8');
+        if (! IpAddress::isPublic($targetIp)) {
+            return $this->probeResult(false, 'invalid_target');
         }
 
         $started = hrtime(true);
@@ -49,7 +53,7 @@ class IpInfoClient
                 self::PROBE_CONNECT_TIMEOUT_SECONDS,
                 self::PROBE_TIMEOUT_SECONDS,
             )
-                ->get($this->endpoint('8.8.8.8'));
+                ->get($this->endpoint($targetIp));
             $latency = $this->elapsedMilliseconds($started);
 
             if (in_array($response->status(), [401, 403], true)) {
@@ -63,7 +67,7 @@ class IpInfoClient
             }
 
             $payload = $response->json();
-            if (! is_array($payload) || ! $this->validPayloadForIp($payload, '8.8.8.8')) {
+            if (! is_array($payload) || ! $this->validPayloadForIp($payload, $targetIp)) {
                 return $this->probeResult(false, 'invalid_response', $latency);
             }
 
@@ -71,14 +75,18 @@ class IpInfoClient
             if ($result['asn'] === '') {
                 return $this->probeResult(false, 'invalid_response', $latency);
             }
+            $this->clearFailures($this->scope($token));
+            $this->cacheSuccess($targetIp, $token, $result);
 
             return [
                 'healthy'    => true,
                 'status'     => 'healthy',
                 'provider'   => 'ipinfo',
                 'latency_ms' => $latency,
+                'ip'         => $targetIp,
                 'asn'        => $result['asn'],
                 'name'       => $result['name'],
+                'domain'     => $result['domain'],
             ];
         } catch (Throwable) {
             return $this->probeResult(false, 'unavailable', $this->elapsedMilliseconds($started));
@@ -199,12 +207,7 @@ class IpInfoClient
 
             $this->clearFailures($scope);
             $result = $this->normalize($payload);
-            Cache::put($cacheKey, $result, now()->addMinutes($this->settings->cacheMinutes()));
-            Cache::put(
-                $cacheKey . ':stale',
-                $result,
-                now()->addMinutes(min(20160, $this->settings->cacheMinutes() + 1440)),
-            );
+            $this->cacheSuccess($ip, $token, $result);
 
             return $result;
         } catch (Throwable) {
@@ -409,6 +412,17 @@ class IpInfoClient
     private function elapsedMilliseconds(int $started): int
     {
         return max(0, (int) round((hrtime(true) - $started) / 1_000_000));
+    }
+
+    private function cacheSuccess(string $ip, string $token, array $result): void
+    {
+        $cacheKey = $this->cacheKey($ip, $token);
+        Cache::put($cacheKey, $result, now()->addMinutes($this->settings->cacheMinutes()));
+        Cache::put(
+            $cacheKey . ':stale',
+            $result,
+            now()->addMinutes(min(20160, $this->settings->cacheMinutes() + 1440)),
+        );
     }
 
     private function endpoint(string $ip): string

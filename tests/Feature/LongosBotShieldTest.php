@@ -169,9 +169,13 @@ class LongosBotShieldTest extends TestCase
             $normalized = BotShieldSettings::normalizeForStorage([
                 'status'       => '1',
                 'ipinfo_token' => 'secret-token-value',
+                'allowed_asns' => '64496, AS64496; as15169',
+                'blocked_asns' => 'AS64496,AS64496',
             ]);
             self::assertStringStartsWith(BotShieldSettings::ENCRYPTED_PREFIX, $normalized['ipinfo_token']);
             self::assertStringNotContainsString('secret-token-value', $normalized['ipinfo_token']);
+            self::assertSame('AS64496, AS15169', $normalized['allowed_asns']);
+            self::assertSame('AS64496', $normalized['blocked_asns']);
 
             SettingRepo::update('plugin', 'longos_bot_shield', $normalized);
             $stored = DB::connection('bot_shield_settings_test')->table('settings')
@@ -268,15 +272,23 @@ class LongosBotShieldTest extends TestCase
                 DB::table('settings')->where('name', 'organization_keywords')->value('value'),
             );
 
-            DB::table('settings')->where('name', 'blocked_asns')->update(['value' => 'AS174, AS65000, AS906']);
+            DB::table('settings')->where('name', 'blocked_asns')->update(['value' => 'AS174, AS65000, AS64496']);
             DB::table('settings')->where('name', 'organization_keywords')->update(['value' => 'my private host']);
             Closure::bind(
                 fn (): mixed => $this->cleanupBotShieldLegacySettings(),
                 $synchronizer,
                 BundledPluginSynchronizer::class,
             )();
-            self::assertSame('AS65000, AS906', DB::table('settings')->where('name', 'blocked_asns')->value('value'));
+            self::assertSame('AS65000, AS64496', DB::table('settings')->where('name', 'blocked_asns')->value('value'));
             self::assertSame('my private host', DB::table('settings')->where('name', 'organization_keywords')->value('value'));
+
+            DB::table('settings')->where('name', 'blocked_asns')->update(['value' => 'AS64496,AS64496']);
+            Closure::bind(
+                fn (): mixed => $this->cleanupBotShieldLegacySettings(),
+                $synchronizer,
+                BundledPluginSynchronizer::class,
+            )();
+            self::assertSame('AS64496', DB::table('settings')->where('name', 'blocked_asns')->value('value'));
         } finally {
             config(['database.default' => $originalDefault]);
             DB::purge('bot_shield_cleanup_test');
@@ -305,7 +317,7 @@ class LongosBotShieldTest extends TestCase
             && ! str_contains($request->url(), 'token='));
     }
 
-    public function test_ipinfo_live_probe_validates_the_entered_token_without_caching_it(): void
+    public function test_ipinfo_live_probe_validates_the_entered_token_and_warms_trusted_cache(): void
     {
         Http::fake(static function (ClientRequest $request) {
             if ($request->hasHeader('Authorization', 'Bearer valid-token')) {
@@ -329,16 +341,68 @@ class LongosBotShieldTest extends TestCase
         self::assertSame('unauthorized', $client->probe('invalid-token')['status']);
         self::assertSame('missing', $client->probe('')['status']);
         self::assertSame('invalid_token', $client->probe("invalid\r\ntoken")['status']);
+        self::assertSame('invalid_target', $client->probe('valid-token', '127.0.0.1')['status']);
 
         $malformed = (new PluginController)->botShieldHealth(
             Request::create('/admin/plugins/longos-bot-shield/health', 'POST', [
                 'ipinfo_token' => ['not-a-scalar'],
             ]),
             $client,
+            app(BotRiskEngine::class),
         );
         self::assertSame(422, $malformed->getStatusCode());
         self::assertSame('invalid_token', $malformed->getData(true)['data']['status']);
         Http::assertSentCount(2);
+    }
+
+    public function test_ipinfo_health_check_reports_the_current_ip_decision_and_warms_its_cache(): void
+    {
+        config([
+            'bk.plugin.longos_bot_shield.blocked_asns'             => 'AS64496, AS64496',
+            'bk.plugin.longos_bot_shield.organization_keywords'    => 'test node',
+            'bk.plugin.longos_bot_shield.vendor_allowlist_enabled' => true,
+            'bk.plugin.longos_bot_shield.allowed_asns'             => 'AS65000',
+        ]);
+        Http::fake(static function (ClientRequest $request) {
+            $ip = rawurldecode((string) basename(parse_url($request->url(), PHP_URL_PATH)));
+
+            return Http::response([
+                'ip'        => $ip,
+                'asn'       => 'AS64496',
+                'as_name'   => 'Test Node Lab',
+                'as_domain' => 'node.example',
+            ], 200);
+        });
+
+        $request = Request::create(
+            '/admin/plugins/longos-bot-shield/health',
+            'POST',
+            ['ipinfo_token' => ''],
+            [],
+            [],
+            [
+                'REMOTE_ADDR'     => '8.8.4.4',
+                'HTTP_USER_AGENT' => 'Mozilla/5.0',
+            ],
+        );
+        $client   = app(IpInfoClient::class);
+        $response = (new PluginController)->botShieldHealth(
+            $request,
+            $client,
+            app(BotRiskEngine::class),
+        );
+        $data = $response->getData(true)['data'];
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame('8.8.4.4', $data['ip']);
+        self::assertSame('AS64496', $data['asn']);
+        self::assertSame('Test Node Lab', $data['name']);
+        self::assertTrue($data['shielded']);
+        self::assertContains('asn_denylist', $data['reasons']);
+        self::assertContains('organization_keyword', $data['reasons']);
+
+        self::assertSame('ok', $client->lookup('8.8.4.4')['status']);
+        Http::assertSentCount(1);
     }
 
     public function test_ipinfo_auth_failure_opens_a_token_scoped_circuit_and_rotation_recovers(): void
@@ -367,6 +431,35 @@ class LongosBotShieldTest extends TestCase
         config(['bk.plugin.longos_bot_shield.ipinfo_token' => 'rotated-token']);
         self::assertSame('ok', $client->lookup('9.9.9.9')['status']);
         Http::assertSentCount(2);
+    }
+
+    public function test_successful_health_probe_closes_the_saved_token_circuit(): void
+    {
+        config(['bk.plugin.longos_bot_shield.ipinfo_token' => 'recover-token']);
+        $attempt = 0;
+        Http::fake(static function (ClientRequest $request) use (&$attempt) {
+            $attempt++;
+            if ($attempt === 1) {
+                return Http::response(['error' => ['title' => 'Unauthorized']], 401);
+            }
+            $ip = rawurldecode((string) basename(parse_url($request->url(), PHP_URL_PATH)));
+
+            return Http::response([
+                'ip'        => $ip,
+                'asn'       => 'AS64496',
+                'as_name'   => 'Test Node Lab',
+                'as_domain' => 'node.example',
+            ], 200);
+        });
+
+        $client = app(IpInfoClient::class);
+        self::assertSame('unavailable', $client->lookup('8.8.8.8')['status']);
+        self::assertSame('unavailable', $client->lookup('1.1.1.1')['status']);
+        Http::assertSentCount(1);
+
+        self::assertTrue($client->probe(null, '1.1.1.1')['healthy']);
+        self::assertSame('ok', $client->lookup('9.9.9.9')['status']);
+        Http::assertSentCount(3);
     }
 
     public function test_provider_budget_caps_uncached_ipinfo_requests_without_blocking_the_next_visitor(): void

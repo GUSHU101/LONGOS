@@ -235,9 +235,10 @@ class BundledPluginSynchronizer
                 $asns,
             ))));
             $remaining = array_values(array_diff($asns, self::BOT_SHIELD_LEGACY_TRANSIT_DEFAULTS));
-            if ($remaining !== $asns) {
+            $canonical = implode(', ', $remaining);
+            if ($canonical !== trim((string) $blocked->value)) {
                 $blocked->forceFill([
-                    'value' => implode(', ', $remaining),
+                    'value' => $canonical,
                     'json'  => false,
                 ])->save();
             }

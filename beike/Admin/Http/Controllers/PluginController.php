@@ -32,6 +32,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use League\CommonMark\GithubFlavoredMarkdownConverter;
+use Plugin\LongosBotShield\Services\BotRiskEngine;
 use Plugin\LongosBotShield\Services\IpInfoClient;
 use Plugin\LongosPlatformPay\Services\PlatformPaymentCredentials;
 
@@ -489,20 +490,37 @@ class PluginController extends Controller
         return redirect($this->getRedirect())->with('success', trans('common.updated_success'));
     }
 
-    public function botShieldHealth(Request $request, IpInfoClient $ipInfo): JsonResponse
+    public function botShieldHealth(Request $request, IpInfoClient $ipInfo, BotRiskEngine $engine): JsonResponse
     {
         $input = $request->input('ipinfo_token', '');
         if (! is_scalar($input)) {
             $result = ['healthy' => false, 'status' => 'invalid_token', 'provider' => 'ipinfo'];
         } else {
             $submitted = trim((string) $input);
-            $result    = $ipInfo->probe($submitted !== '' ? $submitted : null);
+            $result    = $ipInfo->probe($submitted !== '' ? $submitted : null, (string) $request->ip());
         }
-        $status    = in_array($result['status'], [
-            'healthy', 'missing', 'invalid_token', 'unauthorized', 'rate_limited', 'invalid_response', 'unavailable',
+        if ($result['healthy']) {
+            $assessment = $engine->assessWithNetwork($request, [
+                'status' => 'ok',
+                'asn'    => (string) ($result['asn'] ?? ''),
+                'name'   => (string) ($result['name'] ?? ''),
+                'domain' => (string) ($result['domain'] ?? ''),
+            ]);
+            $result['shielded'] = ! $assessment->allowlisted
+                && $assessment->matchesConfiguredShieldingScope();
+            $result['reasons']  = $assessment->reasons;
+        }
+        $status = in_array($result['status'], [
+            'healthy', 'missing', 'invalid_token', 'invalid_target', 'unauthorized', 'rate_limited', 'invalid_response', 'unavailable',
         ], true) ? $result['status'] : 'unavailable';
-        $message = trans("LongosBotShield::shield.ipinfo_health_{$status}", [
+        $messageStatus = $status === 'healthy'
+            ? (($result['shielded'] ?? false) ? 'healthy_shielded' : 'healthy_pass')
+            : $status;
+        $message = trans("LongosBotShield::shield.ipinfo_health_{$messageStatus}", [
             'milliseconds' => (int) ($result['latency_ms'] ?? 0),
+            'ip'           => (string) ($result['ip'] ?? ''),
+            'asn'          => (string) ($result['asn'] ?? ''),
+            'name'         => (string) ($result['name'] ?? ''),
         ]);
 
         return $result['healthy']

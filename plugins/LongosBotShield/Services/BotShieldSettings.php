@@ -34,6 +34,19 @@ class BotShieldSettings
             }
         }
 
+        foreach (['allowed_asns', 'blocked_asns'] as $name) {
+            if (! array_key_exists($name, $fields)) {
+                continue;
+            }
+            $values = is_array($fields[$name])
+                ? $fields[$name]
+                : (preg_split('/[\s,;]+/u', (string) $fields[$name]) ?: []);
+            $fields[$name] = implode(', ', self::normalizeAsns(array_map(
+                static fn (mixed $value): string => (string) $value,
+                $values,
+            )));
+        }
+
         if (array_key_exists('organization_keywords', $fields)) {
             $keywords = self::parseCommaList($fields['organization_keywords']);
             if (self::isLegacyOrganizationDefaults($keywords)) {
@@ -97,13 +110,13 @@ class BotShieldSettings
 
         $values = array_merge(ThreatCatalog::platformAsns(), ThreatCatalog::HOSTING_ASNS, $values);
 
-        return $this->normalizeAsns($values);
+        return self::normalizeAsns($values);
     }
 
     /** @return list<string> */
     public function allowedAsns(): array
     {
-        return $this->normalizeAsns($this->list('allowed_asns'));
+        return self::normalizeAsns($this->list('allowed_asns'));
     }
 
     /** @return list<string> */
@@ -234,7 +247,7 @@ class BotShieldSettings
      * @param list<string> $values
      * @return list<string>
      */
-    private function normalizeAsns(array $values): array
+    private static function normalizeAsns(array $values): array
     {
         return array_values(array_unique(array_filter(array_map(
             static function (string $value): string {

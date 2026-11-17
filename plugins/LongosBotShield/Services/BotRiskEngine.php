@@ -15,6 +15,22 @@ class BotRiskEngine
 
     public function assess(Request $request): RiskAssessment
     {
+        return $this->assessRequest($request);
+    }
+
+    /**
+     * Evaluate a request with provider data that has already been verified.
+     *
+     * The administration health check uses this path so it reports the exact
+     * decision made from its live probe without issuing a second HTTP request.
+     */
+    public function assessWithNetwork(Request $request, array $network): RiskAssessment
+    {
+        return $this->assessRequest($request, $network);
+    }
+
+    private function assessRequest(Request $request, ?array $verifiedNetwork = null): RiskAssessment
+    {
         $ip = IpAddress::normalize((string) $request->ip());
         if ($ip !== '' && CidrMatcher::contains($ip, $this->settings->allowCidrs())) {
             return new RiskAssessment(['ip_allowlist'], true);
@@ -33,9 +49,9 @@ class BotRiskEngine
             return new RiskAssessment($reasons);
         }
 
-        $network = null;
+        $network = $verifiedNetwork;
         if ($this->settings->vendorAllowlistConfigured()) {
-            $network         = $this->networkIntelligence->lookup($ip);
+            $network         ??= $this->networkIntelligence->lookup($ip);
             $allowlistReason = $this->vendorAllowlistReason($network);
             if ($allowlistReason !== null) {
                 return new RiskAssessment([$allowlistReason], true);
