@@ -2,6 +2,7 @@
 
 namespace Plugin\LongosBotShield\Services;
 
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Plugin\LongosBotShield\Support\IpAddress;
@@ -11,9 +12,13 @@ class IpInfoClient
 {
     private const MAX_RESPONSE_BYTES = 524288;
 
-    private const CONNECT_TIMEOUT_SECONDS = 0.2;
+    private const CONNECT_TIMEOUT_SECONDS = 0.3;
 
-    private const REQUEST_TIMEOUT_SECONDS = 0.45;
+    private const REQUEST_TIMEOUT_SECONDS = 0.8;
+
+    private const PROBE_CONNECT_TIMEOUT_SECONDS = 1.0;
+
+    private const PROBE_TIMEOUT_SECONDS = 3.0;
 
     public function __construct(
         private readonly BotShieldSettings $settings,
@@ -25,7 +30,7 @@ class IpInfoClient
         return $this->settings->ipinfoToken() !== '';
     }
 
-    /** @return array{healthy: bool, status: string, provider: string, asn?: string, name?: string} */
+    /** @return array{healthy: bool, status: string, provider: string, latency_ms?: int, asn?: string, name?: string} */
     public function probe(?string $token = null): array
     {
         $token = trim($token ?? $this->settings->ipinfoToken());
@@ -36,42 +41,47 @@ class IpInfoClient
             return $this->probeResult(false, 'invalid_token');
         }
 
+        $started = hrtime(true);
+
         try {
-            $response = Http::acceptJson()
-                ->withToken($token)
-                ->connectTimeout(self::CONNECT_TIMEOUT_SECONDS)
-                ->timeout(self::REQUEST_TIMEOUT_SECONDS)
+            $response = $this->request(
+                $token,
+                self::PROBE_CONNECT_TIMEOUT_SECONDS,
+                self::PROBE_TIMEOUT_SECONDS,
+            )
                 ->get($this->endpoint('8.8.8.8'));
+            $latency = $this->elapsedMilliseconds($started);
 
             if (in_array($response->status(), [401, 403], true)) {
-                return $this->probeResult(false, 'unauthorized');
+                return $this->probeResult(false, 'unauthorized', $latency);
             }
             if ($response->status() === 429) {
-                return $this->probeResult(false, 'rate_limited');
+                return $this->probeResult(false, 'rate_limited', $latency);
             }
             if (! $response->successful() || strlen((string) $response->body()) > self::MAX_RESPONSE_BYTES) {
-                return $this->probeResult(false, 'unavailable');
+                return $this->probeResult(false, 'unavailable', $latency);
             }
 
             $payload = $response->json();
             if (! is_array($payload) || ! $this->validPayloadForIp($payload, '8.8.8.8')) {
-                return $this->probeResult(false, 'invalid_response');
+                return $this->probeResult(false, 'invalid_response', $latency);
             }
 
             $result = $this->normalize($payload);
             if ($result['asn'] === '') {
-                return $this->probeResult(false, 'invalid_response');
+                return $this->probeResult(false, 'invalid_response', $latency);
             }
 
             return [
-                'healthy'  => true,
-                'status'   => 'healthy',
-                'provider' => 'ipinfo',
-                'asn'      => $result['asn'],
-                'name'     => $result['name'],
+                'healthy'    => true,
+                'status'     => 'healthy',
+                'provider'   => 'ipinfo',
+                'latency_ms' => $latency,
+                'asn'        => $result['asn'],
+                'name'       => $result['name'],
             ];
         } catch (Throwable) {
-            return $this->probeResult(false, 'unavailable');
+            return $this->probeResult(false, 'unavailable', $this->elapsedMilliseconds($started));
         }
     }
 
@@ -165,10 +175,11 @@ class IpInfoClient
                 return $this->emptyResult('unavailable');
             }
 
-            $response = Http::acceptJson()
-                ->withToken($token)
-                ->connectTimeout(self::CONNECT_TIMEOUT_SECONDS)
-                ->timeout(self::REQUEST_TIMEOUT_SECONDS)
+            $response = $this->request(
+                $token,
+                self::CONNECT_TIMEOUT_SECONDS,
+                self::REQUEST_TIMEOUT_SECONDS,
+            )
                 ->get($this->endpoint($ip));
 
             if (strlen((string) $response->body()) > self::MAX_RESPONSE_BYTES) {
@@ -362,14 +373,42 @@ class IpInfoClient
         ];
     }
 
-    /** @return array{healthy: bool, status: string, provider: string} */
-    private function probeResult(bool $healthy, string $status): array
+    /** @return array{healthy: bool, status: string, provider: string, latency_ms?: int} */
+    private function probeResult(bool $healthy, string $status, ?int $latency = null): array
     {
-        return [
+        $result = [
             'healthy'  => $healthy,
             'status'   => $status,
             'provider' => 'ipinfo',
         ];
+        if ($latency !== null) {
+            $result['latency_ms'] = $latency;
+        }
+
+        return $result;
+    }
+
+    private function request(string $token, float $connectTimeout, float $timeout): PendingRequest
+    {
+        $request = Http::acceptJson()
+            ->withToken($token)
+            ->connectTimeout($connectTimeout)
+            ->timeout($timeout);
+
+        // LONGOS production has IPv4 egress. Avoid a broken or slow IPv6
+        // route consuming the entire conversion budget before IPv4 is tried.
+        if (defined('CURLOPT_IPRESOLVE') && defined('CURL_IPRESOLVE_V4')) {
+            $request->withOptions([
+                'curl' => [(int) constant('CURLOPT_IPRESOLVE') => (int) constant('CURL_IPRESOLVE_V4')],
+            ]);
+        }
+
+        return $request;
+    }
+
+    private function elapsedMilliseconds(int $started): int
+    {
+        return max(0, (int) round((hrtime(true) - $started) / 1_000_000));
     }
 
     private function endpoint(string $ip): string

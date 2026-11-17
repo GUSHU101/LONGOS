@@ -325,6 +325,7 @@ class LongosBotShieldTest extends TestCase
         self::assertTrue($valid['healthy']);
         self::assertSame('healthy', $valid['status']);
         self::assertSame('AS15169', $valid['asn']);
+        self::assertIsInt($valid['latency_ms']);
         self::assertSame('unauthorized', $client->probe('invalid-token')['status']);
         self::assertSame('missing', $client->probe('')['status']);
         self::assertSame('invalid_token', $client->probe("invalid\r\ntoken")['status']);
@@ -420,8 +421,10 @@ class LongosBotShieldTest extends TestCase
     public function test_ipinfo_has_a_bounded_no_retry_conversion_budget(): void
     {
         $reflection = new \ReflectionClass(IpInfoClient::class);
-        self::assertSame(0.2, $reflection->getConstant('CONNECT_TIMEOUT_SECONDS'));
-        self::assertSame(0.45, $reflection->getConstant('REQUEST_TIMEOUT_SECONDS'));
+        self::assertSame(0.3, $reflection->getConstant('CONNECT_TIMEOUT_SECONDS'));
+        self::assertSame(0.8, $reflection->getConstant('REQUEST_TIMEOUT_SECONDS'));
+        self::assertSame(1.0, $reflection->getConstant('PROBE_CONNECT_TIMEOUT_SECONDS'));
+        self::assertSame(3.0, $reflection->getConstant('PROBE_TIMEOUT_SECONDS'));
         self::assertStringNotContainsString(
             '->retry(',
             (string) file_get_contents(base_path('plugins/LongosBotShield/Services/IpInfoClient.php')),

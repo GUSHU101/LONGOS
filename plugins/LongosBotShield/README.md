@@ -40,8 +40,9 @@ whether a token is already saved; leaving a saved field blank keeps it.
 
 Successful results are isolated by tenant and a keyed IP hash. Fresh results
 use the configured cache lifetime, with one additional day of trusted stale
-fallback. A first-seen IP makes at most one IPInfo request with a 0.2-second
-connect timeout and 0.45-second total timeout, without retries. Concurrent
+fallback. A first-seen IP makes at most one IPInfo request with a 0.3-second
+connect timeout and 0.8-second total timeout, without retries. IPv4 egress is
+preferred so an unavailable IPv6 route cannot consume that budget. Concurrent
 misses collapse behind a 15-second atomic marker. Repeated failures open a
 tenant-scoped circuit breaker, and `unavailable` is never shielding evidence.
 IPInfo Lite supplies basic ASN identity rather than paid privacy/proxy flags.
@@ -76,8 +77,9 @@ always continue normally.
 1. Open LONGOS Bot Shield in administration.
 2. Enter an IPInfo Lite API token and save. After reload, the field remains
    blank by design and shows **stored securely**.
-3. Select **Test IPInfo connection**. The bounded live probe validates the
-   entered or saved token without saving or displaying it.
+3. Select **Test IPInfo connection**. The live administration probe has a
+   separate three-second diagnostic window, reports its measured latency, and
+   validates the entered or saved token without saving or displaying it.
 4. Review optional allowlists and tenant-specific deny additions.
 5. Enable the plugin.
 

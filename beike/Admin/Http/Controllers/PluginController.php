@@ -501,7 +501,9 @@ class PluginController extends Controller
         $status    = in_array($result['status'], [
             'healthy', 'missing', 'invalid_token', 'unauthorized', 'rate_limited', 'invalid_response', 'unavailable',
         ], true) ? $result['status'] : 'unavailable';
-        $message = trans("LongosBotShield::shield.ipinfo_health_{$status}");
+        $message = trans("LongosBotShield::shield.ipinfo_health_{$status}", [
+            'milliseconds' => (int) ($result['latency_ms'] ?? 0),
+        ]);
 
         return $result['healthy']
             ? json_success($message, $result)

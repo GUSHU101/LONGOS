@@ -25,7 +25,7 @@ class NetworkIntelligenceClient
 
         // A first-seen IP gets one bounded synchronous lookup so ASN-based
         // shielding works on its first request. IPInfo has no inline retry and
-        // a strict 0.45-second maximum request budget.
+        // a strict 0.8-second maximum request budget.
         $refreshKey = $this->refreshKey($ip);
         if (! Cache::add($refreshKey, true, now()->addSeconds(15))) {
             return $result;
