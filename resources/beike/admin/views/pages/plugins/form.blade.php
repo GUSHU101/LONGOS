@@ -178,16 +178,24 @@
             @endif
 
             @if (in_array($column['type'], ['secret', 'password']))
+              @php
+                $hasSavedSecret = trim((string) ($column['value'] ?? '')) !== '';
+                $secretRequired = !empty($column['required']) && !$hasSavedSecret;
+              @endphp
               <x-admin-form-input
                 type="password"
                 autocomplete="new-password"
                 :name="$column['name']"
                 :title="$column['label']"
-                :placeholder="$column['placeholder'] ?? '已保存的密钥不会显示；留空即可保持不变'"
+                :placeholder="$column['placeholder'] ?? ($hasSavedSecret ? __('admin/plugin.secret_saved_placeholder') : __('admin/plugin.secret_missing_placeholder'))"
                 :description="$column['description'] ?? ''"
                 :error="$errors->first($column['name'])"
-                :required="$column['required'] ? true : false"
-                :value="''" />
+                :required="$secretRequired"
+                :value="''">
+                <div class="help-text font-size-12 lh-base {{ $hasSavedSecret ? 'text-success' : 'text-warning' }}">
+                  {{ $hasSavedSecret ? __('admin/plugin.secret_saved') : __('admin/plugin.secret_missing') }}
+                </div>
+              </x-admin-form-input>
             @endif
 
             @if ($column['type'] == 'string-multiple')

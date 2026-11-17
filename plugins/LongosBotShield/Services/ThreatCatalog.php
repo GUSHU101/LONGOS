@@ -10,6 +10,19 @@ namespace Plugin\LongosBotShield\Services;
  */
 class ThreatCatalog
 {
+    /**
+     * High-confidence platform and cloud ASNs. Consumer access networks such
+     * as Google Fiber/WiFi are deliberately excluded.
+     *
+     * @var array<string, list<string>>
+     */
+    public const PLATFORM_ASNS = [
+        'meta_facebook' => ['AS32934', 'AS54115', 'AS63293'],
+        'tiktok'        => ['AS138699', 'AS396986'],
+        'amazon'        => ['AS7224', 'AS8987', 'AS14618', 'AS16509', 'AS62785'],
+        'google'        => ['AS15169', 'AS19527', 'AS36040', 'AS396982', 'AS139070', 'AS139190', 'AS45566'],
+    ];
+
     /** @var list<string> */
     public const HOSTING_ASNS = [
         // Transit, backbone, hosting and cloud platforms.
@@ -44,6 +57,21 @@ class ThreatCatalog
         'buyvm', 'frantech', 'path network', 'ddos-guard', 'stormwall', 'imperva',
         'incapsula', 'hosting', 'data center', 'datacenter', 'cloud compute',
         'virtual private server', 'dedicated server', 'colocation', 'colo facility',
+    ];
+
+    /**
+     * High-confidence proxy-network owner names that can appear in IPInfo
+     * Lite ASN identity. Generic words such as "vpn" and "proxy" are omitted
+     * to avoid matching unrelated consumer ISPs or business names.
+     *
+     * @var list<string>
+     */
+    public const PROXY_ORGANIZATION_KEYWORDS = [
+        'bright data', 'luminati networks', 'oxylabs', 'smartproxy', 'decodo',
+        'soax', 'netnut', 'packetstream', 'iproyal', 'webshare software',
+        'geonode', 'proxy-cheap', 'mullvad', 'nordvpn', 'expressvpn',
+        'surfshark', 'proton vpn', 'private internet access', 'windscribe',
+        'ipvanish', 'purevpn', 'cyberghost',
     ];
 
     /** @var list<string> */
@@ -104,19 +132,15 @@ class ThreatCatalog
         ],
     ];
 
-    /** @var list<string> */
-    public const SUSPICIOUS_PATH_FRAGMENTS = [
-        '/.env', '/.git/', '/.svn/', '/wp-admin', '/wp-login.php', '/xmlrpc.php',
-        '/phpmyadmin', '/pma/', '/adminer.php', '/vendor/phpunit', '/cgi-bin/',
-        '/server-status', '/actuator/', '/solr/admin', '/boaform/', '/hnap1',
-        '/config.php', '/config.json', '/database.sql', '/backup.sql', '/dump.sql',
-        '/id_rsa', '/.aws/credentials', '/.docker/config.json', '/composer.json',
-        '/package.json', '/debug/default/view', '/telescope/requests',
-    ];
-
     /** @return list<string> */
     public static function crawlerMarkers(): array
     {
         return array_values(array_unique(array_merge(...array_values(self::CRAWLER_MARKERS))));
+    }
+
+    /** @return list<string> */
+    public static function platformAsns(): array
+    {
+        return array_values(array_unique(array_merge(...array_values(self::PLATFORM_ASNS))));
     }
 }

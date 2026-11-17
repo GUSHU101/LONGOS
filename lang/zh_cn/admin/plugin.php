@@ -73,4 +73,8 @@ return [
     'action_sending'                 => '正在发送测试请求…',
     'action_sent'                    => '测试请求已发送。',
     'action_failed'                  => '测试请求失败，请检查配置后重试。',
+    'secret_saved'                   => '已安全保存。留空会保留现有密钥。',
+    'secret_missing'                 => '尚未保存密钥。',
+    'secret_saved_placeholder'       => '已安全保存；留空保持不变',
+    'secret_missing_placeholder'     => '请输入密钥',
 ];

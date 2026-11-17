@@ -115,14 +115,6 @@ LONGOS_AUTO_CONFIGURE_MAIL_DNS=true
 CLOUDFLARE_API_TOKEN=<只授权所需 Zone 的 DNS:Edit、Zone:Read Token；Email Routing 锁定记录时再加 Zone Settings:Edit>
 ```
 
-斗篷插件如需在 IPInfo 故障或缺少 ASN 时调用 Cloudflare Radar，可另行配置：
-
-```dotenv
-CLOUDFLARE_RADAR_API_TOKEN=<仅授权 User Details:Read 的独立 Token>
-```
-
-该 Token 只用于 Radar 的按 IP 查询 ASN 接口，不能与 DNS 自动化 Token 混用。也可以不设置平台变量，改为在租户的斗篷插件面板中加密保存独立 Radar Token。
-
 常规一体化部署无需在 Coolify 重复保存该 Token：Cloud Mail 工作流会在收信路由完成后，把 GitHub 中已有的受限 Token 临时交给 LONGOS 执行同一次同步，LONGOS 不持久化也不返回它。Token 必须覆盖 `MAIL_RELAY_DOMAINS` 中涉及的每个 Zone。LONGOS 保留已有 SPF 的所有发信机制并合并为一条，保留已有 DMARC 策略；危险的 `+all`、`redirect=`、冲突修饰符或明显超过 10 次 DNS 查询时会停止并提示。`MAIL_RELAY_IPS` 留空时，邮件主机 A/AAAA 使用服务器端至少两个独立 HTTPS 源一致识别的公网出口 IP；不会从网站 DNS 或 Cloudflare Anycast 地址猜测。自动探测不一致时失败关闭，必须手工填写。
 
 Coolify 保存了 Token 时，系统会在 Web 容器启动后尝试首次同步，并由 scheduler 每 5 分钟重试；管理员也可在邮件设置点击“一键配置邮件 DNS”立即执行。常规无持久 Token 模式则在每次 Cloud Mail 工作流部署时同步。DKIM 私钥始终只位于邮件中继卷；Laravel 只能读取可公开的 TXT 值。

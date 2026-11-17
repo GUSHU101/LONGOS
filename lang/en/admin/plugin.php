@@ -71,4 +71,8 @@ return [
     'action_sending'                 => 'Sending the test request…',
     'action_sent'                    => 'The test request was sent.',
     'action_failed'                  => 'The test request failed. Check the settings and try again.',
+    'secret_saved'                   => 'Stored securely. Leave blank to keep the existing secret.',
+    'secret_missing'                 => 'No secret has been saved.',
+    'secret_saved_placeholder'       => 'Stored securely; leave blank to keep it',
+    'secret_missing_placeholder'     => 'Enter the secret',
 ];

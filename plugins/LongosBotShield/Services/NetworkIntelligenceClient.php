@@ -9,22 +9,14 @@ class NetworkIntelligenceClient
 {
     public function __construct(
         private readonly IpInfoClient $ipInfo,
-        private readonly CloudflareRadarClient $cloudflareRadar,
         private readonly BotShieldSettings $settings,
     ) {}
 
     public function lookup(string $ip): array
     {
-        $primary  = $this->ipInfo->lookupCached($ip);
-        $fallback = $this->cloudflareRadar->lookupCached($ip);
-        $result   = $this->resolve($primary, $fallback);
-
-        $primaryUsable  = ($primary['status'] ?? '')  === 'ok' && (string) ($primary['asn'] ?? '') !== '';
-        $fallbackUsable = ($fallback['status'] ?? '') === 'ok';
-        if ($primaryUsable || $fallbackUsable) {
-            if (($primary['cache_stale'] ?? false) === true
-                || ! $primaryUsable
-                || ($fallback['cache_stale'] ?? false) === true) {
+        $result = $this->ipInfo->lookupCached($ip);
+        if (($result['status'] ?? '') === 'ok') {
+            if (($result['cache_stale'] ?? false) === true) {
                 $this->scheduleRefresh($ip);
             }
 
@@ -32,8 +24,8 @@ class NetworkIntelligenceClient
         }
 
         // A first-seen IP gets one bounded synchronous lookup so ASN-based
-        // shielding works on its first request. The provider clients have no
-        // inline retries and share a strict 0.45s + 0.30s maximum budget.
+        // shielding works on its first request. IPInfo has no inline retry and
+        // a strict 0.45-second maximum request budget.
         $refreshKey = $this->refreshKey($ip);
         if (! Cache::add($refreshKey, true, now()->addSeconds(15))) {
             return $result;
@@ -48,45 +40,14 @@ class NetworkIntelligenceClient
 
     public function refresh(string $ip): array
     {
-        $primary = $this->ipInfo->available()
+        return $this->ipInfo->available()
             ? $this->ipInfo->lookup($ip)
             : $this->ipInfo->lookupCached($ip);
-        if (! $this->cloudflareRadar->available()) {
-            return $primary;
-        }
-
-        $primaryNeedsFallback = ($primary['status'] ?? '') === 'unavailable'
-            || (($primary['status'] ?? '') === 'ok' && (string) ($primary['asn'] ?? '') === '');
-        if (! $primaryNeedsFallback) {
-            return $primary;
-        }
-
-        return $this->resolve($primary, $this->cloudflareRadar->lookup($ip));
-    }
-
-    private function resolve(array $primary, array $fallback): array
-    {
-        if (($fallback['status'] ?? '') !== 'ok') {
-            return $primary;
-        }
-
-        $primaryUnavailable = ($primary['status'] ?? '') === 'unavailable';
-        $primaryIncomplete  = ($primary['status'] ?? '') === 'ok'
-            && (string) ($primary['asn'] ?? '')          === '';
-        if (! $primaryUnavailable && ! $primaryIncomplete) {
-            return $primary;
-        }
-
-        if ($primaryUnavailable) {
-            return $fallback;
-        }
-
-        return $this->merge($primary, $fallback);
     }
 
     private function scheduleRefresh(string $ip): void
     {
-        if (! $this->ipInfo->available() && ! $this->cloudflareRadar->available()) {
+        if (! $this->ipInfo->available()) {
             return;
         }
 
@@ -110,19 +71,5 @@ class NetworkIntelligenceClient
             $this->settings->tenantKey(),
             $this->settings->ipHash($ip),
         ]));
-    }
-
-    private function merge(array $primary, array $fallback): array
-    {
-        $result                          = $primary;
-        $result['provider']              = 'ipinfo+cloudflare-radar';
-
-        foreach (['asn', 'name', 'domain', 'type', 'company_name', 'company_domain', 'company_type', 'privacy_name'] as $key) {
-            if (trim((string) ($result[$key] ?? '')) === '') {
-                $result[$key] = (string) ($fallback[$key] ?? '');
-            }
-        }
-
-        return $result;
     }
 }

@@ -58,7 +58,6 @@ Coolify 解析 Compose 后会自动生成 `SERVICE_*` 凭据。只需手动填�
 | `MAIL_RELAY_ENDPOINT` | `http://mail-relay:3000` | 第二台服务器出口节点才修改 | 保持 LONGOS 与 Cloud Mail 在本机、仅把 Postfix/OpenDKIM 放到另一台服务器时，填写其无凭据、无查询参数的 HTTPS API 根地址 |
 | `MAIL_FROM_ADDRESS` | `no-reply@example.com` | 否 | 平台默认发件地址；留空时自动跟随 `MAIL_RELAY_PLATFORM_SENDER_DOMAIN` |
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API Token | 否 | 仅在不使用 Cloud Mail GitHub 自动同步时需要；应在 Coolify 标记为 Secret |
-| `CLOUDFLARE_RADAR_API_TOKEN` | Cloudflare Radar API Token | 否 | 斗篷插件的 ASN 故障兜底；使用独立 `User Details:Read` Token，不复用 DNS Token，并在 Coolify 标记为 Secret |
 | `LONGOS_AUTO_CONFIGURE_MAIL_DNS` | `true` | 否 | 有可用 Token 时维护邮件 DNS；保留已有发信来源并将 SPF 合并为唯一一条，保留 DMARC 策略 |
 
 `MAIL_FROM_ADDRESS` 通常应保持为空，让 Compose 自动生成

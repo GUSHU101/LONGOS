@@ -1,7 +1,6 @@
 <?php
 
 $cloudflareApiToken   = trim((string) env('CLOUDFLARE_API_TOKEN', ''));
-$cloudflareRadarToken = trim((string) env('CLOUDFLARE_RADAR_API_TOKEN', ''));
 $cloudflareTokenFile  = trim((string) env('CLOUDFLARE_API_TOKEN_FILE', ''));
 $cloudflareRangesPath = trim((string) env('CLOUDFLARE_IP_RANGES_PATH', ''));
 if ($cloudflareRangesPath === '') {
@@ -161,9 +160,6 @@ return [
         'api_token_file_configured'        => $cloudflareTokenFromFile,
         'api_token_environment_configured' => $cloudflareTokenInEnvironment,
         'api_token_file'                   => $cloudflareTokenFile,
-        // Separate least-privilege credential for Bot Shield ASN fallback.
-        // Never reuse the DNS automation token implicitly.
-        'radar_api_token'                  => $cloudflareRadarToken,
         'ip_ranges_path'                   => $cloudflareRangesPath,
     ],
 ];

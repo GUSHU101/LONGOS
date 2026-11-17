@@ -9,7 +9,7 @@ class ProviderRequestBudget
     public function __construct(private readonly BotShieldSettings $settings) {}
 
     /**
-     * Bound paid network-intelligence lookups per tenant. Cached lookups are
+     * Bound external network-intelligence lookups per tenant. Cached lookups are
      * checked before this method, so normal repeat traffic consumes no budget.
      */
     public function consume(): bool

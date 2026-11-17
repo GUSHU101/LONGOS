@@ -76,7 +76,6 @@ x-app-environment: &app-environment
   # Optional DNS automation. Keep the token in Coolify's secret environment
   # store; never commit it to .env or the repository.
   CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
-  CLOUDFLARE_RADAR_API_TOKEN: ${CLOUDFLARE_RADAR_API_TOKEN:-}
   LONGOS_AUTO_CONFIGURE_MAIL_DNS: ${LONGOS_AUTO_CONFIGURE_MAIL_DNS:-false}
   # Brevo is configured per tenant in the LONGOS control panel. Keep the
   # deployment fallback non-delivering until an administrator saves a real

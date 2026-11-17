@@ -23,7 +23,7 @@ class BotShieldSettings
 
     public static function normalizeForStorage(array $fields): array
     {
-        foreach (['ipinfo_token', 'cloudflare_radar_token'] as $name) {
+        foreach (['ipinfo_token'] as $name) {
             if (! array_key_exists($name, $fields)) {
                 continue;
             }
@@ -51,23 +51,7 @@ class BotShieldSettings
 
     public function ipinfoApiTier(): string
     {
-        return (string) $this->value('ipinfo_api_tier', 'lite') === 'lookup'
-            ? 'lookup'
-            : 'lite';
-    }
-
-    public function cloudflareRadarToken(): string
-    {
-        $tenantToken = $this->secret('cloudflare_radar_token');
-
-        return $tenantToken !== ''
-            ? $tenantToken
-            : trim((string) config('longos.cloudflare.radar_api_token', ''));
-    }
-
-    public function cloudflareRadarFallbackEnabled(): bool
-    {
-        return filter_var($this->value('cloudflare_radar_fallback_enabled', true), FILTER_VALIDATE_BOOLEAN);
+        return 'lite';
     }
 
     private function secret(string $name): string
@@ -82,30 +66,6 @@ class BotShieldSettings
         } catch (Throwable) {
             return '';
         }
-    }
-
-    public function enforcementMode(): string
-    {
-        $mode = (string) $this->value('enforcement_mode', 'homepage');
-
-        return in_array($mode, ['monitor', 'challenge', 'block', 'homepage'], true) ? $mode : 'homepage';
-    }
-
-    public function crawlerPolicy(): string
-    {
-        return (string) $this->value('crawler_policy', 'block_all') === 'allow_verified'
-            ? 'allow_verified'
-            : 'block_all';
-    }
-
-    public function requestsPerMinute(): int
-    {
-        return max(10, min(5000, (int) $this->value('requests_per_minute', 120)));
-    }
-
-    public function burstPerTenSeconds(): int
-    {
-        return max(5, min(500, (int) $this->value('burst_per_10_seconds', 35)));
     }
 
     public function cacheMinutes(): int
@@ -135,9 +95,7 @@ class BotShieldSettings
     {
         $values = $this->list('blocked_asns', 'AS174, AS3356, AS6939');
 
-        if ($this->useBuiltinCatalog()) {
-            $values = array_merge(ThreatCatalog::HOSTING_ASNS, $values);
-        }
+        $values = array_merge(ThreatCatalog::platformAsns(), ThreatCatalog::HOSTING_ASNS, $values);
 
         return $this->normalizeAsns($values);
     }
@@ -158,9 +116,11 @@ class BotShieldSettings
         if (self::isLegacyOrganizationDefaults(array_map(mb_strtolower(...), $values))) {
             $values = self::ORGANIZATION_DEFAULTS;
         }
-        if ($this->useBuiltinCatalog()) {
-            $values = array_merge(ThreatCatalog::ORGANIZATION_KEYWORDS, $values);
-        }
+        $values = array_merge(
+            ThreatCatalog::ORGANIZATION_KEYWORDS,
+            ThreatCatalog::PROXY_ORGANIZATION_KEYWORDS,
+            $values,
+        );
 
         return array_values(array_unique(array_map(
             static fn (string $value): string => mb_strtolower($value),
@@ -186,21 +146,6 @@ class BotShieldSettings
     {
         return $this->vendorAllowlistEnabled()
             && ($this->allowedAsns() !== [] || $this->allowedOrganizationKeywords() !== []);
-    }
-
-    public function useBuiltinCatalog(): bool
-    {
-        return filter_var($this->value('use_builtin_catalog', true), FILTER_VALIDATE_BOOLEAN);
-    }
-
-    public function suspiciousPathDetection(): bool
-    {
-        return filter_var($this->value('suspicious_path_detection', true), FILTER_VALIDATE_BOOLEAN);
-    }
-
-    public function headerAnomalyDetection(): bool
-    {
-        return filter_var($this->value('header_anomaly_detection', true), FILTER_VALIDATE_BOOLEAN);
     }
 
     public function diagnosticLog(): bool

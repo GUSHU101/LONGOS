@@ -5,10 +5,8 @@ namespace Plugin\LongosBotShield\Middleware\Shop;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\RateLimiter;
 use Plugin\LongosBotShield\Services\BotRiskEngine;
 use Plugin\LongosBotShield\Services\BotShieldSettings;
-use Plugin\LongosBotShield\Services\ClearanceToken;
 use Plugin\LongosBotShield\Services\InternalHomepageRequest;
 use Plugin\LongosBotShield\Services\MainSiteHomepage;
 use Plugin\LongosBotShield\Services\RiskAssessment;
@@ -16,14 +14,11 @@ use Symfony\Component\HttpFoundation\Response;
 
 class ProtectStorefront
 {
-    private const CHALLENGE_HEADER = 'X-Longos-Bot-Challenge-Proof';
-
     private const REFERENCE_ATTRIBUTE = '_longos_bot_shield_reference';
 
     public function __construct(
         private readonly BotRiskEngine $engine,
         private readonly BotShieldSettings $settings,
-        private readonly ClearanceToken $clearance,
         private readonly InternalHomepageRequest $internalRequest,
         private readonly MainSiteHomepage $mainSiteHomepage,
     ) {}
@@ -44,12 +39,6 @@ class ProtectStorefront
             return $next($request);
         }
 
-        $mode           = $this->settings->enforcementMode();
-        $challengeProof = trim((string) $request->header(self::CHALLENGE_HEADER));
-        if ($mode === 'challenge' && $request->isMethod('GET') && $challengeProof !== '') {
-            return $this->completeChallenge($request, $challengeProof);
-        }
-
         $assessment = $this->engine->assess($request);
         if ($assessment->allowlisted) {
             $this->record($request, $assessment, 'allowlist');
@@ -57,59 +46,20 @@ class ProtectStorefront
             return $next($request);
         }
 
-        if ($mode === 'homepage') {
-            if (! $assessment->matchesConfiguredShieldingScope()) {
-                return $next($request);
-            }
-
-            $this->record($request, $assessment, 'homepage');
-
-            return $this->homepage($request, $assessment);
-        }
-
-        if (! $assessment->matchesEnforcementScope()) {
+        if (! $assessment->matchesConfiguredShieldingScope()) {
             return $next($request);
         }
 
-        if ($mode === 'monitor') {
-            $this->record($request, $assessment, 'monitor');
+        $this->record($request, $assessment, 'homepage');
 
-            return $next($request);
-        }
-
-        if ($assessment->verifiedCrawler && $this->settings->crawlerPolicy() === 'allow_verified') {
-            $this->record($request, $assessment, 'verified-crawler');
-
-            return $next($request);
-        }
-
-        if ($mode === 'challenge'
-            && ! $assessment->requiresImmediateBlock()
-            && $this->clearance->valid($request)) {
-            $this->record($request, $assessment, 'clearance');
-
-            return $next($request);
-        }
-
-        if ($mode === 'challenge'
-            && ! $assessment->requiresImmediateBlock()
-            && $request->isMethodCacheable()
-            && ! $this->isStructuredRequest($request)) {
-            $this->record($request, $assessment, 'challenge');
-
-            return $this->challenge($request, $assessment);
-        }
-
-        $this->record($request, $assessment, 'block');
-
-        return $this->blocked($request, $assessment);
+        return $this->homepage($request, $assessment);
     }
 
     private function homepage(Request $request, RiskAssessment $assessment): Response
     {
         $homepage = $this->mainSiteHomepage->render();
         if ($homepage === null) {
-            return $this->blocked($request, $assessment);
+            return $this->unavailable($request, $assessment);
         }
 
         $response = response($homepage['html'], 200, ['Content-Type' => 'text/html; charset=UTF-8']);
@@ -126,95 +76,25 @@ class ProtectStorefront
         return $response;
     }
 
-    private function challenge(Request $request, RiskAssessment $assessment): Response
+    private function unavailable(Request $request, RiskAssessment $assessment): Response
     {
-        $nonce     = rtrim(strtr(base64_encode(random_bytes(18)), '+/', '-_'), '=');
-        $challenge = $this->clearance->issueChallenge($request);
-        $response  = response()->view('LongosBotShield::shop.challenge', [
-            'challengeToken' => $challenge['token'],
-            'cspNonce'       => $nonce,
-            'reference'      => $this->reference($request, $assessment),
-        ], 503);
-        $response->headers->set('Retry-After', '3');
-        $response->headers->set('X-Longos-Bot-Shield', 'challenge');
-        $response->headers->set('Content-Security-Policy', $this->interactiveCsp($nonce));
-        $this->harden($response);
-
-        return $response;
-    }
-
-    private function completeChallenge(Request $request, string $proof): Response
-    {
-        $rateKey = 'longos:bot-shield:challenge-proof:' . hash(
-            'sha256',
-            $this->settings->tenantKey() . '|' . $this->settings->ipHash((string) $request->ip()),
-        );
-        if (RateLimiter::tooManyAttempts($rateKey, 20)) {
-            return $this->challengeRejected(429);
-        }
-        RateLimiter::hit($rateKey, 60);
-
-        if (! $this->clearance->consumeChallenge($request, $proof)) {
-            return $this->challengeRejected(403);
-        }
-
-        $response = response('', 204);
-        $response->withCookie(cookie(
-            ClearanceToken::COOKIE,
-            $this->clearance->issue($request),
-            60,
-            '/',
-            null,
-            $request->isSecure(),
-            true,
-            false,
-            'lax',
-        ));
-        $response->headers->set('X-Longos-Bot-Shield', 'challenge-cleared');
-        $response->headers->set('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
-        $this->harden($response);
-
-        return $response;
-    }
-
-    private function challengeRejected(int $status): Response
-    {
-        $response = response()->json([
-            'message' => 'Browser challenge proof is invalid, expired, or rate limited.',
-        ], $status, ['Content-Type' => 'application/problem+json']);
-        if ($status === 429) {
-            $response->headers->set('Retry-After', '60');
-        }
-        $response->headers->set('X-Longos-Bot-Shield', 'challenge-rejected');
-        $response->headers->set('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
-        $this->harden($response);
-
-        return $response;
-    }
-
-    private function blocked(Request $request, RiskAssessment $assessment): Response
-    {
-        $rateLimited = $assessment->hasReason('rate_limit') || $assessment->hasReason('rate_burst');
-        $status      = $rateLimited ? 429 : 403;
-        $reference   = $this->reference($request, $assessment);
+        $reference = $this->reference($request, $assessment);
         if ($this->isStructuredRequest($request)) {
             $response = response()->json([
-                'message'   => 'Request rejected by the storefront security policy.',
+                'message'   => 'The protected homepage is temporarily unavailable.',
                 'reference' => $reference,
-            ], $status, ['Content-Type' => 'application/problem+json']);
+            ], 503, ['Content-Type' => 'application/problem+json']);
             $response->headers->set('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
         } else {
             $nonce    = rtrim(strtr(base64_encode(random_bytes(18)), '+/', '-_'), '=');
-            $response = response()->view('LongosBotShield::shop.blocked', [
+            $response = response()->view('LongosBotShield::shop.unavailable', [
                 'cspNonce'  => $nonce,
                 'reference' => $reference,
-            ], $status);
+            ], 503);
             $response->headers->set('Content-Security-Policy', $this->styleOnlyCsp($nonce));
         }
-        if ($status === 429) {
-            $response->headers->set('Retry-After', $assessment->hasReason('rate_burst') ? '10' : '60');
-        }
-        $response->headers->set('X-Longos-Bot-Shield', 'blocked');
+        $response->headers->set('Retry-After', '5');
+        $response->headers->set('X-Longos-Bot-Shield', 'unavailable');
         $this->harden($response);
 
         return $response;
@@ -265,11 +145,6 @@ class ProtectStorefront
         return $request->isMethod('OPTIONS')
             && trim((string) $request->header('Origin'))                        !== ''
             && trim((string) $request->header('Access-Control-Request-Method')) !== '';
-    }
-
-    private function interactiveCsp(string $nonce): string
-    {
-        return "default-src 'none'; style-src 'nonce-{$nonce}'; script-src 'nonce-{$nonce}'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
     }
 
     private function styleOnlyCsp(string $nonce): string
