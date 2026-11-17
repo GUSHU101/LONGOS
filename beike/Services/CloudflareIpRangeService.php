@@ -12,6 +12,17 @@ class CloudflareIpRangeService
 {
     public const REQUEST_ATTRIBUTE = 'longos.cloudflare.verified';
 
+    public const VISITOR_CONTEXT_ATTRIBUTE = 'longos.cloudflare.visitor_context';
+
+    public const VISITOR_LOCATION_HEADERS = [
+        'CF-IPCountry',
+        'CF-IPContinent',
+        'CF-IPCity',
+        'CF-Region',
+        'CF-Region-Code',
+        'CF-Timezone',
+    ];
+
     private const IPV4_ENDPOINT = 'https://www.cloudflare.com/ips-v4';
 
     private const IPV6_ENDPOINT = 'https://www.cloudflare.com/ips-v6';
@@ -77,9 +88,58 @@ class CloudflareIpRangeService
 
     public function visitorIp(Request $request): ?string
     {
+        $ipv6 = trim((string) $request->header('CF-Connecting-IPv6'));
+        if (filter_var($ipv6, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
+            // Cloudflare Pseudo IPv4 "Overwrite Headers" preserves the real
+            // visitor address here. Prefer it so ASN lookup is not performed
+            // against a synthetic Class E IPv4 address.
+            return $ipv6;
+        }
+
         $ip = trim((string) $request->header('CF-Connecting-IP'));
 
         return filter_var($ip, FILTER_VALIDATE_IP) ? $ip : null;
+    }
+
+    /**
+     * Cloudflare Rules fields and Workers request.cf properties do not reach
+     * the origin automatically. This context contains only standard origin
+     * headers, and callers must never use it unless REQUEST_ATTRIBUTE is true.
+     * Location values are supplemental metadata, not blocking evidence.
+     *
+     * @return array<string, string>
+     */
+    public function visitorContext(Request $request): array
+    {
+        if (! $request->attributes->getBoolean(self::REQUEST_ATTRIBUTE)) {
+            return [];
+        }
+
+        $context = [];
+        $country = strtoupper(trim((string) $request->header('CF-IPCountry')));
+        if (preg_match('/^(?:[A-Z]{2}|T1)$/D', $country) === 1) {
+            $context['country_code'] = $country;
+        }
+        $continent = strtoupper(trim((string) $request->header('CF-IPContinent')));
+        if (in_array($continent, ['AF', 'AN', 'AS', 'EU', 'NA', 'OC', 'SA'], true)) {
+            $context['continent_code'] = $continent;
+        }
+        foreach ([
+            'city'        => 'CF-IPCity',
+            'region'      => 'CF-Region',
+            'region_code' => 'CF-Region-Code',
+        ] as $field => $header) {
+            $value = $this->safeHeaderText((string) $request->header($header));
+            if ($value !== '') {
+                $context[$field] = $value;
+            }
+        }
+        $timezone = trim((string) $request->header('CF-Timezone'));
+        if (preg_match('/^[A-Za-z0-9._+\/-]{1,64}$/D', $timezone) === 1) {
+            $context['timezone'] = $timezone;
+        }
+
+        return $context;
     }
 
     public function refresh(): bool
@@ -147,6 +207,16 @@ class CloudflareIpRangeService
         }
 
         return false;
+    }
+
+    private function safeHeaderText(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '' || mb_strlen($value) > 128 || preg_match('/[\x00-\x1F\x7F]/', $value) === 1) {
+            return '';
+        }
+
+        return $value;
     }
 
     /** @return string[] */

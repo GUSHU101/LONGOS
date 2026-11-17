@@ -63,6 +63,10 @@ class TrustProxies extends Middleware
 
         if ($fromCloudflare) {
             $request->attributes->set(CloudflareIpRangeService::REQUEST_ATTRIBUTE, true);
+            $request->attributes->set(
+                CloudflareIpRangeService::VISITOR_CONTEXT_ATTRIBUTE,
+                $ranges->visitorContext($request),
+            );
             $visitorIp = $ranges->visitorIp($request);
             if ($visitorIp !== null) {
                 // Caddy authenticates this middleware call with a random
@@ -92,10 +96,15 @@ class TrustProxies extends Middleware
         $request->headers->remove('X-Longos-Proxy-Token');
         $request->headers->remove('X-Longos-Edge-Remote');
         $request->headers->remove('CF-Connecting-IP');
+        $request->headers->remove('CF-Connecting-IPv6');
         if (! $fromCloudflare) {
-            // Country data is trustworthy only at the verified edge. Remove
-            // forged copies so plugins cannot accidentally consume them.
-            $request->headers->remove('CF-IPCountry');
+            // Location data is usable only at the verified edge. Remove every
+            // forged copy so downstream features cannot accidentally trust a
+            // browser-supplied Cloudflare-looking header.
+            foreach (CloudflareIpRangeService::VISITOR_LOCATION_HEADERS as $header) {
+                $request->headers->remove($header);
+            }
+            $request->attributes->set(CloudflareIpRangeService::VISITOR_CONTEXT_ATTRIBUTE, []);
         }
     }
 }

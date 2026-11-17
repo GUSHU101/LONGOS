@@ -111,12 +111,14 @@ class BotRiskEngine
             $add('asn_denylist');
         }
 
+        // IPInfo Lite `as_domain` is useful context but is not ownership
+        // proof. The dataset can associate an unrelated access ASN with a
+        // platform domain, so hard shielding uses exact ASN or AS/company
+        // names only and never a domain substring by itself.
         $organization = mb_strtolower(implode(' ', [
             (string) ($network['name'] ?? ''),
-            (string) ($network['domain'] ?? ''),
             (string) ($network['type'] ?? ''),
             (string) ($network['company_name'] ?? ''),
-            (string) ($network['company_domain'] ?? ''),
             (string) ($network['company_type'] ?? ''),
             (string) ($network['privacy_name'] ?? ''),
         ]));

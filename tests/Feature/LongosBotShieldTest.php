@@ -105,18 +105,23 @@ class LongosBotShieldTest extends TestCase
             ThreatCatalog::PLATFORM_ASNS['meta_facebook'],
         );
         self::assertSame(
-            ['AS138699', 'AS396986'],
+            ['AS11983', 'AS138699', 'AS396986'],
             ThreatCatalog::PLATFORM_ASNS['tiktok'],
         );
-        foreach (['AS7224', 'AS8987', 'AS14618', 'AS16509', 'AS62785'] as $asn) {
+        foreach (['AS801', 'AS7224', 'AS8987', 'AS14618', 'AS16509', 'AS21664', 'AS36263', 'AS62785', 'AS214101', 'AS401395'] as $asn) {
             self::assertContains($asn, ThreatCatalog::PLATFORM_ASNS['amazon']);
         }
-        foreach (['AS15169', 'AS19527', 'AS36040', 'AS396982', 'AS139070', 'AS139190', 'AS45566'] as $asn) {
+        foreach ([
+            'AS15169', 'AS16550', 'AS19527', 'AS22577', 'AS33715', 'AS36040',
+            'AS36383', 'AS36384', 'AS36385', 'AS36411', 'AS45566', 'AS139070',
+            'AS139190', 'AS214609', 'AS214611', 'AS394089', 'AS395973',
+            'AS396178', 'AS396982',
+        ] as $asn) {
             self::assertContains($asn, ThreatCatalog::PLATFORM_ASNS['google']);
         }
         self::assertNotContains('AS16591', ThreatCatalog::platformAsns(), 'Google Fiber is consumer access.');
         self::assertNotContains('AS36492', ThreatCatalog::platformAsns(), 'Google WiFi is consumer access.');
-        foreach (['AS174', 'AS801', 'AS3356', 'AS6939', 'AS8100'] as $consumerOrTransitAsn) {
+        foreach (['AS174', 'AS3356', 'AS6939', 'AS8100'] as $consumerOrTransitAsn) {
             self::assertNotContains($consumerOrTransitAsn, ThreatCatalog::HOSTING_ASNS);
             self::assertNotContains($consumerOrTransitAsn, app(BotShieldSettings::class)->blockedAsns());
         }
@@ -300,12 +305,14 @@ class LongosBotShieldTest extends TestCase
     public function test_ipinfo_lite_uses_bearer_auth_and_normalizes_asn_identity(): void
     {
         Http::fake(['api.ipinfo.io/*' => Http::response([
-            'ip'           => '8.8.8.8',
-            'asn'          => 'AS15169',
-            'as_name'      => 'Google LLC',
-            'as_domain'    => 'google.com',
-            'country'      => 'United States',
-            'country_code' => 'US',
+            'ip'             => '8.8.8.8',
+            'asn'            => 'AS15169',
+            'as_name'        => 'Google LLC',
+            'as_domain'      => 'google.com',
+            'country'        => 'United States',
+            'country_code'   => 'US',
+            'continent'      => 'North America',
+            'continent_code' => 'NA',
         ], 200)]);
 
         $result = app(IpInfoClient::class)->lookup('8.8.8.8');
@@ -314,6 +321,8 @@ class LongosBotShieldTest extends TestCase
         self::assertSame('AS15169', $result['asn']);
         self::assertSame('Google LLC', $result['name']);
         self::assertSame('google.com', $result['domain']);
+        self::assertSame('US', $result['country_code']);
+        self::assertSame('NA', $result['continent_code']);
         Http::assertSent(static fn (ClientRequest $request): bool => $request->url() === 'https://api.ipinfo.io/lite/8.8.8.8'
             && $request->hasHeader('Authorization', 'Bearer ipinfo-test-token')
             && ! str_contains($request->url(), 'token='));
@@ -729,6 +738,24 @@ class LongosBotShieldTest extends TestCase
             self::assertContains('asn_denylist', $assessment->reasons, $asn);
             self::assertTrue($assessment->matchesConfiguredShieldingScope(), $asn);
         }
+    }
+
+    public function test_platform_looking_as_domain_never_blocks_an_unrelated_as_name(): void
+    {
+        Http::fake(['api.ipinfo.io/*' => Http::response([
+            'ip'             => '8.8.4.4',
+            'asn'            => 'AS268543',
+            'as_name'        => 'S R P Ramon Telecomunicacoes',
+            'as_domain'      => 'facebook.com',
+            'country_code'   => 'BR',
+            'continent_code' => 'SA',
+        ], 200)]);
+
+        $assessment = app(BotRiskEngine::class)->assess($this->browserRequest('8.8.4.4'));
+
+        self::assertFalse($assessment->matchesConfiguredShieldingScope());
+        self::assertNotContains('organization_keyword', $assessment->reasons);
+        self::assertNotContains('asn_denylist', $assessment->reasons);
     }
 
     public function test_crawler_headless_and_script_clients_are_local_and_skip_ipinfo(): void

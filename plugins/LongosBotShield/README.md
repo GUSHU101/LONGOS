@@ -64,6 +64,28 @@ Cloudflare's official ranges (including the authenticated Coolify Caddy hop).
 Direct clients cannot spoof that header. The resulting Laravel visitor IP is
 looked up in the local MMDB to obtain ASN, AS name, and AS domain before the
 release-owned platform/hosting catalogs are evaluated.
+When Cloudflare Pseudo IPv4 overwrites the normal visitor header, LONGOS
+prefers the preserved `CF-Connecting-IPv6` value so network ownership is
+resolved for the real address rather than a synthetic Class E IPv4 address.
+
+Cloudflare Rules fields such as `ip.src.asnum`, `ip.src.country`, and
+`ip.src.continent` exist at the edge, while `request.cf.asn` and
+`request.cf.asOrganization` exist inside Workers; Cloudflare does not
+automatically forward those ASN properties to Laravel. LONGOS therefore does
+not trust an invented client-supplied ASN header. It uses Cloudflare for the
+verified visitor IP, accepts standard country/location origin headers only
+from a verified Cloudflare edge, and resolves network ownership locally with
+IPinfo Lite. Enabling Cloudflare's **Add visitor location headers** Managed
+Transform additionally exposes validated country, continent, city, region,
+and timezone metadata in the health diagnostic, but location never triggers
+shielding by itself.
+
+The built-in exact platform ASN catalog is audited against the supplied Lite
+snapshot. Daily MMDB identity also covers newly observed platform ASNs by AS
+name without waiting for a plugin release. AS domain is retained for
+diagnostics and explicit allowlists but is not hard-blocking evidence: Lite can
+associate an unrelated access ASN with a platform-looking domain, and using a
+domain substring alone would create false positives.
 
 Until the local database is ready, live API fallback remains bounded to one
 request with a 0.3-second connect timeout and 0.8-second total timeout, without

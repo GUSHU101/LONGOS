@@ -12,15 +12,26 @@ class ThreatCatalog
 {
     /**
      * High-confidence platform and cloud ASNs. Consumer access networks such
-     * as Google Fiber/WiFi are deliberately excluded.
+     * as Google Fiber/WiFi are deliberately excluded. The platform entries
+     * were reconciled against the current IPinfo Lite AS names; domain-only
+     * associations were rejected because the dataset can attach a platform
+     * domain to an unrelated access provider.
      *
      * @var array<string, list<string>>
      */
     public const PLATFORM_ASNS = [
         'meta_facebook' => ['AS32934', 'AS54115', 'AS63293'],
-        'tiktok'        => ['AS138699', 'AS396986'],
-        'amazon'        => ['AS7224', 'AS8987', 'AS14618', 'AS16509', 'AS62785'],
-        'google'        => ['AS15169', 'AS19527', 'AS36040', 'AS396982', 'AS139070', 'AS139190', 'AS45566'],
+        'tiktok'        => ['AS11983', 'AS138699', 'AS396986'],
+        'amazon'        => [
+            'AS801', 'AS7224', 'AS8987', 'AS14618', 'AS16509', 'AS21664', 'AS36263',
+            'AS62785', 'AS214101', 'AS401395',
+        ],
+        'google' => [
+            'AS15169', 'AS16550', 'AS19527', 'AS22577', 'AS33715', 'AS36040',
+            'AS36383', 'AS36384', 'AS36385', 'AS36411', 'AS45566', 'AS139070',
+            'AS139190', 'AS214609', 'AS214611', 'AS394089', 'AS395973',
+            'AS396178', 'AS396982',
+        ],
     ];
 
     /** @var list<string> */
@@ -42,7 +53,8 @@ class ThreatCatalog
 
     /** @var list<string> */
     public const ORGANIZATION_KEYWORDS = [
-        'facebook', 'meta platforms', 'google llc', 'google cloud', 'tiktok', 'bytedance',
+        'facebook', 'meta platforms', 'google llc', 'google cloud', 'google asia pacific',
+        'google singapore', 'tiktok', 'bytedance',
         'amazon technologies', 'amazon data services', 'amazon.com', 'microsoft azure',
         'microsoft corporation', 'digitalocean', 'linode', 'akamai', 'ovh', 'ovhcloud',
         'hetzner', 'choopa', 'vultr', 'm247', 'm2f', 'oracle cloud', 'oracle corporation', 'alibaba cloud',

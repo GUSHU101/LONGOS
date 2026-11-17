@@ -30,7 +30,7 @@ class IpInfoClient
         return $this->settings->ipinfoToken() !== '';
     }
 
-    /** @return array{healthy: bool, status: string, provider: string, latency_ms?: int, ip?: string, asn?: string, name?: string, domain?: string} */
+    /** @return array{healthy: bool, status: string, provider: string, latency_ms?: int, ip?: string, asn?: string, name?: string, domain?: string, country_code?: string, country_name?: string, continent_code?: string, continent_name?: string} */
     public function probe(?string $token = null, ?string $targetIp = null): array
     {
         $token = trim($token ?? $this->settings->ipinfoToken());
@@ -79,14 +79,18 @@ class IpInfoClient
             $this->cacheSuccess($targetIp, $token, $result);
 
             return [
-                'healthy'    => true,
-                'status'     => 'healthy',
-                'provider'   => 'ipinfo',
-                'latency_ms' => $latency,
-                'ip'         => $targetIp,
-                'asn'        => $result['asn'],
-                'name'       => $result['name'],
-                'domain'     => $result['domain'],
+                'healthy'        => true,
+                'status'         => 'healthy',
+                'provider'       => 'ipinfo',
+                'latency_ms'     => $latency,
+                'ip'             => $targetIp,
+                'asn'            => $result['asn'],
+                'name'           => $result['name'],
+                'domain'         => $result['domain'],
+                'country_code'   => $result['country_code'],
+                'country_name'   => $result['country_name'],
+                'continent_code' => $result['continent_code'],
+                'continent_name' => $result['continent_name'],
             ];
         } catch (Throwable) {
             return $this->probeResult(false, 'unavailable', $this->elapsedMilliseconds($started));
@@ -134,6 +138,10 @@ class IpInfoClient
      *     asn: string,
      *     name: string,
      *     domain: string,
+     *     country_code: string,
+     *     country_name: string,
+     *     continent_code: string,
+     *     continent_name: string,
      *     type: string,
      *     company_name: string,
      *     company_domain: string,
@@ -271,6 +279,10 @@ class IpInfoClient
             'asn'                   => $asn,
             'name'                  => $name,
             'domain'                => trim((string) ($as['domain'] ?? $payload['as_domain'] ?? '')),
+            'country_code'          => strtoupper(trim((string) ($payload['country_code'] ?? ''))),
+            'country_name'          => trim((string) ($payload['country'] ?? $payload['country_name'] ?? '')),
+            'continent_code'        => strtoupper(trim((string) ($payload['continent_code'] ?? ''))),
+            'continent_name'        => trim((string) ($payload['continent'] ?? $payload['continent_name'] ?? '')),
             'type'                  => mb_strtolower(trim((string) ($as['type'] ?? ''))),
             'company_name'          => trim((string) ($company['name'] ?? '')),
             'company_domain'        => trim((string) ($company['domain'] ?? '')),
@@ -359,6 +371,10 @@ class IpInfoClient
             'asn'                   => '',
             'name'                  => '',
             'domain'                => '',
+            'country_code'          => '',
+            'country_name'          => '',
+            'continent_code'        => '',
+            'continent_name'        => '',
             'type'                  => '',
             'company_name'          => '',
             'company_domain'        => '',

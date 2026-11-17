@@ -9,7 +9,7 @@
     "en": "Single-action protection using trusted Cloudflare visitor IPs, a daily local IPInfo Lite database, and built-in Meta, TikTok, Amazon, Google, hosting, crawler, headless, and script catalogs."
   },
   "type": "feature",
-  "version": "v1.9.0",
+  "version": "v1.10.0",
   "icon": "/image/longos-favicon.svg",
   "author": {
     "name": "LONGOS",

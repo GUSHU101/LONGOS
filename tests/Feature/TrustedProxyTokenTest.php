@@ -92,6 +92,12 @@ class TrustedProxyTokenTest extends TestCase
             'REMOTE_ADDR'                      => '172.20.0.5',
             'HTTP_X_FORWARDED_FOR'             => '198.41.128.20',
             'HTTP_CF_CONNECTING_IP'            => '203.0.113.77',
+            'HTTP_CF_IPCOUNTRY'                => 'US',
+            'HTTP_CF_IPCONTINENT'              => 'NA',
+            'HTTP_CF_IPCITY'                   => 'Los Angeles',
+            'HTTP_CF_REGION'                   => 'California',
+            'HTTP_CF_REGION_CODE'              => 'CA',
+            'HTTP_CF_TIMEZONE'                 => 'America/Los_Angeles',
             'HTTP_X_LONGOS_EDGE_REMOTE'        => '198.41.128.20',
             'HTTP_X_LONGOS_PROXY_TOKEN'        => $token,
         ]);
@@ -103,12 +109,23 @@ class TrustedProxyTokenTest extends TestCase
                 $request->attributes->getBoolean(\Beike\Services\CloudflareIpRangeService::REQUEST_ATTRIBUTE),
                 $request->hasHeader('X-Longos-Proxy-Token'),
                 $request->hasHeader('X-Longos-Edge-Remote'),
+                $request->attributes->get(\Beike\Services\CloudflareIpRangeService::VISITOR_CONTEXT_ATTRIBUTE),
             ];
 
             return response('ok');
         });
 
-        self::assertSame(['203.0.113.77', true, false, false], $observed);
+        self::assertSame([
+            '203.0.113.77', true, false, false,
+            [
+                'country_code'   => 'US',
+                'continent_code' => 'NA',
+                'city'           => 'Los Angeles',
+                'region'         => 'California',
+                'region_code'    => 'CA',
+                'timezone'       => 'America/Los_Angeles',
+            ],
+        ], $observed);
     }
 
     public function test_authenticated_caddy_rejects_forged_cloudflare_header_from_direct_client(): void
@@ -122,6 +139,11 @@ class TrustedProxyTokenTest extends TestCase
             'REMOTE_ADDR'                      => '172.20.0.5',
             'HTTP_X_FORWARDED_FOR'             => '203.0.113.10',
             'HTTP_CF_CONNECTING_IP'            => '192.0.2.99',
+            'HTTP_CF_IPCOUNTRY'                => 'US',
+            'HTTP_CF_IPCONTINENT'              => 'NA',
+            'HTTP_CF_IPCITY'                   => 'Forged City',
+            'HTTP_CF_REGION'                   => 'Forged Region',
+            'HTTP_CF_TIMEZONE'                 => 'Etc/UTC',
             'HTTP_X_LONGOS_EDGE_REMOTE'        => '203.0.113.10',
             'HTTP_X_LONGOS_PROXY_TOKEN'        => $token,
         ]);
@@ -132,13 +154,16 @@ class TrustedProxyTokenTest extends TestCase
                 $request->ip(),
                 $request->attributes->getBoolean(\Beike\Services\CloudflareIpRangeService::REQUEST_ATTRIBUTE),
                 $request->hasHeader('CF-IPCountry'),
+                $request->hasHeader('CF-IPCity'),
+                $request->hasHeader('CF-Timezone'),
                 $request->hasHeader('CF-Connecting-IP'),
+                $request->attributes->get(\Beike\Services\CloudflareIpRangeService::VISITOR_CONTEXT_ATTRIBUTE),
             ];
 
             return response('ok');
         });
 
-        self::assertSame(['203.0.113.10', false, false, false], $observed);
+        self::assertSame(['203.0.113.10', false, false, false, false, false, []], $observed);
     }
 
     public function test_verified_cloudflare_edge_discards_forwarded_ip_when_connecting_ip_is_invalid(): void
@@ -170,5 +195,34 @@ class TrustedProxyTokenTest extends TestCase
         });
 
         self::assertSame(['172.20.0.5', true, 'JP', false], $observed);
+    }
+
+    public function test_cloudflare_pseudo_ipv4_prefers_the_preserved_real_ipv6_address(): void
+    {
+        $token = str_repeat('e', 64);
+        config([
+            'longos.network.proxy_token'     => $token,
+            'longos.network.trusted_proxies' => [],
+        ]);
+        $request = Request::create('https://shop.example.com/products', 'GET', [], [], [], [
+            'REMOTE_ADDR'                      => '172.20.0.5',
+            'HTTP_CF_CONNECTING_IP'            => '240.0.0.10',
+            'HTTP_CF_CONNECTING_IPV6'          => '2001:4860:4860::8888',
+            'HTTP_X_LONGOS_EDGE_REMOTE'        => '198.41.128.20',
+            'HTTP_X_LONGOS_PROXY_TOKEN'        => $token,
+        ]);
+        $observed = null;
+
+        (new TrustProxies)->handle($request, function (Request $request) use (&$observed) {
+            $observed = [
+                $request->ip(),
+                $request->hasHeader('CF-Connecting-IP'),
+                $request->hasHeader('CF-Connecting-IPv6'),
+            ];
+
+            return response('ok');
+        });
+
+        self::assertSame(['2001:4860:4860::8888', false, false], $observed);
     }
 }

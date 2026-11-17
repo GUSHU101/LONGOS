@@ -519,16 +519,23 @@ class PluginController extends Controller
 
             $network = $result['healthy']
                 ? [
-                    'status' => 'ok',
-                    'asn'    => (string) ($result['asn'] ?? ''),
-                    'name'   => (string) ($result['name'] ?? ''),
-                    'domain' => (string) ($result['domain'] ?? ''),
+                    'status'         => 'ok',
+                    'asn'            => (string) ($result['asn'] ?? ''),
+                    'name'           => (string) ($result['name'] ?? ''),
+                    'domain'         => (string) ($result['domain'] ?? ''),
+                    'country_code'   => (string) ($result['country_code'] ?? ''),
+                    'country_name'   => (string) ($result['country_name'] ?? ''),
+                    'continent_code' => (string) ($result['continent_code'] ?? ''),
+                    'continent_name' => (string) ($result['continent_name'] ?? ''),
                 ]
                 : $localDatabase->lookup((string) $request->ip());
             if (($network['status'] ?? '') === 'ok') {
-                $result['asn']      = (string) ($network['asn'] ?? '');
-                $result['name']     = (string) ($network['name'] ?? '');
-                $result['domain']   = (string) ($network['domain'] ?? '');
+                foreach ([
+                    'asn', 'name', 'domain', 'country_code', 'country_name',
+                    'continent_code', 'continent_name',
+                ] as $field) {
+                    $result[$field] = (string) ($network[$field] ?? '');
+                }
                 $assessment         = $engine->assessWithNetwork($request, $network);
                 $result['shielded'] = ! $assessment->allowlisted
                     && $assessment->matchesConfiguredShieldingScope();
@@ -538,7 +545,9 @@ class PluginController extends Controller
         $result['visitor_ip_source'] = $request->attributes->getBoolean(CloudflareIpRangeService::REQUEST_ATTRIBUTE)
             ? 'cloudflare'
             : 'direct';
-        $status = in_array($result['status'], [
+        $cloudflareContext            = $request->attributes->get(CloudflareIpRangeService::VISITOR_CONTEXT_ATTRIBUTE, []);
+        $result['cloudflare_context'] = is_array($cloudflareContext) ? $cloudflareContext : [];
+        $status                       = in_array($result['status'], [
             'healthy', 'missing', 'invalid_token', 'invalid_target', 'unauthorized', 'rate_limited', 'invalid_response', 'unavailable',
         ], true) ? $result['status'] : 'unavailable';
         $messageStatus = $status === 'healthy'
@@ -554,6 +563,21 @@ class PluginController extends Controller
             $message .= ' ' . trans(
                 'LongosBotShield::shield.visitor_ip_source_' . $result['visitor_ip_source'],
             );
+            if ($result['visitor_ip_source'] === 'cloudflare' && $result['cloudflare_context'] !== []) {
+                $message .= ' ' . trans('LongosBotShield::shield.cloudflare_location', [
+                    'country'   => (string) ($result['cloudflare_context']['country_code'] ?? '-'),
+                    'continent' => (string) ($result['cloudflare_context']['continent_code'] ?? '-'),
+                    'city'      => (string) ($result['cloudflare_context']['city'] ?? '-'),
+                    'region'    => (string) ($result['cloudflare_context']['region'] ?? '-'),
+                    'timezone'  => (string) ($result['cloudflare_context']['timezone'] ?? '-'),
+                ]);
+            }
+            if (($result['country_code'] ?? '') !== '' || ($result['continent_code'] ?? '') !== '') {
+                $message .= ' ' . trans('LongosBotShield::shield.ipinfo_location', [
+                    'country'   => trim((string) (($result['country_name'] ?? '') . ' ' . ($result['country_code'] ?? ''))),
+                    'continent' => trim((string) (($result['continent_name'] ?? '') . ' ' . ($result['continent_code'] ?? ''))),
+                ]);
+            }
             $message .= ' ' . trans(
                 ($result['database']['ready'] ?? false)
                     ? 'LongosBotShield::shield.local_database_ready'
