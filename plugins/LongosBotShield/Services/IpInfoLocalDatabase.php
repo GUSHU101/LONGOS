@@ -53,21 +53,26 @@ class IpInfoLocalDatabase
             if (preg_match('/^AS[1-9]\d{0,9}$/D', $asn) !== 1) {
                 return $this->emptyResult('unavailable');
             }
-            $name   = trim((string) ($record['as_name'] ?? $record['name'] ?? ''));
-            $domain = trim((string) ($record['as_domain'] ?? $record['domain'] ?? ''));
+            $name     = trim((string) ($record['as_name'] ?? $record['name'] ?? ''));
+            $domain   = trim((string) ($record['as_domain'] ?? $record['domain'] ?? ''));
+            $location = $this->normalizeLocation($record);
 
             return [
                 'status'                => 'ok',
                 'provider'              => 'ipinfo-local',
-                'identity_incomplete'   => $name === '' && $domain === '',
+                // Country is part of the enforcement identity. If a damaged
+                // or older record lacks it, let NetworkIntelligenceClient use
+                // the bounded live API fallback instead of silently allowing
+                // a country policy match to disappear.
+                'identity_incomplete'   => ($name === '' && $domain === '') || $location['country_code'] === '',
                 'security_data_present' => false,
                 'asn'                   => $asn,
                 'name'                  => $name,
                 'domain'                => $domain,
-                'country_code'          => strtoupper(trim((string) ($record['country_code'] ?? ''))),
-                'country_name'          => trim((string) ($record['country'] ?? $record['country_name'] ?? '')),
-                'continent_code'        => strtoupper(trim((string) ($record['continent_code'] ?? ''))),
-                'continent_name'        => trim((string) ($record['continent'] ?? $record['continent_name'] ?? '')),
+                'country_code'          => $location['country_code'],
+                'country_name'          => $location['country_name'],
+                'continent_code'        => $location['continent_code'],
+                'continent_name'        => $location['continent_name'],
                 'type'                  => '',
                 'company_name'          => '',
                 'company_domain'        => '',
@@ -182,7 +187,9 @@ class IpInfoLocalDatabase
 
             try {
                 $sample = $reader->get('8.8.8.8');
-                if (! is_array($sample) || trim((string) ($sample['asn'] ?? '')) === '') {
+                if (! is_array($sample)
+                    || trim((string) ($sample['asn'] ?? ''))             === ''
+                    || $this->normalizeLocation($sample)['country_code'] === '') {
                     return $this->fallbackStatus('invalid_database');
                 }
             } finally {
@@ -261,6 +268,48 @@ class IpInfoLocalDatabase
         $size = @filesize($path);
 
         return is_int($size) && $size >= self::MINIMUM_BYTES && $size <= self::MAXIMUM_BYTES;
+    }
+
+    /**
+     * Normalize both the current IPinfo Lite schema and the former
+     * country_asn field names so an already-downloaded compatible database
+     * does not lose country enforcement during an upgrade.
+     *
+     * @return array{country_code: string, country_name: string, continent_code: string, continent_name: string}
+     */
+    private function normalizeLocation(array $record): array
+    {
+        $currentCountryCode = $this->twoLetterCode($record['country_code'] ?? '');
+        $countryValue       = trim((string) ($record['country'] ?? ''));
+        $legacyCountryCode  = $this->twoLetterCode($countryValue);
+        $countryCode        = $currentCountryCode !== '' ? $currentCountryCode : $legacyCountryCode;
+        $legacyCountryName  = trim((string) ($record['country_name'] ?? ''));
+        $countryName        = $currentCountryCode !== ''
+            ? ($countryValue !== '' ? $countryValue : $legacyCountryName)
+            : ($legacyCountryCode !== '' ? $legacyCountryName : ($legacyCountryName !== '' ? $legacyCountryName : $countryValue));
+
+        $currentContinentCode = $this->twoLetterCode($record['continent_code'] ?? '');
+        $continentValue       = trim((string) ($record['continent'] ?? ''));
+        $legacyContinentCode  = $this->twoLetterCode($continentValue);
+        $continentCode        = $currentContinentCode !== '' ? $currentContinentCode : $legacyContinentCode;
+        $legacyContinentName  = trim((string) ($record['continent_name'] ?? ''));
+        $continentName        = $currentContinentCode !== ''
+            ? ($continentValue !== '' ? $continentValue : $legacyContinentName)
+            : ($legacyContinentCode !== '' ? $legacyContinentName : ($legacyContinentName !== '' ? $legacyContinentName : $continentValue));
+
+        return [
+            'country_code'   => $countryCode,
+            'country_name'   => $countryName,
+            'continent_code' => $continentCode,
+            'continent_name' => $continentName,
+        ];
+    }
+
+    private function twoLetterCode(mixed $value): string
+    {
+        $value = strtoupper(trim((string) $value));
+
+        return preg_match('/^[A-Z]{2}$/D', $value) === 1 ? $value : '';
     }
 
     private function pruneAbandonedTemporaryFiles(string $directory): void

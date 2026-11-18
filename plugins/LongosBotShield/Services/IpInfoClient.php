@@ -271,6 +271,7 @@ class IpInfoClient
             || array_key_exists('anonymous', $payload)
             || array_key_exists('privacy', $payload);
         $securityDataPresent = $hostingDataPresent && $privacyDataPresent;
+        $location            = $this->normalizeLocation($payload);
 
         return [
             'status'                => 'ok',
@@ -279,10 +280,10 @@ class IpInfoClient
             'asn'                   => $asn,
             'name'                  => $name,
             'domain'                => trim((string) ($as['domain'] ?? $payload['as_domain'] ?? '')),
-            'country_code'          => strtoupper(trim((string) ($payload['country_code'] ?? ''))),
-            'country_name'          => trim((string) ($payload['country'] ?? $payload['country_name'] ?? '')),
-            'continent_code'        => strtoupper(trim((string) ($payload['continent_code'] ?? ''))),
-            'continent_name'        => trim((string) ($payload['continent'] ?? $payload['continent_name'] ?? '')),
+            'country_code'          => $location['country_code'],
+            'country_name'          => $location['country_name'],
+            'continent_code'        => $location['continent_code'],
+            'continent_name'        => $location['continent_name'],
             'type'                  => mb_strtolower(trim((string) ($as['type'] ?? ''))),
             'company_name'          => trim((string) ($company['name'] ?? '')),
             'company_domain'        => trim((string) ($company['domain'] ?? '')),
@@ -300,6 +301,40 @@ class IpInfoClient
             'is_anycast'   => $this->flag($payload, 'is_anycast'),
             'is_bogon'     => $this->flag($payload, 'bogon') || $this->flag($payload, 'is_bogon'),
         ];
+    }
+
+    /**
+     * @return array{country_code: string, country_name: string, continent_code: string, continent_name: string}
+     */
+    private function normalizeLocation(array $payload): array
+    {
+        $currentCountryCode = $this->twoLetterCode($payload['country_code'] ?? '');
+        $countryValue       = trim((string) ($payload['country'] ?? ''));
+        $legacyCountryCode  = $this->twoLetterCode($countryValue);
+        $legacyCountryName  = trim((string) ($payload['country_name'] ?? ''));
+
+        $currentContinentCode = $this->twoLetterCode($payload['continent_code'] ?? '');
+        $continentValue       = trim((string) ($payload['continent'] ?? ''));
+        $legacyContinentCode  = $this->twoLetterCode($continentValue);
+        $legacyContinentName  = trim((string) ($payload['continent_name'] ?? ''));
+
+        return [
+            'country_code' => $currentCountryCode !== '' ? $currentCountryCode : $legacyCountryCode,
+            'country_name' => $currentCountryCode !== ''
+                ? ($countryValue !== '' ? $countryValue : $legacyCountryName)
+                : ($legacyCountryCode !== '' ? $legacyCountryName : ($legacyCountryName !== '' ? $legacyCountryName : $countryValue)),
+            'continent_code' => $currentContinentCode !== '' ? $currentContinentCode : $legacyContinentCode,
+            'continent_name' => $currentContinentCode !== ''
+                ? ($continentValue !== '' ? $continentValue : $legacyContinentName)
+                : ($legacyContinentCode !== '' ? $legacyContinentName : ($legacyContinentName !== '' ? $legacyContinentName : $continentValue)),
+        ];
+    }
+
+    private function twoLetterCode(mixed $value): string
+    {
+        $value = strtoupper(trim((string) $value));
+
+        return preg_match('/^[A-Z]{2}$/D', $value) === 1 ? $value : '';
     }
 
     private function flag(array $payload, string $key): bool
@@ -448,7 +483,10 @@ class IpInfoClient
 
     private function cacheKey(string $ip, string $token): string
     {
-        return 'longos:bot-shield:ipinfo:' . $this->scope($token) . ':' . $this->settings->ipHash($ip);
+        // v2 invalidates pre-country-policy entries that may contain a valid
+        // ASN but no country_code. Reusing those entries would silently skip
+        // an enabled CN/HK/MO decision until the old stale TTL expired.
+        return 'longos:bot-shield:ipinfo:v2:' . $this->scope($token) . ':' . $this->settings->ipHash($ip);
     }
 
     private function scope(string $token): string

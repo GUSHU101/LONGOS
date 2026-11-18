@@ -37,18 +37,18 @@ class ProtectStorefront
             // boundary so controllers, hooks, and application logs never see it.
             $request->headers->remove(InternalHomepageRequest::HEADER);
 
-            return $next($request);
+            return $this->passThrough($request, $next);
         }
 
         $assessment = $this->engine->assess($request);
         if ($assessment->allowlisted) {
             $this->record($request, $assessment, 'allowlist');
 
-            return $next($request);
+            return $this->passThrough($request, $next);
         }
 
         if (! $assessment->matchesConfiguredShieldingScope()) {
-            return $next($request);
+            return $this->passThrough($request, $next);
         }
 
         $this->record($request, $assessment, 'homepage');
@@ -103,14 +103,42 @@ class ProtectStorefront
 
     private function harden(Response $response): void
     {
-        $response->headers->set('Cache-Control', 'no-store, private');
-        $response->headers->set('CDN-Cache-Control', 'no-store');
-        $response->headers->set('Cloudflare-CDN-Cache-Control', 'no-store');
+        $this->preventSharedCaching($response);
         $response->headers->set('X-Robots-Tag', 'noindex, nofollow, noarchive');
         $response->headers->set('X-Content-Type-Options', 'nosniff');
         $response->headers->set('X-Frame-Options', 'DENY');
         $response->headers->set('Permissions-Policy', 'accelerometer=(), camera=(), geolocation=(), gyroscope=(), microphone=(), payment=(), usb=()');
         $response->headers->set('Vary', 'User-Agent', false);
+    }
+
+    private function passThrough(Request $request, Closure $next): Response
+    {
+        $response = $next($request);
+        if ($request->isMethodCacheable() && $this->isHtmlResponse($response)) {
+            // The decision varies by verified visitor IP, country, ASN and
+            // browser signals. A shared HTML cache would bypass this
+            // middleware entirely and could serve a previously cached tenant
+            // page to an in-scope visitor. Static assets retain normal caching.
+            $this->preventSharedCaching($response);
+        }
+
+        return $response;
+    }
+
+    private function isHtmlResponse(Response $response): bool
+    {
+        return str_contains(
+            strtolower((string) $response->headers->get('Content-Type')),
+            'text/html',
+        );
+    }
+
+    private function preventSharedCaching(Response $response): void
+    {
+        $response->headers->set('Cache-Control', 'no-store, private');
+        $response->headers->set('CDN-Cache-Control', 'no-store');
+        $response->headers->set('Cloudflare-CDN-Cache-Control', 'no-store');
+        $response->headers->set('Surrogate-Control', 'no-store');
     }
 
     private function isStructuredRequest(Request $request): bool

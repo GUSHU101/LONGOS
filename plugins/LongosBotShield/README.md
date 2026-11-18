@@ -54,6 +54,14 @@ request. The scheduler refreshes it daily, the panel health action can
 synchronize it immediately, and a missing/stale file also schedules a
 best-effort refresh after the current response.
 
+Country fields are validated before a newly downloaded MMDB can replace the
+active copy. Both the current Lite schema and the compatible legacy
+`country_asn` field names are normalized during lookup. Provider cache keys are
+versioned so a successful ASN-only entry created before country enforcement
+cannot suppress the CN/HK/MO policy until its stale TTL expires. A local record
+with no usable country code is treated as incomplete and uses the same bounded
+live API fallback as an incomplete ASN identity.
+
 MMDB is intentionally used instead of CSV/JSON/Parquet. The current CSV
 expands to hundreds of megabytes, while the indexed MMDB download is roughly
 26 MB and supports direct IP lookups without parsing or loading the entire data
@@ -123,6 +131,14 @@ address bar, is sandboxed, marked `no-store` and `noindex`, and cannot submit
 forms or execute the control site's scripts in the tenant origin. Internal
 control-site links are rewritten onto the current visitor origin; external
 links remain external.
+
+Every evaluated storefront HTML response, including a normal pass-through,
+is marked `no-store` for browsers and shared CDNs. This is required because the
+decision varies by visitor IP, country, ASN, and automation signals; otherwise
+a cached original tenant page could be returned before Laravel evaluates the
+request. Static presentation assets keep their normal cache behavior. A
+Cloudflare Edge TTL rule configured to ignore origin cache-control must not be
+applied to storefront HTML.
 
 Lazy-loaded image, picture, video, iframe, and stylesheet attributes are
 promoted to native HTML attributes before caching, so hero, collection, and

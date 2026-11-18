@@ -614,6 +614,12 @@ class LongosBotShieldTest extends TestCase
             '->retry(',
             (string) file_get_contents(base_path('plugins/LongosBotShield/Services/IpInfoClient.php')),
         );
+        $cacheKey = (new \ReflectionMethod(IpInfoClient::class, 'cacheKey'))->invoke(
+            app(IpInfoClient::class),
+            '8.8.8.8',
+            'ipinfo-test-token',
+        );
+        self::assertStringStartsWith('longos:bot-shield:ipinfo:v2:', $cacheKey);
         self::assertSame(1.0, MainSiteHomepage::CONNECT_TIMEOUT_SECONDS);
         self::assertSame(5.0, MainSiteHomepage::REQUEST_TIMEOUT_SECONDS);
     }
@@ -632,6 +638,64 @@ class LongosBotShieldTest extends TestCase
         self::assertStringNotContainsString('ipinfo_lite.csv', $source);
         self::assertStringNotContainsString('->body()', $source);
         self::assertStringNotContainsString('.backup', $source);
+    }
+
+    public function test_local_database_normalizes_current_and_legacy_country_fields(): void
+    {
+        $normalize = new \ReflectionMethod(IpInfoLocalDatabase::class, 'normalizeLocation');
+        $database  = app(IpInfoLocalDatabase::class);
+
+        self::assertSame([
+            'country_code'   => 'CN',
+            'country_name'   => 'China',
+            'continent_code' => 'AS',
+            'continent_name' => 'Asia',
+        ], $normalize->invoke($database, [
+            'country_code'   => 'cn',
+            'country'        => 'China',
+            'continent_code' => 'as',
+            'continent'      => 'Asia',
+        ]));
+        self::assertSame([
+            'country_code'   => 'HK',
+            'country_name'   => 'Hong Kong',
+            'continent_code' => 'AS',
+            'continent_name' => 'Asia',
+        ], $normalize->invoke($database, [
+            'country'        => 'hk',
+            'country_name'   => 'Hong Kong',
+            'continent'      => 'as',
+            'continent_name' => 'Asia',
+        ]));
+    }
+
+    public function test_live_ipinfo_normalizes_current_and_legacy_country_fields(): void
+    {
+        $normalize = new \ReflectionMethod(IpInfoClient::class, 'normalizeLocation');
+        $client    = app(IpInfoClient::class);
+
+        self::assertSame([
+            'country_code'   => 'CN',
+            'country_name'   => 'China',
+            'continent_code' => 'AS',
+            'continent_name' => 'Asia',
+        ], $normalize->invoke($client, [
+            'country_code'   => 'cn',
+            'country'        => 'China',
+            'continent_code' => 'as',
+            'continent'      => 'Asia',
+        ]));
+        self::assertSame([
+            'country_code'   => 'HK',
+            'country_name'   => 'Hong Kong',
+            'continent_code' => 'AS',
+            'continent_name' => 'Asia',
+        ], $normalize->invoke($client, [
+            'country'        => 'hk',
+            'country_name'   => 'Hong Kong',
+            'continent'      => 'as',
+            'continent_name' => 'Asia',
+        ]));
     }
 
     public function test_local_ipinfo_database_resolves_platform_asn_without_an_api_request(): void
@@ -723,6 +787,42 @@ class LongosBotShieldTest extends TestCase
 
         self::assertSame('ok', $result['status']);
         self::assertSame('AS32934', $result['asn']);
+        Http::assertSentCount(1);
+    }
+
+    public function test_missing_local_country_uses_the_bounded_live_api_fallback(): void
+    {
+        $database = $this->createMock(IpInfoLocalDatabase::class);
+        $database->expects(self::once())
+            ->method('lookup')
+            ->willReturn([
+                'status'              => 'ok',
+                'provider'            => 'ipinfo-local',
+                'identity_incomplete' => true,
+                'asn'                 => 'AS65001',
+                'name'                => 'Residential Example',
+                'domain'              => 'residential.example',
+                'country_code'        => '',
+            ]);
+        $database->expects(self::once())->method('scheduleSyncIfStale');
+        Http::fake(['api.ipinfo.io/*' => Http::response([
+            'ip'             => '1.1.1.1',
+            'asn'            => 'AS65001',
+            'as_name'        => 'Residential Example',
+            'as_domain'      => 'residential.example',
+            'country_code'   => 'HK',
+            'country'        => 'Hong Kong',
+            'continent_code' => 'AS',
+            'continent'      => 'Asia',
+        ], 200)]);
+
+        $result = (new NetworkIntelligenceClient(
+            $database,
+            app(IpInfoClient::class),
+            app(BotShieldSettings::class),
+        ))->lookup('1.1.1.1');
+
+        self::assertSame('HK', $result['country_code']);
         Http::assertSentCount(1);
     }
 
@@ -965,9 +1065,17 @@ class LongosBotShieldTest extends TestCase
                 'HTTP_ACCEPT'     => 'application/json',
             ]);
             app()->instance('request', $request);
-            $response = $middleware->handle($request, static fn (): Response => new Response('NORMAL SHOPPING'));
+            $response = $middleware->handle(
+                $request,
+                static fn (): Response => new Response('NORMAL SHOPPING', 200, ['Content-Type' => 'text/html']),
+            );
             self::assertSame('NORMAL SHOPPING', $response->getContent(), $path);
             self::assertNull($response->headers->get('X-Longos-Bot-Shield'));
+            if ($request->isMethodCacheable()) {
+                self::assertStringContainsString('no-store', (string) $response->headers->get('Cache-Control'));
+                self::assertSame('no-store', $response->headers->get('Cloudflare-CDN-Cache-Control'));
+                self::assertSame('no-store', $response->headers->get('Surrogate-Control'));
+            }
         }
     }
 
@@ -998,6 +1106,7 @@ class LongosBotShieldTest extends TestCase
         self::assertSame('/products/private', $request->getPathInfo());
         self::assertFalse($response->isRedirect());
         self::assertSame("sandbox; frame-ancestors 'none'", $response->headers->get('Content-Security-Policy'));
+        self::assertSame('no-store', $response->headers->get('Surrogate-Control'));
     }
 
     public function test_shielded_document_hydrates_lazy_media_and_keeps_navigation_on_visitor_origin(): void
@@ -1131,8 +1240,15 @@ class LongosBotShieldTest extends TestCase
 
         foreach (['/plugin/longos_product_reviews/cards.css', '/image/catalog/item.webp', '/fonts/store.woff2'] as $path) {
             $request  = Request::create('https://store.example.test' . $path, 'GET');
-            $response = $middleware->handle($request, static fn (): Response => new Response('ASSET'));
+            $response = $middleware->handle($request, static function (): Response {
+                $response = new Response('ASSET');
+                $response->headers->set('Cache-Control', 'public, max-age=86400');
+
+                return $response;
+            });
             self::assertSame('ASSET', $response->getContent());
+            self::assertSame('max-age=86400, public', $response->headers->get('Cache-Control'));
+            self::assertNull($response->headers->get('Cloudflare-CDN-Cache-Control'));
         }
         self::assertSame(0, $engine->calls);
     }
