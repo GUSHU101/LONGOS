@@ -81,6 +81,11 @@ class LongosBotShieldTest extends TestCase
         self::assertTrue(collect($columns)->firstWhere('name', 'ipinfo_health')['action_form']);
         self::assertSame('guide', collect($columns)->firstWhere('name', 'builtin_catalog')['type']);
         self::assertSame('bool', collect($columns)->firstWhere('name', 'block_china_regions')['type']);
+        $packages = (new \ReflectionClass(BundledPluginSynchronizer::class))
+            ->getReflectionConstant('PACKAGES')
+            ?->getValue();
+        self::assertIsArray($packages);
+        self::assertSame('0', $packages['longos_bot_shield']['settings']['block_china_regions']);
         self::assertContains('blocked_asns', $names);
         self::assertContains('organization_keywords', $names);
         self::assertContains('allow_cidrs', $names);
@@ -656,6 +661,38 @@ class LongosBotShieldTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_enabled_china_region_policy_uses_local_dataset_without_an_api_request(): void
+    {
+        config(['bk.plugin.longos_bot_shield.block_china_regions' => true]);
+        $database = $this->createMock(IpInfoLocalDatabase::class);
+        $database->expects(self::once())
+            ->method('lookup')
+            ->with('1.1.1.1')
+            ->willReturn([
+                'status'              => 'ok',
+                'provider'            => 'ipinfo-local',
+                'identity_incomplete' => false,
+                'asn'                 => 'AS65001',
+                'name'                => 'Residential Example',
+                'domain'              => 'residential.example',
+                'country_code'        => 'MO',
+            ]);
+        $database->expects(self::once())->method('scheduleSyncIfStale');
+        Http::fake();
+
+        $network = new NetworkIntelligenceClient(
+            $database,
+            app(IpInfoClient::class),
+            app(BotShieldSettings::class),
+        );
+        $assessment = (new BotRiskEngine(app(BotShieldSettings::class), $network))
+            ->assess($this->browserRequest('1.1.1.1'));
+
+        self::assertContains('country_region_denylist', $assessment->reasons);
+        self::assertTrue($assessment->matchesConfiguredShieldingScope());
+        Http::assertNothingSent();
+    }
+
     public function test_incomplete_local_identity_uses_the_bounded_live_api_fallback(): void
     {
         $database = $this->createMock(IpInfoLocalDatabase::class);
@@ -797,6 +834,19 @@ class LongosBotShieldTest extends TestCase
             'country_code' => 'HK',
         ]);
         self::assertNotContains('country_region_denylist', $assessment->reasons);
+
+        foreach (['XX', 'T1'] as $specialCode) {
+            $unknownRegion = $this->browserRequest('1.1.1.1');
+            $unknownRegion->attributes->set(CloudflareIpRangeService::REQUEST_ATTRIBUTE, true);
+            $unknownRegion->attributes->set(CloudflareIpRangeService::VISITOR_CONTEXT_ATTRIBUTE, [
+                'country_code' => $specialCode,
+            ]);
+            $assessment = app(BotRiskEngine::class)->assessWithNetwork($unknownRegion, [
+                'status'       => 'ok',
+                'country_code' => 'MO',
+            ]);
+            self::assertContains('country_region_denylist', $assessment->reasons, $specialCode);
+        }
         Http::assertNothingSent();
     }
 
@@ -1365,13 +1415,20 @@ class LongosBotShieldTest extends TestCase
     public function test_allow_and_deny_cidrs_remain_deterministic_and_local(): void
     {
         config([
-            'bk.plugin.longos_bot_shield.allow_cidrs' => '8.8.8.0/24',
-            'bk.plugin.longos_bot_shield.deny_cidrs'  => '1.1.1.0/24',
+            'bk.plugin.longos_bot_shield.block_china_regions'  => true,
+            'bk.plugin.longos_bot_shield.allow_cidrs'          => '8.8.8.0/24',
+            'bk.plugin.longos_bot_shield.deny_cidrs'           => '1.1.1.0/24',
         ]);
         Http::fake();
 
-        $allowed = app(BotRiskEngine::class)->assess($this->browserRequest('8.8.8.8'));
+        $allowedRequest = $this->browserRequest('8.8.8.8');
+        $allowedRequest->attributes->set(CloudflareIpRangeService::REQUEST_ATTRIBUTE, true);
+        $allowedRequest->attributes->set(CloudflareIpRangeService::VISITOR_CONTEXT_ATTRIBUTE, [
+            'country_code' => 'CN',
+        ]);
+        $allowed = app(BotRiskEngine::class)->assess($allowedRequest);
         self::assertTrue($allowed->allowlisted);
+        self::assertSame(['ip_allowlist'], $allowed->reasons);
         $denied = app(BotRiskEngine::class)->assess($this->browserRequest('1.1.1.1'));
         self::assertContains('ip_denylist', $denied->reasons);
         Http::assertNothingSent();

@@ -87,8 +87,10 @@ and timezone metadata in the health diagnostic. Location does not trigger
 shielding by default. When the explicit CN/HK/MO switch is enabled, only a
 country code from that verified context may trigger the policy; unverified
 origin headers, city, region, and timezone never do. If Cloudflare does not
-send a country code, the normal local IPinfo Lite lookup supplies it without
-an additional API request.
+send a usable country code, the normal local IPinfo Lite lookup supplies it
+without an additional API request. Cloudflare's `XX` (unknown) and `T1` (Tor)
+special markers are not treated as countries and therefore do not suppress
+the local fallback.
 
 The built-in exact platform ASN catalog is audited against the supplied Lite
 snapshot. Daily MMDB identity also covers newly observed platform ASNs by AS

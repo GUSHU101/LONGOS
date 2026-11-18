@@ -98,7 +98,7 @@ class BotRiskEngine
         }
 
         $network ??= $this->networkIntelligence->lookup($ip);
-        $this->detectNetwork($network, $add, ! $this->isCountryCode($trustedCloudflareCountry));
+        $this->detectNetwork($network, $add, ! $this->hasUsableCloudflareCountry($trustedCloudflareCountry));
 
         return new RiskAssessment($reasons);
     }
@@ -212,9 +212,11 @@ class BotRiskEngine
             && in_array(strtoupper(trim($countryCode)), self::CHINA_REGION_COUNTRY_CODES, true);
     }
 
-    private function isCountryCode(string $countryCode): bool
+    private function hasUsableCloudflareCountry(string $countryCode): bool
     {
-        return preg_match('/^[A-Z]{2}$/D', strtoupper(trim($countryCode))) === 1;
+        $countryCode = strtoupper(trim($countryCode));
+
+        return $countryCode !== 'XX' && preg_match('/^[A-Z]{2}$/D', $countryCode) === 1;
     }
 
     private function crawlerFamily(string $userAgent): ?string
