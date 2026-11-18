@@ -23,17 +23,70 @@ class MainSiteHomepage
 
     private const STALE_CACHE_HOURS = 24;
 
+    private const DEEP_DOCUMENT_FRESH_MINUTES = 15;
+
+    private const DEEP_DOCUMENT_STALE_HOURS = 2;
+
     private string $lastStatus = 'not_run';
 
-    public function __construct(private readonly InternalHomepageRequest $internalRequest) {}
+    private readonly ShieldedDocumentPresenter $presenter;
+
+    public function __construct(
+        private readonly InternalHomepageRequest $internalRequest,
+        ?ShieldedDocumentPresenter $presenter = null,
+    ) {
+        $this->presenter = $presenter ?? new ShieldedDocumentPresenter;
+    }
 
     /** @return array{html: string, source: string}|null */
     public function render(): ?array
     {
         $this->lastStatus = 'not_run';
-        $current          = current_site();
+        $document         = $this->renderTarget('/');
+
+        return $document === null ? null : [
+            'html'   => $document['html'],
+            'source' => $document['source'],
+        ];
+    }
+
+    /**
+     * Render a public control-site document for a shielded browser navigation.
+     * Mutating, structured, private and malformed requests always receive the
+     * root homepage. A missing deep document falls back to the cached root.
+     *
+     * @return array{html: string, source: string}|null
+     */
+    public function renderFor(Request $request): ?array
+    {
+        $this->lastStatus = 'not_run';
+        $path             = $this->publicDocumentPath($request);
+        $document         = $this->renderTarget($path);
+        if ($document === null && $path !== '/') {
+            $path     = '/';
+            $document = $this->renderTarget('/');
+        }
+        if ($document === null) {
+            return null;
+        }
+
+        return [
+            'html' => $this->presenter->forVisitor(
+                $document['html'],
+                $document['origin'],
+                $document['document_url'],
+                $request,
+            ),
+            'source' => $document['source'],
+        ];
+    }
+
+    /** @return array{html: string, source: string, origin: string, document_url: string}|null */
+    private function renderTarget(string $path): ?array
+    {
+        $current = current_site();
         if (! config('saas.enabled')) {
-            return $this->renderCurrent();
+            return $this->renderCurrent($path);
         }
         if ($current === null) {
             $this->lastStatus = 'site_context_unavailable';
@@ -41,7 +94,7 @@ class MainSiteHomepage
             return null;
         }
         if ((bool) data_get($current->meta, 'control_site', false)) {
-            return $this->renderCurrent();
+            return $this->renderCurrent($path);
         }
 
         $origin = $this->controlOrigin($current);
@@ -53,25 +106,26 @@ class MainSiteHomepage
             return null;
         }
 
-        $url    = $origin['url'];
-        $host   = strtolower((string) parse_url($url, PHP_URL_HOST));
-        $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
+        $url         = $origin['url'];
+        $documentUrl = $this->documentUrl($url, $path);
+        $host        = strtolower((string) parse_url($url, PHP_URL_HOST));
+        $scheme      = strtolower((string) parse_url($url, PHP_URL_SCHEME));
 
-        $cacheKey = 'longos:bot-shield:main-home:' . $origin['id'] . ':' . hash('sha256', $url);
+        $cacheKey = 'longos:bot-shield:main-document:' . $origin['id'] . ':' . hash('sha256', $documentUrl);
         $staleKey = $cacheKey . ':stale';
         $lockKey  = $cacheKey . ':refreshing';
         $cached   = Cache::get($cacheKey);
         if (is_string($cached) && $cached !== '') {
             $this->lastStatus = 'ready_cache';
 
-            return ['html' => $this->withBaseUrl($cached, $url), 'source' => 'control-cache'];
+            return $this->documentResult($cached, 'control-cache', $url, $documentUrl);
         }
         $stale = Cache::get($staleKey);
         if (! Cache::add($lockKey, true, now()->addSeconds(15))) {
             $this->lastStatus = is_string($stale) && $stale !== '' ? 'ready_stale' : 'refresh_in_progress';
 
             return is_string($stale) && $stale !== ''
-                ? ['html' => $this->withBaseUrl($stale, $url), 'source' => 'control-cache-stale']
+                ? $this->documentResult($stale, 'control-cache-stale', $url, $documentUrl)
                 : null;
         }
 
@@ -83,11 +137,11 @@ class MainSiteHomepage
                     : 'control_address_unavailable';
 
                 return is_string($stale) && $stale !== ''
-                    ? ['html' => $this->withBaseUrl($stale, $url), 'source' => 'control-cache-stale']
+                    ? $this->documentResult($stale, 'control-cache-stale', $url, $documentUrl)
                     : null;
             }
 
-            $internalHeader = $this->internalRequest->headerValue($host);
+            $internalHeader = $this->internalRequest->headerValue($host, null, $path);
             if ($internalHeader === '') {
                 $this->lastStatus = 'internal_auth_unavailable';
 
@@ -103,50 +157,50 @@ class MainSiteHomepage
                 ->timeout(self::REQUEST_TIMEOUT_SECONDS)
                 ->withOptions($connectionOptions)
                 ->withoutRedirecting()
-                ->get($url);
+                ->get($documentUrl);
 
             $contentType = strtolower((string) $response->header('Content-Type'));
             $html        = (string) $response->body();
             if (! $response->successful()
                 || ! str_contains($contentType, 'text/html')
                 || $html === ''
-                || strlen($html) > self::MAXIMUM_HTML_BYTES) {
+                || strlen($html) > $this->maximumBytes($path)) {
                 $this->lastStatus = is_string($stale) && $stale !== ''
                     ? 'ready_stale'
                     : $this->invalidResponseStatus($response->status(), $contentType, $html);
 
                 return is_string($stale) && $stale !== ''
-                    ? ['html' => $this->withBaseUrl($stale, $url), 'source' => 'control-cache-stale']
+                    ? $this->documentResult($stale, 'control-cache-stale', $url, $documentUrl)
                     : null;
             }
 
-            $html = $this->withBaseUrl($html, $url);
-            Cache::put($cacheKey, $html, now()->addMinutes(self::FRESH_CACHE_MINUTES));
-            Cache::put($staleKey, $html, now()->addHours(self::STALE_CACHE_HOURS));
+            $html = $this->presenter->canonicalize($html, $url);
+            Cache::put($cacheKey, $html, now()->addMinutes($this->freshMinutes($path)));
+            Cache::put($staleKey, $html, now()->addHours($this->staleHours($path)));
             $this->lastStatus = 'ready';
 
-            return ['html' => $html, 'source' => 'control'];
+            return $this->documentResult($html, 'control', $url, $documentUrl);
         } catch (Throwable) {
             $this->lastStatus = is_string($stale) && $stale !== '' ? 'ready_stale' : 'request_failed';
 
             return is_string($stale) && $stale !== ''
-                ? ['html' => $this->withBaseUrl($stale, $url), 'source' => 'control-cache-stale']
+                ? $this->documentResult($stale, 'control-cache-stale', $url, $documentUrl)
                 : null;
         } finally {
             Cache::forget($lockKey);
         }
     }
 
-    /** @return array{html: string, source: string}|null */
-    private function renderCurrent(): ?array
+    /** @return array{html: string, source: string, origin: string, document_url: string}|null */
+    private function renderCurrent(string $path): ?array
     {
-        $this->lastStatus = 'not_run';
         $original         = request();
         $origin           = $original->getSchemeAndHttpHost() . '/';
+        $documentUrl      = $this->documentUrl($origin, $path);
         $siteKey          = current_site()?->getKey() ?? 'standalone';
-        $cacheKey         = 'longos:bot-shield:current-home:' . hash('sha256', implode('|', [
+        $cacheKey         = 'longos:bot-shield:current-document:' . hash('sha256', implode('|', [
             (string) $siteKey,
-            $origin,
+            $documentUrl,
             app()->getLocale(),
         ]));
         $staleKey = $cacheKey . ':stale';
@@ -155,21 +209,21 @@ class MainSiteHomepage
         if (is_string($cached) && $cached !== '') {
             $this->lastStatus = 'ready_cache';
 
-            return ['html' => $cached, 'source' => 'current-cache'];
+            return $this->documentResult($cached, 'current-cache', $origin, $documentUrl);
         }
         $stale = Cache::get($staleKey);
         if (! Cache::add($lockKey, true, now()->addSeconds(15))) {
             $this->lastStatus = is_string($stale) && $stale !== '' ? 'ready_stale' : 'refresh_in_progress';
 
             return is_string($stale) && $stale !== ''
-                ? ['html' => $stale, 'source' => 'current-cache-stale']
+                ? $this->documentResult($stale, 'current-cache-stale', $origin, $documentUrl)
                 : null;
         }
 
         try {
             $url         = app('url');
             $urlRequest  = $url->getRequest();
-            $homepageGet = Request::create($origin, 'GET', [], [], [], [
+            $homepageGet = Request::create($documentUrl, 'GET', [], [], [], [
                 'HTTP_HOST'       => $original->getHttpHost(),
                 'HTTP_ACCEPT'     => 'text/html',
                 'HTTP_USER_AGENT' => 'LONGOS-BotShield-Homepage/1.0',
@@ -177,6 +231,12 @@ class MainSiteHomepage
                 'SERVER_PORT'     => $original->getPort(),
                 'HTTPS'           => $original->isSecure() ? 'on' : 'off',
             ]);
+            if ($path !== '/') {
+                $homepageGet->headers->set(
+                    InternalHomepageRequest::HEADER,
+                    $this->internalRequest->headerValue($original->getHost(), null, $path),
+                );
+            }
 
             // Bot Shield runs before ShareViewData and the session stack.
             // Render against a clean GET / request so an in-scope visitor's
@@ -185,31 +245,41 @@ class MainSiteHomepage
             try {
                 app()->instance('request', $homepageGet);
                 $url->setRequest($homepageGet);
-                app(ShareViewData::class)->loadShopShareViewData();
-                $html = app(HomeController::class)->index()->render();
+                if ($path === '/') {
+                    app(ShareViewData::class)->loadShopShareViewData();
+                    $html = app(HomeController::class)->index()->render();
+                } else {
+                    $response    = app('router')->dispatch($homepageGet);
+                    $contentType = strtolower((string) $response->headers->get('Content-Type'));
+                    $html        = $response->isSuccessful() && str_contains($contentType, 'text/html')
+                        ? (string) $response->getContent()
+                        : '';
+                }
             } finally {
                 app()->instance('request', $original);
                 $url->setRequest($urlRequest);
             }
-            if ($html === '' || strlen($html) > self::MAXIMUM_HTML_BYTES) {
+            if ($html === '' || strlen($html) > $this->maximumBytes($path)) {
                 $this->lastStatus = $html === '' ? 'empty_html' : 'html_too_large';
 
                 return null;
             }
-            $html = $this->withBaseUrl($html, $origin);
-            Cache::put($cacheKey, $html, now()->addMinutes(self::FRESH_CACHE_MINUTES));
-            Cache::put($staleKey, $html, now()->addHours(self::STALE_CACHE_HOURS));
+            $html = $this->presenter->canonicalize($html, $origin);
+            Cache::put($cacheKey, $html, now()->addMinutes($this->freshMinutes($path)));
+            Cache::put($staleKey, $html, now()->addHours($this->staleHours($path)));
             $this->lastStatus = 'ready';
 
             return [
-                'html'   => $html,
-                'source' => 'current',
+                'html'         => $html,
+                'source'       => 'current',
+                'origin'       => $origin,
+                'document_url' => $documentUrl,
             ];
         } catch (Throwable) {
             $this->lastStatus = is_string($stale) && $stale !== '' ? 'ready_stale' : 'render_failed';
 
             return is_string($stale) && $stale !== ''
-                ? ['html' => $stale, 'source' => 'current-cache-stale']
+                ? $this->documentResult($stale, 'current-cache-stale', $origin, $documentUrl)
                 : null;
         } finally {
             Cache::forget($lockKey);
@@ -334,20 +404,82 @@ class MainSiteHomepage
         return $scheme . '://' . $host . '/';
     }
 
-    private function withBaseUrl(string $html, string $url): string
+    private function publicDocumentPath(Request $request): string
     {
-        if (preg_match('/<base\b[^>]*\bdata-longos-bot-shield=(["\'])1\1/i', $html) === 1) {
-            return $html;
+        if (! $request->isMethodCacheable() || ! $request->acceptsHtml()) {
+            return '/';
         }
 
-        $base = '<base data-longos-bot-shield="1" href="'
-            . htmlspecialchars(rtrim($url, '/') . '/', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
-            . '">';
-        if (preg_match('/<head\b[^>]*>/i', $html) === 1) {
-            return (string) preg_replace('/<head\b[^>]*>/i', '$0' . $base, $html, 1);
+        $path = $request->getPathInfo();
+        if ($path === '' || $path === '/') {
+            return '/';
+        }
+        if (strlen($path) > 512
+            || preg_match('/[\x00-\x1F\x7F\\\\]/', $path) === 1
+            || collect(explode('/', $path))->contains(static fn (string $segment): bool => in_array($segment, ['.', '..'], true))) {
+            return '/';
         }
 
-        return $base . $html;
+        $segments = array_values(array_filter(explode('/', trim($path, '/')), static fn (string $segment): bool => $segment !== ''));
+        $first    = strtolower((string) ($segments[0] ?? ''));
+        $second   = (string) ($segments[1] ?? '');
+
+        if ($first === 'latest_products' && count($segments) === 1) {
+            return '/latest_products';
+        }
+        if ($first === 'page_categories'
+            && (count($segments) === 1 || (count($segments) === 2 && ctype_digit($second)))) {
+            return '/' . implode('/', $segments);
+        }
+        if (in_array($first, ['brands', 'categories', 'pages', 'products'], true)
+            && count($segments) === 2
+            && ctype_digit($second)) {
+            return '/' . implode('/', $segments);
+        }
+        if ($first              === 'policies'
+            && count($segments) === 2
+            && in_array($second, ['refund', 'shipping', 'privacy', 'terms', 'contact', 'payment', 'cancellation', 'cookies'], true)) {
+            return '/policies/' . $second;
+        }
+
+        return '/';
+    }
+
+    private function documentUrl(string $origin, string $path): string
+    {
+        return rtrim($origin, '/') . ($path === '/' ? '/' : '/' . ltrim($path, '/'));
+    }
+
+    private function maximumBytes(string $path): int
+    {
+        return $path === '/' ? self::MAXIMUM_HTML_BYTES : min(self::MAXIMUM_HTML_BYTES, 4 * 1024 * 1024);
+    }
+
+    private function freshMinutes(string $path): int
+    {
+        return $path === '/' ? self::FRESH_CACHE_MINUTES : self::DEEP_DOCUMENT_FRESH_MINUTES;
+    }
+
+    private function staleHours(string $path): int
+    {
+        return $path === '/' ? self::STALE_CACHE_HOURS : self::DEEP_DOCUMENT_STALE_HOURS;
+    }
+
+    /**
+     * @return array{html: string, source: string, origin: string, document_url: string}
+     */
+    private function documentResult(
+        string $html,
+        string $source,
+        string $origin,
+        string $documentUrl,
+    ): array {
+        return [
+            'html'         => $html,
+            'source'       => $source,
+            'origin'       => $origin,
+            'document_url' => $documentUrl,
+        ];
     }
 
     /**

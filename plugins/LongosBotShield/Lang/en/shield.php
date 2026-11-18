@@ -42,7 +42,7 @@ return [
     'allow_cidrs'                        => 'IP/CIDR allowlist',
     'allow_cidrs_help'                   => 'Separate IPv4/IPv6 entries with lines or commas. This list has highest priority.',
     'deny_cidrs'                         => 'IP/CIDR shielding scope',
-    'deny_cidrs_help'                    => 'Separate IPv4/IPv6 entries with lines or commas. Matches receive the control-site homepage.',
+    'deny_cidrs_help'                    => 'Separate IPv4/IPv6 entries with lines or commas. Matches receive the control homepage and navigable public content on the current origin.',
     'blocked_asns'                       => 'Additional shielded ASNs',
     'blocked_asns_help'                  => 'Merged with Meta/Facebook, TikTok/ByteDance, Amazon/AWS, Google cloud/content, and high-confidence datacenter ASN catalogs audited against the current IPinfo Lite data. Consumer broadband, generic transit, and end-user tunnel networks are not hard-blocked by default.',
     'organization_keywords'              => 'Additional hosting/organization terms',

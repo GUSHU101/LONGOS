@@ -27,7 +27,8 @@ class ProtectStorefront
     {
         if ($this->isOperationalBypass($request)
             || $this->isPaymentContinuationBypass($request)
-            || $this->isCorsPreflight($request)) {
+            || $this->isCorsPreflight($request)
+            || $this->isPresentationAsset($request)) {
             return $next($request);
         }
 
@@ -57,7 +58,7 @@ class ProtectStorefront
 
     private function homepage(Request $request, RiskAssessment $assessment): Response
     {
-        $homepage = $this->mainSiteHomepage->render();
+        $homepage = $this->mainSiteHomepage->renderFor($request);
         if ($homepage === null) {
             return $this->unavailable($request, $assessment);
         }
@@ -145,6 +146,20 @@ class ProtectStorefront
         return $request->isMethod('OPTIONS')
             && trim((string) $request->header('Origin'))                        !== ''
             && trim((string) $request->header('Access-Control-Request-Method')) !== '';
+    }
+
+    private function isPresentationAsset(Request $request): bool
+    {
+        if (! $request->isMethodCacheable()) {
+            return false;
+        }
+
+        $path = strtolower($request->getPathInfo());
+
+        return preg_match(
+            '/\.(?:avif|bmp|css|eot|gif|ico|jpe?g|js|mjs|mp4|ogg|png|svg|webm|webp|woff2?|ttf)(?:$|\/)/D',
+            $path,
+        ) === 1;
     }
 
     private function styleOnlyCsp(string $nonce): string

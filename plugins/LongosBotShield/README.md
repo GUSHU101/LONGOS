@@ -2,8 +2,12 @@
 
 LONGOS Bot Shield has one deterministic action: visitors outside the shielding
 scope continue to the storefront normally; every request inside the scope is
-served the active LONGOS control-site homepage at the original host and URL.
-There are no scores, thresholds, challenge mode, monitor mode, or block mode.
+served the active LONGOS control-site public document at the original host and
+URL. The first document is the control homepage; links to public products,
+categories, brands, pages, page categories, policies, and latest products can
+be followed for secondary and tertiary browsing without redirecting the
+address bar to the control domain. There are no scores, thresholds, challenge
+mode, monitor mode, or block mode.
 
 ## Shielding scope
 
@@ -103,20 +107,38 @@ detection continues immediately and ordinary visitors fail open.
 
 ## Homepage substitution
 
-For a shielding-scope match, the plugin fetches the verified primary `/` of
-the active LONGOS control site without forwarding visitor cookies,
-authorization, request bodies, or sessions. The substituted response keeps the
-visitor's host and address bar, is sandboxed, marked `no-store` and `noindex`,
-and cannot submit forms or execute the control site's scripts in the tenant
-origin.
+For a shielding-scope match, the plugin fetches the verified primary `/` or a
+strictly allowlisted public document path from the active LONGOS control site
+without forwarding visitor cookies, authorization, query strings, request
+bodies, or sessions. The substituted response keeps the visitor's host and
+address bar, is sandboxed, marked `no-store` and `noindex`, and cannot submit
+forms or execute the control site's scripts in the tenant origin. Internal
+control-site links are rewritten onto the current visitor origin; external
+links remain external.
 
-Control-homepage fetches occur only for an already shielded visitor or an
+Lazy-loaded image, picture, video, iframe, and stylesheet attributes are
+promoted to native HTML attributes before caching, so hero, collection, and
+product-card media render even though scripts stay disabled. Passive CSS,
+JavaScript, image, font, icon, and video requests bypass classification and
+are never replaced by an HTML document. Assets still resolve against the
+control-site base, which preserves control-site uploads and theme resources.
+Meta refresh redirects are removed.
+
+Only read-only public document routes participate in secondary/tertiary
+browsing. Account, cart, checkout, order, authentication, API, callback, and
+payment paths always receive the safe root document; they are never proxied or
+executed against another tenant. Missing deep documents also fall back to the
+known-good root homepage.
+
+Control-document fetches occur only for an already shielded visitor or an
 administrator health check; they never delay an ordinary shopper. They use a
-one-second connect timeout and five-second total timeout with no retries.
-Successful HTML stays fresh for one hour and may be served from a trusted stale
-copy for 24 hours. The health action preloads the same production cache. If no
-validated copy is available, the plugin returns a temporary `503` rather than
-exposing the child storefront to an in-scope visitor.
+one-second connect timeout and five-second total timeout with no retries. The
+root homepage stays fresh for one hour and may use a trusted stale copy for 24
+hours. Bounded deep documents stay fresh for 15 minutes with a two-hour stale
+copy, limiting cache storage while keeping navigation responsive. The health
+action preloads the root production cache. If no validated copy is available,
+the plugin returns a temporary `503` rather than exposing the child storefront
+to an in-scope visitor.
 
 Stripe webhooks and PayPal provider notifications/return continuations bypass
 Bot Shield and remain protected by their payment plugin's signed or

@@ -29,6 +29,7 @@ use Plugin\LongosBotShield\Services\IpInfoLocalDatabase;
 use Plugin\LongosBotShield\Services\MainSiteHomepage;
 use Plugin\LongosBotShield\Services\NetworkIntelligenceClient;
 use Plugin\LongosBotShield\Services\RiskAssessment;
+use Plugin\LongosBotShield\Services\ShieldedDocumentPresenter;
 use Plugin\LongosBotShield\Services\ThreatCatalog;
 use Plugin\LongosBotShield\Support\CidrMatcher;
 use Symfony\Component\HttpFoundation\Response;
@@ -837,7 +838,7 @@ class LongosBotShieldTest extends TestCase
             $internal,
             new class($internal) extends MainSiteHomepage
             {
-                public function render(): ?array
+                public function renderFor(Request $request): ?array
                 {
                     throw new \RuntimeException('Unmatched shopping traffic must not fetch the control homepage.');
                 }
@@ -865,7 +866,7 @@ class LongosBotShieldTest extends TestCase
             $internal,
             new class($internal) extends MainSiteHomepage
             {
-                public function render(): ?array
+                public function renderFor(Request $request): ?array
                 {
                     return ['html' => '<!doctype html><title>LONGOS Main</title>', 'source' => 'control'];
                 }
@@ -885,6 +886,133 @@ class LongosBotShieldTest extends TestCase
         self::assertSame("sandbox; frame-ancestors 'none'", $response->headers->get('Content-Security-Policy'));
     }
 
+    public function test_shielded_document_hydrates_lazy_media_and_keeps_navigation_on_visitor_origin(): void
+    {
+        $presenter = new ShieldedDocumentPresenter;
+        $canonical = $presenter->canonicalize(
+            '<html><head><meta http-equiv="refresh" content="0;url=/elsewhere"></head><body>'
+            . '<a href="/products/42">Product</a>'
+            . '<a href="https://main.example.test/categories/7">Category</a>'
+            . '<a href="https://external.example/path">External</a>'
+            . '<img class="image-before lazyload" src="data:image/gif;base64,placeholder" data-src="/image/product.jpg" data-srcset="/image/product-2x.jpg 2x">'
+            . '</body></html>',
+            'https://main.example.test/',
+        );
+        $request = Request::create('https://store.example.test/original/path', 'GET');
+        $html    = $presenter->forVisitor(
+            $canonical,
+            'https://main.example.test/',
+            'https://main.example.test/',
+            $request,
+        );
+
+        self::assertStringContainsString('<base data-longos-bot-shield="1" href="https://main.example.test/">', $html);
+        self::assertStringNotContainsString('http-equiv="refresh"', $html);
+        self::assertStringContainsString('src="/image/product.jpg"', $html);
+        self::assertStringContainsString('srcset="/image/product-2x.jpg 2x"', $html);
+        self::assertStringContainsString('class="image-before lazyloaded"', $html);
+        self::assertStringContainsString('href="https://store.example.test/products/42"', $html);
+        self::assertStringContainsString('href="https://store.example.test/categories/7"', $html);
+        self::assertStringContainsString('href="https://external.example/path"', $html);
+    }
+
+    public function test_shielded_browser_can_follow_a_deep_control_document_without_changing_origin(): void
+    {
+        config(['saas.enabled' => true]);
+        $child     = new Site(['status' => Site::STATUS_ACTIVE, 'meta' => ['control_site' => false]]);
+        $child->id = 22;
+        app()->instance((string) config('multitenancy.current_tenant_container_key'), $child);
+
+        $control     = new Site(['status' => Site::STATUS_ACTIVE, 'meta' => ['control_site' => true]]);
+        $control->id = 1;
+        $control->setRelation('domains', collect([new Domain([
+            'host'             => 'main.example.test',
+            'scheme'           => 'https',
+            'is_primary'       => true,
+            'routing_behavior' => Domain::ROUTING_REDIRECT,
+            'status'           => Domain::STATUS_ACTIVE,
+        ])]));
+
+        Http::fake([
+            'https://main.example.test/products/42' => Http::response(
+                '<html><head></head><body><a href="/categories/7">Category</a><img data-src="/image/42.jpg"></body></html>',
+                200,
+                ['Content-Type' => 'text/html; charset=UTF-8'],
+            ),
+            'https://main.example.test/' => Http::response(
+                '<html><head></head><body>SAFE ROOT</body></html>',
+                200,
+                ['Content-Type' => 'text/html; charset=UTF-8'],
+            ),
+        ]);
+        $internal = app(InternalHomepageRequest::class);
+        $service  = new class($internal, $control) extends MainSiteHomepage
+        {
+            public function __construct(InternalHomepageRequest $internal, private readonly Site $site)
+            {
+                parent::__construct($internal);
+            }
+
+            protected function controlSite(): ?Site
+            {
+                return $this->site;
+            }
+        };
+        $request  = Request::create('https://store.example.test/products/42?tracking=ignored', 'GET', [], [], [], [
+            'HTTP_ACCEPT' => 'text/html',
+        ]);
+        $document = $service->renderFor($request);
+
+        self::assertNotNull($document);
+        self::assertSame('control', $document['source']);
+        self::assertStringContainsString('href="https://store.example.test/categories/7"', $document['html']);
+        self::assertStringContainsString('src="/image/42.jpg"', $document['html']);
+        self::assertStringContainsString('<base data-longos-bot-shield="1" href="https://main.example.test/">', $document['html']);
+
+        $privateRequest = Request::create('https://store.example.test/checkout', 'GET', [], [], [], [
+            'HTTP_ACCEPT' => 'text/html',
+        ]);
+        $privateDocument = $service->renderFor($privateRequest);
+        self::assertNotNull($privateDocument);
+        self::assertStringContainsString('SAFE ROOT', $privateDocument['html']);
+        Http::assertSent(function (ClientRequest $outgoing) use ($internal): bool {
+            $verification = Request::create($outgoing->url(), 'GET');
+            $verification->headers->set(
+                InternalHomepageRequest::HEADER,
+                $outgoing->header(InternalHomepageRequest::HEADER)[0] ?? '',
+            );
+
+            return $outgoing->url() === 'https://main.example.test/products/42'
+                && $internal->valid($verification)
+                && ! $outgoing->hasHeader('Cookie');
+        });
+        Http::assertSent(static fn (ClientRequest $outgoing): bool => $outgoing->url() === 'https://main.example.test/');
+    }
+
+    public function test_presentation_assets_bypass_shielding_without_network_assessment(): void
+    {
+        $engine = new class(app(BotShieldSettings::class), app(NetworkIntelligenceClient::class)) extends BotRiskEngine
+        {
+            public int $calls = 0;
+
+            public function assess(Request $request): RiskAssessment
+            {
+                $this->calls++;
+
+                return new RiskAssessment(['asn_denylist']);
+            }
+        };
+        $internal   = app(InternalHomepageRequest::class);
+        $middleware = new ProtectStorefront($engine, app(BotShieldSettings::class), $internal, app(MainSiteHomepage::class));
+
+        foreach (['/plugin/longos_product_reviews/cards.css', '/image/catalog/item.webp', '/fonts/store.woff2'] as $path) {
+            $request  = Request::create('https://store.example.test' . $path, 'GET');
+            $response = $middleware->handle($request, static fn (): Response => new Response('ASSET'));
+            self::assertSame('ASSET', $response->getContent());
+        }
+        self::assertSame(0, $engine->calls);
+    }
+
     public function test_scope_match_replaces_a_structured_mutating_request_with_the_homepage(): void
     {
         $internal   = app(InternalHomepageRequest::class);
@@ -894,7 +1022,7 @@ class LongosBotShieldTest extends TestCase
             $internal,
             new class($internal) extends MainSiteHomepage
             {
-                public function render(): ?array
+                public function renderFor(Request $request): ?array
                 {
                     return ['html' => '<title>CONTROL HOME</title>', 'source' => 'control-cache'];
                 }
@@ -931,7 +1059,7 @@ class LongosBotShieldTest extends TestCase
             $internal,
             new class($internal) extends MainSiteHomepage
             {
-                public function render(): ?array
+                public function renderFor(Request $request): ?array
                 {
                     return null;
                 }
@@ -966,7 +1094,7 @@ class LongosBotShieldTest extends TestCase
             $internal,
             new class($internal) extends MainSiteHomepage
             {
-                public function render(): ?array
+                public function renderFor(Request $request): ?array
                 {
                     return ['html' => '<title>MAIN</title>', 'source' => 'control'];
                 }

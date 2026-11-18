@@ -42,7 +42,7 @@ return [
     'allow_cidrs'                        => 'IP/CIDR 白名单',
     'allow_cidrs_help'                   => '每行或逗号分隔，支持 IPv4/IPv6，优先级最高。',
     'deny_cidrs'                         => 'IP/CIDR 屏蔽范围',
-    'deny_cidrs_help'                    => '每行或逗号分隔，支持 IPv4/IPv6；命中后直接展示主站首页。',
+    'deny_cidrs_help'                    => '每行或逗号分隔，支持 IPv4/IPv6；命中后在当前域名展示主站首页及可导航的公开内容。',
     'blocked_asns'                       => '追加屏蔽 ASN',
     'blocked_asns_help'                  => '与基于当前 IPinfo Lite 数据审计的 Meta/Facebook、TikTok/ByteDance、Amazon/AWS、Google 云/内容网络及高置信机房 ASN 目录合并。消费宽带、通用骨干与终端隧道网络不默认硬屏蔽。',
     'organization_keywords'              => '追加机房/组织关键词',
