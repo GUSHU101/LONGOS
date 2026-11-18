@@ -934,7 +934,7 @@ class LongosBotShieldTest extends TestCase
         ])]));
 
         Http::fake([
-            'https://main.example.test/products/42' => Http::response(
+            'https://main.example.test/products/42?page=2' => Http::response(
                 '<html><head></head><body><a href="/categories/7">Category</a><img data-src="/image/42.jpg"></body></html>',
                 200,
                 ['Content-Type' => 'text/html; charset=UTF-8'],
@@ -944,6 +944,7 @@ class LongosBotShieldTest extends TestCase
                 200,
                 ['Content-Type' => 'text/html; charset=UTF-8'],
             ),
+            'https://main.example.test/products/404' => Http::response('missing', 404, ['Content-Type' => 'text/html']),
         ]);
         $internal = app(InternalHomepageRequest::class);
         $service  = new class($internal, $control) extends MainSiteHomepage
@@ -958,7 +959,7 @@ class LongosBotShieldTest extends TestCase
                 return $this->site;
             }
         };
-        $request  = Request::create('https://store.example.test/products/42?tracking=ignored', 'GET', [], [], [], [
+        $request  = Request::create('https://store.example.test/products/42?page=2&tracking=ignored', 'GET', [], [], [], [
             'HTTP_ACCEPT' => 'text/html',
         ]);
         $document = $service->renderFor($request);
@@ -975,6 +976,12 @@ class LongosBotShieldTest extends TestCase
         $privateDocument = $service->renderFor($privateRequest);
         self::assertNotNull($privateDocument);
         self::assertStringContainsString('SAFE ROOT', $privateDocument['html']);
+
+        $missingRequest = Request::create('https://store.example.test/products/404', 'GET', [], [], [], [
+            'HTTP_ACCEPT' => 'text/html',
+        ]);
+        self::assertStringContainsString('SAFE ROOT', (string) $service->renderFor($missingRequest)['html']);
+        self::assertStringContainsString('SAFE ROOT', (string) $service->renderFor($missingRequest)['html']);
         Http::assertSent(function (ClientRequest $outgoing) use ($internal): bool {
             $verification = Request::create($outgoing->url(), 'GET');
             $verification->headers->set(
@@ -982,11 +989,14 @@ class LongosBotShieldTest extends TestCase
                 $outgoing->header(InternalHomepageRequest::HEADER)[0] ?? '',
             );
 
-            return $outgoing->url() === 'https://main.example.test/products/42'
+            return $outgoing->url() === 'https://main.example.test/products/42?page=2'
                 && $internal->valid($verification)
                 && ! $outgoing->hasHeader('Cookie');
         });
         Http::assertSent(static fn (ClientRequest $outgoing): bool => $outgoing->url() === 'https://main.example.test/');
+        self::assertCount(1, collect(Http::recorded())->filter(
+            static fn (array $exchange): bool => $exchange[0]->url() === 'https://main.example.test/products/404',
+        ));
     }
 
     public function test_presentation_assets_bypass_shielding_without_network_assessment(): void

@@ -27,7 +27,9 @@ class ShieldedDocumentPresenter
             . htmlspecialchars(rtrim($controlOrigin, '/') . '/', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
             . '">';
         if (preg_match('/<head\b[^>]*>/i', $html) === 1) {
-            return (string) preg_replace('/<head\b[^>]*>/i', '$0' . $base, $html, 1);
+            $document = preg_replace('/<head\b[^>]*>/i', '$0' . $base, $html, 1);
+
+            return is_string($document) ? $document : $html;
         }
 
         return $base . $html;
@@ -41,7 +43,7 @@ class ShieldedDocumentPresenter
     ): string {
         $visitorOrigin = $request->getSchemeAndHttpHost();
 
-        return (string) preg_replace_callback(
+        $document = preg_replace_callback(
             '/(<(?:a|area)\b[^>]*?\bhref\s*=\s*)(["\'])(.*?)\2/is',
             function (array $match) use ($controlOrigin, $controlDocumentUrl, $visitorOrigin): string {
                 $rewritten = $this->visitorNavigationUrl(
@@ -61,29 +63,35 @@ class ShieldedDocumentPresenter
             },
             $html,
         );
+
+        return is_string($document) ? $document : $html;
     }
 
     private function removeMetaRefresh(string $html): string
     {
-        return (string) preg_replace(
-            '/<meta\b(?=[^>]*\bhttp-equiv\s*=\s*(["\'])?refresh\1?)[^>]*>/i',
+        $document = preg_replace(
+            '/<meta\b(?=[^>]*\bhttp-equiv\s*=\s*(?:"refresh"|\'refresh\'|refresh\b))[^>]*>/i',
             '',
             $html,
         );
+
+        return is_string($document) ? $document : $html;
     }
 
     private function hydrateLazyAssets(string $html): string
     {
-        return (string) preg_replace_callback(
+        $document = preg_replace_callback(
             '/<(?:img|source|video|iframe|link)\b[^>]*>/i',
             function (array $match): string {
                 $tag = $match[0];
                 foreach ([
-                    'data-src'      => 'src',
-                    'data-lazy-src' => 'src',
-                    'data-srcset'   => 'srcset',
-                    'data-poster'   => 'poster',
-                    'data-href'     => 'href',
+                    'data-src'         => 'src',
+                    'data-lazy-src'    => 'src',
+                    'data-original'    => 'src',
+                    'data-srcset'      => 'srcset',
+                    'data-lazy-srcset' => 'srcset',
+                    'data-poster'      => 'poster',
+                    'data-href'        => 'href',
                 ] as $source => $target) {
                     $value = $this->attribute($tag, $source);
                     if ($value !== null && trim($value) !== '') {
@@ -101,6 +109,8 @@ class ShieldedDocumentPresenter
             },
             $html,
         );
+
+        return is_string($document) ? $document : $html;
     }
 
     private function attribute(string $tag, string $name): ?string
@@ -124,10 +134,14 @@ class ShieldedDocumentPresenter
         );
         $pattern = '/(?<![\w:-])' . preg_quote($name, '/') . '\s*=\s*(?:(["\']).*?\1|[^\s>]+)/is';
         if (preg_match($pattern, $tag) === 1) {
-            return (string) preg_replace($pattern, $name . '="' . $escaped . '"', $tag, 1);
+            $updated = preg_replace($pattern, $name . '="' . $escaped . '"', $tag, 1);
+
+            return is_string($updated) ? $updated : $tag;
         }
 
-        return (string) preg_replace('/\s*\/?>$/', ' ' . $name . '="' . $escaped . '"$0', $tag, 1);
+        $updated = preg_replace('/\s*\/?>$/', ' ' . $name . '="' . $escaped . '"$0', $tag, 1);
+
+        return is_string($updated) ? $updated : $tag;
     }
 
     private function visitorNavigationUrl(
@@ -174,7 +188,9 @@ class ShieldedDocumentPresenter
             return rtrim($controlOrigin, '/') . $href;
         }
         if (str_starts_with($href, '?')) {
-            return preg_replace('/[?#].*$/', '', $controlDocumentUrl) . $href;
+            $documentUrl = preg_replace('/[?#].*$/', '', $controlDocumentUrl);
+
+            return (is_string($documentUrl) ? $documentUrl : $controlDocumentUrl) . $href;
         }
 
         $documentPath = (string) parse_url($controlDocumentUrl, PHP_URL_PATH);

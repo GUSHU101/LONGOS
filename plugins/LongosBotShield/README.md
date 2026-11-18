@@ -130,6 +130,15 @@ payment paths always receive the safe root document; they are never proxied or
 executed against another tenant. Missing deep documents also fall back to the
 known-good root homepage.
 
+Pagination forwards only a validated `page` value (2-500); tracking and other
+untrusted query parameters are never sent to the control site or included in
+its cache key. Deep-document fetches are serialized per control site, and a
+failed/missing path receives a short negative cache before falling back to the
+root. Random path scans therefore cannot create concurrent upstream fetches or
+repeated 404 work. HTML rewriting is fail-safe: if a malformed document ever
+causes a regular-expression transformation to fail, the last intact document
+is returned instead of an empty response.
+
 Control-document fetches occur only for an already shielded visitor or an
 administrator health check; they never delay an ordinary shopper. They use a
 one-second connect timeout and five-second total timeout with no retries. The

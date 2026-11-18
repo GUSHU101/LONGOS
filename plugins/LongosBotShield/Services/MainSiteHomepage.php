@@ -111,22 +111,43 @@ class MainSiteHomepage
         $host        = strtolower((string) parse_url($url, PHP_URL_HOST));
         $scheme      = strtolower((string) parse_url($url, PHP_URL_SCHEME));
 
-        $cacheKey = 'longos:bot-shield:main-document:' . $origin['id'] . ':' . hash('sha256', $documentUrl);
-        $staleKey = $cacheKey . ':stale';
-        $lockKey  = $cacheKey . ':refreshing';
-        $cached   = Cache::get($cacheKey);
+        $cacheKey   = 'longos:bot-shield:main-document:' . $origin['id'] . ':' . hash('sha256', $documentUrl);
+        $staleKey   = $cacheKey . ':stale';
+        $lockKey    = $cacheKey . ':refreshing';
+        $missingKey = $cacheKey . ':unavailable';
+        $cached     = Cache::get($cacheKey);
         if (is_string($cached) && $cached !== '') {
             $this->lastStatus = 'ready_cache';
 
             return $this->documentResult($cached, 'control-cache', $url, $documentUrl);
         }
         $stale = Cache::get($staleKey);
+        if ($path !== '/' && Cache::get($missingKey) === true) {
+            $this->lastStatus = is_string($stale) && $stale !== '' ? 'ready_stale' : 'deep_document_unavailable';
+
+            return is_string($stale) && $stale !== ''
+                ? $this->documentResult($stale, 'control-cache-stale', $url, $documentUrl)
+                : null;
+        }
         if (! Cache::add($lockKey, true, now()->addSeconds(15))) {
             $this->lastStatus = is_string($stale) && $stale !== '' ? 'ready_stale' : 'refresh_in_progress';
 
             return is_string($stale) && $stale !== ''
                 ? $this->documentResult($stale, 'control-cache-stale', $url, $documentUrl)
                 : null;
+        }
+
+        $deepLockKey = null;
+        if ($path !== '/') {
+            $deepLockKey = 'longos:bot-shield:main-deep-fetch:' . $origin['id'];
+            if (! Cache::add($deepLockKey, true, now()->addSeconds(10))) {
+                Cache::forget($lockKey);
+                $this->lastStatus = is_string($stale) && $stale !== '' ? 'ready_stale' : 'deep_fetch_busy';
+
+                return is_string($stale) && $stale !== ''
+                    ? $this->documentResult($stale, 'control-cache-stale', $url, $documentUrl)
+                    : null;
+            }
         }
 
         try {
@@ -168,6 +189,9 @@ class MainSiteHomepage
                 $this->lastStatus = is_string($stale) && $stale !== ''
                     ? 'ready_stale'
                     : $this->invalidResponseStatus($response->status(), $contentType, $html);
+                if ($path !== '/' && (! is_string($stale) || $stale === '')) {
+                    Cache::put($missingKey, true, now()->addSeconds(30));
+                }
 
                 return is_string($stale) && $stale !== ''
                     ? $this->documentResult($stale, 'control-cache-stale', $url, $documentUrl)
@@ -177,17 +201,24 @@ class MainSiteHomepage
             $html = $this->presenter->canonicalize($html, $url);
             Cache::put($cacheKey, $html, now()->addMinutes($this->freshMinutes($path)));
             Cache::put($staleKey, $html, now()->addHours($this->staleHours($path)));
+            Cache::forget($missingKey);
             $this->lastStatus = 'ready';
 
             return $this->documentResult($html, 'control', $url, $documentUrl);
         } catch (Throwable) {
             $this->lastStatus = is_string($stale) && $stale !== '' ? 'ready_stale' : 'request_failed';
+            if ($path !== '/' && (! is_string($stale) || $stale === '')) {
+                Cache::put($missingKey, true, now()->addSeconds(10));
+            }
 
             return is_string($stale) && $stale !== ''
                 ? $this->documentResult($stale, 'control-cache-stale', $url, $documentUrl)
                 : null;
         } finally {
             Cache::forget($lockKey);
+            if ($deepLockKey !== null) {
+                Cache::forget($deepLockKey);
+            }
         }
     }
 
@@ -203,21 +234,42 @@ class MainSiteHomepage
             $documentUrl,
             app()->getLocale(),
         ]));
-        $staleKey = $cacheKey . ':stale';
-        $lockKey  = $cacheKey . ':refreshing';
-        $cached   = Cache::get($cacheKey);
+        $staleKey   = $cacheKey . ':stale';
+        $lockKey    = $cacheKey . ':refreshing';
+        $missingKey = $cacheKey . ':unavailable';
+        $cached     = Cache::get($cacheKey);
         if (is_string($cached) && $cached !== '') {
             $this->lastStatus = 'ready_cache';
 
             return $this->documentResult($cached, 'current-cache', $origin, $documentUrl);
         }
         $stale = Cache::get($staleKey);
+        if ($path !== '/' && Cache::get($missingKey) === true) {
+            $this->lastStatus = is_string($stale) && $stale !== '' ? 'ready_stale' : 'deep_document_unavailable';
+
+            return is_string($stale) && $stale !== ''
+                ? $this->documentResult($stale, 'current-cache-stale', $origin, $documentUrl)
+                : null;
+        }
         if (! Cache::add($lockKey, true, now()->addSeconds(15))) {
             $this->lastStatus = is_string($stale) && $stale !== '' ? 'ready_stale' : 'refresh_in_progress';
 
             return is_string($stale) && $stale !== ''
                 ? $this->documentResult($stale, 'current-cache-stale', $origin, $documentUrl)
                 : null;
+        }
+
+        $deepLockKey = null;
+        if ($path !== '/') {
+            $deepLockKey = 'longos:bot-shield:current-deep-fetch:' . hash('sha256', (string) $siteKey);
+            if (! Cache::add($deepLockKey, true, now()->addSeconds(10))) {
+                Cache::forget($lockKey);
+                $this->lastStatus = is_string($stale) && $stale !== '' ? 'ready_stale' : 'deep_fetch_busy';
+
+                return is_string($stale) && $stale !== ''
+                    ? $this->documentResult($stale, 'current-cache-stale', $origin, $documentUrl)
+                    : null;
+            }
         }
 
         try {
@@ -261,12 +313,16 @@ class MainSiteHomepage
             }
             if ($html === '' || strlen($html) > $this->maximumBytes($path)) {
                 $this->lastStatus = $html === '' ? 'empty_html' : 'html_too_large';
+                if ($path !== '/' && (! is_string($stale) || $stale === '')) {
+                    Cache::put($missingKey, true, now()->addSeconds(30));
+                }
 
                 return null;
             }
             $html = $this->presenter->canonicalize($html, $origin);
             Cache::put($cacheKey, $html, now()->addMinutes($this->freshMinutes($path)));
             Cache::put($staleKey, $html, now()->addHours($this->staleHours($path)));
+            Cache::forget($missingKey);
             $this->lastStatus = 'ready';
 
             return [
@@ -277,12 +333,18 @@ class MainSiteHomepage
             ];
         } catch (Throwable) {
             $this->lastStatus = is_string($stale) && $stale !== '' ? 'ready_stale' : 'render_failed';
+            if ($path !== '/' && (! is_string($stale) || $stale === '')) {
+                Cache::put($missingKey, true, now()->addSeconds(10));
+            }
 
             return is_string($stale) && $stale !== ''
                 ? $this->documentResult($stale, 'current-cache-stale', $origin, $documentUrl)
                 : null;
         } finally {
             Cache::forget($lockKey);
+            if ($deepLockKey !== null) {
+                Cache::forget($deepLockKey);
+            }
         }
     }
 
@@ -425,16 +487,16 @@ class MainSiteHomepage
         $second   = (string) ($segments[1] ?? '');
 
         if ($first === 'latest_products' && count($segments) === 1) {
-            return '/latest_products';
+            return $this->withSafePageQuery('/latest_products', $request);
         }
         if ($first === 'page_categories'
             && (count($segments) === 1 || (count($segments) === 2 && ctype_digit($second)))) {
-            return '/' . implode('/', $segments);
+            return $this->withSafePageQuery('/' . implode('/', $segments), $request);
         }
         if (in_array($first, ['brands', 'categories', 'pages', 'products'], true)
             && count($segments) === 2
             && ctype_digit($second)) {
-            return '/' . implode('/', $segments);
+            return $this->withSafePageQuery('/' . implode('/', $segments), $request);
         }
         if ($first              === 'policies'
             && count($segments) === 2
@@ -443,6 +505,18 @@ class MainSiteHomepage
         }
 
         return '/';
+    }
+
+    private function withSafePageQuery(string $path, Request $request): string
+    {
+        $page = $request->query('page');
+        if (! is_scalar($page) || preg_match('/^[1-9]\d{0,2}$/D', (string) $page) !== 1) {
+            return $path;
+        }
+
+        $page = (int) $page;
+
+        return $page > 1 && $page <= 500 ? $path . '?page=' . $page : $path;
     }
 
     private function documentUrl(string $origin, string $path): string

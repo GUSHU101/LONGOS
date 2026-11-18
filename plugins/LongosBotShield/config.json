@@ -9,7 +9,7 @@
     "en": "Single-action protection using trusted Cloudflare visitor IPs, daily local IPInfo Lite data, built-in network and automation catalogs, and complete same-origin control-site document navigation."
   },
   "type": "feature",
-  "version": "v1.11.0",
+  "version": "v1.11.1",
   "icon": "/image/longos-favicon.svg",
   "author": {
     "name": "LONGOS",
