@@ -484,6 +484,41 @@ class LongosBotShieldTest extends TestCase
         Http::assertSentCount(1);
     }
 
+    public function test_global_health_check_skips_ipinfo_and_only_validates_control_page(): void
+    {
+        config([
+            'bk.plugin.longos_bot_shield.block_all_traffic' => true,
+            'bk.plugin.longos_bot_shield.ipinfo_token'      => '',
+        ]);
+        $ipInfo = $this->createMock(IpInfoClient::class);
+        $ipInfo->expects(self::never())->method('probe');
+        $database = $this->createMock(IpInfoLocalDatabase::class);
+        $database->expects(self::never())->method('syncIfStale');
+        $database->expects(self::never())->method('lookup');
+        $homepage = $this->createMock(MainSiteHomepage::class);
+        $homepage->expects(self::once())
+            ->method('render')
+            ->willReturn(['html' => '<html><head></head></html>', 'source' => 'control-cache']);
+
+        $response = (new PluginController)->botShieldHealth(
+            $this->browserRequest('8.8.8.8', '/admin/plugins/longos-bot-shield/health'),
+            $ipInfo,
+            app(BotRiskEngine::class),
+            app(BotShieldSettings::class),
+            $database,
+            $homepage,
+        );
+        $data = $response->getData(true)['data'];
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame('global_ready', $data['status']);
+        self::assertTrue($data['operational']);
+        self::assertTrue($data['shielded']);
+        self::assertSame(['global_deny'], $data['reasons']);
+        self::assertSame('not_required', $data['provider']);
+        self::assertSame('not_required', $data['database']['status']);
+    }
+
     public function test_health_remains_operational_when_live_api_fails_but_local_data_and_homepage_are_ready(): void
     {
         $request = $this->browserRequest('8.8.8.8', '/admin/plugins/longos-bot-shield/health');
@@ -1161,6 +1196,10 @@ class LongosBotShieldTest extends TestCase
             Request::create('https://store.example.test/plugin/example/catalog.js', 'GET', [], [], [], [
                 'REMOTE_ADDR' => '1.1.1.1',
             ]),
+            Request::create('https://store.example.test/paypal/rest/return', 'GET', [], [], [], [
+                'REMOTE_ADDR' => '1.1.1.1',
+                'HTTP_ACCEPT' => 'text/html',
+            ]),
         ] as $request) {
             app()->instance('request', $request);
             $response = $middleware->handle($request, $next);
@@ -1172,6 +1211,35 @@ class LongosBotShieldTest extends TestCase
 
         self::assertSame(0, $nextCalls);
         Http::assertNothingSent();
+    }
+
+    public function test_global_switch_uses_503_only_when_control_page_is_unavailable(): void
+    {
+        config(['bk.plugin.longos_bot_shield.block_all_traffic' => true]);
+        app('view')->addNamespace('LongosBotShield', base_path('plugins/LongosBotShield/Views'));
+        app('translator')->addNamespace('LongosBotShield', base_path('plugins/LongosBotShield/Lang'));
+        $internal   = app(InternalHomepageRequest::class);
+        $middleware = new ProtectStorefront(
+            app(BotRiskEngine::class),
+            app(BotShieldSettings::class),
+            $internal,
+            new class($internal) extends MainSiteHomepage
+            {
+                public function renderFor(Request $request): ?array
+                {
+                    return null;
+                }
+            },
+        );
+        $request = $this->browserRequest('1.1.1.1');
+        app()->instance('request', $request);
+
+        $response = $middleware->handle($request, static fn (): Response => new Response('MUST NOT RUN'));
+
+        self::assertSame(503, $response->getStatusCode());
+        self::assertSame('unavailable', $response->headers->get('X-Longos-Bot-Shield'));
+        self::assertSame('5', $response->headers->get('Retry-After'));
+        self::assertStringContainsString('no-store', (string) $response->headers->get('Cache-Control'));
     }
 
     public function test_global_shutdown_keeps_health_and_server_payment_callbacks_available(): void

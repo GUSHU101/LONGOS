@@ -162,14 +162,19 @@ class ProtectStorefront
 
     private function isPaymentContinuationBypass(Request $request): bool
     {
-        // Provider callbacks validate their own signed/order-bound payloads.
-        // They must remain reachable when a browser returns via cross-site
-        // POST (no SameSite=Lax cookie) or a provider webhook originates from
-        // a cloud ASN/script client. User-initiated create/capture endpoints
-        // are deliberately not bypassed.
+        // Server callbacks validate their own signed/order-bound payloads and
+        // must remain reachable even during the uniform storefront takeover.
         if ($request->isMethod('POST')
             && ($request->is('callback/stripe') || $request->is('paypal/nvp/notify'))) {
             return true;
+        }
+
+        // In selective mode, keep browser payment continuations reachable so
+        // an external provider's network or user agent cannot strand an
+        // in-flight order. Uniform all-traffic mode deliberately takes over
+        // these browser-facing pages as well.
+        if ($this->settings->blockAllTraffic()) {
+            return false;
         }
 
         return $request->is('paypal/rest/return')

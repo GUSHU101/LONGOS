@@ -9,7 +9,7 @@
     "en": "Provides an all-traffic switch that uniformly serves the control-site page to every storefront visitor plus protection based on IPInfo Lite, country, ASN, hosting, crawler, and automation signals."
   },
   "type": "feature",
-  "version": "v1.12.3",
+  "version": "v1.12.4",
   "icon": "/image/longos-favicon.svg",
   "author": {
     "name": "LONGOS",

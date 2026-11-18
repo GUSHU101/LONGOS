@@ -502,9 +502,25 @@ class PluginController extends Controller
         IpInfoLocalDatabase $localDatabase,
         MainSiteHomepage $homepage,
     ): JsonResponse {
-        $input = $request->input('ipinfo_token', '');
-        $token = '';
-        if (! is_scalar($input)) {
+        $input      = $request->input('ipinfo_token', '');
+        $token      = '';
+        $globalMode = $settings->blockAllTraffic();
+        if ($globalMode) {
+            $homepageResult = $homepage->render();
+            $homepageReady  = $homepageResult !== null;
+            $result         = [
+                'healthy'  => $homepageReady,
+                'status'   => $homepageReady ? 'global_ready' : 'global_unavailable',
+                'provider' => 'not_required',
+                'database' => ['ready' => true, 'status' => 'not_required'],
+                'homepage' => [
+                    'ready'  => $homepageReady,
+                    'source' => (string) ($homepageResult['source'] ?? $homepage->lastStatus()),
+                ],
+                'shielded' => true,
+                'reasons'  => ['global_deny'],
+            ];
+        } elseif (! is_scalar($input)) {
             $result = ['healthy' => false, 'status' => 'invalid_token', 'provider' => 'ipinfo'];
         } else {
             $submitted          = trim((string) $input);
@@ -549,17 +565,20 @@ class PluginController extends Controller
         $result['cloudflare_context'] = is_array($cloudflareContext) ? $cloudflareContext : [];
         $status                       = in_array($result['status'], [
             'healthy', 'missing', 'invalid_token', 'invalid_target', 'unauthorized', 'rate_limited', 'invalid_response', 'unavailable',
+            'global_ready', 'global_unavailable',
         ], true) ? $result['status'] : 'unavailable';
-        $messageStatus = $status === 'healthy'
-            ? (($result['shielded'] ?? false) ? 'healthy_shielded' : 'healthy_pass')
-            : $status;
+        $messageStatus = match ($status) {
+            'healthy' => ($result['shielded'] ?? false) ? 'healthy_shielded' : 'healthy_pass',
+            default   => $status,
+        };
         $message = trans("LongosBotShield::shield.ipinfo_health_{$messageStatus}", [
             'milliseconds' => (int) ($result['latency_ms'] ?? 0),
             'ip'           => (string) ($result['ip'] ?? ''),
             'asn'          => (string) ($result['asn'] ?? ''),
             'name'         => (string) ($result['name'] ?? ''),
+            'status'       => (string) ($result['homepage']['source'] ?? 'not_run'),
         ]);
-        if (is_scalar($input)) {
+        if (is_scalar($input) && ! $globalMode) {
             $message .= ' ' . trans(
                 'LongosBotShield::shield.visitor_ip_source_' . $result['visitor_ip_source'],
             );
@@ -597,9 +616,11 @@ class PluginController extends Controller
 
         $providerStatus = (string) ($result['status'] ?? 'unavailable');
         $tokenFailure   = in_array($providerStatus, ['missing', 'invalid_token', 'invalid_target', 'unauthorized'], true);
-        $fullyHealthy   = ! $tokenFailure
-            && ($result['database']['ready'] ?? false)
-            && ($result['homepage']['ready'] ?? false);
+        $fullyHealthy   = $globalMode
+            ? $providerStatus === 'global_ready'
+            : (! $tokenFailure
+                && ($result['database']['ready'] ?? false)
+                && ($result['homepage']['ready'] ?? false));
         $result['operational'] = $fullyHealthy;
 
         return $fullyHealthy

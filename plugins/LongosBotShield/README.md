@@ -146,7 +146,9 @@ ASN, browser, and allowlist decision, serving the control-site page on the
 current domain and URL for every customer-facing shop and API request. HTTP
 503 is used only when the control page cannot be loaded. Administration, the
 deployment health endpoint, CORS preflight, internal control-page rendering,
-and payment-provider continuations remain available.
+and server-to-server payment notifications remain available. Browser-facing
+payment return and cancel pages are still taken over in this mode. The panel
+health action skips IPInfo entirely and validates only control-page readiness.
 
 Lazy-loaded image, picture, video, iframe, and stylesheet attributes are
 promoted to native HTML attributes before caching, so hero, collection, and
