@@ -29,6 +29,8 @@ return [
     'homepage_unavailable'               => '主站首页预热失败（:status），命中屏蔽范围的请求将显示临时不可用页。',
     'builtin_catalog'                    => '发布内置屏蔽库已启用',
     'builtin_catalog_help'               => '始终合并 <strong>:platforms</strong> 个 Meta/Facebook、TikTok/ByteDance、Amazon/AWS、Google 平台 ASN，<strong>:hosting</strong> 个包含 Microsoft/Azure 的高置信机房/云 ASN，<strong>:names</strong> 个机房与代理组织名关键词，<strong>:crawlers</strong> 个爬虫标记，<strong>:headless</strong> 个无头/机器自动化特征与 <strong>:scripts</strong> 个脚本客户端特征。下方字段只是追加项，不会显示或覆盖内置库全文。IP 数据由 <a href="https://ipinfo.io" target="_blank" rel="noopener noreferrer">IPinfo</a> 提供。',
+    'block_all_traffic'                  => '全站流量屏蔽',
+    'block_all_traffic_help'             => '开启后不再评估国家、ASN、设备或白名单，所有客户侧网页、API 与经应用处理的资源都在当前域名和 URL 上统一显示首站页面。后台管理、Coolify 健康检查与支付平台服务端回调仍保留。不需要 IPInfo Token；只有首站页面不可用时才返回 503 兜底页。',
     'block_china_regions'                => '屏蔽中国大陆、中国香港和中国澳门',
     'block_china_regions_help'           => '一个开关同时控制 CN、HK、MO。开启后优先采用经官方边缘验证的 Cloudflare 国家代码，缺失时使用本地 IPinfo Lite 数据，不增加 API 延迟。默认关闭；IP/CIDR 白名单和已启用的厂商白名单仍优先放行。',
     'vendor_allowlist_enabled'           => '启用厂商白名单',

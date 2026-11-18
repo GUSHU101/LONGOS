@@ -140,6 +140,14 @@ request. Static presentation assets keep their normal cache behavior. A
 Cloudflare Edge TTL rule configured to ignore origin cache-control must not be
 applied to storefront HTML.
 
+The all-traffic shielding switch is a uniform storefront takeover, not a
+visitor-classification rule. When enabled it skips IPInfo and every country,
+ASN, browser, and allowlist decision, serving the control-site page on the
+current domain and URL for every customer-facing shop and API request. HTTP
+503 is used only when the control page cannot be loaded. Administration, the
+deployment health endpoint, CORS preflight, internal control-page rendering,
+and payment-provider continuations remain available.
+
 Lazy-loaded image, picture, video, iframe, and stylesheet attributes are
 promoted to native HTML attributes before caching, so hero, collection, and
 product-card media render even though scripts stay disabled. Passive CSS,

@@ -5,6 +5,7 @@ namespace Plugin\LongosBotShield\Services;
 class RiskAssessment
 {
     private const SHIELDING_SCOPE_REASONS = [
+        'global_deny',
         'country_region_denylist',
         'ip_denylist',
         'asn_denylist',

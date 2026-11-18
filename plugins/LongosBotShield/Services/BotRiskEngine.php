@@ -34,6 +34,10 @@ class BotRiskEngine
 
     private function assessRequest(Request $request, ?array $verifiedNetwork = null): RiskAssessment
     {
+        if ($this->settings->blockAllTraffic()) {
+            return new RiskAssessment(['global_deny']);
+        }
+
         $ip = IpAddress::normalize((string) $request->ip());
         if ($ip !== '' && CidrMatcher::contains($ip, $this->settings->allowCidrs())) {
             return new RiskAssessment(['ip_allowlist'], true);

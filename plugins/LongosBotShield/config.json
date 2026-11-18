@@ -5,11 +5,11 @@
     "en": "LONGOS Bot Shield"
   },
   "description": {
-    "zh_cn": "通过可信 Cloudflare 边缘还原访客 IP，使用每日 IPInfo Lite 本地数据、可选 CN/HK/MO 地区策略与内置 ASN/机房/自动化库识别屏蔽范围，命中后在当前域名展示完整主站首页及可导航的公开内容链路。",
-    "en": "Single-action protection using trusted Cloudflare visitor IPs, daily local IPInfo Lite data, an optional CN/HK/MO policy, built-in network and automation catalogs, and complete same-origin control-site document navigation."
+    "zh_cn": "提供所有客户流量统一显示首站页面的全站开关，以及基于 IPInfo Lite、国家、ASN、机房、爬虫和自动化特征的店面防护。",
+    "en": "Provides an all-traffic switch that uniformly serves the control-site page to every storefront visitor plus protection based on IPInfo Lite, country, ASN, hosting, crawler, and automation signals."
   },
   "type": "feature",
-  "version": "v1.12.2",
+  "version": "v1.12.3",
   "icon": "/image/longos-favicon.svg",
   "author": {
     "name": "LONGOS",

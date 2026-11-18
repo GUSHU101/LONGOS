@@ -160,6 +160,11 @@ class BotShieldSettings
         return filter_var($this->value('block_china_regions', false), FILTER_VALIDATE_BOOLEAN);
     }
 
+    public function blockAllTraffic(): bool
+    {
+        return filter_var($this->value('block_all_traffic', false), FILTER_VALIDATE_BOOLEAN);
+    }
+
     public function vendorAllowlistConfigured(): bool
     {
         return $this->vendorAllowlistEnabled()

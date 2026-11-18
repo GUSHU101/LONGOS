@@ -27,8 +27,7 @@ class ProtectStorefront
     {
         if ($this->isOperationalBypass($request)
             || $this->isPaymentContinuationBypass($request)
-            || $this->isCorsPreflight($request)
-            || $this->isPresentationAsset($request)) {
+            || $this->isCorsPreflight($request)) {
             return $next($request);
         }
 
@@ -40,6 +39,10 @@ class ProtectStorefront
             return $this->passThrough($request, $next);
         }
 
+        if ($this->isPresentationAsset($request) && ! $this->settings->blockAllTraffic()) {
+            return $next($request);
+        }
+
         $assessment = $this->engine->assess($request);
         if ($assessment->allowlisted) {
             $this->record($request, $assessment, 'allowlist');
@@ -49,6 +52,12 @@ class ProtectStorefront
 
         if (! $assessment->matchesConfiguredShieldingScope()) {
             return $this->passThrough($request, $next);
+        }
+
+        if ($assessment->hasReason('global_deny')) {
+            $this->record($request, $assessment, 'global-homepage');
+
+            return $this->homepage($request, $assessment);
         }
 
         $this->record($request, $assessment, 'homepage');

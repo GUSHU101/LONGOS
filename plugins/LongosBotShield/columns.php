@@ -4,7 +4,8 @@ use Illuminate\Validation\Rule;
 use Plugin\LongosBotShield\Services\ThreatCatalog;
 use Plugin\LongosBotShield\Support\CidrMatcher;
 
-$enabled = static fn (): bool => filter_var(request()->input('status', false), FILTER_VALIDATE_BOOLEAN);
+$networkIntelligenceRequired = static fn (): bool => filter_var(request()->input('status', false), FILTER_VALIDATE_BOOLEAN)
+    && ! filter_var(request()->input('block_all_traffic', false), FILTER_VALIDATE_BOOLEAN);
 
 $tokenRules = static function (string $attribute, mixed $value, Closure $fail): void {
     if (! is_string($value)) {
@@ -55,8 +56,10 @@ return [
         'description_key' => 'shield.ipinfo_token_help',
         'section_key'     => 'shield.section_provider',
         'type'            => 'password',
-        'required'        => true,
-        'rules'           => [Rule::requiredIf($enabled), 'nullable', 'string', 'max:2048', $tokenRules],
+        // Required conditionally by the validator only when network
+        // intelligence is active. Uniform all-traffic mode does not need one.
+        'required'        => false,
+        'rules'           => [Rule::requiredIf($networkIntelligenceRequired), 'nullable', 'string', 'max:2048', $tokenRules],
     ],
     [
         'name'               => 'ipinfo_health',
@@ -86,6 +89,16 @@ return [
         'type'        => 'guide',
         'tone'        => 'success',
         'required'    => false,
+    ],
+    [
+        'name'            => 'block_all_traffic',
+        'label_key'       => 'shield.block_all_traffic',
+        'description_key' => 'shield.block_all_traffic_help',
+        'section_key'     => 'shield.section_policy',
+        'type'            => 'bool',
+        'value'           => '0',
+        'required'        => false,
+        'rules'           => ['nullable', 'boolean'],
     ],
     [
         'name'            => 'block_china_regions',

@@ -109,6 +109,7 @@ class BundledPluginSynchronizer
             'settings' => [
                 'status'                              => '0',
                 'ipinfo_token'                        => '',
+                'block_all_traffic'                   => '0',
                 'block_china_regions'                 => '0',
                 'vendor_allowlist_enabled'            => '0',
                 'cache_minutes'                       => '1440',

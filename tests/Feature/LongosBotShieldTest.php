@@ -48,6 +48,7 @@ class LongosBotShieldTest extends TestCase
             'bk.plugin.longos_bot_shield.ipinfo_token'                     => 'ipinfo-test-token',
             'bk.plugin.longos_bot_shield.cache_minutes'                    => 1440,
             'bk.plugin.longos_bot_shield.provider_requests_per_minute'     => 300,
+            'bk.plugin.longos_bot_shield.block_all_traffic'                => false,
             'bk.plugin.longos_bot_shield.block_china_regions'              => false,
             'bk.plugin.longos_bot_shield.vendor_allowlist_enabled'         => false,
             'bk.plugin.longos_bot_shield.allowed_asns'                     => '',
@@ -80,11 +81,13 @@ class LongosBotShieldTest extends TestCase
         );
         self::assertTrue(collect($columns)->firstWhere('name', 'ipinfo_health')['action_form']);
         self::assertSame('guide', collect($columns)->firstWhere('name', 'builtin_catalog')['type']);
+        self::assertSame('bool', collect($columns)->firstWhere('name', 'block_all_traffic')['type']);
         self::assertSame('bool', collect($columns)->firstWhere('name', 'block_china_regions')['type']);
         $packages = (new \ReflectionClass(BundledPluginSynchronizer::class))
             ->getReflectionConstant('PACKAGES')
             ?->getValue();
         self::assertIsArray($packages);
+        self::assertSame('0', $packages['longos_bot_shield']['settings']['block_all_traffic']);
         self::assertSame('0', $packages['longos_bot_shield']['settings']['block_china_regions']);
         self::assertContains('blocked_asns', $names);
         self::assertContains('organization_keywords', $names);
@@ -105,6 +108,39 @@ class LongosBotShieldTest extends TestCase
         self::assertStringNotContainsString('enforcementMode', $middleware);
         self::assertStringNotContainsString('challenge', mb_strtolower($middleware));
         self::assertStringContainsString("'homepage'", $middleware);
+    }
+
+    public function test_global_shutdown_can_be_saved_without_an_ipinfo_token(): void
+    {
+        $package = json_decode(
+            (string) file_get_contents(base_path('plugins/LongosBotShield/config.json')),
+            true,
+            32,
+            JSON_THROW_ON_ERROR,
+        );
+        $fields = [
+            'status'                       => '1',
+            'block_all_traffic'            => '1',
+            'ipinfo_token'                 => '',
+            'cache_minutes'                => '1440',
+            'provider_requests_per_minute' => '300',
+        ];
+        $request = Request::create('/admin/plugins/longos_bot_shield', 'PUT', $fields);
+        app()->instance('request', $request);
+        $plugin = (new Plugin(base_path('plugins/LongosBotShield'), $package))
+            ->setDirname('LongosBotShield')
+            ->setColumns();
+        self::assertFalse($plugin->validate($fields)->fails());
+
+        $fields['block_all_traffic'] = '0';
+        $request                     = Request::create('/admin/plugins/longos_bot_shield', 'PUT', $fields);
+        app()->instance('request', $request);
+        $plugin = (new Plugin(base_path('plugins/LongosBotShield'), $package))
+            ->setDirname('LongosBotShield')
+            ->setColumns();
+        $validator = $plugin->validate($fields);
+        self::assertTrue($validator->fails());
+        self::assertArrayHasKey('ipinfo_token', $validator->errors()->toArray());
     }
 
     public function test_local_catalog_contains_requested_platform_asns_and_signatures(): void
@@ -1076,6 +1112,91 @@ class LongosBotShieldTest extends TestCase
                 self::assertSame('no-store', $response->headers->get('Cloudflare-CDN-Cache-Control'));
                 self::assertSame('no-store', $response->headers->get('Surrogate-Control'));
             }
+        }
+    }
+
+    public function test_global_switch_uniformly_serves_control_page_for_pages_apis_and_dynamic_assets_without_provider_calls(): void
+    {
+        config([
+            'bk.plugin.longos_bot_shield.block_all_traffic' => true,
+            'bk.plugin.longos_bot_shield.allow_cidrs'       => '1.1.1.1/32',
+        ]);
+        app('view')->addNamespace('LongosBotShield', base_path('plugins/LongosBotShield/Views'));
+        app('translator')->addNamespace('LongosBotShield', base_path('plugins/LongosBotShield/Lang'));
+        Http::fake();
+
+        $internal   = app(InternalHomepageRequest::class);
+        $middleware = new ProtectStorefront(
+            app(BotRiskEngine::class),
+            app(BotShieldSettings::class),
+            $internal,
+            new class($internal) extends MainSiteHomepage
+            {
+                public function renderFor(Request $request): ?array
+                {
+                    return ['html' => '<!doctype html><title>GLOBAL CONTROL HOME</title>', 'source' => 'control'];
+                }
+            },
+        );
+        $nextCalls = 0;
+        $next      = static function () use (&$nextCalls): Response {
+            $nextCalls++;
+
+            return new Response('MUST NOT RUN');
+        };
+
+        $page = $this->browserRequest('1.1.1.1');
+        app()->instance('request', $page);
+        $pageResponse = $middleware->handle($page, $next);
+        self::assertSame(200, $pageResponse->getStatusCode());
+        self::assertSame('homepage', $pageResponse->headers->get('X-Longos-Bot-Shield'));
+        self::assertSame('control', $pageResponse->headers->get('X-Longos-Bot-Homepage-Source'));
+        self::assertStringContainsString('GLOBAL CONTROL HOME', (string) $pageResponse->getContent());
+
+        foreach ([
+            Request::create('https://store.example.test/api/products', 'GET', [], [], [], [
+                'REMOTE_ADDR' => '1.1.1.1',
+                'HTTP_ACCEPT' => 'application/json',
+            ]),
+            Request::create('https://store.example.test/plugin/example/catalog.js', 'GET', [], [], [], [
+                'REMOTE_ADDR' => '1.1.1.1',
+            ]),
+        ] as $request) {
+            app()->instance('request', $request);
+            $response = $middleware->handle($request, $next);
+            self::assertSame(200, $response->getStatusCode());
+            self::assertSame('homepage', $response->headers->get('X-Longos-Bot-Shield'));
+            self::assertStringContainsString('GLOBAL CONTROL HOME', (string) $response->getContent());
+            self::assertStringContainsString('no-store', (string) $response->headers->get('Cache-Control'));
+        }
+
+        self::assertSame(0, $nextCalls);
+        Http::assertNothingSent();
+    }
+
+    public function test_global_shutdown_keeps_health_and_server_payment_callbacks_available(): void
+    {
+        config(['bk.plugin.longos_bot_shield.block_all_traffic' => true]);
+        $middleware = new ProtectStorefront(
+            app(BotRiskEngine::class),
+            app(BotShieldSettings::class),
+            app(InternalHomepageRequest::class),
+            app(MainSiteHomepage::class),
+        );
+
+        foreach ([
+            ['GET', '/api/health'],
+            ['POST', '/callback/stripe'],
+            ['POST', '/paypal/nvp/notify'],
+        ] as [$method, $path]) {
+            $request = Request::create('https://store.example.test' . $path, $method);
+            app()->instance('request', $request);
+            $response = $middleware->handle(
+                $request,
+                static fn (): Response => new Response('OPERATIONAL'),
+            );
+            self::assertSame('OPERATIONAL', $response->getContent(), $path);
+            self::assertNull($response->headers->get('X-Longos-Bot-Shield'), $path);
         }
     }
 
