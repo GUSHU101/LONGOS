@@ -156,6 +156,43 @@ class ReviewService
     }
 
     /**
+     * Attach compact rating data to a whole product-card collection.
+     *
+     * @param array<int, array<string, mixed>> $products
+     * @return array<int, array<string, mixed>>
+     */
+    public function decorateStorefrontProducts(array $products): array
+    {
+        $productIds = collect($products)
+            ->filter(static fn (mixed $product): bool => is_array($product))
+            ->map(static fn (array $product): int => (int) ($product['id'] ?? 0))
+            ->filter(static fn (int $productId): bool => $productId > 0)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($productIds === []) {
+            return $products;
+        }
+
+        $summaries = $this->storefrontSummaries($productIds);
+
+        foreach ($products as &$product) {
+            if (! is_array($product)) {
+                continue;
+            }
+
+            $productId = (int) ($product['id'] ?? 0);
+            if (isset($summaries[$productId])) {
+                $product['review_summary'] = $summaries[$productId];
+            }
+        }
+        unset($product);
+
+        return $products;
+    }
+
+    /**
      * @param array{rating?: int, with_images?: bool, sort?: string} $filters
      * @return array{reviews: \Illuminate\Database\Eloquent\Collection<int, Review>, next_offset: int, has_more: bool, total: int}
      */

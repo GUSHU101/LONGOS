@@ -18,6 +18,15 @@ use Illuminate\Http\Resources\Json\JsonResource;
 class ProductSimple extends JsonResource
 {
     /**
+     * Use the storefront-aware collection so every product-card feed receives
+     * review summaries through one batched aggregate query.
+     */
+    protected static function newCollection($resource): ProductSimpleCollection
+    {
+        return new ProductSimpleCollection($resource, static::class);
+    }
+
+    /**
      * 图片列表页Item
      *
      * @param Request $request

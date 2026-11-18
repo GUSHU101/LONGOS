@@ -23,6 +23,9 @@
 
   <div class="related-product-card__body">
     <h3><a href="{{ $product['url'] }}" data-lgt-field="name">{{ $product['name_format'] }}</a></h3>
+    @if (!empty($product['review_summary']))
+      @include('LongosProductReviews::shop.card_rating', ['summary' => $product['review_summary'], 'productUrl' => $product['url']])
+    @endif
     @hookwrapper('product_list.item.price')
     @if ((system_setting('base.show_price_after_login') and current_customer()) or !system_setting('base.show_price_after_login'))
       <div class="related-product-card__price" id="{{ $priceId }}">

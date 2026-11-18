@@ -9,6 +9,13 @@ class Bootstrap
 {
     public function boot(): void
     {
+        // Reuse one summary cache across all product-card collections rendered
+        // during the same request. Laravel resets scoped instances between
+        // requests/jobs, so tenant data can never leak into another runtime.
+        if (! app()->bound(ReviewService::class)) {
+            app()->scoped(ReviewService::class, static fn (): ReviewService => new ReviewService);
+        }
+
         add_hook_blade('layout.header.code', function ($callback, $output, $data): string {
             if (request()->boolean('iframe') || ! request()->routeIs('shop.*')) {
                 return $output;

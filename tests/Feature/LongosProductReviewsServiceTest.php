@@ -185,6 +185,15 @@ class LongosProductReviewsServiceTest extends TestCase
         self::assertArrayNotHasKey(999, $summaries);
         self::assertSame($summaries[71], $service->storefrontSummaries([71])[71]);
 
+        $decorated = $service->decorateStorefrontProducts([
+            ['id' => 71, 'name' => 'First product'],
+            ['id' => 72, 'name' => 'Second product'],
+            ['id' => 999, 'name' => 'Product without reviews'],
+        ]);
+        self::assertSame(['average' => 4.5, 'total' => 2], $decorated[0]['review_summary']);
+        self::assertSame(['average' => 3.0, 'total' => 1], $decorated[1]['review_summary']);
+        self::assertArrayNotHasKey('review_summary', $decorated[2]);
+
         $html = view('LongosProductReviews::shop.card_rating', [
             'summary'    => $summaries[71],
             'productUrl' => '/products/71?variant=black#old-fragment',
@@ -1538,6 +1547,7 @@ class LongosProductReviewsServiceTest extends TestCase
         $compiler = app('blade.compiler');
         foreach ([
             'themes/default/shared/product.blade.php',
+            'themes/default/shared/related-product.blade.php',
             'plugins/LongosChristmasTheme/Themes/longos_christmas/shared/product.blade.php',
             'plugins/LongosProductReviews/Views/shop/card_assets.blade.php',
             'plugins/LongosProductReviews/Views/shop/card_rating.blade.php',
@@ -1550,10 +1560,20 @@ class LongosProductReviewsServiceTest extends TestCase
         }
 
         $defaultCard = (string) file_get_contents(base_path('themes/default/shared/product.blade.php'));
-        $category    = (string) file_get_contents(base_path('beike/Shop/Http/Controllers/CategoryController.php'));
+        $relatedCard = (string) file_get_contents(base_path('themes/default/shared/related-product.blade.php'));
+        $collection  = (string) file_get_contents(base_path('beike/Shop/Http/Resources/ProductSimpleCollection.php'));
+        $resource    = (string) file_get_contents(base_path('beike/Shop/Http/Resources/ProductSimple.php'));
+        $bootstrap   = (string) file_get_contents(base_path('plugins/LongosProductReviews/Bootstrap.php'));
         self::assertStringContainsString("\$product['review_summary']", $defaultCard);
-        self::assertStringContainsString('withProductReviewSummaries($productsFormat)', $category);
-        self::assertStringContainsString('storefrontSummaries($productIds)', $category);
+        self::assertStringContainsString("\$product['review_summary']", $relatedCard);
+        self::assertStringContainsString('decorateStorefrontProducts($products)', $collection);
+        self::assertStringContainsString("routeIs('shop.*')", $collection);
+        self::assertStringContainsString('new ProductSimpleCollection($resource, static::class)', $resource);
+        self::assertStringContainsString('app()->scoped(ReviewService::class', $bootstrap);
+        self::assertInstanceOf(
+            \Beike\Shop\Http\Resources\ProductSimpleCollection::class,
+            \Beike\Shop\Http\Resources\ProductSimple::collection(collect()),
+        );
     }
 
     public function test_generated_reviews_support_individual_and_bulk_verification_updates(): void

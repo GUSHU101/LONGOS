@@ -9,7 +9,7 @@
     "en": "Manage product ratings and photos, and use SiliconFlow models to batch-generate reviewable drafts from examples."
   },
   "type": "feature",
-  "version": "v2.1.2",
+  "version": "v2.2.0",
   "icon": "/image/longos-favicon.svg",
   "author": {
     "name": "LONGOS",
