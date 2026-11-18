@@ -2,7 +2,7 @@
 
 return [
     'section_provider'                   => '网络情报与缓存',
-    'section_policy'                     => '放行策略',
+    'section_policy'                     => '防护与放行策略',
     'section_lists'                      => '本地屏蔽范围',
     'section_diagnostics'                => '诊断',
     'ipinfo_token'                       => 'IPInfo Lite API Token',
@@ -29,6 +29,8 @@ return [
     'homepage_unavailable'               => '主站首页预热失败（:status），命中屏蔽范围的请求将显示临时不可用页。',
     'builtin_catalog'                    => '发布内置屏蔽库已启用',
     'builtin_catalog_help'               => '始终合并 <strong>:platforms</strong> 个 Meta/Facebook、TikTok/ByteDance、Amazon/AWS、Google 平台 ASN，<strong>:hosting</strong> 个包含 Microsoft/Azure 的高置信机房/云 ASN，<strong>:names</strong> 个机房与代理组织名关键词，<strong>:crawlers</strong> 个爬虫标记，<strong>:headless</strong> 个无头/机器自动化特征与 <strong>:scripts</strong> 个脚本客户端特征。下方字段只是追加项，不会显示或覆盖内置库全文。IP 数据由 <a href="https://ipinfo.io" target="_blank" rel="noopener noreferrer">IPinfo</a> 提供。',
+    'block_china_regions'                => '屏蔽中国大陆、中国香港和中国澳门',
+    'block_china_regions_help'           => '一个开关同时控制 CN、HK、MO。开启后优先采用经官方边缘验证的 Cloudflare 国家代码，缺失时使用本地 IPinfo Lite 数据，不增加 API 延迟。默认关闭；IP/CIDR 白名单和已启用的厂商白名单仍优先放行。',
     'vendor_allowlist_enabled'           => '启用厂商白名单',
     'vendor_allowlist_enabled_help'      => '当 IPInfo 对当前 IP 的响应命中允许 ASN 或厂商关键词时，高优先级正常放行。默认关闭，建议优先使用精确 ASN。',
     'cache_minutes'                      => '网络情报成功结果缓存（分钟）',

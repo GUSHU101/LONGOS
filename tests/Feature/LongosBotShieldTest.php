@@ -9,6 +9,7 @@ use App\Services\BundledPluginSynchronizer;
 use Beike\Admin\Http\Controllers\PluginController;
 use Beike\Plugin\Plugin;
 use Beike\Repositories\SettingRepo;
+use Beike\Services\CloudflareIpRangeService;
 use Beike\Shop\Http\Controllers\HomeController;
 use Beike\Shop\Providers\PluginServiceProvider;
 use Closure;
@@ -47,6 +48,7 @@ class LongosBotShieldTest extends TestCase
             'bk.plugin.longos_bot_shield.ipinfo_token'                     => 'ipinfo-test-token',
             'bk.plugin.longos_bot_shield.cache_minutes'                    => 1440,
             'bk.plugin.longos_bot_shield.provider_requests_per_minute'     => 300,
+            'bk.plugin.longos_bot_shield.block_china_regions'              => false,
             'bk.plugin.longos_bot_shield.vendor_allowlist_enabled'         => false,
             'bk.plugin.longos_bot_shield.allowed_asns'                     => '',
             'bk.plugin.longos_bot_shield.allowed_organization_keywords'    => '',
@@ -78,6 +80,7 @@ class LongosBotShieldTest extends TestCase
         );
         self::assertTrue(collect($columns)->firstWhere('name', 'ipinfo_health')['action_form']);
         self::assertSame('guide', collect($columns)->firstWhere('name', 'builtin_catalog')['type']);
+        self::assertSame('bool', collect($columns)->firstWhere('name', 'block_china_regions')['type']);
         self::assertContains('blocked_asns', $names);
         self::assertContains('organization_keywords', $names);
         self::assertContains('allow_cidrs', $names);
@@ -759,6 +762,60 @@ class LongosBotShieldTest extends TestCase
         self::assertNotContains('asn_denylist', $assessment->reasons);
     }
 
+    public function test_china_region_switch_uses_only_verified_cloudflare_country_context(): void
+    {
+        config(['bk.plugin.longos_bot_shield.block_china_regions' => true]);
+        Http::fake();
+
+        foreach (['CN', 'HK', 'MO'] as $countryCode) {
+            $request = $this->browserRequest('1.1.1.1');
+            $request->attributes->set(CloudflareIpRangeService::REQUEST_ATTRIBUTE, true);
+            $request->attributes->set(CloudflareIpRangeService::VISITOR_CONTEXT_ATTRIBUTE, [
+                'country_code' => $countryCode,
+            ]);
+
+            $assessment = app(BotRiskEngine::class)->assess($request);
+            self::assertContains('country_region_denylist', $assessment->reasons, $countryCode);
+            self::assertTrue($assessment->matchesConfiguredShieldingScope(), $countryCode);
+        }
+
+        $forged = $this->browserRequest('1.1.1.1');
+        $forged->headers->set('CF-IPCountry', 'CN');
+        $assessment = app(BotRiskEngine::class)->assessWithNetwork($forged, [
+            'status'       => 'ok',
+            'country_code' => 'US',
+        ]);
+        self::assertNotContains('country_region_denylist', $assessment->reasons);
+
+        $verifiedOutsideRegion = $this->browserRequest('1.1.1.1');
+        $verifiedOutsideRegion->attributes->set(CloudflareIpRangeService::REQUEST_ATTRIBUTE, true);
+        $verifiedOutsideRegion->attributes->set(CloudflareIpRangeService::VISITOR_CONTEXT_ATTRIBUTE, [
+            'country_code' => 'US',
+        ]);
+        $assessment = app(BotRiskEngine::class)->assessWithNetwork($verifiedOutsideRegion, [
+            'status'       => 'ok',
+            'country_code' => 'HK',
+        ]);
+        self::assertNotContains('country_region_denylist', $assessment->reasons);
+        Http::assertNothingSent();
+    }
+
+    public function test_china_region_switch_falls_back_to_local_ipinfo_country_and_defaults_off(): void
+    {
+        $network = [
+            'status'       => 'ok',
+            'country_code' => 'HK',
+        ];
+
+        $disabled = app(BotRiskEngine::class)->assessWithNetwork($this->browserRequest('1.1.1.1'), $network);
+        self::assertNotContains('country_region_denylist', $disabled->reasons);
+
+        config(['bk.plugin.longos_bot_shield.block_china_regions' => true]);
+        $enabled = app(BotRiskEngine::class)->assessWithNetwork($this->browserRequest('1.1.1.1'), $network);
+        self::assertContains('country_region_denylist', $enabled->reasons);
+        self::assertTrue($enabled->matchesConfiguredShieldingScope());
+    }
+
     public function test_crawler_headless_and_script_clients_are_local_and_skip_ipinfo(): void
     {
         Http::fake();
@@ -810,6 +867,7 @@ class LongosBotShieldTest extends TestCase
     public function test_explicit_vendor_asn_allowlist_has_priority_over_local_automation_signals(): void
     {
         config([
+            'bk.plugin.longos_bot_shield.block_china_regions'      => true,
             'bk.plugin.longos_bot_shield.vendor_allowlist_enabled' => true,
             'bk.plugin.longos_bot_shield.allowed_asns'             => '15169',
         ]);
@@ -820,10 +878,16 @@ class LongosBotShieldTest extends TestCase
             'as_domain' => 'google.com',
         ], 200)]);
 
-        $assessment = app(BotRiskEngine::class)->assess($this->request(
+        $request = $this->request(
             '8.8.8.8',
             'Mozilla/5.0 HeadlessChrome/124.0 Playwright',
-        ));
+        );
+        $request->attributes->set(CloudflareIpRangeService::REQUEST_ATTRIBUTE, true);
+        $request->attributes->set(CloudflareIpRangeService::VISITOR_CONTEXT_ATTRIBUTE, [
+            'country_code' => 'CN',
+        ]);
+
+        $assessment = app(BotRiskEngine::class)->assess($request);
         self::assertTrue($assessment->allowlisted);
         self::assertSame(['vendor_allowlist_asn'], $assessment->reasons);
     }

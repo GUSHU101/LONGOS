@@ -155,6 +155,11 @@ class BotShieldSettings
         return filter_var($this->value('vendor_allowlist_enabled', false), FILTER_VALIDATE_BOOLEAN);
     }
 
+    public function blockChinaRegions(): bool
+    {
+        return filter_var($this->value('block_china_regions', false), FILTER_VALIDATE_BOOLEAN);
+    }
+
     public function vendorAllowlistConfigured(): bool
     {
         return $this->vendorAllowlistEnabled()

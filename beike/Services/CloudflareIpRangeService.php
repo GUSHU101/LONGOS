@@ -105,7 +105,8 @@ class CloudflareIpRangeService
      * Cloudflare Rules fields and Workers request.cf properties do not reach
      * the origin automatically. This context contains only standard origin
      * headers, and callers must never use it unless REQUEST_ATTRIBUTE is true.
-     * Location values are supplemental metadata, not blocking evidence.
+     * Location values are supplemental by default. A consumer may use the
+     * verified country code only behind an explicit tenant policy.
      *
      * @return array<string, string>
      */

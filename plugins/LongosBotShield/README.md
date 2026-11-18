@@ -30,7 +30,9 @@ the tenant panel. It contains:
   Java, OkHttp, Node fetch/axios/undici, Guzzle, PowerShell, and REST clients.
 
 Tenant CIDR/ASN and organization additions are merged into the built-in
-catalog. Explicit IP/CIDR and verified provider allowlists take precedence.
+catalog. One optional switch adds mainland China (`CN`), Hong Kong (`HK`), and
+Macao (`MO`) to the shielding scope as a single policy. It is disabled by
+default. Explicit IP/CIDR and verified provider allowlists take precedence.
 Missing ordinary browser headers, device performance, screen dimensions, and
 request volume are not shielding reasons, preventing low-end devices and
 shared NAT traffic from being misclassified.
@@ -81,8 +83,12 @@ verified visitor IP, accepts standard country/location origin headers only
 from a verified Cloudflare edge, and resolves network ownership locally with
 IPinfo Lite. Enabling Cloudflare's **Add visitor location headers** Managed
 Transform additionally exposes validated country, continent, city, region,
-and timezone metadata in the health diagnostic, but location never triggers
-shielding by itself.
+and timezone metadata in the health diagnostic. Location does not trigger
+shielding by default. When the explicit CN/HK/MO switch is enabled, only a
+country code from that verified context may trigger the policy; unverified
+origin headers, city, region, and timezone never do. If Cloudflare does not
+send a country code, the normal local IPinfo Lite lookup supplies it without
+an additional API request.
 
 The built-in exact platform ASN catalog is audited against the supplied Lite
 snapshot. Daily MMDB identity also covers newly observed platform ASNs by AS

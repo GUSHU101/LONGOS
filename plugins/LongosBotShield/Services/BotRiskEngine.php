@@ -2,12 +2,15 @@
 
 namespace Plugin\LongosBotShield\Services;
 
+use Beike\Services\CloudflareIpRangeService;
 use Illuminate\Http\Request;
 use Plugin\LongosBotShield\Support\CidrMatcher;
 use Plugin\LongosBotShield\Support\IpAddress;
 
 class BotRiskEngine
 {
+    private const CHINA_REGION_COUNTRY_CODES = ['CN', 'HK', 'MO'];
+
     public function __construct(
         private readonly BotShieldSettings $settings,
         private readonly NetworkIntelligenceClient $networkIntelligence,
@@ -58,6 +61,11 @@ class BotRiskEngine
             }
         }
 
+        $trustedCloudflareCountry = $this->trustedCloudflareCountryCode($request);
+        if ($this->isChinaRegionCountry($trustedCloudflareCountry)) {
+            $add('country_region_denylist');
+        }
+
         if (CidrMatcher::contains($ip, $this->settings->denyCidrs())) {
             $add('ip_denylist');
         }
@@ -90,16 +98,20 @@ class BotRiskEngine
         }
 
         $network ??= $this->networkIntelligence->lookup($ip);
-        $this->detectNetwork($network, $add);
+        $this->detectNetwork($network, $add, ! $this->isCountryCode($trustedCloudflareCountry));
 
         return new RiskAssessment($reasons);
     }
 
     /** @param callable(string): void $add */
-    private function detectNetwork(array $network, callable $add): void
+    private function detectNetwork(array $network, callable $add, bool $useNetworkCountry = true): void
     {
         if (($network['status'] ?? '') !== 'ok') {
             return;
+        }
+
+        if ($useNetworkCountry && $this->isChinaRegionCountry((string) ($network['country_code'] ?? ''))) {
+            $add('country_region_denylist');
         }
 
         if ($network['is_bogon'] ?? false) {
@@ -169,6 +181,7 @@ class BotRiskEngine
     private function hasDeterministicLocalMatch(array $reasons): bool
     {
         return array_intersect($reasons, [
+            'country_region_denylist',
             'ip_denylist',
             'ua_automation',
             'ua_script_client',
@@ -177,6 +190,31 @@ class BotRiskEngine
             'client_hints_automation',
             'automation_header',
         ]) !== [];
+    }
+
+    private function trustedCloudflareCountryCode(Request $request): string
+    {
+        if (! $request->attributes->getBoolean(CloudflareIpRangeService::REQUEST_ATTRIBUTE)) {
+            return '';
+        }
+
+        $context = $request->attributes->get(CloudflareIpRangeService::VISITOR_CONTEXT_ATTRIBUTE);
+        if (! is_array($context)) {
+            return '';
+        }
+
+        return strtoupper(trim((string) ($context['country_code'] ?? '')));
+    }
+
+    private function isChinaRegionCountry(string $countryCode): bool
+    {
+        return $this->settings->blockChinaRegions()
+            && in_array(strtoupper(trim($countryCode)), self::CHINA_REGION_COUNTRY_CODES, true);
+    }
+
+    private function isCountryCode(string $countryCode): bool
+    {
+        return preg_match('/^[A-Z]{2}$/D', strtoupper(trim($countryCode))) === 1;
     }
 
     private function crawlerFamily(string $userAgent): ?string

@@ -2,7 +2,7 @@
 
 return [
     'section_provider'                   => 'Network intelligence and caching',
-    'section_policy'                     => 'Allow policy',
+    'section_policy'                     => 'Shielding and allow policy',
     'section_lists'                      => 'Local shielding scope',
     'section_diagnostics'                => 'Diagnostics',
     'ipinfo_token'                       => 'IPInfo Lite API token',
@@ -29,6 +29,8 @@ return [
     'homepage_unavailable'               => 'The control-site homepage warm-up failed (:status). In-scope requests will receive the temporary unavailable page.',
     'builtin_catalog'                    => 'Release-owned shielding catalog is active',
     'builtin_catalog_help'               => 'Always merges <strong>:platforms</strong> Meta/Facebook, TikTok/ByteDance, Amazon/AWS, and Google platform ASNs; <strong>:hosting</strong> high-confidence hosting/cloud ASNs including Microsoft/Azure; <strong>:names</strong> hosting and proxy-owner terms; <strong>:crawlers</strong> crawler markers; <strong>:headless</strong> headless/machine-automation signatures; and <strong>:scripts</strong> script-client signatures. The fields below only add entries and do not display or replace the complete built-in catalog. IP address data powered by <a href="https://ipinfo.io" target="_blank" rel="noopener noreferrer">IPinfo</a>.',
+    'block_china_regions'                => 'Shield mainland China, Hong Kong, and Macao',
+    'block_china_regions_help'           => 'One switch controls CN, HK, and MO. When enabled, LONGOS first uses a country code from a verified Cloudflare edge and falls back to the local IPinfo Lite database without adding API latency. Disabled by default; IP/CIDR and enabled vendor allowlists still take priority.',
     'vendor_allowlist_enabled'           => 'Enable vendor allowlist',
     'vendor_allowlist_enabled_help'      => 'Allows the request with highest priority when IPInfo identifies an allowed ASN or vendor keyword. Disabled by default; prefer exact ASNs.',
     'cache_minutes'                      => 'Successful intelligence cache (minutes)',

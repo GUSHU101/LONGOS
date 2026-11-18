@@ -88,6 +88,16 @@ return [
         'required'    => false,
     ],
     [
+        'name'            => 'block_china_regions',
+        'label_key'       => 'shield.block_china_regions',
+        'description_key' => 'shield.block_china_regions_help',
+        'section_key'     => 'shield.section_policy',
+        'type'            => 'bool',
+        'value'           => '0',
+        'required'        => false,
+        'rules'           => ['nullable', 'boolean'],
+    ],
+    [
         'name'            => 'vendor_allowlist_enabled',
         'label_key'       => 'shield.vendor_allowlist_enabled',
         'description_key' => 'shield.vendor_allowlist_enabled_help',
